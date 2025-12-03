@@ -11,13 +11,7 @@ module StringMap = Map.Make (String)
 let funcs : Define.t StringMap.t =
   let builtins =
     [
-      Nats.builtins;
-      Texts.builtins;
-      Lists.builtins;
-      Sets.builtins;
-      Maps.builtins;
-      Numerics.builtins;
-      Fresh.builtins;
+      P4.builtins
     ]
     |> List.concat
   in
