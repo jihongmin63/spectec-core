@@ -9,12 +9,7 @@ type 'a result = 'a Error.result
 module StringMap = Map.Make (String)
 
 let funcs : Define.t StringMap.t =
-  let builtins =
-    [
-      P4.builtins
-    ]
-    |> List.concat
-  in
+  let builtins = [ P4.builtins ] |> List.concat in
   (* Check for duplicates *)
   let map, dups =
     List.fold_left

@@ -35,7 +35,7 @@ end
 module Exclude = struct
   module Excludes = Set.Make (String)
 
-  let normalize line = "../../../../p4-tests/tests/" ^ line
+  let normalize line = "../../../../tests/interp/p4-tests/tests/" ^ line
 
   let from_file filename =
     In_channel.read_lines filename
