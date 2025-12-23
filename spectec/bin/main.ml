@@ -2,6 +2,16 @@ open Runner
 
 let version = "0.1"
 
+(* Parse trace level from CLI integer *)
+let trace_level_of_int = function
+  | 0 -> None
+  | 1 -> Some Instrumentation.Trace.Summary
+  | 2 -> Some Instrumentation.Trace.Full
+  | n ->
+      failwith
+        (Format.sprintf
+           "Invalid trace level: %d (expected: 0=off, 1=summary, 2=full)" n)
+
 (* Commands *)
 
 let elab_command =
@@ -77,16 +87,23 @@ let type_p4_il_command =
      and includes_target = flag "-i" (listed string) ~doc:"p4 include paths"
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
-     and debug = flag "-dbg" no_arg ~doc:"print debug traces"
-     and profile = flag "-profile" no_arg ~doc:"profiling" in
+     and trace =
+       flag "-trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "-profile" no_arg ~doc:"print profiling info" in
      fun () ->
+       let trace_level =
+         match trace with None -> None | Some n -> trace_level_of_int n
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_il ~debug ~profile spec_il "Program_ok" [ value_program ]
-             filename_target
+           eval_il ~trace:trace_level ~profile spec_il "Program_ok"
+             [ value_program ] filename_target
          in
          Ok ()
        in
@@ -106,15 +123,24 @@ let type_p4_sl_command =
      and includes_target = flag "-i" (listed string) ~doc:"p4 include paths"
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
-     in
+     and trace =
+       flag "-trace" (optional int)
+         ~doc:
+           "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
+            only), 2=full (all details)"
+     and profile = flag "-profile" no_arg ~doc:"print profiling info" in
      fun () ->
+       let trace_level =
+         match trace with None -> None | Some n -> trace_level_of_int n
+       in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let spec_sl = structure spec_il in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_sl spec_sl "Program_ok" [ value_program ] filename_target
+           eval_sl ~trace:trace_level ~profile spec_sl "Program_ok"
+             [ value_program ] filename_target
          in
          Ok ()
        in
@@ -125,8 +151,7 @@ let type_p4_sl_command =
              (Runner.Error.string_of_error e))
 
 let command =
-  Core.Command.group
-    ~summary:"p4spec: a language design framework for the p4_16 language"
+  Core.Command.group ~summary:"SpecTec command line tools"
     [
       ("elab", elab_command);
       ("struct", structure_command);
