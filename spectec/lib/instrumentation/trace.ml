@@ -1,14 +1,13 @@
 (* Trace handler - Live logging of interpreter events.
 
    Implements Hooks.HANDLER interface.
-   Supports verbosity levels:
+
+   Output levels:
    - Summary: relation/function  enter/exit
    - Full: + rule/clauses, premises and iteration summaries
 
    Usage:
-     let handler = Trace.make ~level:Full () in
-     Hooks.set_handlers [handler];
-     Hooks.finish ()
+     let handler = Trace.make ~level:Full ()
 *)
 
 module Il = Lang.Il
@@ -16,24 +15,24 @@ module Il = Lang.Il
 (* Verbosity levels *)
 type level = Summary | Full
 
-(* Normalize whitespace: collapse all whitespace to single spaces *)
-let normalize_whitespace s =
+(* Normalize whitespace *)
+let normalize_ws s =
   let buf = Buffer.create (String.length s) in
-  let last_was_space = ref false in
+  let last_ws = ref false in
   String.iter
     (fun c ->
       if c = ' ' || c = '\n' || c = '\t' || c = '\r' then (
-        if not !last_was_space then Buffer.add_char buf ' ';
-        last_was_space := true)
+        if not !last_ws then Buffer.add_char buf ' ';
+        last_ws := true)
       else (
         Buffer.add_char buf c;
-        last_was_space := false))
+        last_ws := false))
     s;
   Buffer.contents buf
 
 (* Summarize a value - normalize whitespace and truncate *)
 let summarize_value ?(max_len = 100) (value : Il.Value.t) : string =
-  let full = Il.Print.string_of_value value |> normalize_whitespace in
+  let full = Il.Print.string_of_value value |> normalize_ws in
   if String.length full <= max_len then full
   else String.sub full 0 (max_len - 3) ^ "..."
 
@@ -47,16 +46,17 @@ let format_values (values : Il.Value.t list) : string =
 module State = struct
   let depth = ref 0
   let level = ref Summary
-
-  let reset ~level:l =
-    depth := 0;
-    level := l
+  let reset () = depth := 0
 
   let indent () =
     Format.sprintf "[%2d] %s" !depth (String.make (!depth * 2) ' ')
 end
 
 module Handler : Hooks.HANDLER = struct
+  let init ~spec:_ = State.reset ()
+  let on_instr = Hooks.Noop.on_instr
+  let finish = Hooks.Noop.finish
+
   let on_rel_enter ~id ~at:_ ~values =
     Format.printf "%s→ %s\n%!" (State.indent ()) id;
     (* Only print inputs in full mode *)
@@ -110,12 +110,9 @@ module Handler : Hooks.HANDLER = struct
   let on_prem ~prem ~at:_ =
     if !State.level = Full then
       Format.printf "%s  | -- %s\n%!" (State.indent ())
-        (Il.Print.string_of_prem prem |> normalize_whitespace)
-
-  let on_instr ~at:_ = ()
-  let finish () = ()
+        (Il.Print.string_of_prem prem |> normalize_ws)
 end
 
 let make ?(level = Summary) () : (module Hooks.HANDLER) =
-  State.reset ~level;
+  State.level := level;
   (module Handler)

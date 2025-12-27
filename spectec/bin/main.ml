@@ -2,16 +2,6 @@ open Runner
 
 let version = "0.1"
 
-(* Parse trace level from CLI integer *)
-let trace_level_of_int = function
-  | 0 -> None
-  | 1 -> Some Instrumentation.Trace.Summary
-  | 2 -> Some Instrumentation.Trace.Full
-  | n ->
-      failwith
-        (Format.sprintf
-           "Invalid trace level: %d (expected: 0=off, 1=summary, 2=full)" n)
-
 (* Commands *)
 
 let elab_command =
@@ -77,6 +67,34 @@ let p4parse_command =
            Format.printf "Roundtrip failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
+(* Helper to build instrumentation config from CLI options *)
+let make_config ~trace ~profile ~branch_coverage ~node_coverage =
+  let trace_level =
+    match trace with
+    | Some 1 -> Some Instrumentation.Trace.Summary
+    | Some 2 -> Some Instrumentation.Trace.Full
+    | _ -> None
+  in
+  let branch_level =
+    match branch_coverage with
+    | Some 1 -> Some Instrumentation.Branch_coverage.Summary
+    | Some 2 -> Some Instrumentation.Branch_coverage.Full
+    | _ -> None
+  in
+  let node_level =
+    match node_coverage with
+    | Some 1 -> Some Instrumentation.Node_coverage.Summary
+    | Some 2 -> Some Instrumentation.Node_coverage.Full
+    | _ -> None
+  in
+  Instrumentation.Config.
+    {
+      trace = trace_level;
+      profile;
+      branch_coverage = branch_level;
+      node_coverage = node_level;
+    }
+
 let type_p4_il_command =
   Core.Command.basic
     ~summary:
@@ -88,22 +106,29 @@ let type_p4_il_command =
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
      and trace =
-       flag "-trace" (optional int)
+       flag "--trace" (optional int)
          ~doc:
            "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
             only), 2=full (all details)"
-     and profile = flag "-profile" no_arg ~doc:"print profiling info" in
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
      fun () ->
-       let trace_level =
-         match trace with None -> None | Some n -> trace_level_of_int n
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
        in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_il ~trace:trace_level ~profile spec_il "Program_ok"
-             [ value_program ] filename_target
+           eval_il ~config spec_il "Program_ok" [ value_program ]
+             filename_target
          in
          Ok ()
        in
@@ -124,14 +149,21 @@ let type_p4_sl_command =
      and filename_target =
        flag "-p" (required string) ~doc:"p4 file to typecheck"
      and trace =
-       flag "-trace" (optional int)
+       flag "--trace" (optional int)
          ~doc:
            "LEVEL trace verbosity: 0=off (default), 1=summary (call stack \
             only), 2=full (all details)"
-     and profile = flag "-profile" no_arg ~doc:"print profiling info" in
+     and profile = flag "--profile" no_arg ~doc:"print profiling info"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
      fun () ->
-       let trace_level =
-         match trace with None -> None | Some n -> trace_level_of_int n
+       let config =
+         make_config ~trace ~profile ~branch_coverage ~node_coverage
        in
        let interp () =
          let* spec = parse_spec_files filenames_spec in
@@ -139,8 +171,8 @@ let type_p4_sl_command =
          let spec_sl = structure spec_il in
          let* value_program = parse_p4_file includes_target filename_target in
          let* _, _ =
-           eval_sl ~trace:trace_level ~profile spec_sl "Program_ok"
-             [ value_program ] filename_target
+           eval_sl ~config spec_sl "Program_ok" [ value_program ]
+             filename_target
          in
          Ok ()
        in
@@ -148,6 +180,91 @@ let type_p4_sl_command =
        | Ok () -> Format.printf "Interpreter succeeded\n"
        | Error e ->
            Format.printf "Interpreter failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
+(* Helper to collect files from directory *)
+let collect_files ~suffix dir =
+  let rec walk acc path =
+    if Sys.is_directory path then
+      Array.fold_left
+        (fun acc name -> walk acc (Filename.concat path name))
+        acc (Sys.readdir path)
+    else if Filename.check_suffix path suffix then path :: acc
+    else acc
+  in
+  walk [] dir |> List.sort String.compare
+
+let coverage_p4_il_command =
+  Core.Command.basic ~summary:"run IL interpreter coverage on a test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and includes_target = flag "-i" (listed string) ~doc:"DIR include paths"
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let filenames = collect_files ~suffix:".p4" testdir in
+         let result =
+           eval_il_suite_p4_typechecker ~config spec_il includes_target
+             filenames
+         in
+         Ok result
+       in
+       match run () with
+       | Ok { passed; failed; total } ->
+           Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+             total failed
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
+             (Runner.Error.string_of_error e))
+
+let coverage_p4_sl_command =
+  Core.Command.basic ~summary:"run SL interpreter coverage on a test suite"
+    (let open Core.Command.Let_syntax in
+     let open Core.Command.Param in
+     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     and includes_target = flag "-i" (listed string) ~doc:"DIR include paths"
+     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+     and branch_coverage =
+       flag "--branch-coverage" (optional int)
+         ~doc:"LEVEL branch coverage: 1=summary, 2=full"
+     and node_coverage =
+       flag "--node-coverage" (optional int)
+         ~doc:"LEVEL node coverage: 1=summary, 2=full"
+     in
+     fun () ->
+       let config =
+         make_config ~trace:None ~profile:false ~branch_coverage ~node_coverage
+       in
+       let run () =
+         let* spec = parse_spec_files filenames_spec in
+         let* spec_il = elaborate spec in
+         let spec_sl = structure spec_il in
+         let filenames = collect_files ~suffix:".p4" testdir in
+         let result =
+           eval_sl_suite_p4_typechecker ~config spec_sl includes_target
+             filenames
+         in
+         Ok result
+       in
+       match run () with
+       | Ok { passed; failed; total } ->
+           Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+             total failed
+       | Error e ->
+           Format.printf "Coverage suite failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
 let command =
@@ -158,6 +275,8 @@ let command =
       ("type-p4-il", type_p4_il_command);
       ("type-p4-sl", type_p4_sl_command);
       ("p4parse", p4parse_command);
+      ("coverage-p4-il", coverage_p4_il_command);
+      ("coverage-p4-sl", coverage_p4_sl_command);
     ]
 
 let () = Command_unix.run ~version command

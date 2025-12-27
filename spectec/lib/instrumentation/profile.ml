@@ -4,8 +4,7 @@
    Collects call counts and timing, prints report on finish().
 
    Usage:
-     let handler = Profile.make () in
-     Hooks.run_with_handlers ~handlers_list:[handler] (fun () -> ...)
+     let handler = Profile.make ()
 *)
 
 (* Stats are mutable for accumulation across calls *)
@@ -50,6 +49,16 @@ let now () =
 module Handler : Hooks.HANDLER = struct
   open State
 
+  let init ~spec:_ = State.reset ()
+  let on_rule_enter = Hooks.Noop.on_rule_enter
+  let on_rule_exit = Hooks.Noop.on_rule_exit
+  let on_clause_enter = Hooks.Noop.on_clause_enter
+  let on_clause_exit = Hooks.Noop.on_clause_exit
+  let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
+  let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
+  let on_prem = Hooks.Noop.on_prem
+  let on_instr = Hooks.Noop.on_instr
+
   let on_rel_enter ~id ~at:_ ~values:_ =
     let is_recursive =
       frame_stack |> Stack.to_seq |> Seq.exists (fun f -> f.is_rel && f.id = id)
@@ -58,10 +67,6 @@ module Handler : Hooks.HANDLER = struct
       { id; is_rel = true; start_time = now (); child_time = 0.0; is_recursive }
     in
     Stack.push frame frame_stack
-
-  (* Relation rule attempt - no-op for profiling *)
-  let on_rule_enter ~id:_ ~rule_id:_ ~at:_ = ()
-  let on_rule_exit ~id:_ ~rule_id:_ ~at:_ ~success:_ = ()
 
   let on_rel_exit ~id ~at:_ ~success:_ =
     if not (Stack.is_empty frame_stack) then (
@@ -93,10 +98,6 @@ module Handler : Hooks.HANDLER = struct
     in
     Stack.push frame frame_stack
 
-  (* Function clause attempt - no-op for profiling *)
-  let on_clause_enter ~id:_ ~clause_idx:_ ~at:_ = ()
-  let on_clause_exit ~id:_ ~at:_ = ()
-
   let on_func_exit ~id ~at:_ =
     if not (Stack.is_empty frame_stack) then (
       let frame = Stack.pop frame_stack in
@@ -110,11 +111,6 @@ module Handler : Hooks.HANDLER = struct
       if not (Stack.is_empty frame_stack) then
         let parent = Stack.top frame_stack in
         parent.child_time <- parent.child_time +. elapsed)
-
-  let on_iter_prem_enter ~prem:_ ~at:_ = ()
-  let on_iter_prem_exit ~at:_ = ()
-  let on_prem ~prem:_ ~at:_ = ()
-  let on_instr ~at:_ = ()
 
   let finish () =
     let rel_list =
@@ -170,6 +166,4 @@ module Handler : Hooks.HANDLER = struct
         func_sorted)
 end
 
-let make () : (module Hooks.HANDLER) =
-  State.reset ();
-  (module Handler)
+let make () : (module Hooks.HANDLER) = (module Handler)

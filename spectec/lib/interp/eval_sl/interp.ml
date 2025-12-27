@@ -675,6 +675,7 @@ and eval_args (ctx : Ctx.t) (args : arg list) : Ctx.t * value list =
 (* Instruction evaluation *)
 
 and eval_instr (ctx : Ctx.t) (instr : instr) : Ctx.t * Sign.t =
+  Instrumentation.Hooks.notify_instr ~instr ~at:instr.at;
   (* Result instruction evaluation *)
   let eval_result_instr ctx exps =
     let ctx, values = eval_exps ctx exps in
@@ -1049,12 +1050,20 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
   let _inputs, exps_input, instrs = Ctx.find_rel Local ctx id in
   check (instrs <> []) id.at "relation has no instructions";
   let attempt_rules () =
+    Instrumentation.Hooks.notify_rule_enter ~id:id.it ~rule_id:"0" ~at:id.at;
     let ctx_local = Ctx.localize ctx in
     let ctx_local = Ctx.localize_inputs ctx_local values_input in
     let ctx_local = assign_exps ctx_local exps_input values_input in
     let ctx_local, sign = eval_instrs ctx_local Cont instrs in
     let ctx = Ctx.commit ctx ctx_local in
-    match sign with Res values_output -> Some (ctx, values_output) | _ -> None
+    let result =
+      match sign with
+      | Res values_output -> Some (ctx, values_output)
+      | _ -> None
+    in
+    Instrumentation.Hooks.notify_rule_exit ~id:id.it ~rule_id:"0" ~at:id.at
+      ~success:(Option.is_some result);
+    result
   in
   let result =
     if Cache.is_cached_rule id.it then (
@@ -1114,10 +1123,13 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     in
     let ctx, values_input = eval_args ctx args in
     let attempt_clauses () =
+      Instrumentation.Hooks.notify_clause_enter ~id:id.it ~clause_idx:0
+        ~at:id.at;
       let ctx_local = Ctx.localize_inputs ctx_local values_input in
       let ctx_local = assign_args ctx ctx_local args_input values_input in
       let ctx_local, sign = eval_instrs ctx_local Cont instrs in
       let ctx = Ctx.commit ctx ctx_local in
+      Instrumentation.Hooks.notify_clause_exit ~id:id.it ~at:id.at;
       match sign with
       | Ret value_output -> (ctx, value_output)
       | _ -> error id.at "function was not matched"

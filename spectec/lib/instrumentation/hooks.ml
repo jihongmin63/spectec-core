@@ -13,39 +13,37 @@
    5. Runner calls: finish ()
 *)
 
+open Common.Source
 module Il = Lang.Il
+module Sl = Lang.Sl
+
+type spec = IlSpec of Il.spec | SlSpec of Sl.spec
 
 (* Handler callback signature *)
 
 module type HANDLER = sig
-  val on_rel_enter :
-    id:string -> at:Common.Source.region -> values:Il.Value.t list -> unit
+  val init : spec:spec -> unit
 
-  val on_rel_exit : id:string -> at:Common.Source.region -> success:bool -> unit
-
-  val on_rule_enter :
-    id:string -> rule_id:string -> at:Common.Source.region -> unit
+  (* Common events *)
+  val on_rel_enter : id:string -> at:region -> values:Il.Value.t list -> unit
+  val on_rel_exit : id:string -> at:region -> success:bool -> unit
+  val on_rule_enter : id:string -> rule_id:string -> at:region -> unit
 
   val on_rule_exit :
-    id:string ->
-    rule_id:string ->
-    at:Common.Source.region ->
-    success:bool ->
-    unit
+    id:string -> rule_id:string -> at:region -> success:bool -> unit
 
-  val on_func_enter :
-    id:string -> at:Common.Source.region -> values:Il.Value.t list -> unit
+  val on_func_enter : id:string -> at:region -> values:Il.Value.t list -> unit
+  val on_func_exit : id:string -> at:region -> unit
+  val on_clause_enter : id:string -> clause_idx:int -> at:region -> unit
+  val on_clause_exit : id:string -> at:region -> unit
 
-  val on_func_exit : id:string -> at:Common.Source.region -> unit
+  (* IL-specific events *)
+  val on_iter_prem_enter : prem:Il.prem -> at:region -> unit
+  val on_iter_prem_exit : at:region -> unit
+  val on_prem : prem:Il.prem -> at:region -> unit
 
-  val on_clause_enter :
-    id:string -> clause_idx:int -> at:Common.Source.region -> unit
-
-  val on_clause_exit : id:string -> at:Common.Source.region -> unit
-  val on_iter_prem_enter : prem:Il.prem -> at:Common.Source.region -> unit
-  val on_iter_prem_exit : at:Common.Source.region -> unit
-  val on_prem : prem:Il.prem -> at:Common.Source.region -> unit
-  val on_instr : at:Common.Source.region -> unit
+  (* SL-specific events *)
+  val on_instr : instr:Sl.instr -> at:region -> unit
   val finish : unit -> unit
 end
 
@@ -56,12 +54,15 @@ let set_handlers hs = handlers := hs
 
 (* Event dispatchers called from interpreters *)
 
+let init ~spec =
+  if !handlers <> [] then
+    List.iter (fun (module H : HANDLER) -> H.init ~spec) !handlers
+
 let notify_rel_enter ~id ~at ~values =
   if !handlers <> [] then
-    if !handlers <> [] then
-      List.iter
-        (fun (module H : HANDLER) -> H.on_rel_enter ~id ~at ~values)
-        !handlers
+    List.iter
+      (fun (module H : HANDLER) -> H.on_rel_enter ~id ~at ~values)
+      !handlers
 
 let notify_rel_exit ~id ~at ~success =
   if !handlers <> [] then
@@ -115,15 +116,16 @@ let notify_prem ~prem ~at =
   if !handlers <> [] then
     List.iter (fun (module H : HANDLER) -> H.on_prem ~prem ~at) !handlers
 
-let notify_instr ~at =
+let notify_instr ~instr ~at =
   if !handlers <> [] then
-    List.iter (fun (module H : HANDLER) -> H.on_instr ~at) !handlers
+    List.iter (fun (module H : HANDLER) -> H.on_instr ~instr ~at) !handlers
 
 let finish () = List.iter (fun (module H : HANDLER) -> H.finish ()) !handlers
 
 (* No-op default handler *)
 
 module Noop : HANDLER = struct
+  let init ~spec:_ = ()
   let on_rel_enter ~id:_ ~at:_ ~values:_ = ()
   let on_rel_exit ~id:_ ~at:_ ~success:_ = ()
   let on_rule_enter ~id:_ ~rule_id:_ ~at:_ = ()
@@ -135,6 +137,6 @@ module Noop : HANDLER = struct
   let on_iter_prem_enter ~prem:_ ~at:_ = ()
   let on_iter_prem_exit ~at:_ = ()
   let on_prem ~prem:_ ~at:_ = ()
-  let on_instr ~at:_ = ()
+  let on_instr ~instr:_ ~at:_ = ()
   let finish () = ()
 end
