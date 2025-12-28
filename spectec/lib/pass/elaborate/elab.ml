@@ -1146,7 +1146,7 @@ and elab_exp_variant (ctx : Ctx.t) (plaintyp_expect : plaintyp)
         | Ok (ctx, notexp_il) ->
             let exp_il =
               let typ_il = elab_plaintyp ctx plaintyp in
-              Il.CaseE notexp_il $$ (no_region, typ_il.it)
+              Il.CaseE notexp_il $$ (exp.at, typ_il.it)
             in
             let+ exp_il = cast_exp ctx plaintyp_expect plaintyp exp_il in
             (ctx, exps_il @ [ exp_il ])

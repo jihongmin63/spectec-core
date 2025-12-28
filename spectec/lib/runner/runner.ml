@@ -43,6 +43,8 @@ module Handlers = struct
   let sl = il
 end
 
+(* --- General runners --- *)
+
 (* Transformations *)
 
 let parse_spec_files filenames : El.spec pipeline_result =
@@ -66,49 +68,91 @@ let structure spec_il : Sl.spec = Structure.Struct.struct_spec spec_il
 
 (* Interpreters *)
 
-let eval_il ?(trace : Instrumentation.Trace.level option = None)
-    ?(profile = false) spec_il rid values_input filename_target :
+(* Core IL run function - no init/finish, used by both single and suite runners *)
+let eval_il_run spec_il rid values_input filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
-  (* Register handlers based on flags *)
-  let module TH = Instrumentation.Trace in
-  let handlers =
-    (match trace with None -> [] | Some level -> [ TH.make ~level () ])
-    @ if profile then [ Instrumentation.Profile.make () ] else []
-  in
-  Instrumentation.Hooks.set_handlers handlers;
-  let eval_il () =
+  let run () =
     Eval_Il.Runner.run_relation_fresh spec_il rid values_input filename_target
     |> Result.ok
   in
-  let result =
-    try eval_il ()
-    with Eval_Il.Error.InterpError (at, msg) ->
-      Error.IlInterpError (at, msg) |> Result.error
-  in
-  Instrumentation.Hooks.finish ();
-  result
+  try Handlers.il run
+  with Eval_Il.Error.InterpError (at, msg) ->
+    Error.IlInterpError (at, msg) |> Result.error
 
-let eval_sl ?(trace : Instrumentation.Trace.level option = None)
-    ?(profile = false) spec_sl rid values_input filename_target :
+(* Core SL run function - no init/finish, used by both single and suite runners *)
+let eval_sl_run spec_sl rid values_input filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
-  (* Register handlers based on flags *)
-  let module TH = Instrumentation.Trace in
-  let handlers =
-    (match trace with None -> [] | Some level -> [ TH.make ~level () ])
-    @ if profile then [ Instrumentation.Profile.make () ] else []
-  in
-  Instrumentation.Hooks.set_handlers handlers;
-  let eval_sl () =
+  let run () =
     Eval_Sl.Runner.run_relation_fresh spec_sl rid values_input filename_target
     |> Result.ok
   in
-  let result =
-    try eval_sl ()
-    with Eval_Sl.Error.InterpError (at, msg) ->
-      Error.SlInterpError (at, msg) |> Result.error
-  in
+  try Handlers.sl run
+  with Eval_Sl.Error.InterpError (at, msg) ->
+    Error.SlInterpError (at, msg) |> Result.error
+
+(* Single-run wrappers that set up handlers, init, run, and finish *)
+let eval_il ?(config = Instrumentation.Config.default) spec_il rid values_input
+    filename_target : (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.IlSpec spec_il);
+  let result = eval_il_run spec_il rid values_input filename_target in
   Instrumentation.Hooks.finish ();
   result
+
+let eval_sl ?(config = Instrumentation.Config.default) spec_sl rid values_input
+    filename_target : (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.SlSpec spec_sl);
+  let result = eval_sl_run spec_sl rid values_input filename_target in
+  Instrumentation.Hooks.finish ();
+  result
+
+(* Coverage suite runners - init once, run all files, finish once *)
+
+type suite_result = { passed : int; failed : int; total : int }
+type suite_input = (string * Il.Value.t list * string, Error.t) result
+
+(* General IL suite runner - takes a list of result-wrapped inputs *)
+let eval_il_suite ?(config = Instrumentation.Config.default) spec_il
+    (inputs : suite_input list) : suite_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.IlSpec spec_il);
+  let passed, failed =
+    List.fold_left
+      (fun (p, f) input ->
+        match input with
+        | Error _ -> (p, f + 1)
+        | Ok (rid, values, filename) -> (
+            let result = eval_il_run spec_il rid values filename in
+            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
+      (0, 0) inputs
+  in
+  Instrumentation.Hooks.finish ();
+  { passed; failed; total = List.length inputs }
+
+(* General SL suite runner - takes a list of result-wrapped inputs *)
+let eval_sl_suite ?(config = Instrumentation.Config.default) spec_sl
+    (inputs : suite_input list) : suite_result =
+  let handlers = Instrumentation.Config.to_handlers config in
+  Instrumentation.Hooks.set_handlers handlers;
+  Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.SlSpec spec_sl);
+  let passed, failed =
+    List.fold_left
+      (fun (p, f) input ->
+        match input with
+        | Error _ -> (p, f + 1)
+        | Ok (rid, values, filename) -> (
+            let result = eval_sl_run spec_sl rid values filename in
+            match result with Ok _ -> (p + 1, f) | Error _ -> (p, f + 1)))
+      (0, 0) inputs
+  in
+  Instrumentation.Hooks.finish ();
+  { passed; failed; total = List.length inputs }
+
+(* --- P4 runners --- *)
 
 (* P4 Parsing *)
 
@@ -130,17 +174,41 @@ let parse_p4_string filename_target string : Il.Value.t pipeline_result =
 
 (* Composed functions *)
 
-let eval_il_p4_typechecker ?(trace : Instrumentation.Trace.level option = None)
-    ?(profile = false) spec_il includes_target filename_target :
+let eval_il_p4_typechecker ?(config = Instrumentation.Config.default) spec_il
+    includes_target filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) pipeline_result =
   let* value_program = parse_p4_file includes_target filename_target in
-  eval_il ~trace ~profile spec_il "Program_ok" [ value_program ] filename_target
+  eval_il ~config spec_il "Program_ok" [ value_program ] filename_target
 
-let eval_sl_p4_typechecker ?(trace : Instrumentation.Trace.level option = None)
-    ?(profile = false) spec_sl includes_target filename_target :
+let eval_sl_p4_typechecker ?(config = Instrumentation.Config.default) spec_sl
+    includes_target filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) pipeline_result =
   let* value_program = parse_p4_file includes_target filename_target in
-  eval_sl ~trace ~profile spec_sl "Program_ok" [ value_program ] filename_target
+  eval_sl ~config spec_sl "Program_ok" [ value_program ] filename_target
+
+(* P4 coverage suite functions - compose P4 parsing with general suite runners *)
+
+let eval_il_suite_p4_typechecker ?(config = Instrumentation.Config.default)
+    spec_il includes_target filenames : suite_result =
+  let inputs =
+    List.map
+      (fun filename ->
+        parse_p4_file includes_target filename
+        |> Result.map (fun value -> ("Program_ok", [ value ], filename)))
+      filenames
+  in
+  eval_il_suite ~config spec_il inputs
+
+let eval_sl_suite_p4_typechecker ?(config = Instrumentation.Config.default)
+    spec_sl includes_target filenames : suite_result =
+  let inputs =
+    List.map
+      (fun filename ->
+        parse_p4_file includes_target filename
+        |> Result.map (fun value -> ("Program_ok", [ value ], filename)))
+      filenames
+  in
+  eval_sl_suite ~config spec_sl inputs
 
 let parse_p4_file_with_roundtrip roundtrip filenames_spec includes_target
     filename_target : string pipeline_result =
