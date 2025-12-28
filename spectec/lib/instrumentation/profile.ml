@@ -42,6 +42,11 @@ module State = struct
         s
 end
 
+(* Use monotonic clock to ensure positive durations *)
+let now () =
+  Core.Time_ns.now () |> Core.Time_ns.to_span_since_epoch
+  |> Core.Time_ns.Span.to_sec
+
 module Handler : Hooks.HANDLER = struct
   open State
 
@@ -50,13 +55,7 @@ module Handler : Hooks.HANDLER = struct
       frame_stack |> Stack.to_seq |> Seq.exists (fun f -> f.is_rel && f.id = id)
     in
     let frame =
-      {
-        id;
-        is_rel = true;
-        start_time = Unix.gettimeofday ();
-        child_time = 0.0;
-        is_recursive;
-      }
+      { id; is_rel = true; start_time = now (); child_time = 0.0; is_recursive }
     in
     Stack.push frame frame_stack
 
@@ -67,7 +66,7 @@ module Handler : Hooks.HANDLER = struct
   let on_rel_exit ~id ~at:_ ~success:_ =
     if not (Stack.is_empty frame_stack) then (
       let frame = Stack.pop frame_stack in
-      let elapsed = Unix.gettimeofday () -. frame.start_time in
+      let elapsed = now () -. frame.start_time in
       let exclusive = elapsed -. frame.child_time in
       let stats = get_or_create_stats rel_stats id in
       stats.count <- stats.count + 1;
@@ -87,7 +86,7 @@ module Handler : Hooks.HANDLER = struct
       {
         id;
         is_rel = false;
-        start_time = Unix.gettimeofday ();
+        start_time = now ();
         child_time = 0.0;
         is_recursive;
       }
@@ -101,7 +100,7 @@ module Handler : Hooks.HANDLER = struct
   let on_func_exit ~id ~at:_ =
     if not (Stack.is_empty frame_stack) then (
       let frame = Stack.pop frame_stack in
-      let elapsed = Unix.gettimeofday () -. frame.start_time in
+      let elapsed = now () -. frame.start_time in
       let exclusive = elapsed -. frame.child_time in
       let stats = get_or_create_stats func_stats id in
       stats.count <- stats.count + 1;
