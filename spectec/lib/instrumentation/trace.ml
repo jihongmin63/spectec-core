@@ -55,6 +55,7 @@ end
 module Handler : Hooks.HANDLER = struct
   let init ~spec:_ = State.reset ()
   let on_instr = Hooks.Noop.on_instr
+  let on_prem_exit = Hooks.Noop.on_prem_exit
   let finish = Hooks.Noop.finish
 
   let on_rel_enter ~id ~at:_ ~values =
@@ -107,7 +108,7 @@ module Handler : Hooks.HANDLER = struct
     if !State.level = Full then
       Format.printf "%s  ← [iteration]\n%!" (State.indent ())
 
-  let on_prem ~prem ~at:_ =
+  let on_prem_enter ~prem ~at:_ =
     if !State.level = Full then
       Format.printf "%s  | -- %s\n%!" (State.indent ())
         (Il.Print.string_of_prem prem |> normalize_ws)

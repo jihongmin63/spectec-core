@@ -99,7 +99,8 @@ module Handler : Hooks.HANDLER = struct
 
   let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
-  let on_prem = Hooks.Noop.on_prem
+  let on_prem_enter = Hooks.Noop.on_prem_enter
+  let on_prem_exit = Hooks.Noop.on_prem_exit
   let on_instr = Hooks.Noop.on_instr
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)

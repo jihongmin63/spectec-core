@@ -23,7 +23,8 @@ module State = struct
   let level = ref Summary
   let il_spec : Il.spec ref = ref []
   let sl_spec : Sl.spec ref = ref []
-  let prems_hit : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let instrs_hit : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let total_prems = ref 0
   let total_instrs = ref 0
@@ -31,7 +32,8 @@ module State = struct
   let reset () =
     il_spec := [];
     sl_spec := [];
-    Hashtbl.clear prems_hit;
+    Hashtbl.clear prems_attempted;
+    Hashtbl.clear prems_succeeded;
     Hashtbl.clear instrs_hit;
     total_prems := 0;
     total_instrs := 0
@@ -152,18 +154,21 @@ module Handler : Hooks.HANDLER = struct
   let on_clause_exit = Hooks.Noop.on_clause_exit
   let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
-  let on_prem ~prem ~at:_ = State.incr State.prems_hit (prem_key prem)
+
+  let on_prem_enter ~prem ~at:_ =
+    State.incr State.prems_attempted (prem_key prem)
+
+  let on_prem_exit ~prem ~at:_ ~success =
+    if success then State.incr State.prems_succeeded (prem_key prem)
+
   let on_instr ~instr ~at:_ = State.incr State.instrs_hit (instr_key instr)
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 
   let print_summary_il () =
-    let hit = Hashtbl.length State.prems_hit in
     let total = !State.total_prems in
     if total > 0 then (
-      Format.printf "IL Premises: %d/%d (%.0f%%)\n" hit total
-        (100.0 *. float hit /. float total);
-      (* Collect uncovered *)
+      (* Collect uncovered - premises never successfully executed *)
       let uncovered = ref [] in
       List.iter
         (fun def ->
@@ -174,7 +179,8 @@ module Handler : Hooks.HANDLER = struct
                   let rule_id, _, prems = rule.it in
                   List.iter
                     (fun prem ->
-                      if not (Hashtbl.mem State.prems_hit (prem_key prem)) then
+                      if not (Hashtbl.mem State.prems_succeeded (prem_key prem))
+                      then
                         uncovered :=
                           (id.it, rule_id.it, Il.Print.string_of_prem prem)
                           :: !uncovered)
@@ -186,7 +192,8 @@ module Handler : Hooks.HANDLER = struct
                   let _, _, prems = clause.it in
                   List.iter
                     (fun prem ->
-                      if not (Hashtbl.mem State.prems_hit (prem_key prem)) then
+                      if not (Hashtbl.mem State.prems_succeeded (prem_key prem))
+                      then
                         uncovered :=
                           ( id.it,
                             Format.sprintf "clause/%d" idx,
@@ -197,7 +204,7 @@ module Handler : Hooks.HANDLER = struct
           | Il.TypD _ -> ())
         !State.il_spec;
       if !uncovered <> [] then (
-        Format.printf "\nUncovered premises:\n";
+        Format.printf "\nNever succeeded:\n";
         List.iter
           (fun (rel, rule, content) ->
             Format.printf "  %s/%s:\n    %s\n" rel rule (normalize_ws content))
@@ -217,8 +224,11 @@ module Handler : Hooks.HANDLER = struct
     | Some n -> Format.sprintf "%4d" n
     | None -> "####"
 
+  let get_prem_succeeded key =
+    Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
+
   let print_il_prem indent prem =
-    let count = fmt_count State.prems_hit (prem_key prem) in
+    let count = fmt_count State.prems_attempted (prem_key prem) in
     let content = Il.Print.string_of_prem prem |> normalize_ws in
     Format.printf "%s  %s-- %s\n" count indent content
 
@@ -241,6 +251,16 @@ module Handler : Hooks.HANDLER = struct
     | Sl.OtherwiseI inner -> print_sl_instr (indent ^ "  ") inner
     | _ -> ()
 
+  let print_il_prems indent prems =
+    List.iter (print_il_prem indent) prems;
+    (* Print success count for final premise *)
+    match List.rev prems with
+    | last :: _ ->
+        let succ = get_prem_succeeded (prem_key last) in
+        let count = if succ > 0 then Format.sprintf "%4d" succ else "####" in
+        Format.printf "%s  %sSUCCESS\n" count indent
+    | [] -> ()
+
   let print_full_il () =
     List.iter
       (fun def ->
@@ -251,7 +271,7 @@ module Handler : Hooks.HANDLER = struct
               (fun rule ->
                 let rule_id, _, prems = rule.it in
                 Format.printf "      rule %s:\n" rule_id.it;
-                List.iter (print_il_prem "    ") prems)
+                print_il_prems "    " prems)
               rules
         | Il.DecD (id, _, _, _, clauses) ->
             Format.printf "\ndef $%s:\n" id.it;
@@ -259,7 +279,7 @@ module Handler : Hooks.HANDLER = struct
               (fun idx clause ->
                 let _, _, prems = clause.it in
                 Format.printf "      clause %d:\n" idx;
-                List.iter (print_il_prem "    ") prems)
+                print_il_prems "    " prems)
               clauses
         | Il.TypD _ -> ())
       !State.il_spec
