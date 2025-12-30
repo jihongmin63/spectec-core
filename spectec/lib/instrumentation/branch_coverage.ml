@@ -85,15 +85,18 @@ module Handler : Hooks.HANDLER = struct
 
   let on_rel_enter = Hooks.Noop.on_rel_enter
   let on_rel_exit = Hooks.Noop.on_rel_exit
-  let on_rule_enter ~id ~rule_id ~at:_ = State.incr State.rules_hit (id, rule_id)
-  let on_rule_exit = Hooks.Noop.on_rule_exit
+  let on_rule_enter = Hooks.Noop.on_rule_enter
+
+  let on_rule_exit ~id ~rule_id ~at:_ ~success =
+    if success then State.incr State.rules_hit (id, rule_id)
+
   let on_func_enter = Hooks.Noop.on_func_enter
   let on_func_exit = Hooks.Noop.on_func_exit
+  let on_clause_enter = Hooks.Noop.on_clause_enter
 
-  let on_clause_enter ~id ~clause_idx ~at:_ =
-    State.incr State.clauses_hit (id, clause_idx)
+  let on_clause_exit ~id ~clause_idx ~at:_ ~success =
+    if success then State.incr State.clauses_hit (id, clause_idx)
 
-  let on_clause_exit = Hooks.Noop.on_clause_exit
   let on_iter_prem_enter = Hooks.Noop.on_iter_prem_enter
   let on_iter_prem_exit = Hooks.Noop.on_iter_prem_exit
   let on_prem = Hooks.Noop.on_prem

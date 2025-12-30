@@ -93,7 +93,7 @@ module Handler : Hooks.HANDLER = struct
     if !State.level = Full then
       Format.printf "%s→ $%s/%d\n%!" (State.indent ()) id clause_idx
 
-  let on_clause_exit ~id ~at:_ =
+  let on_clause_exit ~id ~clause_idx:_ ~at:_ ~success:_ =
     if !State.level = Full then Format.printf "%s← $%s\n%!" (State.indent ()) id
 
   (* Function invocation return - decrement depth *)
