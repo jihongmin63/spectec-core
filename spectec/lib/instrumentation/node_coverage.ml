@@ -165,6 +165,18 @@ module Handler : Hooks.HANDLER = struct
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 
+  let print_stats_il () =
+    let succeeded = Hashtbl.length State.prems_succeeded in
+    let attempted = Hashtbl.length State.prems_attempted in
+    let total = !State.total_prems in
+    if total > 0 then
+      Format.printf
+        "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
+        succeeded total
+        (100.0 *. float succeeded /. float total)
+        attempted total
+        (100.0 *. float attempted /. float total)
+
   let print_summary_il () =
     let total = !State.total_prems in
     if total > 0 then (
@@ -210,12 +222,41 @@ module Handler : Hooks.HANDLER = struct
             Format.printf "  %s/%s:\n    %s\n" rel rule (normalize_ws content))
           (List.rev !uncovered)))
 
-  let print_summary_sl () =
+  let print_stats_sl () =
     let hit = Hashtbl.length State.instrs_hit in
     let total = !State.total_instrs in
     if total > 0 then
-      Format.printf "SL Instructions: %d/%d (%.0f%%)\n" hit total
+      Format.printf "SL Instructions: %d/%d (%.2f%%)\n" hit total
         (100.0 *. float hit /. float total)
+
+  let print_summary_sl () =
+    let total = !State.total_instrs in
+    if total > 0 then (
+      (* Collect uncovered instructions *)
+      let uncovered = ref [] in
+      List.iter
+        (fun def ->
+          match def.it with
+          | Sl.RelD (id, _, _, instrs) ->
+              List.iter
+                (fun instr ->
+                  if not (Hashtbl.mem State.instrs_hit (instr_key instr)) then
+                    uncovered := (id.it, instr_header instr) :: !uncovered)
+                instrs
+          | Sl.DecD (id, _, _, instrs) ->
+              List.iter
+                (fun instr ->
+                  if not (Hashtbl.mem State.instrs_hit (instr_key instr)) then
+                    uncovered := (id.it, instr_header instr) :: !uncovered)
+                instrs
+          | Sl.TypD _ -> ())
+        !State.sl_spec;
+      if !uncovered <> [] then (
+        Format.printf "\nUncovered SL instructions:\n";
+        List.iter
+          (fun (rel, content) ->
+            Format.printf "  %s:\n    %s\n" rel (normalize_ws content))
+          (List.rev !uncovered)))
 
   (* --- Output: Full mode (GCOV-style annotated spec) --- *)
 
@@ -303,9 +344,15 @@ module Handler : Hooks.HANDLER = struct
     Format.printf "\n=== Node Coverage ===\n\n";
     match !State.level with
     | Summary ->
+        print_stats_il ();
+        print_stats_sl ();
+        (* Uncovered list *)
         print_summary_il ();
         print_summary_sl ()
     | Full ->
+        print_stats_il ();
+        print_stats_sl ();
+        (* Then full details *)
         print_full_il ();
         print_full_sl ()
 end

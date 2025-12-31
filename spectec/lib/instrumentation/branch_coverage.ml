@@ -118,7 +118,7 @@ module Handler : Hooks.HANDLER = struct
           !State.all_rules
         |> List.length
       in
-      Format.printf "Rules: %d/%d (%.0f%%)\n" hit total_rules
+      Format.printf "Rules: %d/%d (%.2f%%)\n" hit total_rules
         (pct hit total_rules);
       (* Uncovered rules *)
       let uncovered =
@@ -148,7 +148,7 @@ module Handler : Hooks.HANDLER = struct
           !State.all_clauses
         |> List.length
       in
-      Format.printf "\nClauses: %d/%d (%.0f%%)\n" hit total_clauses
+      Format.printf "\nClauses: %d/%d (%.2f%%)\n" hit total_clauses
         (pct hit total_clauses);
       (* Uncovered clauses *)
       let uncovered =
@@ -186,7 +186,7 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length rules in
-          Format.printf "relation %s: (%d/%d = %.0f%%)\n" rel hit total
+          Format.printf "relation %s: (%d/%d = %.2f%%)\n" rel hit total
             (pct hit total);
           List.iter
             (fun r ->
@@ -210,7 +210,7 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length idxs in
-          Format.printf "def $%s: (%d/%d = %.0f%%)\n" func hit total
+          Format.printf "def $%s: (%d/%d = %.2f%%)\n" func hit total
             (pct hit total);
           List.iter
             (fun i ->
