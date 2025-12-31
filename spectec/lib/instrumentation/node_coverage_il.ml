@@ -1,20 +1,18 @@
-(* Node coverage handler - Tracks premise and instruction execution.
+(* IL Node coverage handler - Tracks premise execution.
 
    Implements Hooks.HANDLER interface.
-   Records all nodes (premises for IL, instructions for SL) at init(),
-   then tracks which are hit during execution.
+   Records all premises at init(), then tracks which are hit during execution.
 
    Output levels:
    - Summary: stats + uncovered items only
    - Full: GCOV-style annotated spec with execution counts
 
    Usage:
-     let handler = Node_coverage.make ~level:Full ()
+     let handler = Node_coverage_il.make ~level:Full ()
 *)
 
 open Common.Source
 module Il = Lang.Il
-module Sl = Lang.Sl
 open Util
 
 (* Verbosity levels *)
@@ -23,21 +21,15 @@ type level = Summary | Full
 module State = struct
   let level = ref Summary
   let il_spec : Il.spec ref = ref []
-  let sl_spec : Sl.spec ref = ref []
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
-  let instrs_hit : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let total_prems = ref 0
-  let total_instrs = ref 0
 
   let reset () =
     il_spec := [];
-    sl_spec := [];
     Hashtbl.clear prems_attempted;
     Hashtbl.clear prems_succeeded;
-    Hashtbl.clear instrs_hit;
-    total_prems := 0;
-    total_instrs := 0
+    total_prems := 0
 
   let incr tbl key =
     let count = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
@@ -49,50 +41,10 @@ let prem_key prem =
   let content = Il.Print.string_of_prem prem |> normalize_whitespace in
   (prem.at, truncate 30 content)
 
-(* Get short header for instruction (without recursive children) *)
-let instr_header instr =
-  match instr.it with
-  | Sl.IfI (exp, iterexps, _, _) ->
-      Format.sprintf "If (%s)%s"
-        (Sl.Print.string_of_exp exp)
-        (Sl.Print.string_of_iterexps iterexps)
-  | Sl.CaseI (exp, _, _) ->
-      Format.sprintf "Case on %s" (Sl.Print.string_of_exp exp)
-  | Sl.OtherwiseI _ -> "Otherwise"
-  | Sl.LetI (exp_l, exp_r, iterexps) ->
-      Format.sprintf "Let %s = %s%s"
-        (Sl.Print.string_of_exp exp_l)
-        (Sl.Print.string_of_exp exp_r)
-        (Sl.Print.string_of_iterexps iterexps)
-  | Sl.RuleI (id, notexp, iterexps) ->
-      Format.sprintf "%s: %s%s"
-        (Sl.Print.string_of_relid id)
-        (Sl.Print.string_of_notexp notexp)
-        (Sl.Print.string_of_iterexps iterexps)
-  | Sl.ResultI [] -> "Relation holds"
-  | Sl.ResultI exps ->
-      Format.sprintf "Result %s" (Sl.Print.string_of_exps ", " exps)
-  | Sl.ReturnI exp -> Format.sprintf "Return %s" (Sl.Print.string_of_exp exp)
-  | Sl.DebugI exp -> Format.sprintf "Debug: %s" (Sl.Print.string_of_exp exp)
-
-(* Create a unique key for an instruction using region + content header *)
-let instr_key instr =
-  let content = instr_header instr |> normalize_whitespace in
-  (instr.at, content)
-
 module Handler : Hooks.HANDLER = struct
-  let rec count_il_prem prem =
+  let rec count_prem prem =
     State.total_prems := !State.total_prems + 1;
-    match prem.it with Il.IterPr (inner, _) -> count_il_prem inner | _ -> ()
-
-  let rec count_sl_instr instr =
-    State.total_instrs := !State.total_instrs + 1;
-    match instr.it with
-    | Sl.IfI (_, _, instrs, _) -> List.iter count_sl_instr instrs
-    | Sl.CaseI (_, cases, _) ->
-        List.iter (fun (_, instrs) -> List.iter count_sl_instr instrs) cases
-    | Sl.OtherwiseI inner -> count_sl_instr inner
-    | _ -> ()
+    match prem.it with Il.IterPr (inner, _) -> count_prem inner | _ -> ()
 
   let init ~spec =
     State.reset ();
@@ -106,25 +58,17 @@ module Handler : Hooks.HANDLER = struct
                 List.iter
                   (fun rule ->
                     let _, _, prems = rule.it in
-                    List.iter count_il_prem prems)
+                    List.iter count_prem prems)
                   rules
             | Il.DecD (_, _, _, _, clauses) ->
                 List.iter
                   (fun clause ->
                     let _, _, prems = clause.it in
-                    List.iter count_il_prem prems)
+                    List.iter count_prem prems)
                   clauses
             | Il.TypD _ -> ())
           il_spec
-    | Hooks.SlSpec sl_spec ->
-        State.sl_spec := sl_spec;
-        List.iter
-          (fun def ->
-            match def.it with
-            | Sl.RelD (_, _, _, instrs) -> List.iter count_sl_instr instrs
-            | Sl.DecD (_, _, _, instrs) -> List.iter count_sl_instr instrs
-            | Sl.TypD _ -> ())
-          sl_spec
+    | Hooks.SlSpec _ -> ()
 
   let on_rel_enter = Hooks.Noop.on_rel_enter
   let on_rel_exit = Hooks.Noop.on_rel_exit
@@ -143,11 +87,11 @@ module Handler : Hooks.HANDLER = struct
   let on_prem_exit ~prem ~at:_ ~success =
     if success then State.incr State.prems_succeeded (prem_key prem)
 
-  let on_instr ~instr ~at:_ = State.incr State.instrs_hit (instr_key instr)
+  let on_instr = Hooks.Noop.on_instr
 
   (* --- Output: Summary mode (stats + uncovered only) --- *)
 
-  let print_stats_il () =
+  let print_stats () =
     let succeeded = Hashtbl.length State.prems_succeeded in
     let attempted = Hashtbl.length State.prems_attempted in
     let total = !State.total_prems in
@@ -159,7 +103,7 @@ module Handler : Hooks.HANDLER = struct
         attempted total
         (percentage attempted total)
 
-  let print_summary_il () =
+  let print_uncovered () =
     let total = !State.total_prems in
     if total > 0 then (
       (* Collect uncovered - premises never successfully executed *)
@@ -205,42 +149,6 @@ module Handler : Hooks.HANDLER = struct
               (normalize_whitespace content))
           (List.rev !uncovered)))
 
-  let print_stats_sl () =
-    let hit = Hashtbl.length State.instrs_hit in
-    let total = !State.total_instrs in
-    if total > 0 then
-      Format.printf "SL Instructions: %d/%d (%.2f%%)\n" hit total
-        (percentage hit total)
-
-  let print_summary_sl () =
-    let total = !State.total_instrs in
-    if total > 0 then (
-      (* Collect uncovered instructions *)
-      let uncovered = ref [] in
-      List.iter
-        (fun def ->
-          match def.it with
-          | Sl.RelD (id, _, _, instrs) ->
-              List.iter
-                (fun instr ->
-                  if not (Hashtbl.mem State.instrs_hit (instr_key instr)) then
-                    uncovered := (id.it, instr_header instr) :: !uncovered)
-                instrs
-          | Sl.DecD (id, _, _, instrs) ->
-              List.iter
-                (fun instr ->
-                  if not (Hashtbl.mem State.instrs_hit (instr_key instr)) then
-                    uncovered := (id.it, instr_header instr) :: !uncovered)
-                instrs
-          | Sl.TypD _ -> ())
-        !State.sl_spec;
-      if !uncovered <> [] then (
-        Format.printf "\nUncovered SL instructions:\n";
-        List.iter
-          (fun (rel, content) ->
-            Format.printf "  %s:\n    %s\n" rel (normalize_whitespace content))
-          (List.rev !uncovered)))
-
   (* --- Output: Full mode (GCOV-style annotated spec) --- *)
 
   let fmt_count tbl key =
@@ -251,32 +159,13 @@ module Handler : Hooks.HANDLER = struct
   let get_prem_succeeded key =
     Hashtbl.find_opt State.prems_succeeded key |> Option.value ~default:0
 
-  let print_il_prem indent prem =
+  let print_prem indent prem =
     let count = fmt_count State.prems_attempted (prem_key prem) in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
     Format.printf "%s  %s-- %s\n" count indent content
 
-  let rec print_sl_instr indent instr =
-    let count = fmt_count State.instrs_hit (instr_key instr) in
-    let max_len = max 40 (80 - String.length indent) in
-    let content = instr_header instr |> summarize ~max_len in
-    Format.printf "%5s %s%s\n" count indent content;
-    match instr.it with
-    | Sl.IfI (_, _, instrs, _) ->
-        List.iter (print_sl_instr (indent ^ "  ")) instrs
-    | Sl.CaseI (_, cases, _) ->
-        List.iter
-          (fun (guard, instrs) ->
-            (* Print hyphen for guards (untracked) *)
-            Format.printf "    - %s  Case %s:\n" indent
-              (Sl.Print.string_of_guard guard);
-            List.iter (print_sl_instr (indent ^ "    ")) instrs)
-          cases
-    | Sl.OtherwiseI inner -> print_sl_instr (indent ^ "  ") inner
-    | _ -> ()
-
-  let print_il_prems indent prems =
-    List.iter (print_il_prem indent) prems;
+  let print_prems indent prems =
+    List.iter (print_prem indent) prems;
     (* Print success count for final premise *)
     match List.rev prems with
     | last :: _ ->
@@ -285,7 +174,7 @@ module Handler : Hooks.HANDLER = struct
         Format.printf "%s  %sSUCCESS\n" count indent
     | [] -> ()
 
-  let print_full_il () =
+  let print_full () =
     List.iter
       (fun def ->
         match def.it with
@@ -295,7 +184,7 @@ module Handler : Hooks.HANDLER = struct
               (fun rule ->
                 let rule_id, _, prems = rule.it in
                 Format.printf "      rule %s:\n" rule_id.it;
-                print_il_prems "    " prems)
+                print_prems "    " prems)
               rules
         | Il.DecD (id, _, _, _, clauses) ->
             Format.printf "\ndef $%s:\n" id.it;
@@ -303,41 +192,23 @@ module Handler : Hooks.HANDLER = struct
               (fun idx clause ->
                 let _, _, prems = clause.it in
                 Format.printf "      clause %d:\n" idx;
-                print_il_prems "    " prems)
+                print_prems "    " prems)
               clauses
         | Il.TypD _ -> ())
       !State.il_spec
 
-  let print_full_sl () =
-    List.iter
-      (fun def ->
-        match def.it with
-        | Sl.RelD (id, _, _, instrs) ->
-            Format.printf "\nrelation %s:\n" id.it;
-            List.iter (print_sl_instr "  ") instrs
-        | Sl.DecD (id, _, _, instrs) ->
-            Format.printf "\ndef $%s:\n" id.it;
-            List.iter (print_sl_instr "  ") instrs
-        | Sl.TypD _ -> ())
-      !State.sl_spec
-
   (* --- Finish: print report --- *)
 
   let finish () =
-    Format.printf "\n=== Node Coverage ===\n\n";
-    match !State.level with
-    | Summary ->
-        print_stats_il ();
-        print_stats_sl ();
-        (* Uncovered list *)
-        print_summary_il ();
-        print_summary_sl ()
-    | Full ->
-        print_stats_il ();
-        print_stats_sl ();
-        (* Then full details *)
-        print_full_il ();
-        print_full_sl ()
+    if !State.total_prems > 0 then (
+      Format.printf "\n=== IL Node Coverage ===\n\n";
+      match !State.level with
+      | Summary ->
+          print_stats ();
+          print_uncovered ()
+      | Full ->
+          print_stats ();
+          print_full ())
 end
 
 let make ?(level = Summary) () : (module Hooks.HANDLER) =
