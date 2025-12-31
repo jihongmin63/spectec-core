@@ -14,6 +14,7 @@
 open Common.Source
 module Il = Lang.Il
 module Sl = Lang.Sl
+open Util
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -44,12 +45,6 @@ let group_by items =
       (k, v :: vs) :: List.remove_assoc k acc)
     [] items
   |> List.sort compare
-
-(* Format execution count for margin display *)
-let fmt_count count = if count > 0 then Format.sprintf "%4d" count else "####"
-
-(* Calculate percentage *)
-let pct hit total = if total > 0 then 100.0 *. float hit /. float total else 0.0
 
 module Handler : Hooks.HANDLER = struct
   let init ~spec =
@@ -119,7 +114,7 @@ module Handler : Hooks.HANDLER = struct
         |> List.length
       in
       Format.printf "Rules: %d/%d (%.2f%%)\n" hit total_rules
-        (pct hit total_rules);
+        (percentage hit total_rules);
       (* Uncovered rules *)
       let uncovered =
         List.filter_map
@@ -149,7 +144,7 @@ module Handler : Hooks.HANDLER = struct
         |> List.length
       in
       Format.printf "\nClauses: %d/%d (%.2f%%)\n" hit total_clauses
-        (pct hit total_clauses);
+        (percentage hit total_clauses);
       (* Uncovered clauses *)
       let uncovered =
         List.filter_map
@@ -187,14 +182,14 @@ module Handler : Hooks.HANDLER = struct
           in
           let total = List.length rules in
           Format.printf "relation %s: (%d/%d = %.2f%%)\n" rel hit total
-            (pct hit total);
+            (percentage hit total);
           List.iter
             (fun r ->
               let count =
                 Hashtbl.find_opt State.rules_hit (rel, r)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  rule %s\n" (fmt_count count) r)
+              Format.printf "  %s  rule %s\n" (format_count count) r)
             rules;
           Format.printf "\n")
         rules_by_rel);
@@ -211,14 +206,14 @@ module Handler : Hooks.HANDLER = struct
           in
           let total = List.length idxs in
           Format.printf "def $%s: (%d/%d = %.2f%%)\n" func hit total
-            (pct hit total);
+            (percentage hit total);
           List.iter
             (fun i ->
               let count =
                 Hashtbl.find_opt State.clauses_hit (func, i)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  clause %d\n" (fmt_count count) i)
+              Format.printf "  %s  clause %d\n" (format_count count) i)
             idxs;
           Format.printf "\n")
         clauses_by_func)

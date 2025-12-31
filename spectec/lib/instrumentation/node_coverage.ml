@@ -15,6 +15,7 @@
 open Common.Source
 module Il = Lang.Il
 module Sl = Lang.Sl
+open Util
 
 (* Verbosity levels *)
 type level = Summary | Full
@@ -43,28 +44,9 @@ module State = struct
     Hashtbl.replace tbl key (count + 1)
 end
 
-(* Normalize whitespace *)
-let normalize_ws s =
-  let buf = Buffer.create (String.length s) in
-  let last_ws = ref false in
-  String.iter
-    (fun c ->
-      if c = ' ' || c = '\n' || c = '\t' || c = '\r' then (
-        if not !last_ws then Buffer.add_char buf ' ';
-        last_ws := true)
-      else (
-        Buffer.add_char buf c;
-        last_ws := false))
-    s;
-  Buffer.contents buf
-
-(* Truncate string to max length *)
-let truncate max_len s =
-  if String.length s > max_len then String.sub s 0 (max_len - 3) ^ "..." else s
-
 (* Create a unique key for a premise using region + content prefix *)
 let prem_key prem =
-  let content = Il.Print.string_of_prem prem |> normalize_ws in
+  let content = Il.Print.string_of_prem prem |> normalize_whitespace in
   (prem.at, truncate 30 content)
 
 (* Get short header for instruction (without recursive children) *)
@@ -95,7 +77,7 @@ let instr_header instr =
 
 (* Create a unique key for an instruction using region + content header *)
 let instr_key instr =
-  let content = instr_header instr |> normalize_ws in
+  let content = instr_header instr |> normalize_whitespace in
   (instr.at, content)
 
 module Handler : Hooks.HANDLER = struct
@@ -173,9 +155,9 @@ module Handler : Hooks.HANDLER = struct
       Format.printf
         "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
         succeeded total
-        (100.0 *. float succeeded /. float total)
+        (percentage succeeded total)
         attempted total
-        (100.0 *. float attempted /. float total)
+        (percentage attempted total)
 
   let print_summary_il () =
     let total = !State.total_prems in
@@ -219,7 +201,8 @@ module Handler : Hooks.HANDLER = struct
         Format.printf "\nNever succeeded:\n";
         List.iter
           (fun (rel, rule, content) ->
-            Format.printf "  %s/%s:\n    %s\n" rel rule (normalize_ws content))
+            Format.printf "  %s/%s:\n    %s\n" rel rule
+              (normalize_whitespace content))
           (List.rev !uncovered)))
 
   let print_stats_sl () =
@@ -227,7 +210,7 @@ module Handler : Hooks.HANDLER = struct
     let total = !State.total_instrs in
     if total > 0 then
       Format.printf "SL Instructions: %d/%d (%.2f%%)\n" hit total
-        (100.0 *. float hit /. float total)
+        (percentage hit total)
 
   let print_summary_sl () =
     let total = !State.total_instrs in
@@ -255,7 +238,7 @@ module Handler : Hooks.HANDLER = struct
         Format.printf "\nUncovered SL instructions:\n";
         List.iter
           (fun (rel, content) ->
-            Format.printf "  %s:\n    %s\n" rel (normalize_ws content))
+            Format.printf "  %s:\n    %s\n" rel (normalize_whitespace content))
           (List.rev !uncovered)))
 
   (* --- Output: Full mode (GCOV-style annotated spec) --- *)
@@ -270,13 +253,13 @@ module Handler : Hooks.HANDLER = struct
 
   let print_il_prem indent prem =
     let count = fmt_count State.prems_attempted (prem_key prem) in
-    let content = Il.Print.string_of_prem prem |> normalize_ws in
+    let content = Il.Print.string_of_prem prem |> normalize_whitespace in
     Format.printf "%s  %s-- %s\n" count indent content
 
   let rec print_sl_instr indent instr =
     let count = fmt_count State.instrs_hit (instr_key instr) in
     let max_len = max 40 (80 - String.length indent) in
-    let content = instr_header instr |> normalize_ws |> truncate max_len in
+    let content = instr_header instr |> summarize ~max_len in
     Format.printf "%5s %s%s\n" count indent content;
     match instr.it with
     | Sl.IfI (_, _, instrs, _) ->
