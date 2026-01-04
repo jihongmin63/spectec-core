@@ -27,7 +27,9 @@
 (rule
  (alias pos)
  (action
-  (diff pos.expected pos.actual)))
+  (progn
+   (system "cat pos.err >&2")
+   (diff pos.expected pos.actual))))
 
 ;; Negative tests (expect failure)
 
@@ -53,7 +55,9 @@
 (rule
  (alias neg)
  (action
-  (diff neg.expected neg.actual)))
+  (progn
+   (system "cat neg.err >&2")
+   (diff neg.expected neg.actual))))
 
 ;; Default runtest runs both positive and negative
 
