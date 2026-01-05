@@ -232,7 +232,35 @@ module Handler : Hooks.HANDLER = struct
     | Full -> print_full ()
 end
 
+(* Result type for programmatic access *)
+type result = {
+  all_rules : (string * string) list;
+  all_clauses : (string * int) list;
+  rules_hit : (string * string) list;
+  clauses_hit : (string * int) list;
+}
+
+let get_result () =
+  {
+    all_rules = !State.all_rules;
+    all_clauses = !State.all_clauses;
+    rules_hit = State.rules_hit |> Hashtbl.to_seq_keys |> List.of_seq;
+    clauses_hit = State.clauses_hit |> Hashtbl.to_seq_keys |> List.of_seq;
+  }
+
 let make cfg =
   config := cfg;
   fmt := Output.formatter cfg.output;
   (module Handler : Hooks.HANDLER)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_coverage = Branch_coverage.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_coverage () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  ((module Handler : Hooks.HANDLER), get_result)

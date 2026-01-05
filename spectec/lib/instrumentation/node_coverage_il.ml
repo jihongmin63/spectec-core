@@ -218,7 +218,35 @@ module Handler : Hooks.HANDLER = struct
           print_full ())
 end
 
+(* Result type for programmatic access *)
+type result = {
+  prems_attempted : (region * string) list;
+  prems_succeeded : (region * string) list;
+  total_prems : int;
+}
+
+let get_result () =
+  {
+    prems_attempted =
+      State.prems_attempted |> Hashtbl.to_seq_keys |> List.of_seq;
+    prems_succeeded =
+      State.prems_succeeded |> Hashtbl.to_seq_keys |> List.of_seq;
+    total_prems = !State.total_prems;
+  }
+
 let make cfg =
   config := cfg;
   fmt := Output.formatter cfg.output;
   (module Handler : Hooks.HANDLER)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_coverage = Node_coverage.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_coverage () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  ((module Handler : Hooks.HANDLER), get_result)
