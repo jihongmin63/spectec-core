@@ -849,6 +849,8 @@ and eval_iter_prem (ctx : Ctx.t) (prem : prem) (iterexp : iterexp) :
 
 and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
     (Ctx.t * value list) attempt =
+  Instrumentation.Hooks.notify_rel_enter ~id:id.it ~at:id.at
+    ~values:values_input;
   (* Rule matching *)
   let match_rule ctx inputs rule values_input =
     let _, notexp, prems = rule.it in
@@ -864,8 +866,6 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
   in
   (* Main invocation logic *)
   let invoke_rel' () =
-    Instrumentation.Hooks.notify_rel_enter ~id:id.it ~at:id.at
-      ~values:values_input;
     (* Find the relation *)
     let inputs, rules = Ctx.find_rel Local ctx id in
     check_warn (rules <> []) id.at "relation has no rules";
@@ -927,6 +927,8 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
 and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     (Ctx.t * value) attempt =
   let ctx, values_input = eval_args ctx args in
+  Instrumentation.Hooks.notify_func_enter ~id:id.it ~at:id.at
+    ~values:values_input;
   (* Clause matching *)
   let match_clause ctx_caller ctx_callee clause values_input =
     let args_input, exp_output, prems = clause.it in
@@ -938,8 +940,6 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   in
   (* Builtin function invocation *)
   let invoke_func_builtin () =
-    Instrumentation.Hooks.notify_func_enter ~id:id.it ~at:id.at
-      ~values:values_input;
     (* Invoke builtin function *)
     let invoke_func_builtin' () =
       Instrumentation.Hooks.notify_clause_enter ~id:id.it ~clause_idx:0
@@ -975,8 +975,6 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
           in
           List.map (Typ.subst_typ theta) targs
     in
-    Instrumentation.Hooks.notify_func_enter ~id:id.it ~at:id.at
-      ~values:values_input;
     (* Apply the first matching clause *)
     let attempt_clauses () =
       let attempt_clauses' =
