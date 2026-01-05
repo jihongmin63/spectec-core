@@ -19,9 +19,17 @@ let collect_files ~suffix dir =
   in
   gather [] dir |> List.rev
 
+(* P4 target specification *)
+module Target = struct
+  let name = "p4"
+  let spec_dir = "examples/p4-concrete"
+end
+
 (* P4 Typechecker task - implements TASK with extra make function *)
 module Typecheck = struct
   let name = "typechecker"
+
+  module Target = Target
 
   type input = {
     includes : string list;
@@ -46,11 +54,4 @@ module Typecheck = struct
 
   let format_output _values = "Typechecker succeeded"
   let save_output _filename _values = ()
-end
-
-(* P4 target specification *)
-module Target = struct
-  let name = "p4"
-  let spec_dir = "examples/p4-concrete"
-  let tasks = [ Runner.Task.Pack (module Typecheck) ]
 end

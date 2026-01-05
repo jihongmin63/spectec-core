@@ -36,6 +36,9 @@ let compute_outcome expectation result =
 module type TASK = sig
   val name : string
 
+  (* Reference to the full Target module *)
+  module Target : Target.TARGET
+
   type input
 
   val parse :

@@ -265,16 +265,16 @@ let summarize_outcomes results =
 type task_result = { task_name : string; summary : suite_summary }
 
 (* Run coverage across all input specs in a target *)
-let run_target_coverage (module Target : Target.TARGET)
-    ?(config = Instrumentation.Config.default) ~sl_mode spec_il =
+let run_target_coverage ?(config = Instrumentation.Config.default) ~sl_mode
+    spec_il tasks =
   List.map
     (fun (Task.Pack (module T)) ->
-      let inputs = T.collect Target.spec_dir in
+      let inputs = T.collect T.Target.spec_dir in
       let results =
         run_suite_with_outcomes (module T) ~config ~sl_mode ~spec_il inputs
       in
       { task_name = T.name; summary = summarize_outcomes results })
-    Target.tasks
+    tasks
 
 (* --- P4 runners --- *)
 
