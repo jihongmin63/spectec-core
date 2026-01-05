@@ -44,7 +44,7 @@ module Typecheck = struct
     |> List.map (fun filename ->
            { includes = []; filename; expect = Runner.Task.Positive })
 
-  let format_output _values = "Typecheck succeeded"
+  let format_output _values = "Typechecker succeeded"
   let save_output _filename _values = ()
 end
 

@@ -8,18 +8,25 @@
    - Full: GCOV-style annotated spec with execution counts
 
    Usage:
-     let handler = Node_coverage_sl.make ~level:Full ()
+     let handler = Node_coverage_sl.make { level = Full; output = Output.stdout }
 *)
 
 open Common.Source
 module Sl = Lang.Sl
 open Util
 
-(* Verbosity levels *)
-type level = Summary | Full
+(* Verbosity levels - reuse from IL module *)
+type level = Node_coverage_il.level = Summary | Full
 
+(* Handler configuration - reuse from IL module for type compatibility *)
+type config = Node_coverage_il.config = { level : level; output : Output.t }
+
+let default_config = Node_coverage_il.default_config
+let config = ref default_config
+let fmt = ref Format.std_formatter
+
+(* Runtime state - changes during execution *)
 module State = struct
-  let level = ref Summary
   let sl_spec : Sl.spec ref = ref []
   let instrs_hit : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let total_instrs = ref 0
@@ -109,7 +116,7 @@ module Handler : Hooks.HANDLER = struct
     let hit = Hashtbl.length State.instrs_hit in
     let total = !State.total_instrs in
     if total > 0 then
-      Format.printf "SL Instructions: %d/%d (%.2f%%)\n" hit total
+      Format.fprintf !fmt "SL Instructions: %d/%d (%.2f%%)\n" hit total
         (percentage hit total)
 
   let print_uncovered () =
@@ -135,10 +142,11 @@ module Handler : Hooks.HANDLER = struct
           | Sl.TypD _ -> ())
         !State.sl_spec;
       if !uncovered <> [] then (
-        Format.printf "\nUncovered SL instructions:\n";
+        Format.fprintf !fmt "\nUncovered SL instructions:\n";
         List.iter
           (fun (rel, content) ->
-            Format.printf "  %s:\n    %s\n" rel (normalize_whitespace content))
+            Format.fprintf !fmt "  %s:\n    %s\n" rel
+              (normalize_whitespace content))
           (List.rev !uncovered)))
 
   (* --- Output: Full mode (GCOV-style annotated spec) --- *)
@@ -152,14 +160,14 @@ module Handler : Hooks.HANDLER = struct
     let count = fmt_count State.instrs_hit (instr_key instr) in
     let max_len = max 40 (80 - String.length indent) in
     let content = instr_header instr |> summarize ~max_len in
-    Format.printf "%5s %s%s\n" count indent content;
+    Format.fprintf !fmt "%5s %s%s\n" count indent content;
     match instr.it with
     | Sl.IfI (_, _, instrs, _) -> List.iter (print_instr (indent ^ "  ")) instrs
     | Sl.CaseI (_, cases, _) ->
         List.iter
           (fun (guard, instrs) ->
             (* Print hyphen for guards (untracked) *)
-            Format.printf "    - %s  Case %s:\n" indent
+            Format.fprintf !fmt "    - %s  Case %s:\n" indent
               (Sl.Print.string_of_guard guard);
             List.iter (print_instr (indent ^ "    ")) instrs)
           cases
@@ -171,10 +179,10 @@ module Handler : Hooks.HANDLER = struct
       (fun def ->
         match def.it with
         | Sl.RelD (id, _, _, instrs) ->
-            Format.printf "\nrelation %s:\n" id.it;
+            Format.fprintf !fmt "\nrelation %s:\n" id.it;
             List.iter (print_instr "  ") instrs
         | Sl.DecD (id, _, _, instrs) ->
-            Format.printf "\ndef $%s:\n" id.it;
+            Format.fprintf !fmt "\ndef $%s:\n" id.it;
             List.iter (print_instr "  ") instrs
         | Sl.TypD _ -> ())
       !State.sl_spec
@@ -183,8 +191,8 @@ module Handler : Hooks.HANDLER = struct
 
   let finish () =
     if !State.total_instrs > 0 then (
-      Format.printf "\n=== SL Node Coverage ===\n\n";
-      match !State.level with
+      Format.fprintf !fmt "\n=== SL Node Coverage ===\n\n";
+      match !config.level with
       | Summary ->
           print_stats ();
           print_uncovered ()
@@ -193,6 +201,7 @@ module Handler : Hooks.HANDLER = struct
           print_full ())
 end
 
-let make ?(level = Summary) () : (module Hooks.HANDLER) =
-  State.level := level;
-  (module Handler)
+let make cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  (module Handler : Hooks.HANDLER)
