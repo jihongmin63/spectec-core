@@ -84,7 +84,7 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
              run_single (module T) ~config ~sl_mode ~spec_il input;
              Ok ()
          | Some dir ->
-             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect dir);
+             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect ~dir ());
              Ok ()
        in
        match run () with
@@ -113,6 +113,8 @@ module Make (Tgt : Runner.Target.TARGET) = struct
        let open Core.Command.Param in
        let%map sl_mode =
          flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
+       and verbose =
+         flag "-v" no_arg ~doc:" verbose: print progress for each test"
        and config = Cli_args.config_flags in
        fun () ->
          let open Runner in
@@ -123,7 +125,7 @@ module Make (Tgt : Runner.Target.TARGET) = struct
            (* Convert to generic tasks for runner *)
            let generic_tasks = List.map to_generic tasks in
            let results =
-             run_target_coverage ~config ~sl_mode spec_il generic_tasks
+             run_target_coverage ~config ~verbose ~sl_mode spec_il generic_tasks
            in
            (* Print summary for each input spec *)
            List.iter

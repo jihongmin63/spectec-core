@@ -265,13 +265,38 @@ let summarize_outcomes results =
 type task_result = { task_name : string; summary : suite_summary }
 
 (* Run coverage across all input specs in a target *)
-let run_target_coverage ?(config = Instrumentation.Config.default) ~sl_mode
-    spec_il tasks =
+let run_target_coverage ?(config = Instrumentation.Config.default) ~verbose
+    ~sl_mode spec_il tasks =
   List.map
     (fun (Task.Pack (module T)) ->
-      let inputs = T.collect T.Target.spec_dir in
+      (* Each task discovers its own inputs *)
+      let inputs = T.collect () in
+      let total = List.length inputs in
+      if verbose then Format.printf "Running %s (%d tests)...\n%!" T.name total;
       let results =
-        run_suite_with_outcomes (module T) ~config ~sl_mode ~spec_il inputs
+        List.mapi
+          (fun i input ->
+            let source = T.source input in
+            if verbose then
+              Format.printf "  [%d/%d] %s... %!" (i + 1) total source;
+            (* Wrap in try/catch to handle unexpected exceptions *)
+            let outcome =
+              try run_with_outcome (module T) ~config ~sl_mode ~spec_il input
+              with exn ->
+                let err =
+                  Error.IlInterpError
+                    (Common.Source.no_region, Printexc.to_string exn)
+                in
+                Task.compute_outcome (T.expectation input) (Error err)
+            in
+            (if verbose then
+               match outcome with
+               | Task.Pass _ -> Format.printf "PASS\n%!"
+               | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+               | Task.Fail _ -> Format.printf "FAIL\n%!"
+               | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+            { input; source; outcome })
+          inputs
       in
       { task_name = T.name; summary = summarize_outcomes results })
     tasks
