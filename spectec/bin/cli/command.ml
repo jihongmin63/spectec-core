@@ -115,30 +115,61 @@ module Make (Tgt : Runner.Target.TARGET) = struct
          flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
        and verbose =
          flag "-v" no_arg ~doc:" verbose: print progress for each test"
-       and config = Cli_args.config_flags in
+       and show_checkpoint_file =
+         flag "--show-checkpoint" (optional string)
+           ~doc:"FILE decode and display checkpoint contents (no tests run)"
+       and checkpoint_output_file =
+         flag "--checkpoint" (optional string)
+           ~doc:"FILE save checkpoint to file (enables resume)"
+       and checkpoint_resume_file =
+         flag "--resume" (optional string)
+           ~doc:"FILE resume from checkpoint file"
+       and checkpoint_save_interval =
+         flag "--save-interval"
+           (optional_with_default 100 int)
+           ~doc:"N save checkpoint every N tests (default: 100)"
+       and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
-         let run () =
-           let spec_files = collect_spec_files Tgt.spec_dir in
-           let* spec = parse_spec_files spec_files in
-           let* spec_il = elaborate spec in
-           (* Convert to generic tasks for runner *)
-           let generic_tasks = List.map to_generic tasks in
-           let results =
-             run_target_coverage ~config ~verbose ~sl_mode spec_il generic_tasks
-           in
-           (* Print summary for each input spec *)
-           List.iter
-             (fun { task_name; summary } ->
-               let passed = Runner.summary_passed summary in
-               let failed = Runner.summary_failed summary in
-               Format.printf "%s: %d/%d passed, %d failed\n" task_name passed
-                 summary.total failed)
-             results;
-           Ok ()
-         in
-         match run () with
-         | Ok () -> ()
-         | Error e ->
-             Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
+         (* Handle --show-checkpoint: decode and display, then exit *)
+         match show_checkpoint_file with
+         | Some file ->
+             let checkpoint = Checkpoint.load ~file in
+             Checkpoint.display_report ~config:instrumentation_config checkpoint
+         | None -> (
+             (* Normal coverage run *)
+             let run () =
+               let spec_files = collect_spec_files Tgt.spec_dir in
+               (* Build checkpoint configuration from CLI flags *)
+               let checkpoint_config : Checkpoint.config =
+                 {
+                   output_file = checkpoint_output_file;
+                   resume_from = checkpoint_resume_file;
+                   save_interval = checkpoint_save_interval;
+                 }
+               in
+               let* spec = parse_spec_files spec_files in
+               let* spec_il = elaborate spec in
+               (* Convert to generic tasks for runner *)
+               let generic_tasks = List.map to_generic tasks in
+               let results =
+                 run_target_coverage ~config:instrumentation_config
+                   ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
+                   generic_tasks
+               in
+               (* Print summary for each input spec *)
+               List.iter
+                 (fun { task_name; summary } ->
+                   let passed = Runner.summary_passed summary in
+                   let failed = Runner.summary_failed summary in
+                   Format.printf "%s: %d/%d passed, %d failed\n" task_name
+                     passed summary.total failed)
+                 results;
+               Ok ()
+             in
+             match run () with
+             | Ok () -> ()
+             | Error error ->
+                 Format.printf "Error:\n  %s\n"
+                   (Runner.Error.string_of_error error)))
 end

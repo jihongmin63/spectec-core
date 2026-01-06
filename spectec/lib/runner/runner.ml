@@ -6,6 +6,7 @@ open Interp
 module Error = Error
 module Task = Task
 module Target = Target
+module Checkpoint = Checkpoint
 
 type 'a pipeline_result = ('a, Error.t) result
 
@@ -296,29 +297,82 @@ let summarize_outcomes results =
 (* Result for one input spec in coverage run *)
 type task_result = { task_name : string; summary : suite_summary }
 
-(* Run coverage across all input specs in a target.
+(* Run coverage across all input specs in a target with checkpoint support.
    Init/finish lifecycle is managed here - called once for the entire run. *)
-let run_target_coverage ?(config = Instrumentation.Config.default) ~verbose
-    ~sl_mode spec_il tasks =
+let run_target_coverage ?(config = Instrumentation.Config.default)
+    ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
+    spec_il tasks =
   (* Initialize instrumentation once for the entire coverage run *)
   let handlers = Instrumentation.Config.to_handlers config in
   Instrumentation.Hooks.set_handlers handlers;
   Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.IlSpec spec_il);
 
+  (* Load checkpoint if resuming *)
+  let loaded_checkpoint =
+    match checkpoint_config.resume_from with
+    | Some file -> (
+        let checkpoint = Checkpoint.load ~file in
+        match Checkpoint.verify_spec checkpoint ~spec_files with
+        | Ok () ->
+            if verbose then
+              Format.printf "Resuming from checkpoint: %s\n"
+                (Checkpoint.summary checkpoint);
+            Some checkpoint
+        | Error error_message ->
+            Format.printf "Checkpoint error: %s\n" error_message;
+            None)
+    | None -> None
+  in
+
+  (* Track completed inputs across all tasks *)
+  let all_completed_inputs = ref [] in
+  (match loaded_checkpoint with
+  | Some checkpoint ->
+      all_completed_inputs := checkpoint.Checkpoint.completed_inputs
+  | None -> ());
+
+  let save_current_checkpoint () =
+    match checkpoint_config.output_file with
+    | Some file ->
+        let checkpoint =
+          Checkpoint.create ~spec_files ~completed_inputs:!all_completed_inputs
+            ~coverage:
+              {
+                branch = Some (Instrumentation.Branch_coverage.get_result ());
+                node_il = Some (Instrumentation.Node_coverage_il.get_result ());
+                node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
+              }
+        in
+        Checkpoint.save ~file checkpoint
+    | None -> ()
+  in
+
   let results =
     List.map
       (fun (Task.Pack (module T)) ->
         (* Each task discovers its own inputs *)
-        let inputs = T.collect () in
-        let total = List.length inputs in
+        let all_inputs = T.collect () in
+        let total_all = List.length all_inputs in
+        (* Filter out completed inputs if resuming *)
+        let inputs =
+          match loaded_checkpoint with
+          | Some checkpoint ->
+              Checkpoint.filter_remaining checkpoint all_inputs ~get_id:T.source
+          | None -> all_inputs
+        in
+        let completed_count = total_all - List.length inputs in
         if verbose then
-          Format.printf "Running %s (%d tests)...\n%!" T.name total;
+          Format.printf "Running %s (%d tests, %d already completed)...\n%!"
+            T.name (List.length inputs) completed_count;
         let task_results =
           List.mapi
             (fun index input ->
               let source = T.source input in
               if verbose then
-                Format.printf "  [%d/%d] %s... %!" (index + 1) total source;
+                (* Show absolute progress: [completed+1/total] *)
+                Format.printf "  [%d/%d] %s... %!"
+                  (completed_count + index + 1)
+                  total_all source;
               (* Use no_lifecycle version - init/finish managed at coverage level *)
               let outcome =
                 try
@@ -339,12 +393,19 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ~verbose
                  | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
                  | Task.Fail _ -> Format.printf "FAIL\n%!"
                  | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
+              (* Track completion *)
+              all_completed_inputs := source :: !all_completed_inputs;
+              (* Periodic checkpoint save *)
+              if (index + 1) mod checkpoint_config.save_interval = 0 then
+                save_current_checkpoint ();
               { input; source; outcome })
             inputs
         in
         { task_name = T.name; summary = summarize_outcomes task_results })
       tasks
   in
+  (* Final checkpoint save *)
+  save_current_checkpoint ();
   (* Finish instrumentation once for the entire coverage run *)
   Instrumentation.Hooks.finish ();
   Instrumentation.Config.close_outputs config;

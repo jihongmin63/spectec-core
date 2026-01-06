@@ -50,15 +50,18 @@ module type HANDLER = sig
   val finish : unit -> unit
 end
 
-(* Extended handler that can export collected data programmatically.
+(* Extended handler that can export and restore collected data.
    Use this when backends need structured access to instrumentation results
-   instead of just file/stdout output. *)
+   instead of just file/stdout output.
+   - get_result: export current state for programmatic access or checkpointing
+   - restore: reload state from a previous result (for checkpoint resume) *)
 module type HANDLER_WITH_DATA = sig
   include HANDLER
 
   type result
 
   val get_result : unit -> result
+  val restore : result -> unit
 end
 
 (* Handler state - set by runner before interpretation *)

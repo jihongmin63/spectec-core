@@ -220,19 +220,40 @@ end
 
 (* Result type for programmatic access *)
 type result = {
-  prems_attempted : (region * string) list;
-  prems_succeeded : (region * string) list;
+  prems_attempted : ((region * string) * int) list; (* key * count *)
+  prems_succeeded : ((region * string) * int) list; (* key * count *)
   total_prems : int;
 }
 
 let get_result () =
   {
-    prems_attempted =
-      State.prems_attempted |> Hashtbl.to_seq_keys |> List.of_seq;
-    prems_succeeded =
-      State.prems_succeeded |> Hashtbl.to_seq_keys |> List.of_seq;
+    prems_attempted = State.prems_attempted |> Hashtbl.to_seq |> List.of_seq;
+    prems_succeeded = State.prems_succeeded |> Hashtbl.to_seq |> List.of_seq;
     total_prems = !State.total_prems;
   }
+
+(* Restore state from a previous result (for checkpoint resume) *)
+let restore result =
+  Hashtbl.clear State.prems_attempted;
+  Hashtbl.clear State.prems_succeeded;
+  List.iter
+    (fun (key, count) -> Hashtbl.replace State.prems_attempted key count)
+    result.prems_attempted;
+  List.iter
+    (fun (key, count) -> Hashtbl.replace State.prems_succeeded key count)
+    result.prems_succeeded;
+  State.total_prems := result.total_prems
+
+(* Handler with data access - implements HANDLER_WITH_DATA signature *)
+module HandlerWithData : Hooks.HANDLER_WITH_DATA with type result = result =
+struct
+  include Handler
+
+  type nonrec result = result
+
+  let get_result = get_result
+  let restore = restore
+end
 
 let make cfg =
   config := cfg;
@@ -249,4 +270,5 @@ let make cfg =
 let make_with_data cfg =
   config := cfg;
   fmt := Output.formatter cfg.output;
-  ((module Handler : Hooks.HANDLER), get_result)
+  ( (module HandlerWithData : Hooks.HANDLER_WITH_DATA with type result = result),
+    get_result )
