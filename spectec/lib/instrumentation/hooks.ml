@@ -50,6 +50,17 @@ module type HANDLER = sig
   val finish : unit -> unit
 end
 
+(* Extended handler that can export collected data programmatically.
+   Use this when backends need structured access to instrumentation results
+   instead of just file/stdout output. *)
+module type HANDLER_WITH_DATA = sig
+  include HANDLER
+
+  type result
+
+  val get_result : unit -> result
+end
+
 (* Handler state - set by runner before interpretation *)
 
 let handlers : (module HANDLER) list ref = ref []

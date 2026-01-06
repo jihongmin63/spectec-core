@@ -8,7 +8,7 @@
    - Full: all relations/functions with coverage markers
 
    Usage:
-     let handler = Branch_coverage.make ~level:Full ()
+     let handler = Branch_coverage.make { level = Full; output = Output.stdout }
 *)
 
 open Common.Source
@@ -19,8 +19,15 @@ open Util
 (* Verbosity levels *)
 type level = Summary | Full
 
+(* Handler configuration *)
+type config = { level : level; output : Output.t }
+
+let default_config = { level = Summary; output = Output.stdout }
+let config = ref default_config
+let fmt = ref Format.std_formatter
+
+(* Runtime state - changes during execution *)
 module State = struct
-  let level = ref Summary
   let all_rules : (string * string) list ref = ref []
   let all_clauses : (string * int) list ref = ref []
   let rules_hit : (string * string, int) Hashtbl.t = Hashtbl.create 64
@@ -113,7 +120,7 @@ module Handler : Hooks.HANDLER = struct
           !State.all_rules
         |> List.length
       in
-      Format.printf "Rules: %d/%d (%.2f%%)\n" hit total_rules
+      Format.fprintf !fmt "Rules: %d/%d (%.2f%%)\n" hit total_rules
         (percentage hit total_rules);
       (* Uncovered rules *)
       let uncovered =
@@ -128,10 +135,10 @@ module Handler : Hooks.HANDLER = struct
           rules_by_rel
       in
       if uncovered <> [] then (
-        Format.printf "\nUncovered rules:\n";
+        Format.fprintf !fmt "\nUncovered rules:\n";
         List.iter
           (fun (rel, rules) ->
-            List.iter (fun r -> Format.printf "  %s/%s\n" rel r) rules)
+            List.iter (fun r -> Format.fprintf !fmt "  %s/%s\n" rel r) rules)
           uncovered));
 
     (* Clauses summary *)
@@ -143,7 +150,7 @@ module Handler : Hooks.HANDLER = struct
           !State.all_clauses
         |> List.length
       in
-      Format.printf "\nClauses: %d/%d (%.2f%%)\n" hit total_clauses
+      Format.fprintf !fmt "\nClauses: %d/%d (%.2f%%)\n" hit total_clauses
         (percentage hit total_clauses);
       (* Uncovered clauses *)
       let uncovered =
@@ -158,10 +165,10 @@ module Handler : Hooks.HANDLER = struct
           clauses_by_func
       in
       if uncovered <> [] then (
-        Format.printf "\nUncovered clauses:\n";
+        Format.fprintf !fmt "\nUncovered clauses:\n";
         List.iter
           (fun (func, idxs) ->
-            List.iter (fun i -> Format.printf "  $%s/%d\n" func i) idxs)
+            List.iter (fun i -> Format.fprintf !fmt "  $%s/%d\n" func i) idxs)
           uncovered))
 
   (* --- Output: Full mode (all branches with execution counts) --- *)
@@ -172,7 +179,7 @@ module Handler : Hooks.HANDLER = struct
 
     (* Relations *)
     if rules_by_rel <> [] then (
-      Format.printf "-- Relations --\n\n";
+      Format.fprintf !fmt "-- Relations --\n\n";
       List.iter
         (fun (rel, rules) ->
           let rules = List.sort compare rules in
@@ -181,7 +188,7 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length rules in
-          Format.printf "relation %s: (%d/%d = %.2f%%)\n" rel hit total
+          Format.fprintf !fmt "relation %s: (%d/%d = %.2f%%)\n" rel hit total
             (percentage hit total);
           List.iter
             (fun r ->
@@ -189,14 +196,14 @@ module Handler : Hooks.HANDLER = struct
                 Hashtbl.find_opt State.rules_hit (rel, r)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  rule %s\n" (format_count count) r)
+              Format.fprintf !fmt "  %s  rule %s\n" (format_count count) r)
             rules;
-          Format.printf "\n")
+          Format.fprintf !fmt "\n")
         rules_by_rel);
 
     (* Functions *)
     if clauses_by_func <> [] then (
-      Format.printf "-- Functions --\n\n";
+      Format.fprintf !fmt "-- Functions --\n\n";
       List.iter
         (fun (func, idxs) ->
           let idxs = List.sort compare idxs in
@@ -205,7 +212,7 @@ module Handler : Hooks.HANDLER = struct
             |> List.length
           in
           let total = List.length idxs in
-          Format.printf "def $%s: (%d/%d = %.2f%%)\n" func hit total
+          Format.fprintf !fmt "def $%s: (%d/%d = %.2f%%)\n" func hit total
             (percentage hit total);
           List.iter
             (fun i ->
@@ -213,18 +220,47 @@ module Handler : Hooks.HANDLER = struct
                 Hashtbl.find_opt State.clauses_hit (func, i)
                 |> Option.value ~default:0
               in
-              Format.printf "  %s  clause %d\n" (format_count count) i)
+              Format.fprintf !fmt "  %s  clause %d\n" (format_count count) i)
             idxs;
-          Format.printf "\n")
+          Format.fprintf !fmt "\n")
         clauses_by_func)
 
   let finish () =
-    Format.printf "\n=== Branch Coverage ===\n\n";
-    match !State.level with
+    Format.fprintf !fmt "\n=== Branch Coverage ===\n\n";
+    match !config.level with
     | Summary -> print_summary ()
     | Full -> print_full ()
 end
 
-let make ?(level = Summary) () : (module Hooks.HANDLER) =
-  State.level := level;
-  (module Handler)
+(* Result type for programmatic access *)
+type result = {
+  all_rules : (string * string) list;
+  all_clauses : (string * int) list;
+  rules_hit : (string * string) list;
+  clauses_hit : (string * int) list;
+}
+
+let get_result () =
+  {
+    all_rules = !State.all_rules;
+    all_clauses = !State.all_clauses;
+    rules_hit = State.rules_hit |> Hashtbl.to_seq_keys |> List.of_seq;
+    clauses_hit = State.clauses_hit |> Hashtbl.to_seq_keys |> List.of_seq;
+  }
+
+let make cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  (module Handler : Hooks.HANDLER)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_coverage = Branch_coverage.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_coverage () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  ((module Handler : Hooks.HANDLER), get_result)

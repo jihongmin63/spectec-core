@@ -8,7 +8,7 @@
    - Full: GCOV-style annotated spec with execution counts
 
    Usage:
-     let handler = Node_coverage_il.make ~level:Full ()
+     let handler = Node_coverage_il.make { level = Full; output = Output.stdout }
 *)
 
 open Common.Source
@@ -18,8 +18,15 @@ open Util
 (* Verbosity levels *)
 type level = Summary | Full
 
+(* Handler configuration *)
+type config = { level : level; output : Output.t }
+
+let default_config = { level = Summary; output = Output.stdout }
+let config = ref default_config
+let fmt = ref Format.std_formatter
+
+(* Runtime state - changes during execution *)
 module State = struct
-  let level = ref Summary
   let il_spec : Il.spec ref = ref []
   let prems_attempted : (region * string, int) Hashtbl.t = Hashtbl.create 256
   let prems_succeeded : (region * string, int) Hashtbl.t = Hashtbl.create 256
@@ -96,7 +103,7 @@ module Handler : Hooks.HANDLER = struct
     let attempted = Hashtbl.length State.prems_attempted in
     let total = !State.total_prems in
     if total > 0 then
-      Format.printf
+      Format.fprintf !fmt
         "IL Premises: %d/%d succeeded (%.2f%%), %d/%d attempted (%.2f%%)\n"
         succeeded total
         (percentage succeeded total)
@@ -142,10 +149,10 @@ module Handler : Hooks.HANDLER = struct
           | Il.TypD _ -> ())
         !State.il_spec;
       if !uncovered <> [] then (
-        Format.printf "\nNever succeeded:\n";
+        Format.fprintf !fmt "\nNever succeeded:\n";
         List.iter
           (fun (rel, rule, content) ->
-            Format.printf "  %s/%s:\n    %s\n" rel rule
+            Format.fprintf !fmt "  %s/%s:\n    %s\n" rel rule
               (normalize_whitespace content))
           (List.rev !uncovered)))
 
@@ -162,7 +169,7 @@ module Handler : Hooks.HANDLER = struct
   let print_prem indent prem =
     let count = fmt_count State.prems_attempted (prem_key prem) in
     let content = Il.Print.string_of_prem prem |> normalize_whitespace in
-    Format.printf "%s  %s-- %s\n" count indent content
+    Format.fprintf !fmt "%s  %s-- %s\n" count indent content
 
   let print_prems indent prems =
     List.iter (print_prem indent) prems;
@@ -171,7 +178,7 @@ module Handler : Hooks.HANDLER = struct
     | last :: _ ->
         let succ = get_prem_succeeded (prem_key last) in
         let count = if succ > 0 then Format.sprintf "%4d" succ else "####" in
-        Format.printf "%s  %sSUCCESS\n" count indent
+        Format.fprintf !fmt "%s  %sSUCCESS\n" count indent
     | [] -> ()
 
   let print_full () =
@@ -179,19 +186,19 @@ module Handler : Hooks.HANDLER = struct
       (fun def ->
         match def.it with
         | Il.RelD (id, _, _, rules) ->
-            Format.printf "\nrelation %s:\n" id.it;
+            Format.fprintf !fmt "\nrelation %s:\n" id.it;
             List.iter
               (fun rule ->
                 let rule_id, _, prems = rule.it in
-                Format.printf "      rule %s:\n" rule_id.it;
+                Format.fprintf !fmt "      rule %s:\n" rule_id.it;
                 print_prems "    " prems)
               rules
         | Il.DecD (id, _, _, _, clauses) ->
-            Format.printf "\ndef $%s:\n" id.it;
+            Format.fprintf !fmt "\ndef $%s:\n" id.it;
             List.iteri
               (fun idx clause ->
                 let _, _, prems = clause.it in
-                Format.printf "      clause %d:\n" idx;
+                Format.fprintf !fmt "      clause %d:\n" idx;
                 print_prems "    " prems)
               clauses
         | Il.TypD _ -> ())
@@ -201,8 +208,8 @@ module Handler : Hooks.HANDLER = struct
 
   let finish () =
     if !State.total_prems > 0 then (
-      Format.printf "\n=== IL Node Coverage ===\n\n";
-      match !State.level with
+      Format.fprintf !fmt "\n=== IL Node Coverage ===\n\n";
+      match !config.level with
       | Summary ->
           print_stats ();
           print_uncovered ()
@@ -211,6 +218,35 @@ module Handler : Hooks.HANDLER = struct
           print_full ())
 end
 
-let make ?(level = Summary) () : (module Hooks.HANDLER) =
-  State.level := level;
-  (module Handler)
+(* Result type for programmatic access *)
+type result = {
+  prems_attempted : (region * string) list;
+  prems_succeeded : (region * string) list;
+  total_prems : int;
+}
+
+let get_result () =
+  {
+    prems_attempted =
+      State.prems_attempted |> Hashtbl.to_seq_keys |> List.of_seq;
+    prems_succeeded =
+      State.prems_succeeded |> Hashtbl.to_seq_keys |> List.of_seq;
+    total_prems = !State.total_prems;
+  }
+
+let make cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  (module Handler : Hooks.HANDLER)
+
+(* Create handler with data getter for programmatic access.
+   Usage:
+     let handler, get_coverage = Node_coverage.make_with_data cfg in
+     Hooks.set_handlers [handler];
+     (* ... run interpreter ... *)
+     let data = get_coverage () in
+*)
+let make_with_data cfg =
+  config := cfg;
+  fmt := Output.formatter cfg.output;
+  ((module Handler : Hooks.HANDLER), get_result)

@@ -99,6 +99,7 @@ let eval_il ?(config = Instrumentation.Config.default) spec_il rid values_input
   Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.IlSpec spec_il);
   let result = eval_il_run spec_il rid values_input filename_target in
   Instrumentation.Hooks.finish ();
+  Instrumentation.Config.close_outputs config;
   result
 
 let eval_sl ?(config = Instrumentation.Config.default) spec_sl rid values_input
@@ -108,6 +109,7 @@ let eval_sl ?(config = Instrumentation.Config.default) spec_sl rid values_input
   Instrumentation.Hooks.init ~spec:(Instrumentation.Hooks.SlSpec spec_sl);
   let result = eval_sl_run spec_sl rid values_input filename_target in
   Instrumentation.Hooks.finish ();
+  Instrumentation.Config.close_outputs config;
   result
 
 (* Coverage suite runners - init once, run all files, finish once *)
@@ -132,6 +134,7 @@ let eval_il_suite ?(config = Instrumentation.Config.default) spec_il
       (0, 0) inputs
   in
   Instrumentation.Hooks.finish ();
+  Instrumentation.Config.close_outputs config;
   { passed; failed; total = List.length inputs }
 
 (* General SL suite runner - takes a list of result-wrapped inputs *)
@@ -151,6 +154,7 @@ let eval_sl_suite ?(config = Instrumentation.Config.default) spec_sl
       (0, 0) inputs
   in
   Instrumentation.Hooks.finish ();
+  Instrumentation.Config.close_outputs config;
   { passed; failed; total = List.length inputs }
 
 (* --- T-spec-based runners --- *)
