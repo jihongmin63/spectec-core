@@ -3,10 +3,13 @@
     A TARGET defines:
     - name: Target identifier (e.g., "p4", "ethereum")
     - spec_dir: Directory containing the target's spec files
-    - tasks: List of tasks that belong to the target *)
+    - test_dir: Directory containing test inputs *)
+
+(** Test expectation: does the test expect success or failure? *)
+type expectation = Positive | Negative
 
 module type TARGET = sig
   val name : string
   val spec_dir : string
-  val tasks : Task.packed_task list
+  val test_dir : string
 end

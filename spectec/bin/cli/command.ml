@@ -61,7 +61,9 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
   Core.Command.basic ~summary
     (let open Core.Command.Let_syntax in
      let open Core.Command.Param in
-     let%map filenames_spec = anon (sequence ("spec files" %: string))
+     let%map filenames_spec =
+       flag "--specs" (listed string)
+         ~doc:"FILES spec files (default: use target spec dir)"
      and sl_mode = flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
      and suite_dir =
        flag "--suite" (optional string) ~doc:"DIR run on test suite"
@@ -70,6 +72,11 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
      fun () ->
        let open Runner in
        let run () =
+         let filenames_spec =
+           match filenames_spec with
+           | [] -> collect_spec_files T.Target.spec_dir
+           | files -> files
+         in
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
          match suite_dir with
@@ -77,7 +84,7 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
              run_single (module T) ~config ~sl_mode ~spec_il input;
              Ok ()
          | Some dir ->
-             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect dir);
+             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect ~dir ());
              Ok ()
        in
        match run () with
@@ -85,74 +92,84 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
        | Error e ->
            Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
 
-(* --- TARGET based commands --- *)
+(* Functor to generate commands for a specific target.
+   Enforces that only tasks belonging to this target can be used. *)
+module Make (Tgt : Runner.Target.TARGET) = struct
+  (* Task signature restricted to this target *)
+  module type TARGET_TASK = Runner.Task.TASK with module Target = Tgt
 
-(* Generate command that runs a specific input spec from a target *)
-let make_run_input (type i) (module T : Runner.Task.TASK with type input = i)
-    ~spec_dir =
-  Core.Command.basic ~summary:("Run " ^ T.name)
-    (let open Core.Command.Let_syntax in
-     let open Core.Command.Param in
-     let%map sl_mode =
-       flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
-     and suite_dir =
-       flag "--suite" (optional string) ~doc:"DIR run on test suite"
-     and config = Cli_args.config_flags in
-     fun () ->
-       let open Runner in
-       let run () =
-         let spec_files = collect_spec_files spec_dir in
-         let* spec = parse_spec_files spec_files in
-         let* spec_il = elaborate spec in
-         let test_dir = Option.value suite_dir ~default:spec_dir in
-         let inputs = T.collect test_dir in
-         run_suite (module T) ~config ~sl_mode ~spec_il inputs;
-         Ok ()
-       in
-       match run () with
-       | Ok () -> ()
-       | Error e ->
-           Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
+  (* Packed task restricted to this target *)
+  type packed_task =
+    | Pack : (module TARGET_TASK with type input = 'a) -> packed_task
 
-(* Generate "run" subcommand group from TARGET *)
-let make_run (module Tgt : Runner.Target.TARGET) =
-  let subcommands =
-    List.map
-      (fun (Runner.Task.Pack (module T)) ->
-        (T.name, make_run_input (module T) ~spec_dir:Tgt.spec_dir))
-      Tgt.tasks
-  in
-  Core.Command.group ~summary:("Run " ^ Tgt.name ^ " interpreter") subcommands
+  (* Convert to generic packed task for Runner *)
+  let to_generic (Pack (module T)) = Runner.Task.Pack (module T)
 
-(* Generate "coverage" command from TARGET - runs all input specs *)
-let make_coverage (module Tgt : Runner.Target.TARGET) =
-  Core.Command.basic
-    ~summary:("Run coverage for all " ^ Tgt.name ^ " input specs")
-    (let open Core.Command.Let_syntax in
-     let open Core.Command.Param in
-     let%map sl_mode =
-       flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
-     and config = Cli_args.config_flags in
-     fun () ->
-       let open Runner in
-       let run () =
-         let spec_files = collect_spec_files Tgt.spec_dir in
-         let* spec = parse_spec_files spec_files in
-         let* spec_il = elaborate spec in
-         let results =
-           run_target_coverage (module Tgt) ~config ~sl_mode spec_il
-         in
-         (* Print summary for each input spec *)
-         List.iter
-           (fun { task_name; summary } ->
-             let passed = Runner.summary_passed summary in
-             let failed = Runner.summary_failed summary in
-             Format.printf "%s: %d/%d passed, %d failed\n" task_name passed
-               summary.total failed)
-           results;
-         Ok ()
-       in
-       match run () with
-       | Ok () -> ()
-       | Error e ->
-           Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error e))
+  (* Generate "coverage" command *)
+  let make_coverage (tasks : packed_task list) =
+    Core.Command.basic
+      ~summary:("Run coverage for all " ^ Tgt.name ^ " input specs")
+      (let open Core.Command.Let_syntax in
+       let open Core.Command.Param in
+       let%map sl_mode =
+         flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
+       and verbose =
+         flag "-v" no_arg ~doc:" verbose: print progress for each test"
+       and show_checkpoint_file =
+         flag "--show-checkpoint" (optional string)
+           ~doc:"FILE decode and display checkpoint contents (no tests run)"
+       and checkpoint_output_file =
+         flag "--checkpoint" (optional string)
+           ~doc:"FILE save checkpoint to file (enables resume)"
+       and checkpoint_resume_file =
+         flag "--resume" (optional string)
+           ~doc:"FILE resume from checkpoint file"
+       and checkpoint_save_interval =
+         flag "--save-interval"
+           (optional_with_default 100 int)
+           ~doc:"N save checkpoint every N tests (default: 100)"
+       and instrumentation_config = Cli_args.config_flags in
+       fun () ->
+         let open Runner in
+         (* Handle --show-checkpoint: decode and display, then exit *)
+         match show_checkpoint_file with
+         | Some file ->
+             let checkpoint = Checkpoint.load ~file in
+             Checkpoint.display_report ~config:instrumentation_config checkpoint
+         | None -> (
+             (* Normal coverage run *)
+             let run () =
+               let spec_files = collect_spec_files Tgt.spec_dir in
+               (* Build checkpoint configuration from CLI flags *)
+               let checkpoint_config : Checkpoint.config =
+                 {
+                   output_file = checkpoint_output_file;
+                   resume_from = checkpoint_resume_file;
+                   save_interval = checkpoint_save_interval;
+                 }
+               in
+               let* spec = parse_spec_files spec_files in
+               let* spec_il = elaborate spec in
+               (* Convert to generic tasks for runner *)
+               let generic_tasks = List.map to_generic tasks in
+               let results =
+                 run_target_coverage ~config:instrumentation_config
+                   ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
+                   generic_tasks
+               in
+               (* Print summary for each input spec *)
+               List.iter
+                 (fun { task_name; summary } ->
+                   let passed = Runner.summary_passed summary in
+                   let failed = Runner.summary_failed summary in
+                   Format.printf "%s: %d/%d passed, %d failed\n" task_name
+                     passed summary.total failed)
+                 results;
+               Ok ()
+             in
+             match run () with
+             | Ok () -> ()
+             | Error error ->
+                 Format.printf "Error:\n  %s\n"
+                   (Runner.Error.string_of_error error)))
+end

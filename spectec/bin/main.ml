@@ -67,11 +67,14 @@ let p4parse_command =
            Format.printf "Roundtrip failed:\n  %s\n"
              (Runner.Error.string_of_error e))
 
+(* Instantiate CLI commands for P4 *)
+module P4_Cmd = Cli.Command.Make (Targets_p4.P4.Target)
+
 let p4_command =
+  let tasks = [ P4_Cmd.Pack (module Targets_p4.P4.Typecheck) ] in
   Core.Command.group ~summary:"P4 commands"
     [
-      ("typecheck", Targets.P4.command);
-      ("coverage", Cli.Command.make_coverage (module Targets_p4.P4.Target));
+      ("typecheck", Targets.P4.command); ("coverage", P4_Cmd.make_coverage tasks);
     ]
 
 let command =

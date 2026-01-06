@@ -201,6 +201,37 @@ module Handler : Hooks.HANDLER = struct
           print_full ())
 end
 
+(* Result type for programmatic access *)
+type result = {
+  instrs_hit : ((region * string) * int) list; (* key * count *)
+  total_instrs : int;
+}
+
+let get_result () =
+  {
+    instrs_hit = State.instrs_hit |> Hashtbl.to_seq |> List.of_seq;
+    total_instrs = !State.total_instrs;
+  }
+
+(* Restore state from a previous result (for checkpoint resume) *)
+let restore result =
+  Hashtbl.clear State.instrs_hit;
+  List.iter
+    (fun (key, count) -> Hashtbl.replace State.instrs_hit key count)
+    result.instrs_hit;
+  State.total_instrs := result.total_instrs
+
+(* Handler with data access - implements HANDLER_WITH_DATA signature *)
+module HandlerWithData : Hooks.HANDLER_WITH_DATA with type result = result =
+struct
+  include Handler
+
+  type nonrec result = result
+
+  let get_result = get_result
+  let restore = restore
+end
+
 let make cfg =
   config := cfg;
   fmt := Output.formatter cfg.output;

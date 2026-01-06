@@ -232,21 +232,43 @@ module Handler : Hooks.HANDLER = struct
     | Full -> print_full ()
 end
 
-(* Result type for programmatic access *)
+(* Result type for programmatic access and checkpoint restoration *)
 type result = {
   all_rules : (string * string) list;
   all_clauses : (string * int) list;
-  rules_hit : (string * string) list;
-  clauses_hit : (string * int) list;
+  rules_hit : ((string * string) * int) list; (* key * count *)
+  clauses_hit : ((string * int) * int) list; (* key * count *)
 }
 
 let get_result () =
   {
     all_rules = !State.all_rules;
     all_clauses = !State.all_clauses;
-    rules_hit = State.rules_hit |> Hashtbl.to_seq_keys |> List.of_seq;
-    clauses_hit = State.clauses_hit |> Hashtbl.to_seq_keys |> List.of_seq;
+    rules_hit = State.rules_hit |> Hashtbl.to_seq |> List.of_seq;
+    clauses_hit = State.clauses_hit |> Hashtbl.to_seq |> List.of_seq;
   }
+
+(* Restore state from a previous result (for checkpoint resume) *)
+let restore result =
+  State.all_rules := result.all_rules;
+  State.all_clauses := result.all_clauses;
+  Hashtbl.clear State.rules_hit;
+  Hashtbl.clear State.clauses_hit;
+  List.iter (fun (k, v) -> Hashtbl.replace State.rules_hit k v) result.rules_hit;
+  List.iter
+    (fun (k, v) -> Hashtbl.replace State.clauses_hit k v)
+    result.clauses_hit
+
+(* Handler with data access - implements HANDLER_WITH_DATA signature *)
+module HandlerWithData : Hooks.HANDLER_WITH_DATA with type result = result =
+struct
+  include Handler
+
+  type nonrec result = result
+
+  let get_result = get_result
+  let restore = restore
+end
 
 let make cfg =
   config := cfg;
@@ -263,4 +285,5 @@ let make cfg =
 let make_with_data cfg =
   config := cfg;
   fmt := Output.formatter cfg.output;
-  ((module Handler : Hooks.HANDLER), get_result)
+  ( (module HandlerWithData : Hooks.HANDLER_WITH_DATA with type result = result),
+    get_result )

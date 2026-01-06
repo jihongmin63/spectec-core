@@ -14,8 +14,8 @@ module Il = Lang.Il
 
 type 'a pipeline_result = ('a, Error.t) result
 
-(** Test expectation: does the test expect success or failure? *)
-type expectation = Positive | Negative
+(* Re-export expectation from Target for convenience *)
+type expectation = Target.expectation = Positive | Negative
 
 (** Test outcome after considering expectation *)
 type test_outcome =
@@ -36,6 +36,9 @@ let compute_outcome expectation result =
 module type TASK = sig
   val name : string
 
+  (* Reference to the full Target module *)
+  module Target : Target.TARGET
+
   type input
 
   val parse :
@@ -43,7 +46,11 @@ module type TASK = sig
 
   val source : input -> string
   val expectation : input -> expectation
-  val collect : string -> input list
+
+  (** Collect inputs from a directory. If dir not provided, uses Target.test_dir
+  *)
+  val collect : ?dir:string -> unit -> input list
+
   val format_output : Il.Value.t list -> string
   val save_output : string -> Il.Value.t list -> unit
 end

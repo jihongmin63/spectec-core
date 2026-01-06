@@ -75,7 +75,7 @@ let run_p4_typecheck ~negative ~sl_mode ~includes ~exclude_dirs ~testdir =
   let spec_files = Files.collect ~suffix:".spectec" spec_dir in
   (* Create inputs with our parameters *)
   let inputs =
-    Targets_p4.P4.Typecheck.collect testdir
+    Targets_p4.P4.Typecheck.collect ~dir:testdir ()
     |> List.map ~f:(fun input ->
            Targets_p4.P4.Typecheck.make ~expect:expectation ~includes
              ~filename:(Targets_p4.P4.Typecheck.source input)

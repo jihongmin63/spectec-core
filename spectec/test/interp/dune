@@ -26,10 +26,9 @@
 
 (rule
  (alias il-pos)
+ (deps il-pos.err il-pos.actual)
  (action
-  (progn
-   (system "cat il-pos.err >&2")
-   (diff il-pos.expected il-pos.actual))))
+  (diff il-pos.expected il-pos.actual)))
 
 ;; IL Negative tests (expect failure, default IL mode)
 
@@ -52,10 +51,9 @@
 
 (rule
  (alias il-neg)
+ (deps il-neg.err il-neg.actual)
  (action
-  (progn
-   (system "cat il-neg.err >&2")
-   (diff il-neg.expected il-neg.actual))))
+  (diff il-neg.expected il-neg.actual)))
 
 ;; SL Positive tests (expect success, with --sl flag)
 
@@ -78,10 +76,9 @@
 
 (rule
  (alias sl-pos)
+ (deps sl-pos.err sl-pos.actual)
  (action
-  (progn
-   (system "cat sl-pos.err >&2")
-   (diff sl-pos.expected sl-pos.actual))))
+  (diff sl-pos.expected sl-pos.actual)))
 
 ;; SL Negative tests (expect failure, with --sl flag)
 
@@ -105,10 +102,9 @@
 
 (rule
  (alias sl-neg)
+ (deps sl-neg.err sl-neg.actual)
  (action
-  (progn
-   (system "cat sl-neg.err >&2")
-   (diff sl-neg.expected sl-neg.actual))))
+  (diff sl-neg.expected sl-neg.actual)))
 
 ;; Combined aliases for running all tests
 
