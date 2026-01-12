@@ -74,7 +74,9 @@ let p4_command =
   let tasks = [ P4_Cmd.Pack (module Targets_p4.P4.Typecheck) ] in
   Core.Command.group ~summary:"P4 commands"
     [
-      ("typecheck", Targets.P4.command); ("coverage", P4_Cmd.make_coverage tasks);
+      ("typecheck", Targets.P4.command);
+      ("coverage", P4_Cmd.make_coverage tasks);
+      ("checkpoint", P4_Cmd.make_checkpoint ());
     ]
 
 let command =
