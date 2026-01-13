@@ -1,13 +1,20 @@
 module Il = Lang.Il
-module Cache = Semantics.Dynamic.Cache
 open Il
 open Common.Source
+open Error
+
+(* Global tid provider for P4 *)
+module GlobalTidProvider = struct
+  let provider : (unit -> string) ref = ref (fun () -> "FRESH__0")
+  let set (p : unit -> string) = provider := p
+  let reset () = provider := fun () -> "FRESH__0"
+  let fresh () = !provider ()
+end
 
 (* dec $fresh_tid() : tid *)
-
-let fresh_tid ~at : (Value.t, Error.t) result =
+let fresh_tid ~at : Value.t result =
   at |> ignore;
-  let tid = Effect.perform Effects.FreshTid () in
+  let tid = GlobalTidProvider.fresh () in
   let typ = VarT ("tid" $ no_region, []) in
   Ok (Il.Value.Make.text typ tid)
 

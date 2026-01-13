@@ -1,6 +1,7 @@
 open Lang.Il
 open Error
 module Error = Error
+module P4 = P4
 
 let ( let* ) = Result.bind
 
