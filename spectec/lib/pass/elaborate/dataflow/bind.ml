@@ -1,4 +1,5 @@
 open Common.Domain
+open Semantics.Env
 open Lang.Il
 open Semantics.Static
 open Semantics.Static.Envs

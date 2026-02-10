@@ -1,4 +1,4 @@
-open Common.Domain
+open Semantics.Env
 open Lang.Xl
 open Lang.Il
 module Hint = Semantics.Static.Rel.Hint
