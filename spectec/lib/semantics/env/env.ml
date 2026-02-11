@@ -1,4 +1,3 @@
-open Common.Source
 open Common.Domain
 
 (* ========== Map-based container ========== *)
@@ -50,7 +49,7 @@ module type VALUE = sig
   val to_string : t -> string
 end
 
-module MakeIdEnv (V : VALUE) = struct
+module MakeIdMap (V : VALUE) = struct
   include IdMap
 
   type t = V.t IdMap.t
@@ -62,6 +61,6 @@ module MakeIdEnv (V : VALUE) = struct
     match find_opt id env with Some value -> value | None -> assert false
 end
 
-module MakeTIdEnv = MakeIdEnv
-module MakeRIdEnv = MakeIdEnv
-module MakeFIdEnv = MakeIdEnv
+module MakeTIdMap = MakeIdMap
+module MakeRIdMap = MakeIdMap
+module MakeFIdMap = MakeIdMap

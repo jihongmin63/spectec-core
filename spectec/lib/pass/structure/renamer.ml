@@ -6,7 +6,7 @@ open Common.Source
 
 (* Helper for renaming identifiers in expressions and instructions. *)
 
-module Rename = MakeIdEnv (Id)
+module Rename = MakeIdMap (Id)
 
 type t = Rename.t
 

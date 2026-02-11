@@ -4,21 +4,21 @@ open Env
 
 (* Identifier type and dimension environment *)
 
-module VEnv = MakeIdEnv (Typ)
+module VEnv = MakeIdMap (Typ)
 
 (* Plain type (EL type) environment *)
 
-module PTEnv = MakeIdEnv (Plaintyp)
+module PTEnv = MakeIdMap (Plaintyp)
 
 (* Type definition environment *)
 
-module TDEnv = MakeTIdEnv (Typdef)
+module TDEnv = MakeTIdMap (Typdef)
 
 (* Relation environment *)
 
-module HEnv = MakeIdEnv (Rel.Hint)
-module REnv = MakeRIdEnv (Rel)
+module HEnv = MakeIdMap (Rel.Hint)
+module REnv = MakeRIdMap (Rel)
 
 (* Definition environment *)
 
-module FEnv = MakeFIdEnv (Func)
+module FEnv = MakeFIdMap (Func)

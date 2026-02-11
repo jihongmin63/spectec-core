@@ -7,7 +7,7 @@ open Lang.Il
 (* Unification environment: a map from original id to its unified id *)
 
 module UEnv = struct
-  include MakeIdEnv (Id)
+  include MakeIdMap (Id)
 
   let unified id uenv =
     uenv |> bindings

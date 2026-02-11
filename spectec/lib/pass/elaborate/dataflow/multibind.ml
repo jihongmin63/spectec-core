@@ -16,7 +16,7 @@ end
 (* Renaming environment *)
 
 module REnv = struct
-  include MakeIdEnv (Ids)
+  include MakeIdMap (Ids)
 
   let init (benv : Bind.BEnv.t) : t =
     Bind.BEnv.fold

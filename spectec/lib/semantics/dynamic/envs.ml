@@ -29,4 +29,4 @@ module VEnv = MakeVarEnv (Il.Value)
 
 (* Type definition environment *)
 
-module TDEnv = MakeTIdEnv (Typdef)
+module TDEnv = MakeTIdMap (Typdef)
