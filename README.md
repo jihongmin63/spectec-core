@@ -14,7 +14,7 @@ SpecTec was originally developed for WebAssembly (Wasm-SpecTec), then adapted/ge
 * Create OCaml switch for version 5.1.0
   Install `dune` version 3.16.1, `bignum` version v0.17.0, `menhir` version 20240715, `core` version v0.17.1, `core_unix` version v0.17.0, and `bisect_ppx` version 2.8.3 via `opam`.
   ```bash
-  opam switch create 5.1.0
+  opam switch create spectec-core 5.1.0
   eval $(opam env)
   opam install dune bignum menhir core core_unix bisect_ppx
   ```
