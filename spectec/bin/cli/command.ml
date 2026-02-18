@@ -41,20 +41,32 @@ let run_single (type i) (module T : Runner.Task.S with type input = i) ~config
 
 (* Run interpreter on a suite of inputs and print results *)
 let run_suite (type i) (module T : Runner.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il (inputs : i list) =
+    ~sl_mode ~spec_il ~verbose (inputs : i list) =
   let results =
-    Runner.run_suite_with_outcomes (module T) ~config ~sl_mode ~spec_il inputs
+    Runner.run_suite_with_outcomes
+      (module T)
+      ~config ~sl_mode ~spec_il ~verbose inputs
   in
-  List.iter
-    (fun Runner.{ source; outcome; _ } ->
-      Format.printf ">>> Running %s on %s\n" T.name source;
-      print_outcome (module T) source outcome)
-    results;
-  let summary = Runner.summarize_outcomes results in
-  let passed = Runner.summary_passed summary in
-  let failed = Runner.summary_failed summary in
-  Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed summary.total
-    failed
+  match verbose with
+  | true ->
+      (* Summary only in verbose mode, as progress was printed *)
+      let summary = Runner.summarize_outcomes results in
+      let passed = Runner.summary_passed summary in
+      let failed = Runner.summary_failed summary in
+      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+        summary.total failed
+  | false ->
+      (* Full report at end if not verbose *)
+      List.iter
+        (fun Runner.{ source; outcome; _ } ->
+          Format.printf ">>> Running %s on %s\n" T.name source;
+          print_outcome (module T) source outcome)
+        results;
+      let summary = Runner.summarize_outcomes results in
+      let passed = Runner.summary_passed summary in
+      let failed = Runner.summary_failed summary in
+      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
+        summary.total failed
 
 (* Generate a CLI command for any CLI_TASK *)
 let make (type i) ~summary (module T : CLI_TASK with type input = i) =
@@ -62,11 +74,14 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
     (let open Core.Command.Let_syntax in
      let open Core.Command.Param in
      let%map filenames_spec =
-       flag "--specs" (listed string)
+       flag "--spec" (listed string)
          ~doc:"FILES spec files (default: use target spec dir)"
      and sl_mode = flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
-     and suite_dir =
-       flag "--suite" (optional string) ~doc:"DIR run on test suite"
+     and verbose = flag "-v" no_arg ~doc:" verbose output"
+     and suite_mode =
+       flag "--suite" no_arg ~doc:" run on test suite (default dir)"
+     and suite_dir_arg =
+       flag "--suite-dir" (optional string) ~doc:"DIR run on test suite in DIR"
      and input = T.cli_flags
      and config = Cli_args.config_flags in
      fun () ->
@@ -79,12 +94,21 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
          in
          let* spec = parse_spec_files filenames_spec in
          let* spec_il = elaborate spec in
-         match suite_dir with
-         | None ->
+         match (suite_mode, suite_dir_arg) with
+         | false, None ->
              run_single (module T) ~config ~sl_mode ~spec_il input;
              Ok ()
-         | Some dir ->
-             run_suite (module T) ~config ~sl_mode ~spec_il (T.collect ~dir ());
+         | true, None ->
+             (* Use task defaults *)
+             run_suite
+               (module T)
+               ~config ~sl_mode ~spec_il ~verbose (T.collect ());
+             Ok ()
+         | _, Some dir ->
+             (* Use explicit directory *)
+             run_suite
+               (module T)
+               ~config ~sl_mode ~spec_il ~verbose (T.collect ~dir ());
              Ok ()
        in
        match run () with
@@ -115,9 +139,6 @@ module Make (Tgt : Runner.Target.S) = struct
          flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
        and verbose =
          flag "-v" no_arg ~doc:" verbose: print progress for each test"
-       and show_checkpoint_file =
-         flag "--show-checkpoint" (optional string)
-           ~doc:"FILE decode and display checkpoint contents (no tests run)"
        and checkpoint_output_file =
          flag "--checkpoint" (optional string)
            ~doc:"FILE save checkpoint to file (enables resume)"
@@ -132,44 +153,62 @@ module Make (Tgt : Runner.Target.S) = struct
        fun () ->
          let open Runner in
          (* Handle --show-checkpoint: decode and display, then exit *)
-         match show_checkpoint_file with
-         | Some file ->
-             let checkpoint = Checkpoint.load ~file in
-             Checkpoint.display_report ~config:instrumentation_config checkpoint
-         | None -> (
-             (* Normal coverage run *)
-             let run () =
-               let spec_files = collect_spec_files Tgt.spec_dir in
-               (* Build checkpoint configuration from CLI flags *)
-               let checkpoint_config : Checkpoint.config =
-                 {
-                   output_file = checkpoint_output_file;
-                   resume_from = checkpoint_resume_file;
-                   save_interval = checkpoint_save_interval;
-                 }
-               in
-               let* spec = parse_spec_files spec_files in
-               let* spec_il = elaborate spec in
-               (* Convert to generic tasks for runner *)
-               let generic_tasks = List.map to_generic tasks in
-               let results =
-                 run_target_coverage ~config:instrumentation_config
-                   ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
-                   generic_tasks
-               in
-               (* Print summary for each input spec *)
-               List.iter
-                 (fun { task_name; summary } ->
-                   let passed = Runner.summary_passed summary in
-                   let failed = Runner.summary_failed summary in
-                   Format.printf "%s: %d/%d passed, %d failed\n" task_name
-                     passed summary.total failed)
-                 results;
-               Ok ()
-             in
-             match run () with
-             | Ok () -> ()
-             | Error error ->
-                 Format.printf "Error:\n  %s\n"
-                   (Runner.Error.string_of_error error)))
+         (* Normal coverage run *)
+         let run () =
+           let spec_files = collect_spec_files Tgt.spec_dir in
+           (* Build checkpoint configuration from CLI flags *)
+           let checkpoint_config : Checkpoint.config =
+             {
+               output_file = checkpoint_output_file;
+               resume_from = checkpoint_resume_file;
+               save_interval = checkpoint_save_interval;
+             }
+           in
+           let* spec = parse_spec_files spec_files in
+           let* spec_il = elaborate spec in
+           (* Convert to generic tasks for runner *)
+           let generic_tasks = List.map to_generic tasks in
+           let results =
+             run_target_coverage ~config:instrumentation_config
+               ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
+               generic_tasks
+           in
+           (* Print summary for each input spec *)
+           List.iter
+             (fun { task_name; summary } ->
+               let passed = Runner.summary_passed summary in
+               let failed = Runner.summary_failed summary in
+               Format.printf "%s: %d/%d passed, %d failed\n" task_name passed
+                 summary.total failed)
+             results;
+           Ok ()
+         in
+         match run () with
+         | Ok () -> ()
+         | Error error ->
+             Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
+
+  let make_checkpoint () =
+    Core.Command.basic ~summary:"Checkpoint utilities"
+      (let open Core.Command.Let_syntax in
+       let open Core.Command.Param in
+       let%map report_from =
+         flag "--report" (required string)
+           ~doc:"FILE decode and display checkpoint contents (no tests run)"
+       and instrumentation_config = Cli_args.config_flags in
+       fun () ->
+         let open Runner in
+         let run () =
+           let spec_files = collect_spec_files Tgt.spec_dir in
+           let* spec = parse_spec_files spec_files in
+           let* spec_il = elaborate spec in
+           let checkpoint = Checkpoint.load ~file:report_from in
+           Checkpoint.display_report ~spec:spec_il
+             ~config:instrumentation_config checkpoint;
+           Ok ()
+         in
+         match run () with
+         | Ok () -> ()
+         | Error error ->
+             Format.printf "Error:\n  %s\n" (Runner.Error.string_of_error error))
 end
