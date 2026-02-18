@@ -1,4 +1,5 @@
 open Common.Domain
+open Semantics.Env
 open Lang.Xl
 open Lang.El
 module El = Lang.El

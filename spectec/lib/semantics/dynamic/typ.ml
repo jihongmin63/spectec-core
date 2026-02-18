@@ -1,6 +1,6 @@
 open Common.Source
 open Common.InternalError
-open Common.Domain
+open Env
 open Lang.Il
 open Typ
 

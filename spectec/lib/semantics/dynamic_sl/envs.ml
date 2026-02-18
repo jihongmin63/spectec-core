@@ -1,4 +1,4 @@
-open Common.Domain
+open Env
 
 (* Environments *)
 
@@ -12,8 +12,8 @@ module TDEnv = Dynamic.Envs.TDEnv
 
 (* Relation environment *)
 
-module REnv = MakeRIdEnv (Rel)
+module REnv = MakeRIdMap (Rel)
 
 (* Definition environment *)
 
-module FEnv = MakeFIdEnv (Func)
+module FEnv = MakeFIdMap (Func)

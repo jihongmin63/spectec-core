@@ -1,5 +1,5 @@
 open Common.Source
-open Common.Domain
+open Semantics.Env
 open Lang.Xl
 module Il = Lang.Il
 module Value = Lang.Il.Value

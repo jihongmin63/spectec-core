@@ -1,4 +1,5 @@
 open Common.Domain
+open Semantics.Env
 open Common.Source
 open Lang
 open Lang.Il

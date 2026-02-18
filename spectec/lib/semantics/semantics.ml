@@ -1,3 +1,4 @@
+module Env = Env
 module Static = Static
 module Dynamic = Dynamic
 module Dynamic_Il = Il

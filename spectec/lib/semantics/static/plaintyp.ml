@@ -1,9 +1,9 @@
 open Lang
 open El
 open El.Print
-open Common.Domain
 open Common.Source
 open Common.InternalError
+open Env
 
 (* Plain type *)
 

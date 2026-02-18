@@ -1,4 +1,5 @@
 open Common.Domain
+open Semantics.Env
 open Lang.Il
 open Semantics.Static
 open Semantics.Static.Envs
@@ -21,7 +22,7 @@ end
 (* Environment for identifier bindings *)
 
 module BEnv = struct
-  include MakeIdEnv (Occ)
+  include MakeIdMap (Occ)
 
   let singleton id typ = add id (Occ.Single (typ, [])) empty
   let flatten (benv : t) : VEnv.t = map Occ.strip benv

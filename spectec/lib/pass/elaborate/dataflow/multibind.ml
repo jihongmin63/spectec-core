@@ -1,4 +1,5 @@
 open Common.Domain
+open Semantics.Env
 open Common.Source
 open Lang
 open Lang.Il
@@ -15,7 +16,7 @@ end
 (* Renaming environment *)
 
 module REnv = struct
-  include MakeIdEnv (Ids)
+  include MakeIdMap (Ids)
 
   let init (benv : Bind.BEnv.t) : t =
     Bind.BEnv.fold
