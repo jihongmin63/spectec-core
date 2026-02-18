@@ -7,5 +7,7 @@ type t =
   | IlInterpError of region * string
   | SlInterpError of region * string
   | P4ParseError of region * string
+  | SpecMismatchError of string * string
+  | DirectoryError of string
 
 val string_of_error : t -> string

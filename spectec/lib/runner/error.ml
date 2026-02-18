@@ -8,6 +8,8 @@ type t =
   | IlInterpError of region * string
   | SlInterpError of region * string
   | P4ParseError of region * string
+  | SpecMismatchError of string * string
+  | DirectoryError of string
 
 let string_of_error' at msg =
   if at = no_region then msg else string_of_region at ^ "Error: " ^ msg
@@ -35,3 +37,7 @@ let string_of_error = function
   | IlInterpError (at, msg) -> string_of_error' at msg
   | SlInterpError (at, msg) -> string_of_error' at msg
   | P4ParseError (at, msg) -> string_of_error' at msg
+  | SpecMismatchError (hash_expected, hash_actual) ->
+      Printf.sprintf "Spec version mismatch: expected spec hash %s but got %s."
+        hash_expected hash_actual
+  | DirectoryError msg -> msg
