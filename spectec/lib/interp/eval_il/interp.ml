@@ -120,7 +120,7 @@ and assign_arg (ctx_caller : Ctx.t) (ctx_callee : Ctx.t) (arg : arg)
     match value.it with
     | FuncV id_f ->
         let func = Ctx.find_func Local ctx_caller id_f in
-        Ctx.add_func Local ctx_callee id func
+        Ctx.add_func ctx_callee id func
     | _ ->
         error id.at
           (F.asprintf "cannot assign a value %s to a definition %s"
@@ -972,7 +972,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       | [] -> []
       | targs ->
           let theta =
-            TDEnv.fold
+            Local.TDEnv.fold
               (fun tid typdef theta ->
                 let tparams, deftyp = typdef in
                 match (tparams, deftyp.it) with
@@ -1007,7 +1007,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
                   (fun tparam targ -> (tparam, ([], PlainT targ $ targ.at)))
                   tparams targs
               in
-              let ctx_local = Ctx.add_typdefs Local ctx_local typdef_bindings in
+              let ctx_local = Ctx.add_typdefs ctx_local typdef_bindings in
               (* Try to match the clause *)
               let ctx_local, args_input, prems, exp_output =
                 match_clause ctx ctx_local clause values_input
@@ -1064,17 +1064,20 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
 
 (* Load definitions into the context *)
 
-let load_def (ctx : Ctx.t) (def : def) : Ctx.t =
+let load_def (l : Ctx.global_loader) (def : def) : unit =
   match def.it with
   | TypD (id, tparams, deftyp) ->
       let typdef = (tparams, deftyp) in
-      Ctx.add_typdef Global ctx id typdef
+      Ctx.load_typdef l id typdef
   | RelD (id, _, inputs, rules) ->
       let rel = (inputs, rules) in
-      Ctx.add_rel Global ctx id rel
+      Ctx.load_rel l id rel
   | DecD (id, tparams, _, _, clauses) ->
       let func = (tparams, clauses) in
-      Ctx.add_func Global ctx id func
+      Ctx.load_func l id func
 
-let load_spec (ctx : Ctx.t) (spec : spec) : Ctx.t =
-  List.fold_left load_def ctx spec
+let load_spec (filename : string) (spec : spec) : Ctx.t =
+  let l = Ctx.create_loader () in
+  List.iter (load_def l) spec;
+  let global_layer = Ctx.freeze l in
+  Ctx.create ~filename global_layer

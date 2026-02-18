@@ -1,3 +1,4 @@
+open Common.Source
 open Common.Domain
 
 (* ========== Map-based container ========== *)
@@ -64,3 +65,33 @@ end
 module MakeTIdMap = MakeIdMap
 module MakeRIdMap = MakeIdMap
 module MakeFIdMap = MakeIdMap
+
+(* ========== Frozen env functors (hashtable-based) ========== *)
+
+module IdHash = struct
+  type t = Id.t
+
+  let equal a b = String.equal a.it b.it
+  let hash a = Hashtbl.hash a.it
+end
+
+module IdHashtbl = Hashtbl.Make (IdHash)
+
+(* The loader is mutable during loading, then we freeze it.
+   We wrap the frozen hashtable to prevent mutation. *)
+module MakeFrozenIdTbl (V : VALUE) = struct
+  type loader = V.t IdHashtbl.t
+  type t = Frozen of V.t IdHashtbl.t
+
+  let create () = IdHashtbl.create 16
+  let add l k v = IdHashtbl.replace l k v
+  let freeze l = Frozen l
+  let find_opt k (Frozen t) = IdHashtbl.find_opt t k
+
+  let find k (Frozen t) =
+    match IdHashtbl.find_opt t k with Some v -> v | None -> assert false
+end
+
+module MakeFrozenTIdTbl = MakeFrozenIdTbl
+module MakeFrozenRIdTbl = MakeFrozenIdTbl
+module MakeFrozenFIdTbl = MakeFrozenIdTbl

@@ -4,18 +4,17 @@ module F = Format
 open Attempt
 open Common.Source
 
-let run_relation (ctx : Ctx.t) (spec : spec) (rid : id') (values : value list) :
-    Ctx.t * value list =
-  let ctx = Interp.load_spec ctx spec in
+let run_relation (filename : string) (spec : spec) (rid : id')
+    (values : value list) : Ctx.t * value list =
+  let ctx = Interp.load_spec filename spec in
   let+ ctx, values = Interp.invoke_rel ctx (rid $ no_region) values in
   (ctx, values)
 
-let init (filename_target : string) : Ctx.t =
+let init () : unit =
   Cache.Cache.clear !Interp.func_cache;
-  Cache.Cache.clear !Interp.rule_cache;
-  Ctx.empty filename_target
+  Cache.Cache.clear !Interp.rule_cache
 
 let run_relation_fresh (spec : spec) (rid : id') (values : value list)
-    (filename_target : string) : Ctx.t * value list =
-  let ctx = init filename_target in
-  run_relation ctx spec rid values
+    (filename : string) : Ctx.t * value list =
+  init ();
+  run_relation filename spec rid values

@@ -22,26 +22,34 @@ type cursor = Global | Local
 
 (* Context *)
 
+(* Global loader (mutable, used during load phase) *)
+
+type global_loader = {
+  tdenv : Global.TDEnv.loader;
+  renv : Global.REnv.loader;
+  fenv : Global.FEnv.loader;
+}
+
 (* Global layer *)
 
 type global = {
-  (* Map from syntax ids to type definitions *)
-  tdenv : TDEnv.t;
-  (* Map from relation ids to relations *)
-  renv : REnv.t;
-  (* Map from function ids to functions *)
-  fenv : FEnv.t;
+  (* Frozen hashtable from syntax ids to type definitions *)
+  tdenv : Global.TDEnv.t;
+  (* Frozen hashtable from relation ids to relations *)
+  renv : Global.REnv.t;
+  (* Frozen hashtable from function ids to functions *)
+  fenv : Global.FEnv.t;
 }
 
 (* Local layer *)
 
 type local = {
   (* Map from syntax ids to type definitions *)
-  tdenv : TDEnv.t;
+  tdenv : Local.TDEnv.t;
   (* Map from function ids to functions *)
-  fenv : FEnv.t;
+  fenv : Local.FEnv.t;
   (* Map from variables to values *)
-  venv : VEnv.t;
+  venv : Local.VEnv.t;
 }
 
 type t = {
@@ -58,7 +66,9 @@ type t = {
 (* Finders for values *)
 
 let find_value_opt (cursor : cursor) (ctx : t) (var : Var.t) : Value.t option =
-  match cursor with Global -> None | Local -> VEnv.find_opt var ctx.local.venv
+  match cursor with
+  | Global -> None
+  | Local -> Local.VEnv.find_opt var ctx.local.venv
 
 let find_value (cursor : cursor) (ctx : t) (var : Var.t) : Value.t =
   match find_value_opt cursor ctx var with
@@ -75,9 +85,9 @@ let bound_value (cursor : cursor) (ctx : t) (var : Var.t) : bool =
 let rec find_typdef_opt (cursor : cursor) (ctx : t) (tid : TId.t) :
     Typdef.t option =
   match cursor with
-  | Global -> TDEnv.find_opt tid ctx.global.tdenv
+  | Global -> Global.TDEnv.find_opt tid ctx.global.tdenv
   | Local -> (
-      match TDEnv.find_opt tid ctx.local.tdenv with
+      match Local.TDEnv.find_opt tid ctx.local.tdenv with
       | Some td -> Some td
       | None -> find_typdef_opt Global ctx tid)
 
@@ -92,7 +102,7 @@ let bound_typdef (cursor : cursor) (ctx : t) (tid : TId.t) : bool =
 (* Finders for rules *)
 
 let find_rel_opt (_cursor : cursor) (ctx : t) (rid : RId.t) : Rel.t option =
-  REnv.find_opt rid ctx.global.renv
+  Global.REnv.find_opt rid ctx.global.renv
 
 let find_rel (cursor : cursor) (ctx : t) (rid : RId.t) : Rel.t =
   match find_rel_opt cursor ctx rid with
@@ -107,9 +117,9 @@ let bound_rel (cursor : cursor) (ctx : t) (rid : RId.t) : bool =
 let rec find_func_opt (cursor : cursor) (ctx : t) (fid : FId.t) : Func.t option
     =
   match cursor with
-  | Global -> FEnv.find_opt fid ctx.global.fenv
+  | Global -> Global.FEnv.find_opt fid ctx.global.fenv
   | Local -> (
-      match FEnv.find_opt fid ctx.local.fenv with
+      match Local.FEnv.find_opt fid ctx.local.fenv with
       | Some func -> Some func
       | None -> find_func_opt Global ctx fid)
 
@@ -130,10 +140,10 @@ let add_value ?(shadow = false) (cursor : cursor) (ctx : t) (var : Var.t)
   (if cursor = Global then
      let id, _ = var in
      error id.at "cannot add value to global context");
-  (if (not shadow) && VEnv.mem var ctx.local.venv then
+  (if (not shadow) && Local.VEnv.mem var ctx.local.venv then
      let id, _ = var in
      error_dup id.at "value" (Var.to_string var));
-  let venv = VEnv.add var value ctx.local.venv in
+  let venv = Local.VEnv.add var value ctx.local.venv in
   if venv == ctx.local.venv then ctx
   else { ctx with local = { ctx.local with venv } }
 
@@ -154,7 +164,7 @@ let add_values ?(shadow = false) (cursor : cursor) (ctx : t)
   (* Build venv in one pass *)
   let venv =
     List.fold_left
-      (fun venv (var, value) -> VEnv.add var value venv)
+      (fun venv (var, value) -> Local.VEnv.add var value venv)
       ctx.local.venv bindings
   in
   (* Optimize: avoid creating new context if venv unchanged *)
@@ -163,78 +173,73 @@ let add_values ?(shadow = false) (cursor : cursor) (ctx : t)
 
 (* Adders for type definitions *)
 
-let add_typdef (cursor : cursor) (ctx : t) (tid : TId.t) (td : Typdef.t) : t =
-  if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it;
-  match cursor with
-  | Global ->
-      let tdenv = TDEnv.add tid td ctx.global.tdenv in
-      { ctx with global = { ctx.global with tdenv } }
-  | Local ->
-      let tdenv = TDEnv.add tid td ctx.local.tdenv in
-      { ctx with local = { ctx.local with tdenv } }
+let add_typdef (ctx : t) (tid : TId.t) (td : Typdef.t) : t =
+  if bound_typdef Local ctx tid then error_dup tid.at "type" tid.it;
+  let tdenv = Local.TDEnv.add tid td ctx.local.tdenv in
+  { ctx with local = { ctx.local with tdenv } }
 
 (* Batch add multiple type definitions efficiently *)
-let add_typdefs (cursor : cursor) (ctx : t) (bindings : (TId.t * Typdef.t) list)
-    : t =
+let add_typdefs (ctx : t) (bindings : (TId.t * Typdef.t) list) : t =
   (* Check for duplicates *)
   List.iter
     (fun (tid, _) ->
-      if bound_typdef cursor ctx tid then error_dup tid.at "type" tid.it)
+      if bound_typdef Local ctx tid then error_dup tid.at "type" tid.it)
     bindings;
-  match cursor with
-  | Global ->
-      let tdenv =
-        List.fold_left
-          (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
-          ctx.global.tdenv bindings
-      in
-      { ctx with global = { ctx.global with tdenv } }
-  | Local ->
-      let tdenv =
-        List.fold_left
-          (fun tdenv (tid, td) -> TDEnv.add tid td tdenv)
-          ctx.local.tdenv bindings
-      in
-      { ctx with local = { ctx.local with tdenv } }
-
-(* Adders for relations *)
-
-let add_rel (cursor : cursor) (ctx : t) (rid : RId.t) (rel : Rel.t) : t =
-  if cursor = Local then error rid.at "cannot add relation to local context";
-  if bound_rel cursor ctx rid then error_dup rid.at "relation" rid.it;
-  let renv = REnv.add rid rel ctx.global.renv in
-  { ctx with global = { ctx.global with renv } }
+  let tdenv =
+    List.fold_left
+      (fun tdenv (tid, td) -> Local.TDEnv.add tid td tdenv)
+      ctx.local.tdenv bindings
+  in
+  { ctx with local = { ctx.local with tdenv } }
 
 (* Adders for functions *)
 
-let add_func (cursor : cursor) (ctx : t) (fid : FId.t) (func : Func.t) : t =
-  if bound_func cursor ctx fid then error_dup fid.at "function" fid.it;
-  match cursor with
-  | Global ->
-      let fenv = FEnv.add fid func ctx.global.fenv in
-      { ctx with global = { ctx.global with fenv } }
-  | Local ->
-      let fenv = FEnv.add fid func ctx.local.fenv in
-      { ctx with local = { ctx.local with fenv } }
+let add_func (ctx : t) (fid : FId.t) (func : Func.t) : t =
+  if bound_func Local ctx fid then error_dup fid.at "function" fid.it;
+  let fenv = Local.FEnv.add fid func ctx.local.fenv in
+  { ctx with local = { ctx.local with fenv } }
 
 (* Constructors *)
 
 (* Constructing an empty context *)
 
 (* Cache empty environments to avoid recreating them *)
-let empty_global_cached : global =
-  { tdenv = TDEnv.empty; renv = REnv.empty; fenv = FEnv.empty }
+let empty_local () : local =
+  {
+    tdenv = Local.TDEnv.empty;
+    fenv = Local.FEnv.empty;
+    venv = Local.VEnv.empty;
+  }
 
-let empty_local_cached : local =
-  { tdenv = TDEnv.empty; fenv = FEnv.empty; venv = VEnv.empty }
+(* Constructing a loader *)
+let create_loader () : global_loader =
+  {
+    tdenv = Global.TDEnv.create ();
+    renv = Global.REnv.create ();
+    fenv = Global.FEnv.create ();
+  }
 
-let empty_global () : global = empty_global_cached
-let empty_local () : local = empty_local_cached
+(* Loader operations *)
 
-let empty (filename : string) : t =
-  let global = empty_global () in
-  let local = empty_local () in
-  { filename; global; local }
+let load_typdef (l : global_loader) (tid : TId.t) (td : Typdef.t) : unit =
+  Global.TDEnv.add l.tdenv tid td
+
+let load_rel (l : global_loader) (rid : RId.t) (rel : Rel.t) : unit =
+  Global.REnv.add l.renv rid rel
+
+let load_func (l : global_loader) (fid : FId.t) (func : Func.t) : unit =
+  Global.FEnv.add l.fenv fid func
+
+(* Freezing a loader into global context *)
+let freeze (l : global_loader) : global =
+  {
+    tdenv = Global.TDEnv.freeze l.tdenv;
+    renv = Global.REnv.freeze l.renv;
+    fenv = Global.FEnv.freeze l.fenv;
+  }
+
+let create ~filename (global : global) : t =
+  { filename; global; local = empty_local () }
 
 (* Constructing a local context *)
 let localize (ctx : t) : t = { ctx with local = empty_local () }
@@ -255,7 +260,8 @@ let sub_opt (ctx : t) (vars : var list) : t option attempt =
     (* Build venv in one pass to avoid intermediate context creations *)
     let venv_sub =
       List.fold_left2
-        (fun venv (id, _typ, iters) value -> VEnv.add (id, iters) value venv)
+        (fun venv (id, _typ, iters) value ->
+          Local.VEnv.add (id, iters) value venv)
         ctx.local.venv vars values
     in
     let ctx_sub = { ctx with local = { ctx.local with venv = venv_sub } } in
@@ -307,7 +313,7 @@ let sub_list (ctx : t) (vars : var list) : t list attempt =
         let venv_sub =
           List.fold_left2
             (fun venv (id, _typ, iters) value ->
-              VEnv.add (id, iters) value venv)
+              Local.VEnv.add (id, iters) value venv)
             ctx.local.venv vars value_batch
         in
         let ctx_sub = { ctx with local = { ctx.local with venv = venv_sub } } in

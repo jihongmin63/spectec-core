@@ -2,18 +2,26 @@ open Env
 
 (* Environments *)
 
-(* Value environment *)
+(* Global layer *)
+module Global = struct
+  (* Type definition environment *)
+  module TDEnv = MakeFrozenTIdTbl (Dynamic.Typdef)
 
-module VEnv = Dynamic.Envs.VEnv
+  (* Relation environment *)
+  module REnv = MakeFrozenRIdTbl (Rel)
 
-(* Type definition environment *)
+  (* Function environment *)
+  module FEnv = MakeFrozenFIdTbl (Func)
+end
 
-module TDEnv = Dynamic.Envs.TDEnv
+(* Local layer *)
+module Local = struct
+  (* Type definition environment *)
+  module TDEnv = Dynamic.Envs.TDEnv
 
-(* Relation environment *)
+  (* Function environment *)
+  module FEnv = MakeFIdMap (Func)
 
-module REnv = MakeRIdMap (Rel)
-
-(* Definition environment *)
-
-module FEnv = MakeFIdMap (Func)
+  (* Value environment *)
+  module VEnv = Dynamic.Envs.VEnv
+end
