@@ -71,7 +71,7 @@ and typcase = nottyp * hint list
 (* Values *)
 
 type vid = int
-and vnote = { vid : vid; typ : typ' }
+and vnote = { vid : vid; vhash : int; typ : typ' }
 
 and value = (value', vnote) note
 and value' =
