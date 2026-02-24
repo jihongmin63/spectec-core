@@ -9,6 +9,7 @@ exception Error of region * string
 val run_relation_fresh :
   string ->
   Builtins.t ->
+  Cache.t ->
   Lang.Il.spec ->
   string ->
   Lang.Il.Value.t list ->

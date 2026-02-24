@@ -6,18 +6,12 @@ open Lang.Sl
 open Envs.Make
 module Hint = Envs.Hint
 module Typ = Envs.Il.Typ
-module Cache = Interp_common.Cache
 open Error
 module F = Format
 
 (* Option monad *)
 
 let ( let* ) = Option.bind
-
-(* Cache *)
-
-let func_cache = ref (Cache.Cache.create ~size:10000)
-let rule_cache = ref (Cache.Cache.create ~size:10000)
 
 (* Assignments *)
 
@@ -1065,16 +1059,14 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
     result
   in
   let result =
-    if Cache.is_cached_rule id.it then
-      let invoke () =
-        match attempt_rules () with
-        | Some (_, values_output) -> Ok values_output
-        | None -> Error ()
-      in
-      match invoke |> Cache.with_cache rule_cache (id.it, values_input) with
-      | Ok values_output -> Some (ctx, values_output)
-      | Error _ -> None
-    else attempt_rules ()
+    let invoke () =
+      match attempt_rules () with
+      | Some (_, values_output) -> Ok values_output
+      | None -> Error ()
+    in
+    match invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input) with
+    | Ok values_output -> Some (ctx, values_output)
+    | Error _ -> None
   in
   Instrumentation.Dispatcher.notify_rel_exit ~id:id.it ~at:id.at
     ~success:(Option.is_some result);
@@ -1151,15 +1143,15 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       Ok v
     in
     let value_output_result =
+      (* Skip caching for generics and HOFs *)
       if
-        (not (Cache.is_cached_func id.it))
-        || targs <> []
+        targs <> []
         || List.exists
              (fun value ->
                match value.it with Lang.Il.FuncV _ -> true | _ -> false)
              values_input
       then invoke ()
-      else invoke |> Cache.with_cache func_cache (id.it, values_input)
+      else invoke |> Cache.with_func_cache ctx.cache (id.it, values_input)
     in
     (ctx, value_output_result |> Result.get_ok)
   in
