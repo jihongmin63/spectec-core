@@ -40,7 +40,7 @@ let eval_il_run (module T : Target.S) spec_il rid values_input filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) result =
   let open T in
   let builtins = Builtins.make builtins in
-  let cache = Cache.make ~is_cached_func ~is_cached_rel in
+  let cache = Cache.make ~is_impure_func ~is_impure_rel ~state_version in
   let run () =
     Eval_Il.run_relation_fresh filename_target builtins cache spec_il rid
       values_input
@@ -54,7 +54,7 @@ let eval_sl_run (module T : Target.S) spec_sl rid values_input filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) result =
   let open T in
   let builtins = Builtins.make builtins in
-  let cache = Cache.make ~is_cached_func ~is_cached_rel in
+  let cache = Cache.make ~is_impure_func ~is_impure_rel ~state_version in
   let run () =
     Eval_Sl.run_relation_fresh filename_target builtins cache spec_sl rid
       values_input

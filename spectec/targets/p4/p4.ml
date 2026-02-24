@@ -56,6 +56,9 @@ let load_excludes dir =
 let is_excluded excludes path =
   List.exists (fun pattern -> contains_substring path pattern) excludes
 
+(* Module-level tid_counter shared with cache as state_generation *)
+let tid_counter = ref 0
+
 (* P4 target specification *)
 module Target : Runner.Target.S = struct
   let name = "p4"
@@ -65,7 +68,7 @@ module Target : Runner.Target.S = struct
 
   let handler f =
     let vid_counter = ref 0 in
-    let tid_counter = ref 0 in
+    tid_counter := 0;
     let fresh_vid () =
       let vid = !vid_counter in
       incr vid_counter;
@@ -80,7 +83,9 @@ module Target : Runner.Target.S = struct
     Builtins.Fresh.GlobalTidProvider.set fresh_tid;
     f ()
 
-  let is_cached_func = function
+  (* Functions/relations known to transitively call fresh_tid but safe to cache.
+     These are cached unconditionally; everything else uses the purity guard. *)
+  let is_impure_func = function
     | "subst_type" | "subst_typeDef" | "specialize_typeDef" | "canon"
     | "free_type" | "is_nominal_typeIR" | "bound" | "gen_constraint_type"
     | "merge_constraint" | "merge_constraint'" | "find_matchings"
@@ -88,11 +93,13 @@ module Target : Runner.Target.S = struct
         true
     | _ -> false
 
-  let is_cached_rel = function
+  let is_impure_rel = function
     | "Sub_expl" | "Sub_expl_canon" | "Sub_expl_canon_neq" | "Sub_impl"
     | "Sub_impl_canon" | "Sub_impl_canon_neq" | "Type_wf" | "Type_alpha" ->
         true
     | _ -> false
+
+  let state_version = tid_counter
 end
 
 (* P4 Typechecker task - extends TASK with make function for CLI *)

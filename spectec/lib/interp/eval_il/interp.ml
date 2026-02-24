@@ -916,9 +916,7 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
       Ok values_output
     in
     let* values_output =
-      if ctx.cache.is_cached_rel id.it then
-        invoke |> Cache.with_cache ctx.cache.rel_cache (id.it, values_input)
-      else invoke ()
+      invoke |> Cache.with_rel_cache ctx.cache (id.it, values_input)
     in
     Ok (ctx, values_output)
   in
@@ -1038,18 +1036,15 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       Ok value_output
     in
     let* value_output =
-      (* Skip caching for non-allowlisted, generics, and HOFs *)
+      (* Skip caching for generics and HOFs *)
       if
-        (not (ctx.cache.is_cached_func id.it))
-        || targs <> []
+        targs <> []
         || List.exists
              (fun value ->
                match value.it with Lang.Il.FuncV _ -> true | _ -> false)
              values_input
       then invoke_func' ()
-      else
-        invoke_func'
-        |> Cache.with_cache ctx.cache.func_cache (id.it, values_input)
+      else invoke_func' |> Cache.with_func_cache ctx.cache (id.it, values_input)
     in
     Ok (ctx, value_output)
   in
