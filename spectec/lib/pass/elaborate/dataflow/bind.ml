@@ -1,10 +1,9 @@
 open Common.Domain
-open Semantics.Env
-open Lang.Il
-open Semantics.Static
-open Semantics.Static.Envs
-open Error
 open Common.Source
+open Lang.Il
+open Envs.Make
+open Ctx
+open Error
 
 (* Binding occurrences of identifiers, singular or multiple (parallel) *)
 

@@ -1,15 +1,13 @@
-open Semantics.Env
+open Common.Source
 open Lang.Xl
 open Lang.Il
-module Hint = Semantics.Static.Rel.Hint
-module Typ = Semantics.Dynamic.Typ
-module Cache = Semantics.Dynamic.Cache
-module Rel = Semantics.Dynamic_Il.Rel
-open Semantics.Dynamic_Il.Envs
+open Envs.Make
+module Hint = Envs.Hint
+module Typ = Envs.Il.Typ
+module Cache = Interp_common.Cache
 open Error
 open Attempt
 module F = Format
-open Common.Source
 
 (* Cache *)
 
@@ -977,7 +975,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       | [] -> []
       | targs ->
           let theta =
-            Local.TDEnv.fold
+            Ctx.TDEnv.fold
               (fun tid typdef theta ->
                 let tparams, deftyp = typdef in
                 match (tparams, deftyp.it) with
