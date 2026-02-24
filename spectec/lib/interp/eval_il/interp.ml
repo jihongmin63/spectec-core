@@ -4,15 +4,9 @@ open Lang.Il
 open Envs.Make
 module Hint = Envs.Hint
 module Typ = Envs.Il.Typ
-module Cache = Interp_common.Cache
 open Error
 open Attempt
 module F = Format
-
-(* Cache *)
-
-let func_cache = ref (Cache.Cache.create ~size:10000)
-let rule_cache = ref (Cache.Cache.create ~size:10000)
 
 (* Assignments *)
 
@@ -922,8 +916,8 @@ and invoke_rel (ctx : Ctx.t) (id : id) (values_input : value list) :
       Ok values_output
     in
     let* values_output =
-      if Cache.is_cached_rule id.it then
-        invoke |> Cache.with_cache rule_cache (id.it, values_input)
+      if ctx.cache.is_cached_rel id.it then
+        invoke |> Cache.with_cache ctx.cache.rel_cache (id.it, values_input)
       else invoke ()
     in
     Ok (ctx, values_output)
@@ -1044,16 +1038,18 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
       Ok value_output
     in
     let* value_output =
-      (* Skip caching for generics and HOFs *)
+      (* Skip caching for non-allowlisted, generics, and HOFs *)
       if
-        (not (Cache.is_cached_func id.it))
+        (not (ctx.cache.is_cached_func id.it))
         || targs <> []
         || List.exists
              (fun value ->
                match value.it with Lang.Il.FuncV _ -> true | _ -> false)
              values_input
       then invoke_func' ()
-      else invoke_func' |> Cache.with_cache func_cache (id.it, values_input)
+      else
+        invoke_func'
+        |> Cache.with_cache ctx.cache.func_cache (id.it, values_input)
     in
     Ok (ctx, value_output)
   in
@@ -1079,9 +1075,9 @@ let load_def (l : Ctx.global_loader) (def : def) : unit =
       let func = (tparams, clauses) in
       Ctx.load_func l id func
 
-let load_spec (filename : string) (builtins : Builtins.t) (spec : spec) : Ctx.t
-    =
+let load_spec (filename : string) (builtins : Builtins.t) (cache : Cache.t)
+    (spec : spec) : Ctx.t =
   let l = Ctx.create_loader () in
   List.iter (load_def l) spec;
   let global_layer = Ctx.freeze l in
-  Ctx.create ~filename builtins global_layer
+  Ctx.create ~filename builtins cache global_layer

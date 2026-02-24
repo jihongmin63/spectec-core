@@ -13,4 +13,6 @@ module type S = sig
   val test_dir : string
   val builtins : (string * Interp.Builtins.Define.t) list
   val handler : (unit -> 'a) -> 'a
+  val is_cached_func : string -> bool
+  val is_cached_rel : string -> bool
 end

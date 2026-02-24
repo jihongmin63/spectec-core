@@ -38,23 +38,29 @@ let structure spec_il : Sl.spec = Structure.struct_spec spec_il
 (* Core IL run function - no init/finish, used by both single and suite runners *)
 let eval_il_run (module T : Target.S) spec_il rid values_input filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) result =
-  let builtins = Builtins.make T.builtins in
+  let open T in
+  let builtins = Builtins.make builtins in
+  let cache = Cache.make ~is_cached_func ~is_cached_rel in
   let run () =
-    Eval_Il.run_relation_fresh filename_target builtins spec_il rid values_input
+    Eval_Il.run_relation_fresh filename_target builtins cache spec_il rid
+      values_input
     |> Result.ok
   in
-  try T.handler run
+  try handler run
   with Eval_Il.Error (at, msg) -> EvalIlError (at, msg) |> Result.error
 
 (* Core SL run function - no init/finish, used by both single and suite runners *)
 let eval_sl_run (module T : Target.S) spec_sl rid values_input filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) result =
-  let builtins = Builtins.make T.builtins in
+  let open T in
+  let builtins = Builtins.make builtins in
+  let cache = Cache.make ~is_cached_func ~is_cached_rel in
   let run () =
-    Eval_Sl.run_relation_fresh filename_target builtins spec_sl rid values_input
+    Eval_Sl.run_relation_fresh filename_target builtins cache spec_sl rid
+      values_input
     |> Result.ok
   in
-  try T.handler run
+  try handler run
   with Eval_Sl.Error (at, msg) -> EvalSlError (at, msg) |> Result.error
 
 (* Convert Static.spec to Handler.spec *)
