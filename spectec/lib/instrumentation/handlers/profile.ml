@@ -196,6 +196,7 @@ module Descriptor : Instrumentation_core.Descriptor.S = struct
         Some
           {
             Instrumentation_core.Descriptor.name;
+            mode;
             handler = make { output };
             output;
           }

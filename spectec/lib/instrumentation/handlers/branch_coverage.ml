@@ -341,7 +341,12 @@ module Descriptor : Instrumentation_core.Descriptor.S = struct
           }
         in
         Some
-          { Instrumentation_core.Descriptor.name; handler = make cfg; output }
+          {
+            Instrumentation_core.Descriptor.name;
+            mode;
+            handler = make cfg;
+            output;
+          }
 
   let checkpoint =
     Some

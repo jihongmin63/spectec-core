@@ -9,5 +9,6 @@ type t =
   | TaskParseError of region * string
   | SpecMismatchError of string * string
   | DirectoryError of string
+  | ConfigError of region * string
 
 val string_of_error : t -> string

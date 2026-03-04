@@ -17,11 +17,14 @@ type checkpoint_ops = {
 (* A configured, active handler — name + handler + its output destination.
    `name` is the descriptor name, surfaced here so callers (e.g. checkpoint)
    can match by name without opening the handler module.
+   `mode` is carried forward so Config.validate_mode can check compatibility
+   without re-opening the descriptor.
    `output` is surfaced so Config.close_outputs can call Output.close generically.
    Note: should only expose things callers need to act on generically after
    handler construction. Everything else can be encapsulated inside each handler. *)
 type active_handler = {
   name : string;
+  mode : [ `IL | `SL | `Both ];
   handler : (module Handler.S);
   output : Output.t;
 }
