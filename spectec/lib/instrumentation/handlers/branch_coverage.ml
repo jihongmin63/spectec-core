@@ -265,6 +265,25 @@ let restore result =
     (fun (k, v) -> Hashtbl.replace State.clauses_hit k v)
     result.clauses_hit
 
+(* Merge two results — used for checkpoint merging *)
+let merge_results r1 r2 =
+  let merge_counts counts1 counts2 =
+    let tbl = Hashtbl.create 256 in
+    let add k v =
+      let existing = Hashtbl.find_opt tbl k |> Option.value ~default:0 in
+      Hashtbl.replace tbl k (existing + v)
+    in
+    List.iter (fun (k, v) -> add k v) counts1;
+    List.iter (fun (k, v) -> add k v) counts2;
+    Hashtbl.to_seq tbl |> List.of_seq
+  in
+  {
+    all_rules = r1.all_rules;
+    all_clauses = r1.all_clauses;
+    rules_hit = merge_counts r1.rules_hit r2.rules_hit;
+    clauses_hit = merge_counts r1.clauses_hit r2.clauses_hit;
+  }
+
 (* Handler with data access - implements HANDLER_WITH_DATA signature *)
 module HandlerWithData :
   Instrumentation_core.Handler.S_with_data with type result = result = struct
@@ -294,3 +313,49 @@ let make_with_data cfg =
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
       with type result = result),
     get_result )
+
+module Descriptor : Instrumentation_core.Descriptor.S = struct
+  let name = "branch-coverage"
+  let mode = `Both
+
+  let params =
+    [
+      Instrumentation_core.Param_utils.level_param;
+      Instrumentation_core.Param_utils.output_param;
+    ]
+
+  let parse alist =
+    match Instrumentation_core.Param_utils.get alist "level" with
+    | None -> None
+    | Some s ->
+        let output =
+          Instrumentation_core.Param_utils.output_of
+            (Instrumentation_core.Param_utils.get alist "output")
+        in
+        let cfg =
+          {
+            level =
+              Instrumentation_core.Param_utils.parse_level ~summary:Summary
+                ~full:Full s;
+            output;
+          }
+        in
+        Some
+          { Instrumentation_core.Descriptor.name; handler = make cfg; output }
+
+  let checkpoint =
+    Some
+      Instrumentation_core.Descriptor.
+        {
+          snapshot = (fun () -> Marshal.to_bytes (get_result ()) []);
+          restore = (fun b -> restore (Marshal.from_bytes b 0));
+          merge =
+            (fun b1 b2 ->
+              Marshal.to_bytes
+                (merge_results (Marshal.from_bytes b1 0)
+                   (Marshal.from_bytes b2 0))
+                []);
+        }
+end
+
+let descriptor : Instrumentation_core.Descriptor.t = (module Descriptor)

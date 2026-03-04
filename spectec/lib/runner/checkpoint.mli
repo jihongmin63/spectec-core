@@ -12,15 +12,12 @@ type config = {
 
 val default_config : config
 
-(* Coverage state from handlers - extensible for new handlers *)
-type coverage = {
-  branch : Instrumentation.Branch_coverage.result option;
-  node_il : Instrumentation.Node_coverage_il.result option;
-  node_sl : Instrumentation.Node_coverage_sl.result option;
-}
+(* Coverage state: dynamic association list of (handler_name, marshaled_state) *)
+type coverage = (string * bytes) list
 
 (* Main checkpoint type - saved/loaded state *)
 type t = {
+  version : int; (* = 2; detect stale checkpoints *)
   spec_hash : string; (* MD5 of concatenated spec file contents *)
   completed_inputs : string list; (* IDs of processed test cases *)
   coverage : coverage;
@@ -58,7 +55,6 @@ val display_report :
   spec:Lang.Il.spec -> config:Instrumentation.Config.t -> t -> unit
 
 (* Merge two checkpoints into a new checkpoint.
-   Merges completed_inputs (union) and coverage data.
-   Returns Error if spec hashes don't match.
-   For now, only merges IL node coverage data. Other coverage types are TODO. *)
+   Merges completed_inputs (union) and coverage data via descriptor checkpoint ops.
+   Returns Error if spec hashes don't match. *)
 val merge : t -> t -> (t, Error.t) result

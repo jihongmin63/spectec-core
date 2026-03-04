@@ -12,20 +12,19 @@ type config = {
 let default_config =
   { output_file = None; resume_from = None; save_interval = 100 }
 
-(* Coverage state from handlers - extensible for new handlers *)
-type coverage = {
-  branch : Instrumentation.Branch_coverage.result option;
-  node_il : Instrumentation.Node_coverage_il.result option;
-  node_sl : Instrumentation.Node_coverage_sl.result option;
-}
+(* Coverage state: dynamic association list of (handler_name, marshaled_state) *)
+type coverage = (string * bytes) list
 
 (* Main checkpoint type - saved/loaded state *)
 type t = {
+  version : int; (* = 2; detect stale checkpoints from format changes *)
   spec_hash : string; (* MD5 of concatenated spec file contents *)
   completed_inputs : string list; (* IDs of processed test cases *)
   coverage : coverage;
   timestamp : float; (* Unix timestamp *)
 }
+
+let current_version = 2
 
 (* ============================================================================
    INTERNAL HELPERS
@@ -48,6 +47,7 @@ let compute_spec_hash spec_files =
 (* Create a new checkpoint with current timestamp *)
 let create ~spec_files ~completed_inputs ~coverage =
   {
+    version = current_version;
     spec_hash = compute_spec_hash spec_files;
     completed_inputs;
     coverage;
@@ -69,18 +69,26 @@ let format_summary checkpoint =
    ============================================================================ *)
 
 (* Load checkpoint from file using Marshal.
-   Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
+   Returns Ok checkpoint if successful, Error if file cannot be loaded or stale format. *)
 let load_from_file ~file =
   try
     let input_channel = open_in_bin file in
     let checkpoint : t = Marshal.from_channel input_channel in
     close_in input_channel;
-    Ok checkpoint
+    if checkpoint.version <> current_version then
+      Error
+        (Error.DirectoryError
+           "Checkpoint format has changed; delete checkpoint file and re-run")
+    else Ok checkpoint
   with
   | Sys_error msg ->
       Error
         (Error.DirectoryError
            (Printf.sprintf "Failed to load checkpoint file '%s': %s" file msg))
+  | Failure _ | Invalid_argument _ ->
+      Error
+        (Error.DirectoryError
+           "Checkpoint format has changed; delete checkpoint file and re-run")
   | e ->
       Error
         (Error.DirectoryError
@@ -104,133 +112,94 @@ let verify_spec checkpoint ~spec_files =
   else Error (Error.SpecMismatchError (checkpoint.spec_hash, current_hash))
 
 (* ============================================================================
+   COVERAGE OPERATIONS — descriptor-driven
+   ============================================================================ *)
+
+(* Capture current coverage state from all handlers that have checkpoint support *)
+let snapshot_coverage () =
+  List.filter_map
+    (fun (module D : Instrumentation.Descriptor.S) ->
+      D.checkpoint
+      |> Option.map (fun (ops : Instrumentation.Descriptor.checkpoint_ops) ->
+             (D.name, ops.snapshot ())))
+    Instrumentation.all_descriptors
+
+(* Restore coverage state from checkpoint into instrumentation handlers *)
+let restore_coverage checkpoint =
+  List.iter
+    (fun (name, data) ->
+      let found =
+        List.find_opt
+          (fun (module D : Instrumentation.Descriptor.S) -> D.name = name)
+          Instrumentation.all_descriptors
+      in
+      match found with
+      | Some (module D) -> (
+          match D.checkpoint with
+          | Some (ops : Instrumentation.Descriptor.checkpoint_ops) ->
+              ops.restore data
+          | None -> ())
+      | None -> ())
+    checkpoint.coverage
+
+(* Merge two coverage structures using each descriptor's merge operation *)
+let merge_coverage c1 c2 =
+  let all_names =
+    List.sort_uniq String.compare (List.map fst c1 @ List.map fst c2)
+  in
+  List.filter_map
+    (fun name ->
+      let ops_opt =
+        match
+          List.find_opt
+            (fun (module D : Instrumentation.Descriptor.S) -> D.name = name)
+            Instrumentation.all_descriptors
+        with
+        | Some (module D : Instrumentation.Descriptor.S) -> D.checkpoint
+        | None -> None
+      in
+      match (ops_opt, List.assoc_opt name c1, List.assoc_opt name c2) with
+      | Some (ops : Instrumentation.Descriptor.checkpoint_ops), Some b1, Some b2
+        ->
+          Some (name, ops.merge b1 b2)
+      | _, Some b, None -> Some (name, b)
+      | _, None, Some b -> Some (name, b)
+      | _ -> None)
+    all_names
+
+(* ============================================================================
    MERGE OPERATIONS
    ============================================================================ *)
 
-(* Merge two IL node coverage results *)
-let merge_node_il_coverage (result1 : Instrumentation.Node_coverage_il.result)
-    (result2 : Instrumentation.Node_coverage_il.result) :
-    Instrumentation.Node_coverage_il.result =
-  (* Helper to merge count lists by summing counts for each key *)
-  let merge_counts counts1 counts2 =
-    let tbl = Hashtbl.create 256 in
-    let add_count key count =
-      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
-      Hashtbl.replace tbl key (existing + count)
-    in
-    List.iter (fun (key, count) -> add_count key count) counts1;
-    List.iter (fun (key, count) -> add_count key count) counts2;
-    Hashtbl.to_seq tbl |> List.of_seq
-  in
-  (* Helper to merge test case lists by union (removing duplicates) *)
-  let merge_test_lists tests1 tests2 =
-    let tbl = Hashtbl.create 256 in
-    (* Union two test ID lists, removing duplicates *)
-    let union_test_ids existing new_ids =
-      List.fold_left
-        (fun existing test_id ->
-          if List.mem test_id existing then existing else test_id :: existing)
-        existing new_ids
-    in
-    let add_tests key test_ids =
-      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:[] in
-      Hashtbl.replace tbl key (union_test_ids existing test_ids)
-    in
-    List.iter (fun (key, test_ids) -> add_tests key test_ids) tests1;
-    List.iter (fun (key, test_ids) -> add_tests key test_ids) tests2;
-    Hashtbl.to_seq tbl |> List.of_seq
-  in
-  {
-    (* Use from first - should be same if spec matches *)
-    Instrumentation.Node_coverage_il.prem_to_uid = result1.prem_to_uid;
-    Instrumentation.Node_coverage_il.uid_to_prem = result1.uid_to_prem;
-    Instrumentation.Node_coverage_il.total_prems = result1.total_prems;
-    Instrumentation.Node_coverage_il.prems_attempted =
-      merge_counts result1.prems_attempted result2.prems_attempted;
-    Instrumentation.Node_coverage_il.prems_succeeded =
-      merge_counts result1.prems_succeeded result2.prems_succeeded;
-    Instrumentation.Node_coverage_il.prem_to_test =
-      merge_test_lists result1.prem_to_test result2.prem_to_test;
-  }
-
-(* Merge two coverage structures.
-   For now, only merges IL node coverage. Other coverage types are TODO. *)
-let merge_coverage coverage1 coverage2 =
-  let node_il =
-    match (coverage1.node_il, coverage2.node_il) with
-    | Some r1, Some r2 -> Some (merge_node_il_coverage r1 r2)
-    | Some r, None | None, Some r -> Some r
-    | None, None -> None
-  in
-  {
-    branch = coverage1.branch;
-    (* TODO: merge branch coverage *)
-    node_il;
-    node_sl = coverage1.node_sl;
-    (* TODO: merge SL node coverage *)
-  }
-
 (* Merge two checkpoints into a new checkpoint.
    - Merges completed_inputs (union)
-   - Merges coverage data (IL node coverage merged, others TODO)
+   - Merges coverage data via descriptor checkpoint ops
    - Uses spec_hash from first checkpoint (they should match)
    - Creates new timestamp *)
 let merge checkpoint1 checkpoint2 =
-  (* Verify spec hashes match *)
   if checkpoint1.spec_hash <> checkpoint2.spec_hash then
     Error
       (Error.SpecMismatchError (checkpoint1.spec_hash, checkpoint2.spec_hash))
   else
-    (* Merge completed inputs (union of both lists, removing duplicates) *)
     let completed_inputs =
-      (* Use string -> unit hashtable to track seen IDs *)
       let seen = Hashtbl.create 256 in
-      (* Add all IDs from first checkpoint *)
       List.iter
         (fun id -> Hashtbl.replace seen id ())
         checkpoint1.completed_inputs;
-      (* Add all IDs from second checkpoint (duplicates automatically handled) *)
       List.iter
         (fun id -> Hashtbl.replace seen id ())
         checkpoint2.completed_inputs;
-      (* Collect all unique IDs into a list *)
       Hashtbl.fold (fun id () seen_list -> id :: seen_list) seen []
     in
-    (* Merge coverage *)
     let coverage = merge_coverage checkpoint1.coverage checkpoint2.coverage in
     Ok
       {
+        version = current_version;
         spec_hash = checkpoint1.spec_hash;
         completed_inputs;
         coverage;
         timestamp = Unix.gettimeofday ();
       }
-
-(* ============================================================================
-   COVERAGE OPERATIONS
-   ============================================================================ *)
-
-(* Capture current coverage state from all instrumentation handlers *)
-let snapshot_coverage () =
-  {
-    branch = Some (Instrumentation.Branch_coverage.get_result ());
-    node_il = Some (Instrumentation.Node_coverage_il.get_result ());
-    node_sl = Some (Instrumentation.Node_coverage_sl.get_result ());
-  }
-
-(* Restore coverage state from checkpoint into instrumentation handlers.
-   This should be called after instrumentation handlers are initialized
-   but before running any tests. *)
-let restore_coverage checkpoint =
-  (match checkpoint.coverage.branch with
-  | Some branch_result -> Instrumentation.Branch_coverage.restore branch_result
-  | None -> ());
-  (match checkpoint.coverage.node_il with
-  | Some node_result -> Instrumentation.Node_coverage_il.restore node_result
-  | None -> ());
-  match checkpoint.coverage.node_sl with
-  | Some node_result -> Instrumentation.Node_coverage_sl.restore node_result
-  | None -> ()
 
 (* ============================================================================
    PUBLIC API
@@ -277,45 +246,28 @@ let display_report ~spec ~(config : Instrumentation.Config.t) checkpoint =
   Format.printf "%s\n\n" (format_summary checkpoint);
   Format.printf "Completed tests: %d\n\n"
     (List.length checkpoint.completed_inputs);
-  (* Use provided config if present, else default to Full/stdout *)
-  let branch_cfg =
-    match config.branch_coverage with
-    | Some cfg -> cfg
-    | None ->
-        Instrumentation.Branch_coverage.
-          { level = Full; output = Instrumentation.Output.stdout }
+  (* Build active_handler list: use user config if present, else default to full/stdout *)
+  let active =
+    List.filter_map
+      (fun (module D : Instrumentation.Descriptor.S) ->
+        match D.checkpoint with
+        | None -> None
+        | Some _ -> (
+            match
+              List.find_opt
+                (fun a -> a.Instrumentation.Descriptor.name = D.name)
+                config
+            with
+            | Some a -> Some a
+            | None -> D.parse [ ("level", Some "full"); ("output", None) ]))
+      Instrumentation.all_descriptors
   in
-  let node_il_cfg =
-    match config.node_coverage with
-    | Some cfg -> cfg
-    | None ->
-        Instrumentation.Node_coverage_il.
-          { level = Full; output = Instrumentation.Output.stdout }
-  in
-  (* Create handlers with configured outputs *)
-  let handlers =
-    [
-      Instrumentation.Branch_coverage.make branch_cfg;
-      Instrumentation.Node_coverage_il.make node_il_cfg;
-      Instrumentation.Node_coverage_sl.make node_il_cfg;
-    ]
-  in
-  (* Register static dependencies from all handlers *)
-  List.iter
-    (fun (module H : Instrumentation.Handler.S) ->
-      List.iter
-        (fun (module M : Instrumentation_static.Static.S) ->
-          Instrumentation_static.Static.register (module M))
-        H.static_dependencies)
-    handlers;
-  (* Initialize Static analysis *)
+  let handlers = Instrumentation.Config.to_handlers active in
   Instrumentation_static.Static.reset_all ();
   Instrumentation_static.Static.init_all
     (Instrumentation_static.Static.IlSpec spec);
   Instrumentation.Dispatcher.set_handlers handlers;
   Instrumentation.Dispatcher.init ~spec:(Instrumentation.Handler.IlSpec spec);
-  (* Restore state from checkpoint data *)
   restore_coverage checkpoint;
-  (* Call finish to print the reports *)
   Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config
+  Instrumentation.Config.close_outputs active
