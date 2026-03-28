@@ -8,13 +8,28 @@ let with_lexbuf name lexbuf start =
   with Parser.Error ->
     error (Lexer.region lexbuf) "syntax error: unexpected token"
 
-let parse_file file =
-  let ic = open_in file in
+let parse_file file : Lang.El.spec result =
   try
-    Fun.protect
-      (fun () -> with_lexbuf file (Lexing.from_channel ic) Parser.spec)
-      ~finally:(fun () -> close_in ic)
-  with Sys_error msg ->
-    error (Source.region_of_file file) ("i/o error: " ^ msg)
+    let ic = open_in file in
+    let spec =
+      Fun.protect
+        (fun () -> with_lexbuf file (Lexing.from_channel ic) Parser.spec)
+        ~finally:(fun () -> close_in ic)
+    in
+    Ok spec
+  with
+  | ParseError e -> Error e
+  | Sys_error msg -> Error (Source.region_of_file file, "i/o error: " ^ msg)
 
-exception Error = ParseError
+let parse_files filenames : Lang.El.spec result =
+  let rec parse_files' acc = function
+    | [] -> Ok (List.concat (List.rev acc))
+    | file :: rest -> (
+        match parse_file file with
+        | Ok spec -> parse_files' (spec :: acc) rest
+        | Error e -> Error e)
+  in
+  parse_files' [] filenames
+
+type error = Error.error
+type 'a result = 'a Error.result

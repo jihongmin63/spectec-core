@@ -16,20 +16,12 @@ let ( let* ) = Result.bind
 (* Transformations *)
 
 let parse_spec_files filenames : El.spec result =
-  let parse_spec_files () =
-    List.concat_map Parse.parse_file filenames |> Result.ok
-  in
-  try parse_spec_files ()
-  with Parse.Error (at, msg) -> ParseError (at, msg) |> Result.error
+  Parse.parse_files filenames
+  |> Result.map_error (fun (at, msg) -> ParseError (at, msg))
 
 let elaborate spec_el : Il.spec result =
-  let elaborate () =
-    Elaborate.elab_spec spec_el
-    |> Result.map_error (fun elab_err_list -> ElaborateError elab_err_list)
-  in
-  try elaborate ()
-  with Elaborate.Error (at, failtraces) ->
-    ElaborateError [ (at, failtraces) ] |> Result.error
+  Elaborate.elab_spec spec_el
+  |> Result.map_error (fun elab_err_list -> ElaborateError elab_err_list)
 
 let structure spec_il : Sl.spec = Structure.struct_spec spec_il
 

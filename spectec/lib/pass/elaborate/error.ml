@@ -2,9 +2,11 @@ open Common.Error
 open Common.Source
 open Common.Attempt
 
-exception ElabError of region * failtrace list
+type single_error = region * failtrace list
+type error = single_error list
+type 'a result = ('a, error) Stdlib.result
 
-type elaboration_error = region * failtrace list
+exception ElabError of single_error
 
 (* Elaboration errors *)
 

@@ -3,7 +3,7 @@ open Common.Source
 type t =
   | ParseError of region * string
   | RoundtripError of region * string
-  | ElaborateError of Pass.Elaborate.elaboration_error list
+  | ElaborateError of Pass.Elaborate.error
   | EvalIlError of region * string
   | EvalSlError of region * string
   | TaskParseError of region * string

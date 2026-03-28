@@ -1,6 +1,9 @@
 open Common.Source
 
-exception ParseError of region * string
+type error = region * string
+type 'a result = ('a, error) Stdlib.result
+
+exception ParseError of error
 
 (* Parser errors *)
 
