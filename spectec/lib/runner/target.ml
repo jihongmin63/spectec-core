@@ -10,12 +10,9 @@
     - state_version: Shared ref incremented by side-effecting builtins *)
 
 module type S = sig
+  include Interp.Target.S
+
   val name : string
   val spec_dir : string
   val test_dir : string
-  val builtins : (string * Interp.Builtins.Define.t) list
-  val handler : (unit -> 'a) -> 'a
-  val is_impure_func : string -> bool
-  val is_impure_rel : string -> bool
-  val state_version : int ref
 end
