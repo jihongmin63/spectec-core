@@ -45,3 +45,19 @@ let all_descriptors : Descriptor.t list =
     Node_coverage_il.descriptor;
     Node_coverage_sl.descriptor;
   ]
+
+let handler_spec_of_static = function
+  | Static.IlSpec s -> Handler.IlSpec s
+  | Static.SlSpec s -> Handler.SlSpec s
+
+let with_session (config : Config.t) (spec_type : Static.spec) (f : unit -> 'a)
+    : 'a =
+  let handlers = Config.to_handlers config in
+  Static.reset_all ();
+  Static.init_all spec_type;
+  Dispatcher.set_handlers handlers;
+  Dispatcher.init ~spec:(handler_spec_of_static spec_type);
+  let result = f () in
+  Dispatcher.finish ();
+  Config.close_outputs config;
+  result

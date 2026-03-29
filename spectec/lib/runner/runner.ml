@@ -38,34 +38,17 @@ let eval_sl_run (module T : Target.S) spec_sl rid values_input filename_target :
   Eval_Sl.run (module T) spec_sl rid values_input filename_target
   |> Result.map_error (fun (at, msg) -> EvalSlError (at, msg))
 
-(* Convert Static.spec to Handler.spec *)
-let handler_spec_of_static = function
-  | Instrumentation.Static.IlSpec s -> Instrumentation.Handler.IlSpec s
-  | Instrumentation.Static.SlSpec s -> Instrumentation.Handler.SlSpec s
-
-(* Shared init/finish lifecycle: register static deps, init handlers, run f, finish *)
-let with_instrumentation config spec_type f =
-  let handlers = Instrumentation.Config.to_handlers config in
-  Instrumentation.Static.reset_all ();
-  Instrumentation.Static.init_all spec_type;
-  Instrumentation.Dispatcher.set_handlers handlers;
-  Instrumentation.Dispatcher.init ~spec:(handler_spec_of_static spec_type);
-  let result = f () in
-  Instrumentation.Dispatcher.finish ();
-  Instrumentation.Config.close_outputs config;
-  result
-
 (* Single-run wrappers that set up handlers, init, run, and finish *)
 let eval_il (module T : Target.S) ?(config = Instrumentation.Config.default)
     spec_il rid values_input filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) result =
-  with_instrumentation config (Instrumentation.Static.IlSpec spec_il)
+  Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
   @@ fun () -> eval_il_run (module T) spec_il rid values_input filename_target
 
 let eval_sl (module T : Target.S) ?(config = Instrumentation.Config.default)
     spec_sl rid values_input filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) result =
-  with_instrumentation config (Instrumentation.Static.SlSpec spec_sl)
+  Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
   @@ fun () -> eval_sl_run (module T) spec_sl rid values_input filename_target
 
 (* Single-run with input spec - includes full init/finish lifecycle *)
@@ -174,7 +157,8 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
         { input; source; outcome })
       inputs
   in
-  with_instrumentation config (Instrumentation.Static.IlSpec spec_il) run
+  Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
+    run
 
 (* Summary stats from suite results - tracks all four outcome types *)
 type suite_summary = {
@@ -303,5 +287,5 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
     save_current_checkpoint ();
     results
   in
-  with_instrumentation config (Instrumentation.Static.IlSpec spec_il)
+  Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
     run_coverage

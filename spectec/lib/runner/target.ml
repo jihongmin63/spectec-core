@@ -1,13 +1,9 @@
-(** Target - Defines a target's configuration.
+(** Target - Extends Interp.Target.S with metadata for test infrastructure.
 
-    A target specifies:
+    Adds to the interpreter config:
     - name: Target identifier (e.g., "p4", "ethereum")
     - spec_dir: Directory containing the target's spec files
-    - test_dir: Directory containing test inputs
-    - builtins: OCaml implementations for library functions
-    - handler: Wrapper that provides global mutable state to runtime
-    - is_impure_func/rel: Functions known to have side effects but safe to cache
-    - state_version: Shared ref incremented by side-effecting builtins *)
+    - test_dir: Directory containing test inputs *)
 
 module type S = sig
   include Interp.Target.S
