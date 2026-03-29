@@ -39,6 +39,9 @@ module type S = sig
   (* Reference to the parent Target. *)
   module Target : Target.S
 
+  (** Directory containing test inputs for this task *)
+  val test_dir : string
+
   type input
 
   (** Parse a string into IL values. *)
@@ -58,8 +61,7 @@ module type S = sig
   (** Get test expectation (Positive/Negative) *)
   val expectation : input -> expectation
 
-  (** Collect inputs from a directory. If dir not provided, uses Target.test_dir
-  *)
+  (** Collect inputs from a directory. If dir not provided, uses test_dir *)
   val collect : ?dir:string -> unit -> input list
 
   val format_output : Il.Value.t list -> string
