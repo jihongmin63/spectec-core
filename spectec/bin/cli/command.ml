@@ -8,6 +8,8 @@ module type CLI_TASK = sig
   val cli_flags : input Core.Command.Param.t
 end
 
+let ( let* ) = Result.bind
+
 (* Collect spec files from a directory - I/O utility *)
 let collect_spec_files spec_dir =
   Sys.readdir spec_dir |> Array.to_list

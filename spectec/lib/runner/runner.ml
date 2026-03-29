@@ -129,6 +129,28 @@ type 'i test_result = {
   outcome : Task.test_outcome;
 }
 
+let print_outcome_tag = function
+  | Task.Pass _ -> Format.printf "PASS\n%!"
+  | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
+  | Task.Fail _ -> Format.printf "FAIL\n%!"
+  | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!"
+
+(* Run one input without lifecycle, catching exceptions.
+   Caller handles progress prefix; this prints outcome tag when verbose. *)
+let run_one_input (type i) (module T : Task.S with type input = i) ~sl_mode
+    ~spec_il ~verbose (input : i) =
+  let source = T.source input in
+  let outcome =
+    try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
+    with exn ->
+      let error =
+        EvalIlError (Common.Source.no_region, Printexc.to_string exn)
+      in
+      Task.compute_outcome (T.expectation input) (Error error)
+  in
+  if verbose then print_outcome_tag outcome;
+  { input; source; outcome }
+
 (* Run suite of inputs and return individual outcomes *)
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
@@ -137,24 +159,9 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
   let run () =
     List.mapi
       (fun idx input ->
-        let source = T.source input in
-        if verbose then Format.printf "[%d/%d] %s... %!" (idx + 1) total source;
-        let outcome =
-          try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
-          with exception_value ->
-            let error =
-              EvalIlError
-                (Common.Source.no_region, Printexc.to_string exception_value)
-            in
-            Task.compute_outcome (T.expectation input) (Error error)
-        in
-        (if verbose then
-           match outcome with
-           | Task.Pass _ -> Format.printf "PASS\n%!"
-           | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-           | Task.Fail _ -> Format.printf "FAIL\n%!"
-           | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!");
-        { input; source; outcome })
+        if verbose then
+          Format.printf "[%d/%d] %s... %!" (idx + 1) total (T.source input);
+        run_one_input (module T) ~sl_mode ~spec_il ~verbose input)
       inputs
   in
   Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
@@ -245,39 +252,19 @@ let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
           let task_results =
             List.mapi
               (fun index input ->
-                let source = T.source input in
                 if verbose then
-                  (* Show absolute progress: [completed+1/total] *)
                   Format.printf "  [%d/%d] %s... %!"
                     (completed_count + index + 1)
-                    total_all source;
-                (* Use no_lifecycle version - init/finish managed at coverage level *)
-                let outcome =
-                  try
-                    run_with_outcome_no_lifecycle
-                      (module T)
-                      ~sl_mode ~spec_il input
-                  with exception_value ->
-                    let error =
-                      EvalIlError
-                        ( Common.Source.no_region,
-                          Printexc.to_string exception_value )
-                    in
-                    Task.compute_outcome (T.expectation input) (Error error)
+                    total_all (T.source input);
+                let result =
+                  run_one_input (module T) ~sl_mode ~spec_il ~verbose input
                 in
-                (if verbose then
-                   match outcome with
-                   | Task.Pass _ -> Format.printf "PASS\n%!"
-                   | Task.ExpectedFail _ -> Format.printf "EXPECTED FAIL\n%!"
-                   | Task.Fail _ -> Format.printf "FAIL\n%!"
-                   | Task.UnexpectedPass _ ->
-                       Format.printf "UNEXPECTED PASS\n%!");
                 (* Track completion *)
-                all_completed_inputs := source :: !all_completed_inputs;
+                all_completed_inputs := result.source :: !all_completed_inputs;
                 (* Periodic checkpoint save *)
                 if (index + 1) mod checkpoint_config.save_interval = 0 then
                   save_current_checkpoint ();
-                { input; source; outcome })
+                result)
               inputs
           in
           { task_name = T.name; summary = summarize_outcomes task_results })

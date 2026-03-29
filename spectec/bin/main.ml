@@ -1,6 +1,7 @@
 open Runner
 
 let version = "0.1"
+let ( let* ) = Result.bind
 
 (* Commands *)
 
