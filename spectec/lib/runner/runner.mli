@@ -18,23 +18,23 @@ val structure : Lang.Il.spec -> Lang.Sl.spec
     These manage the full instrumentation init/finish lifecycle. Use for
     individual runs outside of batch/coverage contexts. *)
 
-val eval_il :
+val eval_il_with_session :
   (module Target.S) ->
   ?config:Instrumentation.Config.t ->
   Lang.Il.spec ->
   string ->
   Lang.Il.Value.t list ->
   string ->
-  (Interp.Eval_Il.Ctx.t * Lang.Il.Value.t list) result
+  (Interp.ctx_il * Lang.Il.Value.t list) result
 
-val eval_sl :
+val eval_sl_with_session :
   (module Target.S) ->
   ?config:Instrumentation.Config.t ->
   Lang.Sl.spec ->
   string ->
   Lang.Il.Value.t list ->
   string ->
-  (Interp.Eval_Sl.Ctx.t * Lang.Il.Value.t list) result
+  (Interp.ctx_sl * Lang.Il.Value.t list) result
 
 (** {1 Task-level interpreters with lifecycle}
 
@@ -46,7 +46,7 @@ val eval_il_with_task :
   ?config:Instrumentation.Config.t ->
   Lang.Il.spec ->
   'i ->
-  (Interp.Eval_Il.Ctx.t * Lang.Il.Value.t list) result
+  (Interp.ctx_il * Lang.Il.Value.t list) result
 
 val eval_sl_with_task :
   (module Task.S with type input = 'i) ->
@@ -54,7 +54,7 @@ val eval_sl_with_task :
   Lang.Il.spec ->
   Lang.Sl.spec ->
   'i ->
-  (Interp.Eval_Sl.Ctx.t * Lang.Il.Value.t list) result
+  (Interp.ctx_sl * Lang.Il.Value.t list) result
 
 (** {1 Outcome-based runners} *)
 

@@ -1,6 +1,5 @@
 open Lang
-module Eval_Il = Interp.Eval_Il
-module Eval_Sl = Interp.Eval_Sl
+open Pass
 module Error = Error
 module Task = Task
 module Target = Target
@@ -16,60 +15,64 @@ let ( let* ) = Result.bind
 (* Transformations *)
 
 let parse_spec_files filenames : El.spec result =
-  Pass.parse_files filenames |> Result.map_error (fun e -> PassError e)
+  parse_files filenames |> Result.map_error (fun e -> PassError e)
 
 let elaborate spec_el : Il.spec result =
-  Pass.elaborate spec_el |> Result.map_error (fun e -> PassError e)
+  elaborate spec_el |> Result.map_error (fun e -> PassError e)
 
 let structure spec_il : Sl.spec = Pass.structure spec_il
 
 (* Interpreters *)
 
-let eval_il_run (module T : Target.S) spec_il rid values_input filename_target :
-    (Eval_Il.Ctx.t * Il.Value.t list) result =
-  Eval_Il.run (module T) spec_il rid values_input filename_target
-  |> Result.map_error (fun e -> InterpError (Interp.EvalIlError e))
+let eval_il (module T : Target.S) spec_il rid values_input filename_target :
+    (Interp.ctx_il * Il.Value.t list) result =
+  Interp.eval_il (module T) spec_il rid values_input filename_target
+  |> Result.map_error (fun e -> InterpError e)
 
-let eval_sl_run (module T : Target.S) spec_sl rid values_input filename_target :
-    (Eval_Sl.Ctx.t * Il.Value.t list) result =
-  Eval_Sl.run (module T) spec_sl rid values_input filename_target
-  |> Result.map_error (fun e -> InterpError (Interp.EvalSlError e))
+let eval_sl (module T : Target.S) spec_sl rid values_input filename_target :
+    (Interp.ctx_sl * Il.Value.t list) result =
+  Interp.eval_sl (module T) spec_sl rid values_input filename_target
+  |> Result.map_error (fun e -> InterpError e)
 
 (* Single-run wrappers that set up handlers, init, run, and finish *)
-let eval_il (module T : Target.S) ?(config = Instrumentation.Config.default)
-    spec_il rid values_input filename_target :
-    (Eval_Il.Ctx.t * Il.Value.t list) result =
+let eval_il_with_session (module T : Target.S)
+    ?(config = Instrumentation.Config.default) spec_il rid values_input
+    filename_target : (Interp.ctx_il * Il.Value.t list) result =
   Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-  @@ fun () -> eval_il_run (module T) spec_il rid values_input filename_target
+  @@ fun () -> eval_il (module T) spec_il rid values_input filename_target
 
-let eval_sl (module T : Target.S) ?(config = Instrumentation.Config.default)
-    spec_sl rid values_input filename_target :
-    (Eval_Sl.Ctx.t * Il.Value.t list) result =
+let eval_sl_with_session (module T : Target.S)
+    ?(config = Instrumentation.Config.default) spec_sl rid values_input
+    filename_target : (Interp.ctx_sl * Il.Value.t list) result =
   Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
-  @@ fun () -> eval_sl_run (module T) spec_sl rid values_input filename_target
+  @@ fun () -> eval_sl (module T) spec_sl rid values_input filename_target
 
 (* Single-run with input spec - includes full init/finish lifecycle *)
 let eval_il_with_task (type input) (module T : Task.S with type input = input)
     ?(config = Instrumentation.Config.default) spec_il (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  eval_il (module T.Target) ~config spec_il relation values (T.source input)
+  eval_il_with_session
+    (module T.Target)
+    ~config spec_il relation values (T.source input)
 
 let eval_sl_with_task (type input) (module T : Task.S with type input = input)
     ?(config = Instrumentation.Config.default) spec_il spec_sl (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  eval_sl (module T.Target) ~config spec_sl relation values (T.source input)
+  eval_sl_with_session
+    (module T.Target)
+    ~config spec_sl relation values (T.source input)
 
 (* Run-only versions - no init/finish, for use in batch/coverage runs *)
 let eval_il_with_task_run (type input)
     (module T : Task.S with type input = input) spec_il (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  eval_il_run (module T.Target) spec_il relation values (T.source input)
+  eval_il (module T.Target) spec_il relation values (T.source input)
 
 let eval_sl_with_task_run (type input)
     (module T : Task.S with type input = input) spec_il spec_sl (input : input)
     =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  eval_sl_run (module T.Target) spec_sl relation values (T.source input)
+  eval_sl (module T.Target) spec_sl relation values (T.source input)
 
 (* --- Higher-level runners using expectation and test_outcome --- *)
 
@@ -140,10 +143,7 @@ let run_one_input (type i) (module T : Task.S with type input = i) ~sl_mode
   let outcome =
     try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
     with exn ->
-      let error =
-        InterpError
-          (Interp.EvalIlError (Common.Source.no_region, Printexc.to_string exn))
-      in
+      let error = UnhandledException (Printexc.to_string exn) in
       Task.compute_outcome (T.expectation input) (Error error)
   in
   if verbose then print_outcome_tag outcome;
