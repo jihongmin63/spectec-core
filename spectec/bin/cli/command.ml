@@ -37,7 +37,9 @@ let print_outcome (type i) (module T : Runner.Task.S with type input = i) source
 let run_single (type i) (module T : Runner.Task.S with type input = i) ~config
     ~sl_mode ~spec_il (input : i) =
   let outcome =
-    Runner.run_with_outcome (module T) ~config ~sl_mode ~spec_il input
+    Runner.run_with_outcome_with_session
+      (module T)
+      ~config ~sl_mode ~spec_il input
   in
   print_outcome (module T) (T.source input) outcome
 

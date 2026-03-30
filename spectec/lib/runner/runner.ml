@@ -48,14 +48,16 @@ let eval_sl_with_session (module T : Target.S)
   @@ fun () -> eval_sl (module T) spec_sl rid values_input filename_target
 
 (* Single-run with input spec - includes full init/finish lifecycle *)
-let eval_il_with_task (type input) (module T : Task.S with type input = input)
+let eval_il_task_with_session (type input)
+    (module T : Task.S with type input = input)
     ?(config = Instrumentation.Config.default) spec_il (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
   eval_il_with_session
     (module T.Target)
     ~config spec_il relation values (T.source input)
 
-let eval_sl_with_task (type input) (module T : Task.S with type input = input)
+let eval_sl_task_with_session (type input)
+    (module T : Task.S with type input = input)
     ?(config = Instrumentation.Config.default) spec_il spec_sl (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
   eval_sl_with_session
@@ -63,14 +65,13 @@ let eval_sl_with_task (type input) (module T : Task.S with type input = input)
     ~config spec_sl relation values (T.source input)
 
 (* Run-only versions - no init/finish, for use in batch/coverage runs *)
-let eval_il_with_task_run (type input)
-    (module T : Task.S with type input = input) spec_il (input : input) =
+let eval_il_task (type input) (module T : Task.S with type input = input)
+    spec_il (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
   eval_il (module T.Target) spec_il relation values (T.source input)
 
-let eval_sl_with_task_run (type input)
-    (module T : Task.S with type input = input) spec_il spec_sl (input : input)
-    =
+let eval_sl_task (type input) (module T : Task.S with type input = input)
+    spec_il spec_sl (input : input) =
   let* relation, values = T.parse_input ~spec:spec_il input in
   eval_sl (module T.Target) spec_sl relation values (T.source input)
 
@@ -78,26 +79,29 @@ let eval_sl_with_task_run (type input)
 
 (* Run single input and compute outcome based on expectation.
    Includes full init/finish lifecycle - use for single runs. *)
-let run_with_outcome (type i) (module T : Task.S with type input = i)
+let run_with_outcome_with_session (type i)
+    (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let result =
     T.Target.handler (fun () ->
         if sl_mode then
           let spec_sl = structure spec_il in
           let* _, values =
-            eval_sl_with_task (module T) ~config spec_il spec_sl input
+            eval_sl_task_with_session (module T) ~config spec_il spec_sl input
           in
           Ok values
         else
-          let* _, values = eval_il_with_task (module T) ~config spec_il input in
+          let* _, values =
+            eval_il_task_with_session (module T) ~config spec_il input
+          in
           Ok values)
   in
   Task.compute_outcome (T.expectation input) result
 
 (* Run single input without init/finish lifecycle.
    For use in batch/coverage runs where init/finish is managed externally. *)
-let run_with_outcome_no_lifecycle (type i)
-    (module T : Task.S with type input = i) ~sl_mode ~spec_il (input : i) =
+let run_with_outcome (type i) (module T : Task.S with type input = i) ~sl_mode
+    ~spec_il (input : i) =
   let test_case_id = T.source input in
   (* Notify handlers of test start *)
   Instrumentation.Dispatcher.notify_test_start ~test_case_id;
@@ -106,12 +110,10 @@ let run_with_outcome_no_lifecycle (type i)
       T.Target.handler (fun () ->
           if sl_mode then
             let spec_sl = structure spec_il in
-            let* _, values =
-              eval_sl_with_task_run (module T) spec_il spec_sl input
-            in
+            let* _, values = eval_sl_task (module T) spec_il spec_sl input in
             Ok values
           else
-            let* _, values = eval_il_with_task_run (module T) spec_il input in
+            let* _, values = eval_il_task (module T) spec_il input in
             Ok values)
     with e ->
       (* Notify handlers of test end on exception *)
@@ -141,7 +143,7 @@ let run_one_input (type i) (module T : Task.S with type input = i) ~sl_mode
     ~spec_il ~verbose (input : i) =
   let source = T.source input in
   let outcome =
-    try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
+    try run_with_outcome (module T) ~sl_mode ~spec_il input
     with exn ->
       let error = UnhandledException (Printexc.to_string exn) in
       Task.compute_outcome (T.expectation input) (Error error)

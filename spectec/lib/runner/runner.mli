@@ -13,42 +13,19 @@ val parse_spec_files : string list -> Lang.El.spec result
 val elaborate : Lang.El.spec -> Lang.Il.spec result
 val structure : Lang.Il.spec -> Lang.Sl.spec
 
-(** {1 Single-run interpreters with lifecycle}
-
-    These manage the full instrumentation init/finish lifecycle. Use for
-    individual runs outside of batch/coverage contexts. *)
-
-val eval_il_with_session :
-  (module Target.S) ->
-  ?config:Instrumentation.Config.t ->
-  Lang.Il.spec ->
-  string ->
-  Lang.Il.Value.t list ->
-  string ->
-  (Interp.ctx_il * Lang.Il.Value.t list) result
-
-val eval_sl_with_session :
-  (module Target.S) ->
-  ?config:Instrumentation.Config.t ->
-  Lang.Sl.spec ->
-  string ->
-  Lang.Il.Value.t list ->
-  string ->
-  (Interp.ctx_sl * Lang.Il.Value.t list) result
-
 (** {1 Task-level interpreters with lifecycle}
 
     Parse input via task, then run the appropriate interpreter. Manage full
     instrumentation lifecycle. *)
 
-val eval_il_with_task :
+val eval_il_task_with_session :
   (module Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
   Lang.Il.spec ->
   'i ->
   (Interp.ctx_il * Lang.Il.Value.t list) result
 
-val eval_sl_with_task :
+val eval_sl_task_with_session :
   (module Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
   Lang.Il.spec ->
@@ -67,7 +44,7 @@ type 'i test_result = {
 
 (** Run a single input and compute outcome based on expectation. Includes full
     instrumentation lifecycle. *)
-val run_with_outcome :
+val run_with_outcome_with_session :
   (module Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
   sl_mode:bool ->

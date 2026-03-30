@@ -39,14 +39,14 @@ let run_with_task (type i) (module T : Runner.Task.S with type input = i)
           | Some input ->
               if sl_mode then
                 let%bind _ =
-                  Runner.eval_sl_with_task
+                  Runner.eval_sl_task_with_session
                     (module T)
                     spec_il (Option.value_exn spec_sl) input
                 in
                 Ok ()
               else
                 let%bind _ =
-                  Runner.eval_il_with_task (module T) spec_il input
+                  Runner.eval_il_task_with_session (module T) spec_il input
                 in
                 Ok ())
     in
