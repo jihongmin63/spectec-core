@@ -33,4 +33,6 @@ let run (module T : Target.S) (spec : spec) (rid : string) (values : value list)
   in
   try T.handler inner with InterpError (at, msg) -> Error (at, msg)
 
+let error_to_string = Error.to_string
+
 module Ctx = Ctx

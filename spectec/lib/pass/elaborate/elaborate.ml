@@ -1694,3 +1694,5 @@ let elab_spec (spec : spec) : Lang.Il.spec Error.result =
 type single_error = Error.single_error
 type error = Error.error
 type 'a result = 'a Error.result
+
+let error_to_string = Error.to_string

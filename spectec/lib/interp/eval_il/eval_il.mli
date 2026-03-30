@@ -6,6 +6,8 @@ end
 
 type error = region * string
 
+val error_to_string : error -> string
+
 val run :
   (module Target.S) ->
   Lang.Il.spec ->

@@ -33,3 +33,5 @@ let parse_files filenames : Lang.El.spec result =
 
 type error = Error.error
 type 'a result = 'a Error.result
+
+let error_to_string = Error.to_string

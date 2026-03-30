@@ -22,3 +22,13 @@ let warn (at : region) (msg : string) = warn at "elab" msg
 
 let check (b : bool) (at : region) (msg : string) : unit =
   if not b then error at msg
+
+(* Formatting *)
+
+let single_error_to_string ((at, failtraces) : single_error) : string =
+  (if at = no_region then "" else string_of_region at ^ "Error:\n")
+  ^ string_of_failtraces ~region_parent:at ~depth:0 failtraces
+
+let to_string (errors : error) : string =
+  let sorted = List.sort (fun (l, _) (r, _) -> compare_region l r) errors in
+  String.concat "\n" (List.map single_error_to_string sorted)
