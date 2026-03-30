@@ -49,7 +49,7 @@ let p4_command =
       ( "parse",
         Cli.Command.make_parse ~summary:"parse a P4 program"
           (module Targets.P4.Cli_task) );
-      ("coverage", P4_Cmd.make_coverage tasks);
+      ("batch", P4_Cmd.make_target_batch tasks);
       ("checkpoint", P4_Cmd.make_checkpoint ());
     ]
 

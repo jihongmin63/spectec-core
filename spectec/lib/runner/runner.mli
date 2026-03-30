@@ -108,7 +108,7 @@ type task_result = { task_name : string; summary : suite_summary }
 
 (** Run coverage across all tasks in a target with checkpoint support.
     Instrumentation lifecycle wraps the entire coverage run. *)
-val run_target_coverage :
+val run_target_batch :
   ?config:Instrumentation.Config.t ->
   ?test_dir:string ->
   checkpoint_config:Checkpoint.config ->

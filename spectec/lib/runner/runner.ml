@@ -196,9 +196,9 @@ let summarize_outcomes results =
 (* Result for one input spec in coverage run *)
 type task_result = { task_name : string; summary : suite_summary }
 
-(* Run coverage across all input specs in a target with checkpoint support.
+(* Run across multiple tasks in the same target with instrumentation and checkpoint support.
    Init/finish lifecycle is managed here - called once for the entire run. *)
-let run_target_coverage ?(config = Instrumentation.Config.default) ?test_dir
+let run_target_batch ?(config = Instrumentation.Config.default) ?test_dir
     ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
     spec_il tasks =
   let run_coverage () =

@@ -175,7 +175,7 @@ module Make (Tgt : Runner.Target.S) = struct
   let to_generic (Pack (module T)) = Runner.Task.Pack (module T)
 
   (* Generate "coverage" command *)
-  let make_coverage (tasks : packed_task list) =
+  let make_target_batch (tasks : packed_task list) =
     Core.Command.basic
       ~summary:("Run coverage for all " ^ Tgt.name ^ " input specs")
       (let open Core.Command.Let_syntax in
@@ -224,7 +224,7 @@ module Make (Tgt : Runner.Target.S) = struct
            (* Convert to generic tasks for runner *)
            let generic_tasks = List.map to_generic tasks in
            let results =
-             run_target_coverage ~config:instrumentation_config ?test_dir
+             run_target_batch ~config:instrumentation_config ?test_dir
                ~checkpoint_config ~verbose ~sl_mode ~spec_files spec_il
                generic_tasks
            in
