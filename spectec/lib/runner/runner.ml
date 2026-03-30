@@ -1,5 +1,4 @@
 open Lang
-open Pass
 module Eval_Il = Interp.Eval_Il
 module Eval_Sl = Interp.Eval_Sl
 module Error = Error
@@ -17,26 +16,24 @@ let ( let* ) = Result.bind
 (* Transformations *)
 
 let parse_spec_files filenames : El.spec result =
-  Parse.parse_files filenames
-  |> Result.map_error (fun (at, msg) -> ParseError (at, msg))
+  Pass.parse_files filenames |> Result.map_error (fun e -> PassError e)
 
 let elaborate spec_el : Il.spec result =
-  Elaborate.elab_spec spec_el
-  |> Result.map_error (fun elab_err_list -> ElaborateError elab_err_list)
+  Pass.elaborate spec_el |> Result.map_error (fun e -> PassError e)
 
-let structure spec_il : Sl.spec = Structure.struct_spec spec_il
+let structure spec_il : Sl.spec = Pass.structure spec_il
 
 (* Interpreters *)
 
 let eval_il_run (module T : Target.S) spec_il rid values_input filename_target :
     (Eval_Il.Ctx.t * Il.Value.t list) result =
   Eval_Il.run (module T) spec_il rid values_input filename_target
-  |> Result.map_error (fun (at, msg) -> EvalIlError (at, msg))
+  |> Result.map_error (fun e -> InterpError (Interp.EvalIlError e))
 
 let eval_sl_run (module T : Target.S) spec_sl rid values_input filename_target :
     (Eval_Sl.Ctx.t * Il.Value.t list) result =
   Eval_Sl.run (module T) spec_sl rid values_input filename_target
-  |> Result.map_error (fun (at, msg) -> EvalSlError (at, msg))
+  |> Result.map_error (fun e -> InterpError (Interp.EvalSlError e))
 
 (* Single-run wrappers that set up handlers, init, run, and finish *)
 let eval_il (module T : Target.S) ?(config = Instrumentation.Config.default)
@@ -144,7 +141,8 @@ let run_one_input (type i) (module T : Task.S with type input = i) ~sl_mode
     try run_with_outcome_no_lifecycle (module T) ~sl_mode ~spec_il input
     with exn ->
       let error =
-        EvalIlError (Common.Source.no_region, Printexc.to_string exn)
+        InterpError
+          (Interp.EvalIlError (Common.Source.no_region, Printexc.to_string exn))
       in
       Task.compute_outcome (T.expectation input) (Error error)
   in

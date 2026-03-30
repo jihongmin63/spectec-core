@@ -2,7 +2,7 @@ open Common.Source
 open Common.Attempt
 
 type single_error = region * failtrace list
-type error = single_error list
+type error
 type 'a result = ('a, error) Stdlib.result
 
 module Fresh : sig

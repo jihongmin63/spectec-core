@@ -1,12 +1,10 @@
 open Common.Source
 
 type t =
-  | ParseError of region * string
-  | RoundtripError of region * string
-  | ElaborateError of Pass.Elaborate.error
-  | EvalIlError of region * string
-  | EvalSlError of region * string
+  | PassError of Pass.error
+  | InterpError of Interp.error
   | TaskParseError of region * string
+  | RoundtripError of region * string
   | SpecMismatchError of string * string
   | DirectoryError of string
   | ConfigError of region * string

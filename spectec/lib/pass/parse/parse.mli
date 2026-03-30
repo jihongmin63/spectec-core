@@ -1,4 +1,4 @@
-type error = Common.Source.region * string
+type error
 type 'a result = ('a, error) Stdlib.result
 
 val parse_file : string -> Lang.El.spec result
