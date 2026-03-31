@@ -1,4 +1,4 @@
-open Runner
+open Spectec
 
 let version = "0.1"
 let ( let* ) = Result.bind
@@ -19,7 +19,7 @@ let elab_command =
        match elaborate_result with
        | Ok spec_il ->
            Format.printf "%s\n" (Lang.Il.Print.string_of_spec spec_il)
-       | Error e -> Format.printf "%s\n" (Runner.Error.string_of_error e))
+       | Error e -> Format.printf "%s\n" (Error.string_of_error e))
 
 let structure_command =
   Core.Command.basic ~summary:"structure a spec"
@@ -36,7 +36,7 @@ let structure_command =
        match structure_result with
        | Ok spec_sl ->
            Format.printf "%s\n" (Lang.Sl.Print.string_of_spec spec_sl)
-       | Error e -> Format.printf "%s\n" (Runner.Error.string_of_error e))
+       | Error e -> Format.printf "%s\n" (Error.string_of_error e))
 
 (* Instantiate CLI commands for P4 *)
 module P4_Cmd = Cli.Command.Make (Targets_p4.P4.Target)

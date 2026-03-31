@@ -1,13 +1,4 @@
 (library
  (name runner)
  (public_name spectec.runner)
- (libraries
-  core
-  unix
-  spectec.common
-  spectec.lang
-  spectec.pass
-  spectec.interp
-  spectec.instrumentation)
- (preprocess
-  (pps ppx_let)))
+ (libraries spectec spectec.instrumentation unix))

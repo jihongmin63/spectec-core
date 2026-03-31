@@ -26,14 +26,17 @@ type t = {
 
 (* Load checkpoint from file using Marshal.
    Returns Ok checkpoint if successful, Error if file cannot be loaded. *)
-val load_from_file : file:string -> (t, Error.t) result
+val load_from_file : file:string -> (t, Spectec.Error.t) result
 
 (* Save checkpoint to file using Marshal *)
 val save_to_file : file:string -> t -> unit
 
 (* Load and verify checkpoint from file *)
 val verify_and_load :
-  file:string -> spec_files:string list -> verbose:bool -> (t, Error.t) result
+  file:string ->
+  spec_files:string list ->
+  verbose:bool ->
+  (t, Spectec.Error.t) result
 
 (* Filter out already-completed inputs *)
 val filter_remaining : t -> 'a list -> get_id:('a -> string) -> 'a list
@@ -57,4 +60,4 @@ val display_report :
 (* Merge two checkpoints into a new checkpoint.
    Merges completed_inputs (union) and coverage data via descriptor checkpoint ops.
    Returns Error if spec hashes don't match. *)
-val merge : t -> t -> (t, Error.t) result
+val merge : t -> t -> (t, Spectec.Error.t) result

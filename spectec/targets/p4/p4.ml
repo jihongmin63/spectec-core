@@ -60,7 +60,7 @@ let is_excluded excludes path =
 let tid_counter = ref 0
 
 (* P4 target specification *)
-module Target : Runner.Target.S = struct
+module Target : Spectec.Target.S = struct
   let name = "p4"
   let spec_dir = "examples/p4-concrete"
   let builtins = Builtins.builtins
@@ -112,7 +112,7 @@ module Typecheck = struct
   type input = {
     includes : string list;
     filename : string;
-    expect : Runner.Task.expectation;
+    expect : Spectec.Task.expectation;
   }
 
   (* Collect inputs from directory, uses test_dir if not specified *)
@@ -123,8 +123,8 @@ module Typecheck = struct
     |> List.filter (fun filename -> not (is_excluded excludes filename))
     |> List.map (fun filename ->
            let expect =
-             if contains_substring filename "_errors" then Runner.Task.Negative
-             else Runner.Task.Positive
+             if contains_substring filename "_errors" then Spectec.Task.Negative
+             else Spectec.Task.Positive
            in
            { includes = [ includes_dir ]; filename; expect })
 

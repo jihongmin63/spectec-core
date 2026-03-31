@@ -2,7 +2,7 @@
 
 open Core
 
-type expectation = Runner.Task.expectation
+type expectation = Spectec.Task.expectation
 
 type config = {
   name : string;
@@ -29,7 +29,7 @@ let run_safely run filename : float * (unit, Stats.test_error) result =
 
 let run ~(config : config) ~(exclude_set : Exclude.t) ~(filenames : string list)
     ~(expectation : expectation)
-    ~(run : string -> (unit, Runner.Error.t) result) =
+    ~(run : string -> (unit, Spectec.Error.t) result) =
   let total = List.length filenames in
   Format.printf "%s %d files\n\n" config.intro total;
   let stats =
