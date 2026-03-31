@@ -182,3 +182,26 @@ let make cfg =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M : Instrumentation_core.Handler.S)
+
+module Descriptor : Instrumentation_core.Descriptor.S = struct
+  let name = "profile"
+  let mode = `Both
+  let params = [ Instrumentation_core.Param_utils.output_param ]
+
+  let parse alist =
+    match Instrumentation_core.Param_utils.get alist "output" with
+    | None -> None
+    | Some path ->
+        let output = Instrumentation_core.Output.file path in
+        Some
+          {
+            Instrumentation_core.Descriptor.name;
+            mode;
+            handler = make { output };
+            output;
+          }
+
+  let checkpoint = None
+end
+
+let descriptor : Instrumentation_core.Descriptor.t = (module Descriptor)

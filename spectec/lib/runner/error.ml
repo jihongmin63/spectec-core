@@ -10,6 +10,7 @@ type t =
   | TaskParseError of region * string
   | SpecMismatchError of string * string
   | DirectoryError of string
+  | ConfigError of region * string
 
 let string_of_error' at msg =
   if at = no_region then msg else string_of_region at ^ "Error: " ^ msg
@@ -41,3 +42,4 @@ let string_of_error = function
       Printf.sprintf "Spec version mismatch: expected spec hash %s but got %s."
         hash_expected hash_actual
   | DirectoryError msg -> msg
+  | ConfigError (at, msg) -> string_of_error' at msg

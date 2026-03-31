@@ -389,6 +389,43 @@ let restore result =
     result.prem_to_test;
   State.total_prems := result.total_prems
 
+(* Merge two results — used for checkpoint merging *)
+let merge_results r1 r2 =
+  let merge_counts counts1 counts2 =
+    let tbl = Hashtbl.create 256 in
+    let add key count =
+      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:0 in
+      Hashtbl.replace tbl key (existing + count)
+    in
+    List.iter (fun (key, count) -> add key count) counts1;
+    List.iter (fun (key, count) -> add key count) counts2;
+    Hashtbl.to_seq tbl |> List.of_seq
+  in
+  let merge_test_lists tests1 tests2 =
+    let tbl = Hashtbl.create 256 in
+    let union_test_ids existing new_ids =
+      List.fold_left
+        (fun existing test_id ->
+          if List.mem test_id existing then existing else test_id :: existing)
+        existing new_ids
+    in
+    let add key test_ids =
+      let existing = Hashtbl.find_opt tbl key |> Option.value ~default:[] in
+      Hashtbl.replace tbl key (union_test_ids existing test_ids)
+    in
+    List.iter (fun (key, test_ids) -> add key test_ids) tests1;
+    List.iter (fun (key, test_ids) -> add key test_ids) tests2;
+    Hashtbl.to_seq tbl |> List.of_seq
+  in
+  {
+    prem_to_uid = r1.prem_to_uid;
+    uid_to_prem = r1.uid_to_prem;
+    total_prems = r1.total_prems;
+    prems_attempted = merge_counts r1.prems_attempted r2.prems_attempted;
+    prems_succeeded = merge_counts r1.prems_succeeded r2.prems_succeeded;
+    prem_to_test = merge_test_lists r1.prem_to_test r2.prem_to_test;
+  }
+
 (* Expose test case ID setter for use by runner *)
 let set_test_case_id = State.set_test_case_id
 let clear_test_case_id = State.clear_test_case_id
@@ -422,3 +459,54 @@ let make_with_data cfg =
   ( (module HandlerWithData : Instrumentation_core.Handler.S_with_data
       with type result = result),
     get_result )
+
+module Descriptor : Instrumentation_core.Descriptor.S = struct
+  let name = "premise-coverage"
+  let mode = `IL
+
+  let params =
+    [
+      Instrumentation_core.Param_utils.level_param;
+      Instrumentation_core.Param_utils.output_param;
+    ]
+
+  let parse alist =
+    match Instrumentation_core.Param_utils.get alist "level" with
+    | None -> None
+    | Some s ->
+        let output =
+          Instrumentation_core.Param_utils.output_of
+            (Instrumentation_core.Param_utils.get alist "output")
+        in
+        let cfg =
+          {
+            level =
+              Instrumentation_core.Param_utils.parse_level ~summary:Summary
+                ~full:Full s;
+            output;
+          }
+        in
+        Some
+          {
+            Instrumentation_core.Descriptor.name;
+            mode;
+            handler = make cfg;
+            output;
+          }
+
+  let checkpoint =
+    Some
+      Instrumentation_core.Descriptor.
+        {
+          snapshot = (fun () -> Marshal.to_bytes (get_result ()) []);
+          restore = (fun b -> restore (Marshal.from_bytes b 0));
+          merge =
+            (fun b1 b2 ->
+              Marshal.to_bytes
+                (merge_results (Marshal.from_bytes b1 0)
+                   (Marshal.from_bytes b2 0))
+                []);
+        }
+end
+
+let descriptor : Instrumentation_core.Descriptor.t = (module Descriptor)

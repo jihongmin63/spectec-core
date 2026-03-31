@@ -87,6 +87,11 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
      fun () ->
        let open Runner in
        let run () =
+         let* () =
+           Instrumentation.Config.validate_mode config ~sl_mode
+           |> Result.map_error (fun msg ->
+                  Error.ConfigError (Common.Source.no_region, msg))
+         in
          let filenames_spec =
            match filenames_spec with
            | [] -> collect_spec_files T.Target.spec_dir
@@ -195,9 +200,14 @@ module Make (Tgt : Runner.Target.S) = struct
        and instrumentation_config = Cli_args.config_flags in
        fun () ->
          let open Runner in
-         (* Handle --show-checkpoint: decode and display, then exit *)
          (* Normal coverage run *)
          let run () =
+           let* () =
+             Instrumentation.Config.validate_mode instrumentation_config
+               ~sl_mode
+             |> Result.map_error (fun msg ->
+                    Error.ConfigError (Common.Source.no_region, msg))
+           in
            let spec_files = collect_spec_files Tgt.spec_dir in
            (* Build checkpoint configuration from CLI flags *)
            let checkpoint_config : Checkpoint.config =

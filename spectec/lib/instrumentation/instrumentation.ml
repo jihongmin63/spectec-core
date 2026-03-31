@@ -16,6 +16,7 @@
 
 (* Re-export core modules *)
 module Handler = Instrumentation_core.Handler
+module Descriptor = Instrumentation_core.Descriptor
 module Dispatcher = Instrumentation_core.Dispatcher
 module Noop = Instrumentation_core.Noop
 module Output = Instrumentation_core.Output
@@ -34,3 +35,13 @@ module Trace = Instrumentation_handlers.Trace
 
 (* Config is defined locally in this library *)
 module Config = Config
+
+(* *** Add one entry here when adding a new handler *** *)
+let all_descriptors : Descriptor.t list =
+  [
+    Trace.descriptor;
+    Profile.descriptor;
+    Branch_coverage.descriptor;
+    Node_coverage_il.descriptor;
+    Node_coverage_sl.descriptor;
+  ]

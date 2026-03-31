@@ -109,3 +109,42 @@ let make cfg =
   config := cfg;
   fmt := Instrumentation_core.Output.formatter cfg.output;
   (module M : Instrumentation_core.Handler.S)
+
+module Descriptor : Instrumentation_core.Descriptor.S = struct
+  let name = "trace"
+  let mode = `Both
+
+  let params =
+    [
+      Instrumentation_core.Param_utils.level_param;
+      Instrumentation_core.Param_utils.output_param;
+    ]
+
+  let parse alist =
+    match Instrumentation_core.Param_utils.get alist "level" with
+    | None -> None
+    | Some s ->
+        let output =
+          Instrumentation_core.Param_utils.output_of
+            (Instrumentation_core.Param_utils.get alist "output")
+        in
+        let cfg =
+          {
+            level =
+              Instrumentation_core.Param_utils.parse_level ~summary:Summary
+                ~full:Full s;
+            output;
+          }
+        in
+        Some
+          {
+            Instrumentation_core.Descriptor.name;
+            mode;
+            handler = make cfg;
+            output;
+          }
+
+  let checkpoint = None
+end
+
+let descriptor : Instrumentation_core.Descriptor.t = (module Descriptor)
