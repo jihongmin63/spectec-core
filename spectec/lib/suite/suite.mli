@@ -1,4 +1,50 @@
-(** Suite - Test suite infrastructure and batch running. *)
+(** Suite - Test suite infrastructure, batch running, and checkpoint
+    persistence. *)
+
+(** {1 Checkpoint} *)
+
+module Checkpoint : sig
+  type config = {
+    output_file : string option;
+    resume_from : string option;
+    save_interval : int;
+  }
+
+  val default_config : config
+
+  type coverage = (string * bytes) list
+
+  type t = {
+    version : int;
+    spec_hash : string;
+    completed_inputs : string list;
+    coverage : coverage;
+    timestamp : float;
+  }
+
+  val load_from_file : file:string -> (t, Spectec.Error.t) result
+  val save_to_file : file:string -> t -> unit
+
+  val verify_and_load :
+    file:string ->
+    spec_files:string list ->
+    verbose:bool ->
+    (t, Spectec.Error.t) result
+
+  val filter_remaining : t -> 'a list -> get_id:('a -> string) -> 'a list
+  val restore_coverage : t -> unit
+
+  val save :
+    spec_files:string list ->
+    completed_inputs:string list ->
+    output_file:string option ->
+    unit
+
+  val display_report :
+    spec:Lang.Il.spec -> config:Instrumentation.Config.t -> t -> unit
+
+  val merge : t -> t -> (t, Spectec.Error.t) result
+end
 
 (** {1 Outcome-based runners} *)
 
@@ -45,19 +91,16 @@ val summary_failed : suite_summary -> int
 
 (** {1 Presentation} *)
 
-(** Print a test outcome with source and formatted output. *)
 val print_outcome :
   (module Spectec.Task.S with type input = 'i) ->
   string ->
   Spectec.Task.test_outcome ->
   unit
 
-(** Print pass/fail summary line. *)
 val print_summary : suite_summary -> unit
 
 (** {1 Composed run + print} *)
 
-(** Run a single input with lifecycle and print outcome. *)
 val run_and_print_single :
   (module Spectec.Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
@@ -66,7 +109,6 @@ val run_and_print_single :
   'i ->
   unit
 
-(** Run a suite of inputs with lifecycle, print results and summary. *)
 val run_and_print_suite :
   (module Spectec.Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
@@ -80,7 +122,6 @@ val run_and_print_suite :
 
 type task_result = { task_name : string; summary : suite_summary }
 
-(** Run across multiple tasks with instrumentation and checkpoint support. *)
 val run_target_batch :
   ?config:Instrumentation.Config.t ->
   ?test_dir:string ->

@@ -54,17 +54,15 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
     in
     match (suite_mode, suite_dir_arg) with
     | false, None ->
-        Runner.Suite.run_and_print_single
-          (module T)
-          ~config ~sl_mode ~spec_il input;
+        Suite.run_and_print_single (module T) ~config ~sl_mode ~spec_il input;
         Ok ()
     | true, None ->
-        Runner.Suite.run_and_print_suite
+        Suite.run_and_print_suite
           (module T)
           ~config ~sl_mode ~spec_il ~verbose (T.collect ());
         Ok ()
     | _, Some dir ->
-        Runner.Suite.run_and_print_suite
+        Suite.run_and_print_suite
           (module T)
           ~config ~sl_mode ~spec_il ~verbose (T.collect ~dir ());
         Ok ()
@@ -137,7 +135,7 @@ module Make (Tgt : Spectec.Target.S) = struct
       let open Spectec in
       let* () = validate_config config ~sl_mode in
       let* spec_files, spec_il = load_spec ~spec_dir:Tgt.spec_dir [] in
-      let checkpoint_config : Runner.Checkpoint.config =
+      let checkpoint_config : Suite.Checkpoint.config =
         {
           output_file = checkpoint_output_file;
           resume_from = checkpoint_resume_file;
@@ -146,13 +144,13 @@ module Make (Tgt : Spectec.Target.S) = struct
       in
       let generic_tasks = List.map to_generic tasks in
       let results =
-        Runner.Suite.run_target_batch ~config ?test_dir ~checkpoint_config
-          ~verbose ~sl_mode ~spec_files spec_il generic_tasks
+        Suite.run_target_batch ~config ?test_dir ~checkpoint_config ~verbose
+          ~sl_mode ~spec_files spec_il generic_tasks
       in
       List.iter
-        (fun Runner.Suite.{ task_name; summary } ->
-          let passed = Runner.Suite.summary_passed summary in
-          let failed = Runner.Suite.summary_failed summary in
+        (fun Suite.{ task_name; summary } ->
+          let passed = Suite.summary_passed summary in
+          let failed = Suite.summary_failed summary in
           Format.printf "%s: %d/%d passed, %d failed\n" task_name passed
             summary.total failed)
         results;
@@ -170,10 +168,10 @@ module Make (Tgt : Spectec.Target.S) = struct
         run_unit @@ fun () ->
         let* spec_files, spec_il = load_spec ~spec_dir:Tgt.spec_dir [] in
         let* checkpoint =
-          Runner.Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
+          Suite.Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
             ~verbose:true
         in
-        Runner.Checkpoint.display_report ~spec:spec_il ~config checkpoint;
+        Suite.Checkpoint.display_report ~spec:spec_il ~config checkpoint;
         Ok ()
     in
     let merge_command =
@@ -191,15 +189,15 @@ module Make (Tgt : Spectec.Target.S) = struct
         run_unit @@ fun () ->
         let spec_files = Spectec.collect_spec_files Tgt.spec_dir in
         let* checkpoint1 =
-          Runner.Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
+          Suite.Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files
             ~verbose:false
         in
         let* checkpoint2 =
-          Runner.Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
+          Suite.Checkpoint.verify_and_load ~file:checkpoint_file2 ~spec_files
             ~verbose:false
         in
-        let* merged = Runner.Checkpoint.merge checkpoint1 checkpoint2 in
-        Runner.Checkpoint.save_to_file ~file:output_file merged;
+        let* merged = Suite.Checkpoint.merge checkpoint1 checkpoint2 in
+        Suite.Checkpoint.save_to_file ~file:output_file merged;
         Format.printf "Merged checkpoint saved to: %s\n" output_file;
         Format.printf "  Checkpoint 1: %d tests\n"
           (List.length checkpoint1.completed_inputs);
