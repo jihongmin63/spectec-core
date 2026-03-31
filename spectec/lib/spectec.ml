@@ -13,6 +13,12 @@ let ( let* ) = Result.bind
 
 (* --- Pipeline transformations --- *)
 
+let collect_spec_files spec_dir =
+  Sys.readdir spec_dir |> Array.to_list
+  |> List.filter (fun f -> Filename.check_suffix f ".spectec")
+  |> List.sort String.compare
+  |> List.map (Filename.concat spec_dir)
+
 let parse_spec_files filenames =
   Pass.parse_files filenames |> Result.map_error (fun e -> Error.PassError e)
 
@@ -21,21 +27,33 @@ let elaborate spec_el =
 
 let structure spec_il = Pass.structure spec_il
 
+let validate_config config ~sl_mode =
+  Instrumentation.Config.validate_mode config ~sl_mode
+  |> Result.map_error (fun msg ->
+         Error.ConfigError (Common.Source.no_region, msg))
+
 (* --- Unified interpreter entry point --- *)
 
 let eval_task_with_session (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  if sl_mode then
-    let spec_sl = Pass.structure spec_il in
-    Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
-    @@ fun () ->
-    Interp.eval_sl (module T.Target) spec_sl relation values (T.source input)
-    |> Result.map snd
-    |> Result.map_error (fun e -> Error.InterpError e)
-  else
-    Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-    @@ fun () ->
-    Interp.eval_il (module T.Target) spec_il relation values (T.source input)
-    |> Result.map snd
-    |> Result.map_error (fun e -> Error.InterpError e)
+  T.Target.handler (fun () ->
+      if sl_mode then
+        let spec_sl = Pass.structure spec_il in
+        Instrumentation.with_session config
+          (Instrumentation.Static.SlSpec spec_sl)
+        @@ fun () ->
+        Interp.eval_sl
+          (module T.Target)
+          spec_sl relation values (T.source input)
+        |> Result.map snd
+        |> Result.map_error (fun e -> Error.InterpError e)
+      else
+        Instrumentation.with_session config
+          (Instrumentation.Static.IlSpec spec_il)
+        @@ fun () ->
+        Interp.eval_il
+          (module T.Target)
+          spec_il relation values (T.source input)
+        |> Result.map snd
+        |> Result.map_error (fun e -> Error.InterpError e))

@@ -30,16 +30,13 @@ let run_with_task (type i) (module T : Spectec.Task.S with type input = i)
         ~f:(fun acc input -> Map.set acc ~key:(T.source input) ~data:input)
     in
     let run filename =
-      T.Target.handler (fun () ->
-          match Map.find input_table filename with
-          | None -> failwith ("T not found: " ^ filename)
-          | Some input ->
-              let%bind _ =
-                Spectec.eval_task_with_session
-                  (module T)
-                  ~sl_mode ~spec_il input
-              in
-              Ok ())
+      match Map.find input_table filename with
+      | None -> failwith ("T not found: " ^ filename)
+      | Some input ->
+          let%bind _ =
+            Spectec.eval_task_with_session (module T) ~sl_mode ~spec_il input
+          in
+          Ok ()
     in
     let expectation =
       match inputs with

@@ -10,66 +10,6 @@ end
 
 let ( let* ) = Result.bind
 
-(* Collect spec files from a directory - I/O utility *)
-let collect_spec_files spec_dir =
-  Sys.readdir spec_dir |> Array.to_list
-  |> List.filter (fun f -> Filename.check_suffix f ".spectec")
-  |> List.sort String.compare
-  |> List.map (Filename.concat spec_dir)
-
-(* Print outcome for a single test *)
-let print_outcome (type i) (module T : Spectec.Task.S with type input = i)
-    source outcome =
-  let open Spectec in
-  match outcome with
-  | Task.Pass values ->
-      Format.printf "Passed: %s\n  %s\n\n" source (T.format_output values)
-  | Task.ExpectedFail err ->
-      Format.printf "Expected fail (passed): %s\n  %s\n\n" source
-        (Error.string_of_error err)
-  | Task.Fail err ->
-      Format.printf "Failed: %s\n  %s\n\n" source (Error.string_of_error err)
-  | Task.UnexpectedPass values ->
-      Format.printf "Unexpected pass (failed): %s\n  %s\n\n" source
-        (T.format_output values)
-
-(* Run interpreter on a single input and print result *)
-let run_single (type i) (module T : Spectec.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il (input : i) =
-  let outcome =
-    Runner.Suite.run_with_outcome_with_session
-      (module T)
-      ~config ~sl_mode ~spec_il input
-  in
-  print_outcome (module T) (T.source input) outcome
-
-(* Run interpreter on a suite of inputs and print results *)
-let run_suite (type i) (module T : Spectec.Task.S with type input = i) ~config
-    ~sl_mode ~spec_il ~verbose (inputs : i list) =
-  let results =
-    Runner.Suite.run_suite_with_outcomes
-      (module T)
-      ~config ~sl_mode ~spec_il ~verbose inputs
-  in
-  match verbose with
-  | true ->
-      let summary = Runner.Suite.summarize_outcomes results in
-      let passed = Runner.Suite.summary_passed summary in
-      let failed = Runner.Suite.summary_failed summary in
-      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
-        summary.total failed
-  | false ->
-      List.iter
-        (fun Runner.Suite.{ source; outcome; _ } ->
-          Format.printf ">>> Running %s on %s\n" T.name source;
-          print_outcome (module T) source outcome)
-        results;
-      let summary = Runner.Suite.summarize_outcomes results in
-      let passed = Runner.Suite.summary_passed summary in
-      let failed = Runner.Suite.summary_failed summary in
-      Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed
-        summary.total failed
-
 (* Generate a CLI command for any CLI_TASK *)
 let make (type i) ~summary (module T : CLI_TASK with type input = i) =
   Core.Command.basic ~summary
@@ -89,11 +29,7 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
      fun () ->
        let open Spectec in
        let run () =
-         let* () =
-           Instrumentation.Config.validate_mode config ~sl_mode
-           |> Result.map_error (fun msg ->
-                  Error.ConfigError (Common.Source.no_region, msg))
-         in
+         let* () = validate_config config ~sl_mode in
          let filenames_spec =
            match filenames_spec with
            | [] -> collect_spec_files T.Target.spec_dir
@@ -103,15 +39,17 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
          let* spec_il = elaborate spec in
          match (suite_mode, suite_dir_arg) with
          | false, None ->
-             run_single (module T) ~config ~sl_mode ~spec_il input;
+             Runner.Suite.run_and_print_single
+               (module T)
+               ~config ~sl_mode ~spec_il input;
              Ok ()
          | true, None ->
-             run_suite
+             Runner.Suite.run_and_print_suite
                (module T)
                ~config ~sl_mode ~spec_il ~verbose (T.collect ());
              Ok ()
          | _, Some dir ->
-             run_suite
+             Runner.Suite.run_and_print_suite
                (module T)
                ~config ~sl_mode ~spec_il ~verbose (T.collect ~dir ());
              Ok ()
@@ -132,12 +70,12 @@ let make_parse (type i) ~summary (module T : CLI_TASK with type input = i) =
      and roundtrip = flag "-r" no_arg ~doc:" roundtrip parse/unparse" in
      fun () ->
        let run () =
+         let open Spectec in
          let spec_files =
            match filenames_spec with
            | [] -> collect_spec_files T.Target.spec_dir
            | files -> files
          in
-         let open Spectec in
          let* spec_el = parse_spec_files spec_files in
          let* spec_il = elaborate spec_el in
          let* _, values = T.parse_input ~spec:spec_il input in
@@ -193,16 +131,11 @@ module Make (Tgt : Spectec.Target.S) = struct
          flag "--save-interval"
            (optional_with_default 100 int)
            ~doc:"N save checkpoint every N tests (default: 100)"
-       and instrumentation_config = Cli_args.config_flags in
+       and config = Cli_args.config_flags in
        fun () ->
          let open Spectec in
          let run () =
-           let* () =
-             Instrumentation.Config.validate_mode instrumentation_config
-               ~sl_mode
-             |> Result.map_error (fun msg ->
-                    Error.ConfigError (Common.Source.no_region, msg))
-           in
+           let* () = validate_config config ~sl_mode in
            let spec_files = collect_spec_files Tgt.spec_dir in
            let checkpoint_config : Runner.Checkpoint.config =
              {
@@ -215,9 +148,8 @@ module Make (Tgt : Spectec.Target.S) = struct
            let* spec_il = elaborate spec in
            let generic_tasks = List.map to_generic tasks in
            let results =
-             Runner.Suite.run_target_batch ~config:instrumentation_config
-               ?test_dir ~checkpoint_config ~verbose ~sl_mode ~spec_files
-               spec_il generic_tasks
+             Runner.Suite.run_target_batch ~config ?test_dir ~checkpoint_config
+               ~verbose ~sl_mode ~spec_files spec_il generic_tasks
            in
            List.iter
              (fun Runner.Suite.{ task_name; summary } ->
@@ -230,8 +162,7 @@ module Make (Tgt : Spectec.Target.S) = struct
          in
          match run () with
          | Ok () -> ()
-         | Error error ->
-             Format.printf "Error:\n  %s\n" (Error.string_of_error error))
+         | Error e -> Format.printf "Error:\n  %s\n" (Error.string_of_error e))
 
   let make_checkpoint () =
     let report_command =
@@ -239,7 +170,7 @@ module Make (Tgt : Spectec.Target.S) = struct
         (let open Core.Command.Let_syntax in
          let open Core.Command.Param in
          let%map checkpoint_file = anon ("checkpoint-file" %: string)
-         and instrumentation_config = Cli_args.config_flags in
+         and config = Cli_args.config_flags in
          fun () ->
            let open Spectec in
            let run () =
@@ -250,14 +181,12 @@ module Make (Tgt : Spectec.Target.S) = struct
                Runner.Checkpoint.verify_and_load ~file:checkpoint_file
                  ~spec_files ~verbose:true
              in
-             Runner.Checkpoint.display_report ~spec:spec_il
-               ~config:instrumentation_config checkpoint;
+             Runner.Checkpoint.display_report ~spec:spec_il ~config checkpoint;
              Ok ()
            in
            match run () with
            | Ok () -> ()
-           | Error error ->
-               Format.printf "Error:\n  %s\n" (Error.string_of_error error))
+           | Error e -> Format.printf "Error:\n  %s\n" (Error.string_of_error e))
     in
     let merge_command =
       Core.Command.basic ~summary:"Merge two checkpoint files"
@@ -294,8 +223,7 @@ module Make (Tgt : Spectec.Target.S) = struct
            in
            match run () with
            | Ok () -> ()
-           | Error error ->
-               Format.printf "Error:\n  %s\n" (Error.string_of_error error))
+           | Error e -> Format.printf "Error:\n  %s\n" (Error.string_of_error e))
     in
     Core.Command.group ~summary:"Checkpoint utilities"
       [ ("report", report_command); ("merge", merge_command) ]

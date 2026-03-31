@@ -17,41 +17,45 @@ let eval_sl (module T : Interp.Target.S) spec_sl rid values_input
   Interp.eval_sl (module T) spec_sl rid values_input filename_target
   |> Result.map_error (fun e -> InterpError e)
 
-(* De-duplicated IL/SL dispatch — no session, no handler *)
+(* De-duplicated IL/SL dispatch — no session, with handler *)
 let eval_task (type i) (module T : Task.S with type input = i) ~sl_mode ~spec_il
     (input : i) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  if sl_mode then
-    let spec_sl = Pass.structure spec_il in
-    let* _, vals =
-      eval_sl (module T.Target) spec_sl relation values (T.source input)
-    in
-    Ok vals
-  else
-    let* _, vals =
-      eval_il (module T.Target) spec_il relation values (T.source input)
-    in
-    Ok vals
+  T.Target.handler (fun () ->
+      if sl_mode then
+        let spec_sl = Pass.structure spec_il in
+        let* _, vals =
+          eval_sl (module T.Target) spec_sl relation values (T.source input)
+        in
+        Ok vals
+      else
+        let* _, vals =
+          eval_il (module T.Target) spec_il relation values (T.source input)
+        in
+        Ok vals)
 
-(* De-duplicated IL/SL dispatch — with session, no handler *)
+(* De-duplicated IL/SL dispatch — with session and handler *)
 let eval_task_with_session (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  if sl_mode then
-    let spec_sl = Pass.structure spec_il in
-    Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
-    @@ fun () ->
-    let* _, vals =
-      eval_sl (module T.Target) spec_sl relation values (T.source input)
-    in
-    Ok vals
-  else
-    Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-    @@ fun () ->
-    let* _, vals =
-      eval_il (module T.Target) spec_il relation values (T.source input)
-    in
-    Ok vals
+  T.Target.handler (fun () ->
+      if sl_mode then
+        let spec_sl = Pass.structure spec_il in
+        Instrumentation.with_session config
+          (Instrumentation.Static.SlSpec spec_sl)
+        @@ fun () ->
+        let* _, vals =
+          eval_sl (module T.Target) spec_sl relation values (T.source input)
+        in
+        Ok vals
+      else
+        Instrumentation.with_session config
+          (Instrumentation.Static.IlSpec spec_il)
+        @@ fun () ->
+        let* _, vals =
+          eval_il (module T.Target) spec_il relation values (T.source input)
+        in
+        Ok vals)
 
 (* --- Outcome-based runners --- *)
 
@@ -61,26 +65,20 @@ type 'i test_result = {
   outcome : Task.test_outcome;
 }
 
-(* Run single input and compute outcome based on expectation.
-   Includes full init/finish lifecycle - use for single runs. *)
 let run_with_outcome_with_session (type i)
     (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let result =
-    T.Target.handler (fun () ->
-        eval_task_with_session (module T) ~config ~sl_mode ~spec_il input)
+    eval_task_with_session (module T) ~config ~sl_mode ~spec_il input
   in
   Task.compute_outcome (T.expectation input) result
 
-(* Run single input without init/finish lifecycle.
-   For use in batch/coverage runs where init/finish is managed externally. *)
 let run_with_outcome (type i) (module T : Task.S with type input = i) ~sl_mode
     ~spec_il (input : i) =
   let test_case_id = T.source input in
   Instrumentation.Dispatcher.notify_test_start ~test_case_id;
   let result =
-    try
-      T.Target.handler (fun () -> eval_task (module T) ~sl_mode ~spec_il input)
+    try eval_task (module T) ~sl_mode ~spec_il input
     with e ->
       Instrumentation.Dispatcher.notify_test_end ~test_case_id;
       raise e
@@ -94,7 +92,6 @@ let print_outcome_tag = function
   | Task.Fail _ -> Format.printf "FAIL\n%!"
   | Task.UnexpectedPass _ -> Format.printf "UNEXPECTED PASS\n%!"
 
-(* Run one input without lifecycle, catching exceptions. *)
 let run_one_input (type i) (module T : Task.S with type input = i) ~sl_mode
     ~spec_il ~verbose (input : i) =
   let source = T.source input in
@@ -133,6 +130,28 @@ let summarize_outcomes results =
   in
   { pass; expected_fail; fail; unexpected_pass; total = List.length results }
 
+(* --- Presentation --- *)
+
+let print_outcome (type i) (module T : Task.S with type input = i) source
+    outcome =
+  match outcome with
+  | Task.Pass values ->
+      Format.printf "Passed: %s\n  %s\n\n" source (T.format_output values)
+  | Task.ExpectedFail err ->
+      Format.printf "Expected fail (passed): %s\n  %s\n\n" source
+        (Error.string_of_error err)
+  | Task.Fail err ->
+      Format.printf "Failed: %s\n  %s\n\n" source (Error.string_of_error err)
+  | Task.UnexpectedPass values ->
+      Format.printf "Unexpected pass (failed): %s\n  %s\n\n" source
+        (T.format_output values)
+
+let print_summary summary =
+  let passed = summary_passed summary in
+  let failed = summary_failed summary in
+  Format.printf "\nTest Results: %d/%d passed, %d failed\n" passed summary.total
+    failed
+
 (* --- Suite runner --- *)
 
 let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
@@ -149,6 +168,28 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
   in
   Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
     run
+
+(* --- Composed run + print --- *)
+
+let run_and_print_single (type i) (module T : Task.S with type input = i)
+    ?config ~sl_mode ~spec_il (input : i) =
+  let outcome =
+    run_with_outcome_with_session (module T) ?config ~sl_mode ~spec_il input
+  in
+  print_outcome (module T) (T.source input) outcome
+
+let run_and_print_suite (type i) (module T : Task.S with type input = i) ?config
+    ~sl_mode ~spec_il ~verbose (inputs : i list) =
+  let results =
+    run_suite_with_outcomes (module T) ?config ~sl_mode ~spec_il ~verbose inputs
+  in
+  if not verbose then
+    List.iter
+      (fun { source; outcome; _ } ->
+        Format.printf ">>> Running %s on %s\n" T.name source;
+        print_outcome (module T) source outcome)
+      results;
+  print_summary (summarize_outcomes results)
 
 (* --- Target batch runner --- *)
 

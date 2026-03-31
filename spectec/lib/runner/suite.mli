@@ -2,15 +2,14 @@
 
 (** {1 Outcome-based runners} *)
 
-(** Result for a single test in a suite. *)
 type 'i test_result = {
   input : 'i;
   source : string;
   outcome : Spectec.Task.test_outcome;
 }
 
-(** Run a single input and compute outcome based on expectation. Includes full
-    instrumentation lifecycle. *)
+(** Run a single input and compute outcome. Includes full instrumentation
+    lifecycle. *)
 val run_with_outcome_with_session :
   (module Spectec.Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->
@@ -44,12 +43,44 @@ val summarize_outcomes : 'i test_result list -> suite_summary
 val summary_passed : suite_summary -> int
 val summary_failed : suite_summary -> int
 
+(** {1 Presentation} *)
+
+(** Print a test outcome with source and formatted output. *)
+val print_outcome :
+  (module Spectec.Task.S with type input = 'i) ->
+  string ->
+  Spectec.Task.test_outcome ->
+  unit
+
+(** Print pass/fail summary line. *)
+val print_summary : suite_summary -> unit
+
+(** {1 Composed run + print} *)
+
+(** Run a single input with lifecycle and print outcome. *)
+val run_and_print_single :
+  (module Spectec.Task.S with type input = 'i) ->
+  ?config:Instrumentation.Config.t ->
+  sl_mode:bool ->
+  spec_il:Lang.Il.spec ->
+  'i ->
+  unit
+
+(** Run a suite of inputs with lifecycle, print results and summary. *)
+val run_and_print_suite :
+  (module Spectec.Task.S with type input = 'i) ->
+  ?config:Instrumentation.Config.t ->
+  sl_mode:bool ->
+  spec_il:Lang.Il.spec ->
+  verbose:bool ->
+  'i list ->
+  unit
+
 (** {1 Target batch} *)
 
 type task_result = { task_name : string; summary : suite_summary }
 
-(** Run across multiple tasks in a target with instrumentation and checkpoint
-    support. Init/finish lifecycle is managed here. *)
+(** Run across multiple tasks with instrumentation and checkpoint support. *)
 val run_target_batch :
   ?config:Instrumentation.Config.t ->
   ?test_dir:string ->
