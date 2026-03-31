@@ -3,58 +3,6 @@
 open Spectec
 open Error
 
-let ( let* ) = Result.bind
-
-(* --- Private eval helpers --- *)
-
-let eval_il (module T : Interp.Target.S) spec_il rid values_input
-    filename_target =
-  Interp.eval_il (module T) spec_il rid values_input filename_target
-  |> Result.map_error (fun e -> InterpError e)
-
-let eval_sl (module T : Interp.Target.S) spec_sl rid values_input
-    filename_target =
-  Interp.eval_sl (module T) spec_sl rid values_input filename_target
-  |> Result.map_error (fun e -> InterpError e)
-
-(* De-duplicated IL/SL dispatch — no session, with handler *)
-let eval_task (type i) (module T : Task.S with type input = i) ~sl_mode ~spec_il
-    (input : i) =
-  let* relation, values = T.parse_input ~spec:spec_il input in
-  T.Target.handler @@ fun () ->
-  if sl_mode then
-    let spec_sl = Pass.structure spec_il in
-    let* _, vals =
-      eval_sl (module T.Target) spec_sl relation values (T.source input)
-    in
-    Ok vals
-  else
-    let* _, vals =
-      eval_il (module T.Target) spec_il relation values (T.source input)
-    in
-    Ok vals
-
-(* De-duplicated IL/SL dispatch — with session and handler *)
-let eval_task_with_session (type i) (module T : Task.S with type input = i)
-    ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
-  let* relation, values = T.parse_input ~spec:spec_il input in
-  T.Target.handler @@ fun () ->
-  if sl_mode then
-    let spec_sl = Pass.structure spec_il in
-    Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
-      (fun () ->
-        let* _, vals =
-          eval_sl (module T.Target) spec_sl relation values (T.source input)
-        in
-        Ok vals)
-  else
-    Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-      (fun () ->
-        let* _, vals =
-          eval_il (module T.Target) spec_il relation values (T.source input)
-        in
-        Ok vals)
-
 (* --- Outcome-based runners --- *)
 
 type 'i test_result = {
@@ -67,7 +15,7 @@ let run_with_outcome_with_session (type i)
     (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let result =
-    eval_task_with_session (module T) ~config ~sl_mode ~spec_il input
+    Spectec.eval_task_with_session (module T) ~config ~sl_mode ~spec_il input
   in
   Task.compute_outcome (T.expectation input) result
 
@@ -76,7 +24,7 @@ let run_with_outcome (type i) (module T : Task.S with type input = i) ~sl_mode
   let test_case_id = T.source input in
   Instrumentation.Dispatcher.notify_test_start ~test_case_id;
   let result =
-    try eval_task (module T) ~sl_mode ~spec_il input
+    try Spectec.eval_task (module T) ~sl_mode ~spec_il input
     with e ->
       Instrumentation.Dispatcher.notify_test_end ~test_case_id;
       raise e

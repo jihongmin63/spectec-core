@@ -24,9 +24,18 @@ val validate_config : Instrumentation.Config.t -> sl_mode:bool -> unit result
 (** {1 Unified interpreter entry point}
 
     De-duplicates IL/SL dispatch: parses input via task, sets up the target
-    handler, wraps with instrumentation session, runs the appropriate
-    interpreter. *)
+    handler, and runs the appropriate interpreter. *)
 
+(** Evaluate without instrumentation session. Use when a session is managed
+    externally (e.g., suite-level wrapping). *)
+val eval_task :
+  (module Task.S with type input = 'i) ->
+  sl_mode:bool ->
+  spec_il:Lang.Il.spec ->
+  'i ->
+  Lang.Il.Value.t list result
+
+(** Evaluate with an instrumentation session wrapping the call. *)
 val eval_task_with_session :
   (module Task.S with type input = 'i) ->
   ?config:Instrumentation.Config.t ->

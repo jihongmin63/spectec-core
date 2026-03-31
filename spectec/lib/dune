@@ -1,9 +1,4 @@
 (library
  (name spectec)
  (public_name spectec)
- (libraries
-  spectec.common
-  spectec.lang
-  spectec.pass
-  spectec.interp
-  spectec.instrumentation))
+ (libraries spectec.common spectec.pass spectec.interp))
