@@ -77,16 +77,14 @@ let run_p4_typecheck ~negative ~sl_mode ~includes ~exclude_dirs ~testdir =
 
 let command =
   Command.basic ~summary:"run interpreter typing test (IL or SL)"
-    (let open Command.Let_syntax in
-     let open Command.Param in
-     let%map includes = flag "-i" (listed string) ~doc:"DIR include paths"
-     and exclude_dirs = flag "-e" (listed string) ~doc:"DIR exclude paths"
-     and testdir = flag "-d" (required string) ~doc:"DIR test directory"
-     and negative = flag "-neg" no_arg ~doc:" expect failures (negative mode)"
-     and sl_mode =
-       flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)"
-     in
-     fun () ->
-       run_p4_typecheck ~negative ~sl_mode ~includes ~exclude_dirs ~testdir)
+  @@
+  let open Command.Let_syntax in
+  let open Command.Param in
+  let%map includes = flag "-i" (listed string) ~doc:"DIR include paths"
+  and exclude_dirs = flag "-e" (listed string) ~doc:"DIR exclude paths"
+  and testdir = flag "-d" (required string) ~doc:"DIR test directory"
+  and negative = flag "-neg" no_arg ~doc:" expect failures (negative mode)"
+  and sl_mode = flag "--sl" no_arg ~doc:" use SL interpreter (default: IL)" in
+  fun () -> run_p4_typecheck ~negative ~sl_mode ~includes ~exclude_dirs ~testdir
 
 let () = Command_unix.run command

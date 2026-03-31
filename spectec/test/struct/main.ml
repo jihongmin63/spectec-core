@@ -20,9 +20,10 @@ let run specdir =
 
 let command =
   Command.basic ~summary:"run structuring test"
-    (let open Command.Let_syntax in
-     let open Command.Param in
-     let%map specdir = flag "-s" (required string) ~doc:"DIR spec directory" in
-     fun () -> run specdir)
+  @@
+  let open Command.Let_syntax in
+  let open Command.Param in
+  let%map specdir = flag "-s" (required string) ~doc:"DIR spec directory" in
+  fun () -> run specdir
 
 let () = Command_unix.run command

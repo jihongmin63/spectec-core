@@ -21,37 +21,35 @@ let eval_sl (module T : Interp.Target.S) spec_sl rid values_input
 let eval_task (type i) (module T : Task.S with type input = i) ~sl_mode ~spec_il
     (input : i) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  T.Target.handler (fun () ->
-      if sl_mode then
-        let spec_sl = Pass.structure spec_il in
-        let* _, vals =
-          eval_sl (module T.Target) spec_sl relation values (T.source input)
-        in
-        Ok vals
-      else
-        let* _, vals =
-          eval_il (module T.Target) spec_il relation values (T.source input)
-        in
-        Ok vals)
+  T.Target.handler @@ fun () ->
+  if sl_mode then
+    let spec_sl = Pass.structure spec_il in
+    let* _, vals =
+      eval_sl (module T.Target) spec_sl relation values (T.source input)
+    in
+    Ok vals
+  else
+    let* _, vals =
+      eval_il (module T.Target) spec_il relation values (T.source input)
+    in
+    Ok vals
 
 (* De-duplicated IL/SL dispatch — with session and handler *)
 let eval_task_with_session (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il (input : i) =
   let* relation, values = T.parse_input ~spec:spec_il input in
-  T.Target.handler (fun () ->
-      if sl_mode then
-        let spec_sl = Pass.structure spec_il in
-        Instrumentation.with_session config
-          (Instrumentation.Static.SlSpec spec_sl)
-        @@ fun () ->
+  T.Target.handler @@ fun () ->
+  if sl_mode then
+    let spec_sl = Pass.structure spec_il in
+    Instrumentation.with_session config (Instrumentation.Static.SlSpec spec_sl)
+      (fun () ->
         let* _, vals =
           eval_sl (module T.Target) spec_sl relation values (T.source input)
         in
-        Ok vals
-      else
-        Instrumentation.with_session config
-          (Instrumentation.Static.IlSpec spec_il)
-        @@ fun () ->
+        Ok vals)
+  else
+    Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
+      (fun () ->
         let* _, vals =
           eval_il (module T.Target) spec_il relation values (T.source input)
         in
@@ -158,16 +156,14 @@ let run_suite_with_outcomes (type i) (module T : Task.S with type input = i)
     ?(config = Instrumentation.Config.default) ~sl_mode ~spec_il
     ?(verbose = false) (inputs : i list) =
   let total = List.length inputs in
-  let run () =
-    List.mapi
-      (fun idx input ->
-        if verbose then
-          Format.printf "[%d/%d] %s... %!" (idx + 1) total (T.source input);
-        run_one_input (module T) ~sl_mode ~spec_il ~verbose input)
-      inputs
-  in
   Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-    run
+  @@ fun () ->
+  List.mapi
+    (fun idx input ->
+      if verbose then
+        Format.printf "[%d/%d] %s... %!" (idx + 1) total (T.source input);
+      run_one_input (module T) ~sl_mode ~spec_il ~verbose input)
+    inputs
 
 (* --- Composed run + print --- *)
 
@@ -198,68 +194,65 @@ type task_result = { task_name : string; summary : suite_summary }
 let run_target_batch ?(config = Instrumentation.Config.default) ?test_dir
     ~(checkpoint_config : Checkpoint.config) ~verbose ~sl_mode ~spec_files
     spec_il tasks =
-  let run_coverage () =
-    let loaded_checkpoint =
-      match checkpoint_config.resume_from with
-      | Some file -> (
-          match Checkpoint.verify_and_load ~file ~spec_files ~verbose with
-          | Ok checkpoint -> Some checkpoint
-          | Error e ->
-              Format.printf "%s\n" (Error.string_of_error e);
-              None)
-      | None -> None
-    in
-    let all_completed_inputs = ref [] in
-    (match loaded_checkpoint with
-    | Some checkpoint ->
-        all_completed_inputs := checkpoint.Checkpoint.completed_inputs;
-        Checkpoint.restore_coverage checkpoint
-    | None -> ());
-    let save_current_checkpoint () =
-      Checkpoint.save ~spec_files ~completed_inputs:!all_completed_inputs
-        ~output_file:checkpoint_config.output_file
-    in
-    let results =
-      List.map
-        (fun (Task.Pack (module T)) ->
-          let all_inputs =
-            match test_dir with
-            | Some dir -> T.collect ~dir ()
-            | None -> T.collect ()
-          in
-          let total_all = List.length all_inputs in
-          let inputs =
-            match loaded_checkpoint with
-            | Some checkpoint ->
-                Checkpoint.filter_remaining checkpoint all_inputs
-                  ~get_id:T.source
-            | None -> all_inputs
-          in
-          let completed_count = total_all - List.length inputs in
-          if verbose then
-            Format.printf "Running %s (%d tests, %d already completed)...\n%!"
-              T.name (List.length inputs) completed_count;
-          let task_results =
-            List.mapi
-              (fun index input ->
-                if verbose then
-                  Format.printf "  [%d/%d] %s... %!"
-                    (completed_count + index + 1)
-                    total_all (T.source input);
-                let result =
-                  run_one_input (module T) ~sl_mode ~spec_il ~verbose input
-                in
-                all_completed_inputs := result.source :: !all_completed_inputs;
-                if (index + 1) mod checkpoint_config.save_interval = 0 then
-                  save_current_checkpoint ();
-                result)
-              inputs
-          in
-          { task_name = T.name; summary = summarize_outcomes task_results })
-        tasks
-    in
-    save_current_checkpoint ();
-    results
-  in
   Instrumentation.with_session config (Instrumentation.Static.IlSpec spec_il)
-    run_coverage
+  @@ fun () ->
+  let loaded_checkpoint =
+    match checkpoint_config.resume_from with
+    | Some file -> (
+        match Checkpoint.verify_and_load ~file ~spec_files ~verbose with
+        | Ok checkpoint -> Some checkpoint
+        | Error e ->
+            Format.printf "%s\n" (Error.string_of_error e);
+            None)
+    | None -> None
+  in
+  let all_completed_inputs = ref [] in
+  (match loaded_checkpoint with
+  | Some checkpoint ->
+      all_completed_inputs := checkpoint.Checkpoint.completed_inputs;
+      Checkpoint.restore_coverage checkpoint
+  | None -> ());
+  let save_current_checkpoint () =
+    Checkpoint.save ~spec_files ~completed_inputs:!all_completed_inputs
+      ~output_file:checkpoint_config.output_file
+  in
+  let results =
+    List.map
+      (fun (Task.Pack (module T)) ->
+        let all_inputs =
+          match test_dir with
+          | Some dir -> T.collect ~dir ()
+          | None -> T.collect ()
+        in
+        let total_all = List.length all_inputs in
+        let inputs =
+          match loaded_checkpoint with
+          | Some checkpoint ->
+              Checkpoint.filter_remaining checkpoint all_inputs ~get_id:T.source
+          | None -> all_inputs
+        in
+        let completed_count = total_all - List.length inputs in
+        if verbose then
+          Format.printf "Running %s (%d tests, %d already completed)...\n%!"
+            T.name (List.length inputs) completed_count;
+        let task_results =
+          List.mapi
+            (fun index input ->
+              if verbose then
+                Format.printf "  [%d/%d] %s... %!"
+                  (completed_count + index + 1)
+                  total_all (T.source input);
+              let result =
+                run_one_input (module T) ~sl_mode ~spec_il ~verbose input
+              in
+              all_completed_inputs := result.source :: !all_completed_inputs;
+              if (index + 1) mod checkpoint_config.save_interval = 0 then
+                save_current_checkpoint ();
+              result)
+            inputs
+        in
+        { task_name = T.name; summary = summarize_outcomes task_results })
+      tasks
+  in
+  save_current_checkpoint ();
+  results
