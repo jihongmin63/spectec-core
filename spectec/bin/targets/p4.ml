@@ -11,7 +11,7 @@ struct
     let open Core.Command.Param in
     let%map includes = flag "-i" (listed string) ~doc:"DIR P4 include paths"
     and filename = flag "-p" (required string) ~doc:"FILE P4 file to process" in
-    { includes; filename; expect = Runner.Task.Positive }
+    { includes; filename; expect = Spectec.Task.Positive }
 end
 
 (** P4 command *)

@@ -1,5 +1,6 @@
-open Common.Source
+type error
+type 'a result = ('a, error) Stdlib.result
 
-exception Error of region * string
-
-val parse_file : string -> Lang.El.spec
+val parse_file : string -> Lang.El.spec result
+val parse_files : string list -> Lang.El.spec result
+val error_to_string : error -> string

@@ -1,0 +1,23 @@
+open Common.Source
+
+type t =
+  | PassError of Pass.error
+  | InterpError of Interp.error
+  | UnhandledException of string
+  | TaskParseError of region * string
+  | RoundtripError of region * string
+  | SpecMismatchError of string * string
+  | DirectoryError of string
+  | ConfigError of region * string
+
+let string_of_error = function
+  | PassError e -> Pass.error_to_string e
+  | InterpError e -> Interp.error_to_string e
+  | UnhandledException msg -> Printf.sprintf "Unhandled exception: %s" msg
+  | TaskParseError (at, msg) -> Common.Error.string_of_located_error at msg
+  | RoundtripError (at, msg) -> Common.Error.string_of_located_error at msg
+  | SpecMismatchError (expected, actual) ->
+      Printf.sprintf "Spec version mismatch: expected spec hash %s but got %s."
+        expected actual
+  | DirectoryError msg -> msg
+  | ConfigError (at, msg) -> Common.Error.string_of_located_error at msg

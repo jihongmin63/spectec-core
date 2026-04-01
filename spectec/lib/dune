@@ -1,4 +1,4 @@
 (library
  (name spectec)
  (public_name spectec)
- (libraries spectec.runner))
+ (libraries spectec.common spectec.pass spectec.interp))

@@ -4,13 +4,14 @@ module Ctx : sig
   type t
 end
 
-exception Error of region * string
+type error = region * string
 
-val run_relation_fresh :
-  string ->
-  Builtins.t ->
-  Cache.t ->
+val error_to_string : error -> string
+
+val run :
+  (module Target.S) ->
   Lang.Il.spec ->
   string ->
   Lang.Il.Value.t list ->
-  Ctx.t * Lang.Il.Value.t list
+  string ->
+  (Ctx.t * Lang.Il.Value.t list, error) result

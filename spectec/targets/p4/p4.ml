@@ -60,10 +60,9 @@ let is_excluded excludes path =
 let tid_counter = ref 0
 
 (* P4 target specification *)
-module Target : Runner.Target.S = struct
+module Target : Spectec.Target.S = struct
   let name = "p4"
   let spec_dir = "examples/p4-concrete"
-  let test_dir = test_base_dir
   let builtins = Builtins.builtins
 
   let handler f =
@@ -108,22 +107,24 @@ module Typecheck = struct
 
   module Target = Target
 
+  let test_dir = test_base_dir
+
   type input = {
     includes : string list;
     filename : string;
-    expect : Runner.Task.expectation;
+    expect : Spectec.Task.expectation;
   }
 
-  (* Collect inputs from directory, uses Target.test_dir if not specified *)
+  (* Collect inputs from directory, uses test_dir if not specified *)
   let collect ?dir () =
-    let test_dir = Option.value dir ~default:Target.test_dir in
+    let test_dir = Option.value dir ~default:test_dir in
     let excludes = load_excludes excludes_dir in
     collect_files_recursive ~suffix:".p4" test_dir
     |> List.filter (fun filename -> not (is_excluded excludes filename))
     |> List.map (fun filename ->
            let expect =
-             if contains_substring filename "_errors" then Runner.Task.Negative
-             else Runner.Task.Positive
+             if contains_substring filename "_errors" then Spectec.Task.Negative
+             else Spectec.Task.Positive
            in
            { includes = [ includes_dir ]; filename; expect })
 

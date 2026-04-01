@@ -1,0 +1,4 @@
+(library
+ (name suite)
+ (public_name spectec.suite)
+ (libraries spectec spectec.instrumentation unix))

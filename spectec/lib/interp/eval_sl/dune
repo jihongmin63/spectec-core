@@ -8,4 +8,5 @@
   spectec.lang
   spectec.instrumentation
   builtins
-  cache))
+  cache
+  target))
