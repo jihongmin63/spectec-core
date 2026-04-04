@@ -2327,46 +2327,49 @@ syntax annotationBody =
 syntax structuredAnnotationBody = 
    | dataElementExpression trailingCommaOpt
 
-;; ../../../../../examples/p4-concrete/1-syntax.spectec:1259:1-1261:42:
+;; ../../../../../examples/p4-concrete/1-syntax.spectec:1259:1-1262:74:
 syntax annotation = 
-   | @ name
-   | @ name ( annotationBody )
-   | @ name [ structuredAnnotationBody ]
+   | @ name hint(print "@"#%0)
+   | @ name ( annotationBody ) hint(print "@"#%0#"("#%1#")")
+   | @ name [ structuredAnnotationBody ] hint(print "@"#%0#"["#%1#"]")
+   | @pragma name annotationBody hint(print "@pragma" %0 %1)
 
-;; ../../../../../examples/p4-concrete/1-syntax.spectec:1264:1-1265:38:
+;; ../../../../../examples/p4-concrete/1-syntax.spectec:1265:1-1266:38:
 syntax annotationListNonEmpty = 
-   | @ name
-   | @ name ( annotationBody )
-   | @ name [ structuredAnnotationBody ]
+   | @ name hint(print "@"#%0)
+   | @ name ( annotationBody ) hint(print "@"#%0#"("#%1#")")
+   | @ name [ structuredAnnotationBody ] hint(print "@"#%0#"["#%1#"]")
+   | @pragma name annotationBody hint(print "@pragma" %0 %1)
    | annotationListNonEmpty annotation
 
-;; ../../../../../examples/p4-concrete/1-syntax.spectec:1268:1-1269:27:
+;; ../../../../../examples/p4-concrete/1-syntax.spectec:1269:1-1270:27:
 syntax annotationList = 
    | 
-   | @ name
-   | @ name ( annotationBody )
-   | @ name [ structuredAnnotationBody ]
+   | @ name hint(print "@"#%0)
+   | @ name ( annotationBody ) hint(print "@"#%0#"("#%1#")")
+   | @ name [ structuredAnnotationBody ] hint(print "@"#%0#"["#%1#"]")
+   | @pragma name annotationBody hint(print "@pragma" %0 %1)
    | annotationListNonEmpty annotation
 
-;; ../../../../../examples/p4-concrete/1-syntax.spectec:1276:1-1278:17:
+;; ../../../../../examples/p4-concrete/1-syntax.spectec:1277:1-1279:17:
 syntax p4program = 
    | 
    | p4program declaration
    | p4program ;
 
-;; ../../../../../examples/p4-concrete/1-syntax.spectec:1280:1-1280:49:
+;; ../../../../../examples/p4-concrete/1-syntax.spectec:1281:1-1281:49:
 def $flatten_p4program(p4program) : declaration* =
 
-   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1281:1-1281:37:
+   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1282:1-1282:37:
    clause 0(p4program) = []
       -- if p4program matches ``EMPTY`
 
-   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1282:1-1283:53:
+   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1283:1-1284:53:
    clause 1(p4program') = $flatten_p4program(p4program) ++ [declaration]
       -- if p4program' matches `%%`
       -- let p4program declaration = p4program'
 
-   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1284:1-1285:34:
+   ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1285:1-1286:34:
    clause 2(p4program') = $flatten_p4program(p4program)
       -- if p4program' matches `%;`
       -- let p4program ; = p4program'
@@ -11352,46 +11355,46 @@ relation TypeArguments_ok: cursor typingContext |- typeArgument* : typeArgumentL
       -- rel TypeArguments_ok: p TC |- typeArgument_t*{typeArgument_t <- typeArgument_t*} : typeArgumentIR_t*{typeArgumentIR_t <- typeArgumentIR_t*} # tid_impl_t*{tid_impl_t <- tid_impl_t*}
       -- let tid_impl*{tid_impl <- tid_impl*} = tid_impl_h*{tid_impl_h <- tid_impl_h*} ++ tid_impl_t*{tid_impl_t <- tid_impl_t*}
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:31:1-31:54:
-relation Sub_expl: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:31:1-31:55:
+relation Cast_expl: typeIR -> typeIR
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:5:1-9:54:
-   rule : typeIR_a <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:5:1-9:55:
+   rule : typeIR_a -> typeIR_b
       -- let typeIR_a_canon = $canon(typeIR_a)
       -- let typeIR_b_canon = $canon(typeIR_b)
-      -- if Sub_expl_canon: typeIR_a_canon <: typeIR_b_canon holds
+      -- if Cast_expl_canon: typeIR_a_canon -> typeIR_b_canon holds
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:32:1-32:60:
-relation Sub_expl_canon: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:32:1-32:61:
+relation Cast_expl_canon: typeIR -> typeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:11:1-13:38:
-   rule equals: typeIR_a <: typeIR_b
+   rule equals: typeIR_a -> typeIR_b
       -- if Type_alpha: typeIR_a ~~ typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:15:1-18:46:
-   rule not-equals: typeIR_a <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:15:1-18:47:
+   rule not-equals: typeIR_a -> typeIR_b
       -- if ~Type_alpha: typeIR_a ~~ typeIR_b holds
-      -- if Sub_expl_canon_neq: typeIR_a <: typeIR_b holds
+      -- if Cast_expl_canon_neq: typeIR_a -> typeIR_b holds
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:33:1-33:64:
-relation Sub_expl_canon_neq: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:33:1-33:65:
+relation Cast_expl_canon_neq: typeIR -> typeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:20:1-21:21:
-   rule fixbit-boolean: typeIR <: typeIR'
+   rule fixbit-boolean: typeIR -> typeIR'
       -- if (typeIR = bit< 1 > as typeIR)
       -- if typeIR' <: primitiveTypeIR
       -- let primitiveTypeIR = typeIR' as primitiveTypeIR
       -- if primitiveTypeIR matches `BOOL`
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:23:1-24:21:
-   rule boolean-fixbit: typeIR <: typeIR'
+   rule boolean-fixbit: typeIR -> typeIR'
       -- if typeIR <: primitiveTypeIR
       -- let primitiveTypeIR = typeIR as primitiveTypeIR
       -- if primitiveTypeIR matches `BOOL`
       -- if (typeIR' = bit< 1 > as typeIR)
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:26:1-27:14:
-   rule arbint-boolean: typeIR <: typeIR'
+   rule arbint-boolean: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT`
@@ -11400,7 +11403,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if primitiveTypeIR matches `BOOL`
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:29:1-30:20:
-   rule arbint-fixint: typeIR <: typeIR'
+   rule arbint-fixint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT`
@@ -11410,7 +11413,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let int< _nat > = numberTypeIR'
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:32:1-33:20:
-   rule arbint-fixbit: typeIR <: typeIR'
+   rule arbint-fixbit: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT`
@@ -11420,7 +11423,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let bit< _nat > = numberTypeIR'
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:35:1-36:20:
-   rule fixint-fixint: typeIR <: typeIR'
+   rule fixint-fixint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT<%>`
@@ -11430,7 +11433,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if numberTypeIR' matches `INT`
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:38:1-39:31:
-   rule fixint-fixint: typeIR <: typeIR'
+   rule fixint-fixint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT<%>`
@@ -11441,7 +11444,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let int< w_b > = numberTypeIR'
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:41:1-42:27:
-   rule fixint-fixbit: typeIR <: typeIR'
+   rule fixint-fixbit: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT<%>`
@@ -11453,7 +11456,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if (w = w')
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:44:1-45:20:
-   rule fixbit-arbint: typeIR <: typeIR'
+   rule fixbit-arbint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `BIT<%>`
@@ -11463,7 +11466,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if numberTypeIR' matches `INT`
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:47:1-48:27:
-   rule fixbit-fixint: typeIR <: typeIR'
+   rule fixbit-fixint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `BIT<%>`
@@ -11475,7 +11478,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if (w = w')
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:50:1-51:31:
-   rule fixbit-fixbit: typeIR <: typeIR'
+   rule fixbit-fixbit: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `BIT<%>`
@@ -11485,47 +11488,47 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if numberTypeIR' matches `BIT<%>`
       -- let bit< w_b > = numberTypeIR'
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:53:1-55:36:
-   rule newtype-left: typeIR <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:53:1-55:37:
+   rule newtype-left: typeIR -> typeIR_b
       -- if typeIR <: aliasTypeIR
       -- let aliasTypeIR = typeIR as aliasTypeIR
       -- if aliasTypeIR matches `TYPE%%`
       -- let type _tid typeIR_a = aliasTypeIR
-      -- if Sub_impl: typeIR_a <: typeIR_b holds
+      -- if Cast_impl: typeIR_a -> typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:57:1-59:36:
-   rule newtype-right: typeIR_a <: typeIR
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:57:1-59:37:
+   rule newtype-right: typeIR_a -> typeIR
       -- if typeIR <: aliasTypeIR
       -- let aliasTypeIR = typeIR as aliasTypeIR
       -- if aliasTypeIR matches `TYPE%%`
       -- let type _tid typeIR_b = aliasTypeIR
-      -- if Sub_impl: typeIR_a <: typeIR_b holds
+      -- if Cast_impl: typeIR_a -> typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:61:1-63:36:
-   rule serenum-left: typeIR <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:61:1-63:37:
+   rule serenum-left: typeIR -> typeIR_b
       -- if typeIR <: enumTypeIR
       -- let enumTypeIR = typeIR as enumTypeIR
       -- if enumTypeIR matches `ENUM%#%{%}`
       -- let enum _tid # typeIR_a { _valueFieldIR*{_valueFieldIR <- _valueFieldIR*} } = enumTypeIR
-      -- if Sub_impl: typeIR_a <: typeIR_b holds
+      -- if Cast_impl: typeIR_a -> typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:65:1-67:36:
-   rule serenum-right: typeIR_a <: typeIR
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:65:1-67:37:
+   rule serenum-right: typeIR_a -> typeIR
       -- if typeIR <: enumTypeIR
       -- let enumTypeIR = typeIR as enumTypeIR
       -- if enumTypeIR matches `ENUM%#%{%}`
       -- let enum _tid # typeIR_b { _valueFieldIR*{_valueFieldIR <- _valueFieldIR*} } = enumTypeIR
-      -- if Sub_impl: typeIR_a <: typeIR_b holds
+      -- if Cast_impl: typeIR_a -> typeIR_b holds
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:69:1-71:41:
-   rule default: typeIR <: typeIR_b
+   rule default: typeIR -> typeIR_b
       -- if typeIR <: defaultTypeIR
       -- let defaultTypeIR = typeIR as defaultTypeIR
       -- if (defaultTypeIR = default)
       -- if $is_defaultable_typeIR(typeIR_b)
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:73:1-74:36:
-   rule invalidheader-header: typeIR <: typeIR'
+   rule invalidheader-header: typeIR -> typeIR'
       -- if typeIR <: invalidHeaderTypeIR
       -- let invalidHeaderTypeIR = typeIR as invalidHeaderTypeIR
       -- if (invalidHeaderTypeIR = header_invalid)
@@ -11533,35 +11536,35 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let header _tid { _fieldTypeIR*{_fieldTypeIR <- _fieldTypeIR*} } = typeIR' as headerTypeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:76:1-77:42:
-   rule invalidheader-headerunion: typeIR <: typeIR'
+   rule invalidheader-headerunion: typeIR -> typeIR'
       -- if typeIR <: invalidHeaderTypeIR
       -- let invalidHeaderTypeIR = typeIR as invalidHeaderTypeIR
       -- if (invalidHeaderTypeIR = header_invalid)
       -- if typeIR' <: headerUnionTypeIR
       -- let header_union _tid { _fieldTypeIR*{_fieldTypeIR <- _fieldTypeIR*} } = typeIR' as headerUnionTypeIR
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:79:1-81:39:
-   rule seq-list: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:79:1-81:40:
+   rule seq-list: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: listTypeIR
       -- let list< typeIR_b > = typeIR' as listTypeIR
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:83:1-85:39:
-   rule seq-tuple: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:83:1-85:40:
+   rule seq-tuple: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: tupleTypeIR
       -- let tuple< typeIR_b*{typeIR_b <- typeIR_b*} > = typeIR' as tupleTypeIR
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:87:1-90:39:
-   rule seq-stack: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:87:1-90:40:
+   rule seq-stack: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
@@ -11569,30 +11572,30 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if typeIR' <: headerStackTypeIR
       -- let typeIR_b [ n_size ] = typeIR' as headerStackTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| <= n_size)
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:92:1-94:39:
-   rule seq-struct: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:92:1-94:40:
+   rule seq-struct: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: structTypeIR
       -- let struct _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as structTypeIR
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:96:1-98:39:
-   rule seq-header: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:96:1-98:40:
+   rule seq-header: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: headerTypeIR
       -- let header _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as headerTypeIR
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:100:1-106:50:
-   rule seqdefault-tuple: typeIR <: typeIR'
+   rule seqdefault-tuple: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11601,11 +11604,11 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let tuple< typeIR_b*{typeIR_b <- typeIR_b*} > = typeIR' as tupleTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_expl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:108:1-112:41:
-   rule seqdefault-stack: typeIR <: typeIR'
+   rule seqdefault-stack: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11613,11 +11616,11 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- if typeIR' <: headerStackTypeIR
       -- let typeIR_b [ n_size ] = typeIR' as headerStackTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < n_size)
-      -- (if Sub_expl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
       -- if $is_defaultable_typeIR(typeIR_b)
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:114:1-120:50:
-   rule seqdefault-struct: typeIR <: typeIR'
+   rule seqdefault-struct: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11626,11 +11629,11 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let struct _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as structTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_expl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:122:1-128:50:
-   rule seqdefault-header: typeIR <: typeIR'
+   rule seqdefault-header: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11639,11 +11642,11 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let header _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as headerTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_expl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_expl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:130:1-137:55:
-   rule record-struct: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:130:1-137:56:
+   rule record-struct: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%}`
@@ -11657,10 +11660,10 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_aligned <- typeIR_b_aligned*}
-      -- (if Sub_expl: typeIR_a_aligned <: typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
+      -- (if Cast_expl: typeIR_a_aligned -> typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:139:1-146:55:
-   rule record-header: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:139:1-146:56:
+   rule record-header: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%}`
@@ -11674,10 +11677,10 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_aligned <- typeIR_b_aligned*}
-      -- (if Sub_expl: typeIR_a_aligned <: typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
+      -- (if Cast_expl: typeIR_a_aligned -> typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:148:1-161:50:
-   rule recorddefault-struct: typeIR <: typeIR'
+   rule recorddefault-struct: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%,...}`
@@ -11691,7 +11694,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_non_default_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
-      -- (if Sub_expl: typeIR_a_aligned <: typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
+      -- (if Cast_expl: typeIR_a_aligned -> typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
       -- let { id_default*{id_default <- id_default*} } = $diff_set<id>({ id_b*{id_b <- id_b*} }, { id_a*{id_a <- id_a*} })
       -- (let typeIR''''?{typeIR'''' <- typeIR''''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_default))*{id_default <- id_default*, typeIR''''? <- typeIR''''?*}
       -- (if typeIR''''?{typeIR'''' <- typeIR''''?} matches (_))*{typeIR''''? <- typeIR''''?*}
@@ -11699,7 +11702,7 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:163:1-176:50:
-   rule recorddefault-header: typeIR <: typeIR'
+   rule recorddefault-header: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%,...}`
@@ -11713,15 +11716,15 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_non_default_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
-      -- (if Sub_expl: typeIR_a_aligned <: typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
+      -- (if Cast_expl: typeIR_a_aligned -> typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
       -- let { id_default*{id_default <- id_default*} } = $diff_set<id>({ id_b*{id_b <- id_b*} }, { id_a*{id_a <- id_a*} })
       -- (let typeIR''''?{typeIR'''' <- typeIR''''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_default))*{id_default <- id_default*, typeIR''''? <- typeIR''''?*}
       -- (if typeIR''''?{typeIR'''' <- typeIR''''?} matches (_))*{typeIR''''? <- typeIR''''?*}
       -- (let ?(typeIR_b_default) = typeIR''''?{typeIR'''' <- typeIR''''?})*{typeIR''''? <- typeIR''''?*, typeIR_b_default <- typeIR_b_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:178:1-180:36:
-   rule set-set: typeIR' <: typeIR'''
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:178:1-180:37:
+   rule set-set: typeIR' -> typeIR'''
       -- if typeIR' <: setTypeIR
       -- let set< typeIR*{typeIR <- typeIR*} > = typeIR' as setTypeIR
       -- if typeIR*{typeIR <- typeIR*} matches [ _/1 ]
@@ -11730,43 +11733,43 @@ relation Sub_expl_canon_neq: typeIR <: typeIR
       -- let set< typeIR''*{typeIR'' <- typeIR''*} > = typeIR''' as setTypeIR
       -- if typeIR''*{typeIR'' <- typeIR''*} matches [ _/1 ]
       -- let [typeIR_b] = typeIR''*{typeIR'' <- typeIR''*}
-      -- if Sub_expl: typeIR_a <: typeIR_b holds
+      -- if Cast_expl: typeIR_a -> typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:182:1-185:36:
-   rule non-set-set: typeIR_a <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:182:1-185:37:
+   rule non-set-set: typeIR_a -> typeIR'
       -- if typeIR' <: setTypeIR
       -- let set< typeIR*{typeIR <- typeIR*} > = typeIR' as setTypeIR
       -- if typeIR*{typeIR <- typeIR*} matches [ _/1 ]
       -- let [typeIR_b] = typeIR*{typeIR <- typeIR*}
       -- if ~$is_set_typeIR(typeIR_a)
-      -- if Sub_expl: typeIR_a <: typeIR_b holds
+      -- if Cast_expl: typeIR_a -> typeIR_b holds
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:35:1-35:54:
-relation Sub_impl: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:35:1-35:55:
+relation Cast_impl: typeIR -> typeIR
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:191:1-195:54:
-   rule : typeIR_a <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:191:1-195:55:
+   rule : typeIR_a -> typeIR_b
       -- let typeIR_a_canon = $canon(typeIR_a)
       -- let typeIR_b_canon = $canon(typeIR_b)
-      -- if Sub_impl_canon: typeIR_a_canon <: typeIR_b_canon holds
+      -- if Cast_impl_canon: typeIR_a_canon -> typeIR_b_canon holds
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:36:1-36:60:
-relation Sub_impl_canon: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:36:1-36:61:
+relation Cast_impl_canon: typeIR -> typeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:197:1-199:38:
-   rule equals: typeIR_a <: typeIR_b
+   rule equals: typeIR_a -> typeIR_b
       -- if Type_alpha: typeIR_a ~~ typeIR_b holds
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:201:1-204:46:
-   rule not-equals: typeIR_a <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:201:1-204:47:
+   rule not-equals: typeIR_a -> typeIR_b
       -- if ~Type_alpha: typeIR_a ~~ typeIR_b holds
-      -- if Sub_impl_canon_neq: typeIR_a <: typeIR_b holds
+      -- if Cast_impl_canon_neq: typeIR_a -> typeIR_b holds
 
-;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:37:1-37:64:
-relation Sub_impl_canon_neq: typeIR <: typeIR
+;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:37:1-37:65:
+relation Cast_impl_canon_neq: typeIR -> typeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:206:1-207:20:
-   rule arbint-fixint: typeIR <: typeIR'
+   rule arbint-fixint: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT`
@@ -11776,7 +11779,7 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let int< _nat > = numberTypeIR'
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:209:1-210:20:
-   rule arbint-fixbit: typeIR <: typeIR'
+   rule arbint-fixbit: typeIR -> typeIR'
       -- if typeIR <: numberTypeIR
       -- let numberTypeIR = typeIR as numberTypeIR
       -- if numberTypeIR matches `INT`
@@ -11785,23 +11788,23 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- if numberTypeIR' matches `BIT<%>`
       -- let bit< _nat > = numberTypeIR'
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:212:1-214:36:
-   rule serenum-left: typeIR <: typeIR_b
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:212:1-214:37:
+   rule serenum-left: typeIR -> typeIR_b
       -- if typeIR <: enumTypeIR
       -- let enumTypeIR = typeIR as enumTypeIR
       -- if enumTypeIR matches `ENUM%#%{%}`
       -- let enum _tid # typeIR_a { _valueFieldIR*{_valueFieldIR <- _valueFieldIR*} } = enumTypeIR
-      -- if Sub_impl: typeIR_a <: typeIR_b holds
+      -- if Cast_impl: typeIR_a -> typeIR_b holds
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:216:1-218:41:
-   rule default: typeIR <: typeIR_b
+   rule default: typeIR -> typeIR_b
       -- if typeIR <: defaultTypeIR
       -- let defaultTypeIR = typeIR as defaultTypeIR
       -- if (defaultTypeIR = default)
       -- if $is_defaultable_typeIR(typeIR_b)
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:220:1-221:36:
-   rule invalidheader-header: typeIR <: typeIR'
+   rule invalidheader-header: typeIR -> typeIR'
       -- if typeIR <: invalidHeaderTypeIR
       -- let invalidHeaderTypeIR = typeIR as invalidHeaderTypeIR
       -- if (invalidHeaderTypeIR = header_invalid)
@@ -11809,35 +11812,35 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let header _tid { _fieldTypeIR*{_fieldTypeIR <- _fieldTypeIR*} } = typeIR' as headerTypeIR
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:223:1-224:42:
-   rule invalidheader-headerunion: typeIR <: typeIR'
+   rule invalidheader-headerunion: typeIR -> typeIR'
       -- if typeIR <: invalidHeaderTypeIR
       -- let invalidHeaderTypeIR = typeIR as invalidHeaderTypeIR
       -- if (invalidHeaderTypeIR = header_invalid)
       -- if typeIR' <: headerUnionTypeIR
       -- let header_union _tid { _fieldTypeIR*{_fieldTypeIR <- _fieldTypeIR*} } = typeIR' as headerUnionTypeIR
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:226:1-228:39:
-   rule seq-list: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:226:1-228:40:
+   rule seq-list: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: listTypeIR
       -- let list< typeIR_b > = typeIR' as listTypeIR
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:230:1-232:39:
-   rule seq-tuple: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:230:1-232:40:
+   rule seq-tuple: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: tupleTypeIR
       -- let tuple< typeIR_b*{typeIR_b <- typeIR_b*} > = typeIR' as tupleTypeIR
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:234:1-237:39:
-   rule seq-stack: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:234:1-237:40:
+   rule seq-stack: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
@@ -11845,30 +11848,30 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- if typeIR' <: headerStackTypeIR
       -- let typeIR_b [ n_size ] = typeIR' as headerStackTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| <= n_size)
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:239:1-241:39:
-   rule seq-struct: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:239:1-241:40:
+   rule seq-struct: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: structTypeIR
       -- let struct _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as structTypeIR
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:243:1-245:39:
-   rule seq-header: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:243:1-245:40:
+   rule seq-header: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
       -- let seq< typeIR_a*{typeIR_a <- typeIR_a*} > = sequenceTypeIR
       -- if typeIR' <: headerTypeIR
       -- let header _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as headerTypeIR
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:247:1-249:39:
-   rule seq-seq: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:247:1-249:40:
+   rule seq-seq: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%>`
@@ -11877,10 +11880,10 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let sequenceTypeIR' = typeIR' as sequenceTypeIR
       -- if sequenceTypeIR' matches `SEQ<%>`
       -- let seq< typeIR_b*{typeIR_b <- typeIR_b*} > = sequenceTypeIR'
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*, typeIR_b <- typeIR_b*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:251:1-257:50:
-   rule seqdefault-tuple: typeIR <: typeIR'
+   rule seqdefault-tuple: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11889,11 +11892,11 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let tuple< typeIR_b*{typeIR_b <- typeIR_b*} > = typeIR' as tupleTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_impl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:259:1-263:41:
-   rule seqdefault-stack: typeIR <: typeIR'
+   rule seqdefault-stack: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11901,11 +11904,11 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- if typeIR' <: headerStackTypeIR
       -- let typeIR_b [ n_size ] = typeIR' as headerStackTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < n_size)
-      -- (if Sub_impl: typeIR_a <: typeIR_b holds)*{typeIR_a <- typeIR_a*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b holds)*{typeIR_a <- typeIR_a*}
       -- if $is_defaultable_typeIR(typeIR_b)
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:265:1-271:50:
-   rule seqdefault-struct: typeIR <: typeIR'
+   rule seqdefault-struct: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11914,11 +11917,11 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let struct _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as structTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_impl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:273:1-279:50:
-   rule seqdefault-header: typeIR <: typeIR'
+   rule seqdefault-header: typeIR -> typeIR'
       -- if typeIR <: sequenceTypeIR
       -- let sequenceTypeIR = typeIR as sequenceTypeIR
       -- if sequenceTypeIR matches `SEQ<%,...>`
@@ -11927,11 +11930,11 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- let header _tid { typeIR_b _id ;*{_id <- _id*, typeIR_b <- typeIR_b*} } = typeIR' as headerTypeIR
       -- if (|typeIR_a*{typeIR_a <- typeIR_a*}| < |typeIR_b*{typeIR_b <- typeIR_b*}|)
       -- let (typeIR_b_non_default*{typeIR_b_non_default <- typeIR_b_non_default*}, typeIR_b_default*{typeIR_b_default <- typeIR_b_default*}) = $partition_<typeIR>(typeIR_b*{typeIR_b <- typeIR_b*}, |typeIR_a*{typeIR_a <- typeIR_a*}|)
-      -- (if Sub_impl: typeIR_a <: typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
+      -- (if Cast_impl: typeIR_a -> typeIR_b_non_default holds)*{typeIR_a <- typeIR_a*, typeIR_b_non_default <- typeIR_b_non_default*}
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:281:1-288:55:
-   rule record-struct: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:281:1-288:56:
+   rule record-struct: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%}`
@@ -11945,10 +11948,10 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_aligned <- typeIR_b_aligned*}
-      -- (if Sub_impl: typeIR_a_aligned <: typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
+      -- (if Cast_impl: typeIR_a_aligned -> typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
 
-   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:290:1-297:55:
-   rule record-header: typeIR <: typeIR'
+   ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:290:1-297:56:
+   rule record-header: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%}`
@@ -11962,10 +11965,10 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_aligned <- typeIR_b_aligned*}
-      -- (if Sub_impl: typeIR_a_aligned <: typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
+      -- (if Cast_impl: typeIR_a_aligned -> typeIR_b_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_aligned <- typeIR_b_aligned*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:299:1-312:50:
-   rule recorddefault-struct: typeIR <: typeIR'
+   rule recorddefault-struct: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%,...}`
@@ -11979,7 +11982,7 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_non_default_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
-      -- (if Sub_impl: typeIR_a_aligned <: typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
+      -- (if Cast_impl: typeIR_a_aligned -> typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
       -- let { id_default*{id_default <- id_default*} } = $diff_set<id>({ id_b*{id_b <- id_b*} }, { id_a*{id_a <- id_a*} })
       -- (let typeIR''''?{typeIR'''' <- typeIR''''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_default))*{id_default <- id_default*, typeIR''''? <- typeIR''''?*}
       -- (if typeIR''''?{typeIR'''' <- typeIR''''?} matches (_))*{typeIR''''? <- typeIR''''?*}
@@ -11987,7 +11990,7 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- (if $is_defaultable_typeIR(typeIR_b_default))*{typeIR_b_default <- typeIR_b_default*}
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:314:1-327:50:
-   rule recorddefault-header: typeIR <: typeIR'
+   rule recorddefault-header: typeIR -> typeIR'
       -- if typeIR <: recordTypeIR
       -- let recordTypeIR = typeIR as recordTypeIR
       -- if recordTypeIR matches `RECORD{%,...}`
@@ -12001,7 +12004,7 @@ relation Sub_impl_canon_neq: typeIR <: typeIR
       -- (let typeIR'''?{typeIR''' <- typeIR'''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_a))*{id_a <- id_a*, typeIR'''? <- typeIR'''?*}
       -- (if typeIR'''?{typeIR''' <- typeIR'''?} matches (_))*{typeIR'''? <- typeIR'''?*}
       -- (let ?(typeIR_b_non_default_aligned) = typeIR'''?{typeIR''' <- typeIR'''?})*{typeIR'''? <- typeIR'''?*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
-      -- (if Sub_impl: typeIR_a_aligned <: typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
+      -- (if Cast_impl: typeIR_a_aligned -> typeIR_b_non_default_aligned holds)*{typeIR_a_aligned <- typeIR_a_aligned*, typeIR_b_non_default_aligned <- typeIR_b_non_default_aligned*}
       -- let { id_default*{id_default <- id_default*} } = $diff_set<id>({ id_b*{id_b <- id_b*} }, { id_a*{id_a <- id_a*} })
       -- (let typeIR''''?{typeIR'''' <- typeIR''''?} = $find_map<id, typeIR>({ id_b : typeIR_b*{id_b <- id_b*, typeIR_b <- typeIR_b*} }, id_default))*{id_default <- id_default*, typeIR''''? <- typeIR''''?*}
       -- (if typeIR''''?{typeIR'''' <- typeIR''''?} matches (_))*{typeIR''''? <- typeIR''''?*}
@@ -12345,7 +12348,7 @@ relation Expr_ok: cursor typingContext |- expression : typedExpressionIR
       -- if Type_wf: $bound(p, TC) |- typeIR_t holds
       -- rel Expr_ok: p TC |- expression : typedExpressionIR
       -- let _expressionIR # ( typeIR ctk ) = typedExpressionIR
-      -- if Sub_expl: typeIR <: typeIR_t holds
+      -- if Cast_expl: typeIR -> typeIR_t holds
       -- let expressionNoteIR = ( typeIR_t ctk )
 
    ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:575:1-577:52:
@@ -15542,7 +15545,7 @@ def $coerce_unary(typedExpressionIR, typeIR) : typedExpressionIR? =
    clause 1(typedExpressionIR, typeIR_to) = ?(typedExpressionIR_cast)
       -- let _expressionIR # ( typeIR ctk ) = typedExpressionIR
       -- if ~Type_alpha: typeIR ~~ typeIR_to holds
-      -- if Sub_impl: typeIR <: typeIR_to holds
+      -- if Cast_impl: typeIR -> typeIR_to holds
       -- let typedExpressionIR_cast = ( typeIR_to ) typedExpressionIR as expressionIR # ( typeIR_to ctk )
 
 ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:423:1-424:44:
@@ -15559,7 +15562,7 @@ def $coerce_binary(typedExpressionIR, typedExpressionIR) : (typedExpressionIR, t
       -- let _expressionIR # ( typeIR_l ctk_l ) = typedExpressionIR_l
       -- let _expressionIR' # ( typeIR_r _ctk ) = typedExpressionIR_r
       -- if ~Type_alpha: typeIR_l ~~ typeIR_r holds
-      -- if Sub_impl: typeIR_l <: typeIR_r holds
+      -- if Cast_impl: typeIR_l -> typeIR_r holds
       -- let typedExpressionIR_l_cast = ( typeIR_r ) typedExpressionIR_l as expressionIR # ( typeIR_r ctk_l )
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:441:1-449:65:
@@ -15567,8 +15570,8 @@ def $coerce_binary(typedExpressionIR, typedExpressionIR) : (typedExpressionIR, t
       -- let _expressionIR # ( typeIR_l _ctk ) = typedExpressionIR_l
       -- let _expressionIR' # ( typeIR_r ctk_r ) = typedExpressionIR_r
       -- if ~Type_alpha: typeIR_l ~~ typeIR_r holds
-      -- if ~Sub_impl: typeIR_l <: typeIR_r holds
-      -- if Sub_impl: typeIR_r <: typeIR_l holds
+      -- if ~Cast_impl: typeIR_l -> typeIR_r holds
+      -- if Cast_impl: typeIR_r -> typeIR_l holds
       -- let typedExpressionIR_r_cast = ( typeIR_l ) typedExpressionIR_r as expressionIR # ( typeIR_l ctk_r )
 
    ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:451:1-452:15:
@@ -16623,7 +16626,7 @@ relation SelectCase_keyset_simple_ok: typingContext typeIR |- simpleKeysetExpres
       -- if typeIR'*{typeIR' <- typeIR'*} matches [ _/1 ]
       -- let [typeIR] = typeIR'*{typeIR' <- typeIR'*}
       -- if ~Type_alpha: typeIR ~~ typeIR_key holds
-      -- if Sub_impl: typeIR <: typeIR_key holds
+      -- if Cast_impl: typeIR -> typeIR_key holds
       -- let typeIR_cast = set< [typeIR_key] > as typeIR
       -- let typedExpressionIR_cast = ( typeIR_cast ) typedExpressionIR as expressionIR # ( typeIR_cast dyn )
 
@@ -16634,7 +16637,7 @@ relation SelectCase_keyset_simple_ok: typingContext typeIR |- simpleKeysetExpres
       -- rel Expr_ok: local TC |- expression : typedExpressionIR
       -- let _expressionIR # ( typeIR _ctk ) = typedExpressionIR
       -- if ~$is_set_typeIR(typeIR)
-      -- if Sub_impl: typeIR <: typeIR_key holds
+      -- if Cast_impl: typeIR -> typeIR_key holds
       -- let typeIR_cast = set< [typeIR_key] > as typeIR
       -- let typedExpressionIR_cast = ( typeIR_cast ) typedExpressionIR as expressionIR # ( typeIR_cast dyn )
 
@@ -17069,7 +17072,7 @@ relation TableEntry_keyset_simple_ok: typingContext tableContext |- matchKey @ s
       -- let noprilpm n = matchMode
       -- rel Expr_ok: local TC |- expression : typedExpressionIR
       -- let _expressionIR # ( typeIR ctk ) = typedExpressionIR
-      -- if Sub_impl: typeIR <: typeIR_key holds
+      -- if Cast_impl: typeIR -> typeIR_key holds
       -- let typeIR_set = set< [typeIR_key] > as typeIR
       -- let typedExpressionIR_set = ( typeIR_set ) typedExpressionIR as expressionIR # ( typeIR_set ctk )
 
@@ -17080,7 +17083,7 @@ relation TableEntry_keyset_simple_ok: typingContext tableContext |- matchKey @ s
       -- if (nameIR_matchkind =/= "lpm")
       -- rel Expr_ok: local TC |- expression : typedExpressionIR
       -- let _expressionIR # ( typeIR ctk ) = typedExpressionIR
-      -- if Sub_impl: typeIR <: typeIR_key holds
+      -- if Cast_impl: typeIR -> typeIR_key holds
       -- let typeIR_set = set< [typeIR_key] > as typeIR
       -- let typedExpressionIR_set = ( typeIR_set ) typedExpressionIR as expressionIR # ( typeIR_set ctk )
 
@@ -17101,13 +17104,13 @@ relation TableEntry_keyset_simple_ok: typingContext tableContext |- matchKey @ s
       -- if (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?} matches (_)
       -- let ?((typedExpressionIR_l_reduced, typedExpressionIR_r_reduced)) = (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?}
       -- let _expressionIR # ( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
-      -- if Sub_impl: typeIR_reduced <: typeIR_key holds
+      -- if Cast_impl: typeIR_reduced -> typeIR_key holds
       -- if (ctk_r_reduced = lctk)
       -- rel Eval_static: local TC |- typedExpressionIR_r_reduced ~> value_r
       -- let i_r = $to_number(value_r)
       -- let n_prefix = $tableEntry_lpm_prefix(n w $to_bitstr(n as int, i_r) as value)
 
-   ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:306:1-325:44:
+   ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:306:1-325:45:
    rule mask-ternary: TC TBLC |- (typeIR_key, text) @ simpleKeysetExpression : nolpm typedExpressionIR_l_reduced &&& typedExpressionIR_r_reduced
       -- if (text = "ternary")
       -- if simpleKeysetExpression matches `%&&&%`
@@ -17121,9 +17124,9 @@ relation TableEntry_keyset_simple_ok: typingContext tableContext |- matchKey @ s
       -- if (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?} matches (_)
       -- let ?((typedExpressionIR_l_reduced, typedExpressionIR_r_reduced)) = (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?}
       -- let _expressionIR # ( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
-      -- if Sub_impl: typeIR_reduced <: typeIR_key holds
+      -- if Cast_impl: typeIR_reduced -> typeIR_key holds
 
-   ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:329:1-348:44:
+   ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:329:1-348:45:
    rule range-range: TC TBLC |- (typeIR_key, text) @ simpleKeysetExpression : nolpm typedExpressionIR_l_reduced .. typedExpressionIR_r_reduced
       -- if (text = "range")
       -- if simpleKeysetExpression matches `%..%`
@@ -17137,7 +17140,7 @@ relation TableEntry_keyset_simple_ok: typingContext tableContext |- matchKey @ s
       -- if (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?} matches (_)
       -- let ?((typedExpressionIR_l_reduced, typedExpressionIR_r_reduced)) = (typedExpressionIR, typedExpressionIR)'?{(typedExpressionIR, typedExpressionIR)' <- (typedExpressionIR, typedExpressionIR)'?}
       -- let _expressionIR # ( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
-      -- if Sub_impl: typeIR_reduced <: typeIR_key holds
+      -- if Cast_impl: typeIR_reduced -> typeIR_key holds
 
    ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:352:1-355:31:
    rule default-lpm: TC TBLC |- (typeIR_key, text) @ simpleKeysetExpression : lpm n default
@@ -17657,7 +17660,7 @@ def $merge_constraint'(constraint, constraint, tid*, constraint) : constraint =
       -- let ?(infer'') = infer'''?{infer''' <- infer'''?}
       -- if infer'' matches `KNOWNAS%`
       -- let knownas typeIR_post = infer''
-      -- if Sub_impl: typeIR_pre <: typeIR_post holds
+      -- if Cast_impl: typeIR_pre -> typeIR_post holds
       -- let constraint_updated = $update_map<tid, infer>(constraint, tid_h, knownas typeIR_post)
 
    ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:328:1-339:72:
@@ -17674,8 +17677,8 @@ def $merge_constraint'(constraint, constraint, tid*, constraint) : constraint =
       -- let ?(infer'') = infer'''?{infer''' <- infer'''?}
       -- if infer'' matches `KNOWNAS%`
       -- let knownas typeIR_post = infer''
-      -- if ~Sub_impl: typeIR_pre <: typeIR_post holds
-      -- if Sub_impl: typeIR_post <: typeIR_pre holds
+      -- if ~Cast_impl: typeIR_pre -> typeIR_post holds
+      -- if Cast_impl: typeIR_post -> typeIR_pre holds
       -- let constraint_updated = $update_map<tid, infer>(constraint, tid_h, knownas typeIR_pre)
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:36:1-36:61:

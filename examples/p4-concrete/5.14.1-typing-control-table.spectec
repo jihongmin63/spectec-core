@@ -251,7 +251,7 @@ rule TableEntry_keyset_simple_ok/expression-lpm:
   -- Expr_ok: LOCAL TC |- expression : typedExpressionIR
   -- if _ `# `( typeIR ctk ) = typedExpressionIR
   ---- ;; check compatibility with the key type
-  -- Sub_impl: typeIR <: typeIR_key
+  -- Cast_impl: typeIR -> typeIR_key
   ---- ;; lift the expression to set type
   -- if typeIR_set = SET `< typeIR_key >
   -- if typedExpressionIR_set
@@ -266,7 +266,7 @@ rule TableEntry_keyset_simple_ok/expression-non-lpm:
   -- Expr_ok: LOCAL TC |- expression : typedExpressionIR
   -- if _ `# `( typeIR ctk ) = typedExpressionIR
   ---- ;; check compatibility with the key type
-  -- Sub_impl: typeIR <: typeIR_key
+  -- Cast_impl: typeIR -> typeIR_key
   ---- ;; lift the expression to set type
   -- if typeIR_set = SET `< typeIR_key >
   -- if typedExpressionIR_set
@@ -295,7 +295,7 @@ rule TableEntry_keyset_simple_ok/mask-lpm:
   ---- ;; fetch the type
   -- if _ `# `( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
   ---- ;; check compatibility with the key type
-  -- Sub_impl: typeIR_reduced <: typeIR_key
+  -- Cast_impl: typeIR_reduced -> typeIR_key
   ---- ;; statically evaluate the right hand side to get its width
   -- if ctk_r_reduced = LCTK
   -- Eval_static: LOCAL TC |- typedExpressionIR_r_reduced ~> value_r
@@ -322,7 +322,7 @@ rule TableEntry_keyset_simple_ok/mask-ternary:
   ---- ;; fetch the type
   -- if _ `# `( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
   ---- ;; check compatibility with the key type
-  -- Sub_impl: typeIR_reduced <: typeIR_key
+  -- Cast_impl: typeIR_reduced -> typeIR_key
 
 ;;;;;; expression `.. expression
 
@@ -345,7 +345,7 @@ rule TableEntry_keyset_simple_ok/range-range:
   ---- ;; fetch the type
   -- if _ `# `( typeIR_reduced ctk_r_reduced ) = typedExpressionIR_r_reduced
   ---- ;; check compatibility with the key type
-  -- Sub_impl: typeIR_reduced <: typeIR_key
+  -- Cast_impl: typeIR_reduced -> typeIR_key
 
 ;;;;;; DEFAULT
 

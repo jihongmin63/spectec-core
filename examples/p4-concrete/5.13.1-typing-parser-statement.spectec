@@ -51,7 +51,7 @@ rule SelectCase_keyset_simple_ok/expression-set-subtype:
   -- if _ `# `( (SET `< typeIR >) _ ) = typedExpressionIR
   ---- ;; if the keyset type is a subtype of the key type
   -- Type_alpha:/ typeIR ~~ typeIR_key
-  -- Sub_impl: typeIR <: typeIR_key
+  -- Cast_impl: typeIR -> typeIR_key
   ---- ;; cast the expression to the key type
   -- if typeIR_cast = SET `< typeIR_key >
   -- if typedExpressionIR_cast
@@ -65,7 +65,7 @@ rule SelectCase_keyset_simple_ok/expression-non-set:
   ---- ;; if the keyset type is not a set type
   -- if ~$is_set_typeIR(typeIR)
   ---- ;; if the keyset type is a subtype of the key type
-  -- Sub_impl: typeIR <: typeIR_key
+  -- Cast_impl: typeIR -> typeIR_key
   ---- ;; cast the expression to the key type
   -- if typeIR_cast = SET `< typeIR_key >
   -- if typedExpressionIR_cast

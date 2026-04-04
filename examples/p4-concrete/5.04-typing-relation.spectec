@@ -25,16 +25,16 @@ relation TypeArguments_ok:
   hint(input %0 %1 %2)
 
 ;;
-;;;; Subtyping, explicit and implicit
+;;;; Casting, explicit and implicit
 ;;
 
-relation Sub_expl: typeIR <: typeIR hint(input %0 %1)
-relation Sub_expl_canon: typeIR <: typeIR hint(input %0 %1)
-relation Sub_expl_canon_neq: typeIR <: typeIR hint(input %0 %1)
+relation Cast_expl: typeIR -> typeIR hint(input %0 %1)
+relation Cast_expl_canon: typeIR -> typeIR hint(input %0 %1)
+relation Cast_expl_canon_neq: typeIR -> typeIR hint(input %0 %1)
 
-relation Sub_impl: typeIR <: typeIR hint(input %0 %1)
-relation Sub_impl_canon: typeIR <: typeIR hint(input %0 %1)
-relation Sub_impl_canon_neq: typeIR <: typeIR hint(input %0 %1)
+relation Cast_impl: typeIR -> typeIR hint(input %0 %1)
+relation Cast_impl_canon: typeIR -> typeIR hint(input %0 %1)
+relation Cast_impl_canon_neq: typeIR -> typeIR hint(input %0 %1)
 
 ;;
 ;;;; Expression typing
