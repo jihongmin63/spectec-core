@@ -1023,14 +1023,24 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   let result =
     let invoke_func' () =
       let* _, value_output =
-        if ctx.builtins.is_builtin id then invoke_func_builtin ()
-        else
-          match Ctx.find_func_opt ctx id with
-          | Some (_, Ctx.Func.Builtin) -> invoke_func_builtin ()
-          | Some (_, Ctx.Func.Defined (tparams, clauses)) ->
-              check_warn (clauses <> []) id.at "function has no clauses";
-              invoke_func_def tparams clauses
-          | _ -> fail id.at (F.asprintf "unknown function %s" id.it)
+        match Ctx.find_func_opt ctx id with
+        | Some (_, Ctx.Func.Builtin) ->
+            check
+              (ctx.builtins.is_builtin id)
+              id.at
+              (F.asprintf
+                 "builtin $%s is declared in the spec but not implemented" id.it);
+            invoke_func_builtin ()
+        | Some (_, Ctx.Func.Defined (tparams, clauses)) ->
+            check_warn (clauses <> []) id.at "function has no clauses";
+            invoke_func_def tparams clauses
+        | None ->
+            if ctx.builtins.is_builtin id then (
+              warn id.at
+                (F.asprintf "builtin $%s is invoked without a spec declaration"
+                   id.it);
+              invoke_func_builtin ())
+            else fail id.at (F.asprintf "unknown function %s" id.it)
       in
       Ok value_output
     in

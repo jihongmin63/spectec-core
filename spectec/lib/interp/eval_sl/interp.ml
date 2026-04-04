@@ -1135,14 +1135,24 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   let invoke_func' () =
     let invoke () =
       let _, v =
-        if ctx.builtins.is_builtin id then invoke_func_builtin ()
-        else
-          match Ctx.find_func_opt Local ctx id with
-          | Some Ctx.Func.Builtin -> invoke_func_builtin ()
-          | Some (Ctx.Func.Defined (tparams, args_input, instrs)) ->
-              check (instrs <> []) id.at "function has no instructions";
-              invoke_func_def tparams args_input instrs
-          | _ -> error id.at (F.asprintf "unknown function %s" id.it)
+        match Ctx.find_func_opt Local ctx id with
+        | Some Ctx.Func.Builtin ->
+            check
+              (ctx.builtins.is_builtin id)
+              id.at
+              (F.asprintf
+                 "builtin $%s is declared in the spec but not implemented" id.it);
+            invoke_func_builtin ()
+        | Some (Ctx.Func.Defined (tparams, args_input, instrs)) ->
+            check (instrs <> []) id.at "function has no instructions";
+            invoke_func_def tparams args_input instrs
+        | None ->
+            if ctx.builtins.is_builtin id then (
+              warn id.at
+                (F.asprintf "builtin $%s is invoked without a spec declaration"
+                   id.it);
+              invoke_func_builtin ())
+            else error id.at (F.asprintf "unknown function %s" id.it)
       in
       Ok v
     in
