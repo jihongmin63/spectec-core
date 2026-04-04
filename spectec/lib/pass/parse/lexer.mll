@@ -213,11 +213,8 @@ and token = parse
   | "`|-|" { TICK_BAR_MINUS_BAR }
   | "`|-|=" { TICK_BAR_MINUS_BAR_EQ }
   (* normal tokens *)
-  | "<:" { SUB }
-  | ":>" { SUP }
   | "|-" { TURNSTILE }
   | "-|" { TILESTURN }
-  | "|=" { ENTAIL }
   | "->" { ARROW }
   | "->_" { ARROW_SUB }
   | "=>" { DOUBLE_ARROW }
@@ -241,6 +238,7 @@ and token = parse
   | "##" { HASH2 }
   | "$" { DOLLAR }
   | "?" { QUEST }
+  | "<:" { SUB }
   | "~" { TILDE }
   | "~~" { TILDE2 }
   | "<" { LANGLE }

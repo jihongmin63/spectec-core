@@ -563,7 +563,7 @@ rule Expr_ok/castExpression:
   ---- ;; fetch annotation
   -- if _ `# `( typeIR ctk ) = typedExpressionIR
   ---- ;; check that explicit cast is defined
-  -- Sub_expl: typeIR <: typeIR_t
+  -- Cast_expl: typeIR -> typeIR_t
   ---- ;; create typed expression
   -- if expressionNoteIR = `( typeIR_t ctk )
 

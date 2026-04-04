@@ -93,8 +93,8 @@ module Target : Spectec.Target.S = struct
     | _ -> false
 
   let is_impure_rel = function
-    | "Sub_expl" | "Sub_expl_canon" | "Sub_expl_canon_neq" | "Sub_impl"
-    | "Sub_impl_canon" | "Sub_impl_canon_neq" | "Type_wf" | "Type_alpha" ->
+    | "Cast_expl" | "Cast_expl_canon" | "Cast_expl_canon_neq" | "Cast_impl"
+    | "Cast_impl_canon" | "Cast_impl_canon_neq" | "Type_wf" | "Type_alpha" ->
         true
     | _ -> false
 
