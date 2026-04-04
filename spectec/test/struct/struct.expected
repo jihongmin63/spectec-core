@@ -1,22 +1,14 @@
-;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:21:
-dec $sum
+;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:29:
+builtin dec $sum(nat*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:29:
+builtin dec $max(nat*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:29:
+builtin dec $min(nat*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:21:
-dec $max
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:21:
-dec $min
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:29:
-dec $int_to_text
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:37:
+builtin dec $int_to_text(int)
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:30:1-30:31:
 dec $concat_text(text*)
@@ -33,15 +25,11 @@ dec $concat_text(text*)
 
     2. Return t_h ++ $concat_text(t_t*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:37:
-dec $strip_prefix
+;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:45:
+builtin dec $strip_prefix(text, text')
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:37:
-dec $strip_suffix
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:45:
+builtin dec $strip_suffix(text, text')
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:41:1-41:23:
 dec $init_(nat')
@@ -65,30 +53,20 @@ dec $repeat_<X>(X, nat')
 
   1. Return [X] ++ $repeat_<X>(X, (nat' - 1))
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:22:
-dec $rev_<X>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:30:
+builtin dec $rev_<X>(X*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:36:
+builtin dec $concat_<X>(X**)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:47:
+builtin dec $partition_<X>(X*, nat)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:28:
-dec $concat_<X>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:43:
+builtin dec $assoc_<X, Y>(X, (X, Y)*)
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:39:
-dec $partition_<X>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:35:
-dec $assoc_<X, Y>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:29:
-dec $distinct_<K>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:37:
+builtin dec $distinct_<K>(K*)
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:65:17-65:24:
 syntax set<K> = 
@@ -104,35 +82,23 @@ dec $in_set<K>(K, ({ K_e* }))
 
 1. Return K is in K_e*
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:47:
-dec $intersect_set<K>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:55:
+builtin dec $intersect_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:51:
+builtin dec $union_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:45:
+builtin dec $unions_set<K>(set<K>*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:43:
-dec $union_set<K>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:50:
+builtin dec $diff_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:47:
+builtin dec $sub_set<K>(set<K>, set<K>')
 
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:37:
-dec $unions_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:42:
-dec $diff_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:39:
-dec $sub_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:38:
-dec $eq_set<K>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:46:
+builtin dec $eq_set<K>(set<K>, set<K>')
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:89:21-89:27:
 syntax pair<K, V> = 
@@ -151,30 +117,20 @@ dec $dom_map<K, V>(({ (K : V)* }))
 
 1. Return ({ K* })
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:39:
-dec $find_map<K, V>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:47:
+builtin dec $find_map<K, V>(map<K, V>, K)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:49:
+builtin dec $find_maps<K, V>(map<K, V>*, K)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:56:
+builtin dec $add_map<K, V>(map<K, V>, K, V)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:41:
-dec $find_maps<K, V>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:59:
+builtin dec $adds_map<K, V>(map<K, V>, K*, V*)
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:48:
-dec $add_map<K, V>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:51:
-dec $adds_map<K, V>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:51:
-dec $update_map<K, V>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:59:
+builtin dec $update_map<K, V>(map<K, V>, K, V)
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:6:1-7:7:
 syntax trailingCommaOpt = 
@@ -2685,10 +2641,8 @@ syntax id = text
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:39:14-39:16:
 syntax tid = id
 
-;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:23:
-dec $fresh_tid
-
-
+;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:31:
+builtin dec $fresh_tid
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:42:1-42:28:
 dec $fresh_tids(nat')
@@ -2977,15 +2931,11 @@ syntax value =
    | table_struct tid { fieldValue* }
    | ! oid
 
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:28:
-dec $to_int
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:36:
+builtin dec $to_int(int, int')
 
-
-
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:31:
-dec $to_bitstr
-
-
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:39:
+builtin dec $to_bitstr(int, int')
 
 ;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:18:1-18:28:
 dec $to_number(value)
@@ -6105,50 +6055,32 @@ dec $joins_ctk(ctk''*)
 
 1. Else Phantom#199
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:21:
-dec $pow2
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:29:
+builtin dec $pow2(nat)
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:33:
+builtin dec $shl(int, int')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:33:
+builtin dec $shr(int, int')
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:25:
-dec $shl
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:44:
+builtin dec $shr_arith(int, int', int'')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:29:
+builtin dec $bneg(int)
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:34:
+builtin dec $band(int, int')
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:25:
-dec $shr
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:34:
+builtin dec $bxor(int, int')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:33:
+builtin dec $bor(int, int')
 
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:36:
-dec $shr_arith
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:21:
-dec $bneg
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:26:
-dec $band
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:26:
-dec $bxor
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:25:
-dec $bor
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:33:
-dec $bitacc
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:41:
+builtin dec $bitacc(int, int', int'')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:24:1-24:28:
 dec $un_bnot(value)
@@ -6341,10 +6273,8 @@ dec $bin_plus(value, value')
 
 1. Else Phantom#214
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:39:
-dec $bin_satplus
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:47:
+builtin dec $bin_satplus(value, value')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:77:1-77:37:
 dec $bin_minus(value, value')
@@ -6409,10 +6339,8 @@ dec $bin_minus(value, value')
 
 1. Else Phantom#221
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:40:
-dec $bin_satminus
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:48:
+builtin dec $bin_satminus(value, value')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:95:1-95:35:
 dec $bin_mul(value, value')

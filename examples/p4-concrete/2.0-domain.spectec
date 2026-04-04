@@ -38,7 +38,7 @@ syntax id = text
 
 syntax tid = id
 
-dec $fresh_tid() : tid
+builtin dec $fresh_tid() : tid
 dec $fresh_tids(nat) : tid*
 
 def $fresh_tids(0) = eps
