@@ -74,7 +74,7 @@ let exit_scope () = vars := List.hd !scopes; scopes := List.tl !scopes
 %token HOLE_MULTI HOLE_NIL
 %token EQ NEQ UP BAR
 %token LATEX BOOL NAT INT TEXT
-%token SYNTAX RELATION RULE VAR DEC DEF
+%token SYNTAX RELATION RULE VAR BUILTIN DEC DEF
 %token IF OTHERWISE DEBUG HINT_LPAREN EPS
 %token<bool> BOOLLIT
 %token<Bigint.t> NATLIT HEXLIT
@@ -169,6 +169,7 @@ relid : id { $1 @@@ $sloc }
 ruleid : ruleid_ { $1 }
 ruleid_ :
   | id { $1 }
+  | BUILTIN { "builtin" }
   | NATLIT { Bigint.to_string $1 }
   | BOOLLIT { Bool.string_of_bool $1 }
   | ruleid_ DOTID { $1 ^ "." ^ $2 }
@@ -733,6 +734,14 @@ def_ :
   | RULE relid ruleids COLON exp prem_list
     { let id = if $3 = "" then "" else String.sub $3 1 (String.length $3 - 1) in
       RuleD ($2, id @@@ $loc($3), $5, $6) }
+  | BUILTIN DEC DOLLAR defid COLON plaintyp hint*
+    { BuiltinDecD ($4, [], [], $6, $7) }
+  | BUILTIN DEC DOLLAR defid_lparen enter_scope comma_list(param) RPAREN COLON plaintyp hint* exit_scope
+    { BuiltinDecD ($4, [], $6, $9, $10) }
+  | BUILTIN DEC DOLLAR defid_langle enter_scope comma_list(tparam) RANGLE COLON plaintyp hint* exit_scope
+    { BuiltinDecD ($4, $6, [], $9, $10) }
+  | BUILTIN DEC DOLLAR defid_langle enter_scope comma_list(tparam) RANGLE_LPAREN comma_list(param) RPAREN COLON plaintyp hint* exit_scope
+    { BuiltinDecD ($4, $6, $8, $11, $12) }
   | DEC DOLLAR defid COLON plaintyp hint*
     { DecD ($3, [], [], $5, $6) }
   | DEC DOLLAR defid_lparen enter_scope comma_list(param) RPAREN COLON plaintyp hint* exit_scope

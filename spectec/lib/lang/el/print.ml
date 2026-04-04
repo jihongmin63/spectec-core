@@ -255,6 +255,10 @@ let string_of_def def =
   | RuleD (relid, ruleid, exp, prems) ->
       "rule " ^ string_of_relid relid ^ string_of_ruleid ruleid ^ ":\n  "
       ^ string_of_exp exp ^ string_of_prems prems
+  | BuiltinDecD (defid, tparams, params, plaintyp, _hints) ->
+      "builtin dec " ^ string_of_defid defid ^ string_of_tparams tparams
+      ^ string_of_params params ^ " : "
+      ^ string_of_plaintyp plaintyp
   | DecD (defid, tparams, params, plaintyp, _hints) ->
       "dec " ^ string_of_defid defid ^ string_of_tparams tparams
       ^ string_of_params params ^ " : "

@@ -2,14 +2,14 @@
 ;; Interpret a bitstring with width as a raw integer
 ;;
 
-dec $to_int(int, int) : int
+builtin dec $to_int(int, int) : int
 
 ;;
 ;; Convert a raw integer to a bitstring with width
 ;; Ensures that the bitstring lies within the range of the width
 ;;
 
-dec $to_bitstr(int, int) : int
+builtin dec $to_bitstr(int, int) : int
 
 ;;
 ;; Underlying raw integer of a numeric value

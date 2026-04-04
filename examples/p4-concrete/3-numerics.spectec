@@ -2,18 +2,18 @@
 ;; Bitwise operations
 ;;
 
-dec $pow2(nat) : int
+builtin dec $pow2(nat) : int
 
-dec $shl(int, int) : int
-dec $shr(int, int) : int
-dec $shr_arith(int, int, int) : int
+builtin dec $shl(int, int) : int
+builtin dec $shr(int, int) : int
+builtin dec $shr_arith(int, int, int) : int
 
-dec $bneg(int) : int
-dec $band(int, int) : int
-dec $bxor(int, int) : int
-dec $bor(int, int) : int
+builtin dec $bneg(int) : int
+builtin dec $band(int, int) : int
+builtin dec $bxor(int, int) : int
+builtin dec $bor(int, int) : int
 
-dec $bitacc(int, int, int) : int
+builtin dec $bitacc(int, int, int) : int
 
 ;;
 ;; Unary operations
@@ -70,7 +70,7 @@ def $bin_plus(w S i_l, w S i_r) = w S i'
 
 ;;; Binary saturating plus
 
-dec $bin_satplus(value, value) : value 
+builtin dec $bin_satplus(value, value) : value 
 
 ;;; Binary minus
 
@@ -88,7 +88,7 @@ def $bin_plus(w S i_l, w S i_r) = w S i'
 
 ;;; Binary saturating minus
 
-dec $bin_satminus(value, value) : value
+builtin dec $bin_satminus(value, value) : value
 
 ;;; Binary multiplication
 

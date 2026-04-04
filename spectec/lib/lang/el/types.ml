@@ -169,6 +169,8 @@ and def' =
   | RelD of id * nottyp * hint list
   (* `rule` id`/`id `:` exp list(`--` prem, nl) *)
   | RuleD of id * id * exp * prem list
+  (* `builtin` `dec` id `<` list(tparam, `,`) `>` list(param, `,`) `:` plaintyp hint* *)
+  | BuiltinDecD of id * tparam list * param list * plaintyp * hint list
   (* `dec` id `<` list(tparam, `,`) `>` list(param, `,`) `:` plaintyp hint* *)
   | DecD of id * tparam list * param list * plaintyp * hint list
   (* `def` id `<` list(tparam, `,`) `>` list(arg, `,`) `=` exp list(`--` prem, nl) *)

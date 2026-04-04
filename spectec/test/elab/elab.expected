@@ -1,14 +1,14 @@
-;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:21:
-def $sum(nat*) : nat =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:29:
+builtin dec $sum(nat*) : nat
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:21:
-def $max(nat*) : nat =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:29:
+builtin dec $max(nat*) : nat
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:21:
-def $min(nat*) : nat =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:29:
+builtin dec $min(nat*) : nat
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:29:
-def $int_to_text(int) : text =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:37:
+builtin dec $int_to_text(int) : text
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:30:1-30:31:
 def $concat_text(text*) : text =
@@ -22,11 +22,11 @@ def $concat_text(text*) : text =
       -- if text*{text <- text*} matches _ :: _
       -- let t_h :: t_t*{t_t <- t_t*} = text*{text <- text*}
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:37:
-def $strip_prefix(text, text) : text =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:45:
+builtin dec $strip_prefix(text, text) : text
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:37:
-def $strip_suffix(text, text) : text =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:45:
+builtin dec $strip_suffix(text, text) : text
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:41:1-41:23:
 def $init_(nat) : nat* =
@@ -50,20 +50,20 @@ def $repeat_<X>(X, nat) : X* =
    clause 1(X, n) = [X] ++ $repeat_<X>(X, (n - 1))
       -- otherwise
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:22:
-def $rev_<X>(X*) : X* =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:30:
+builtin dec $rev_<X>(X*) : X*
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:28:
-def $concat_<X>(X**) : X* =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:36:
+builtin dec $concat_<X>(X**) : X*
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:39:
-def $partition_<X>(X*, nat) : (X*, X*) =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:47:
+builtin dec $partition_<X>(X*, nat) : (X*, X*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:35:
-def $assoc_<X, Y>(X, (X, Y)*) : Y? =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:43:
+builtin dec $assoc_<X, Y>(X, (X, Y)*) : Y?
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:29:
-def $distinct_<K>(K*) : bool =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:37:
+builtin dec $distinct_<K>(K*) : bool
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:65:17-65:24:
 syntax set<K> = 
@@ -81,23 +81,23 @@ def $in_set<K>(K, set<K>) : bool =
    ;; ../../../../../examples/p4-concrete/0-aux.spectec:71:1-71:41:
    clause 0(K, { K_e*{K_e <- K_e*} }) = K <- K_e*{K_e <- K_e*}
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:47:
-def $intersect_set<K>(set<K>, set<K>) : set<K> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:55:
+builtin dec $intersect_set<K>(set<K>, set<K>) : set<K>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:43:
-def $union_set<K>(set<K>, set<K>) : set<K> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:51:
+builtin dec $union_set<K>(set<K>, set<K>) : set<K>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:37:
-def $unions_set<K>(set<K>*) : set<K> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:45:
+builtin dec $unions_set<K>(set<K>*) : set<K>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:42:
-def $diff_set<K>(set<K>, set<K>) : set<K> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:50:
+builtin dec $diff_set<K>(set<K>, set<K>) : set<K>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:39:
-def $sub_set<K>(set<K>, set<K>) : bool =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:47:
+builtin dec $sub_set<K>(set<K>, set<K>) : bool
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:38:
-def $eq_set<K>(set<K>, set<K>) : bool =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:46:
+builtin dec $eq_set<K>(set<K>, set<K>) : bool
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:89:21-89:27:
 syntax pair<K, V> = 
@@ -118,20 +118,20 @@ def $dom_map<K, V>(map<K, V>) : set<K> =
    ;; ../../../../../examples/p4-concrete/0-aux.spectec:97:1-97:45:
    clause 0({ K : V*{K <- K*, V <- V*} }) = { K*{K <- K*} }
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:39:
-def $find_map<K, V>(map<K, V>, K) : V? =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:47:
+builtin dec $find_map<K, V>(map<K, V>, K) : V?
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:41:
-def $find_maps<K, V>(map<K, V>*, K) : V? =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:49:
+builtin dec $find_maps<K, V>(map<K, V>*, K) : V?
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:48:
-def $add_map<K, V>(map<K, V>, K, V) : map<K, V> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:56:
+builtin dec $add_map<K, V>(map<K, V>, K, V) : map<K, V>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:51:
-def $adds_map<K, V>(map<K, V>, K*, V*) : map<K, V> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:59:
+builtin dec $adds_map<K, V>(map<K, V>, K*, V*) : map<K, V>
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:51:
-def $update_map<K, V>(map<K, V>, K, V) : map<K, V> =
+;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:59:
+builtin dec $update_map<K, V>(map<K, V>, K, V) : map<K, V>
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:6:1-7:7:
 syntax trailingCommaOpt = 
@@ -2468,8 +2468,8 @@ syntax id = text
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:39:14-39:16:
 syntax tid = id
 
-;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:23:
-def $fresh_tid : tid =
+;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:31:
+builtin dec $fresh_tid : tid
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:42:1-42:28:
 def $fresh_tids(nat) : tid* =
@@ -2718,11 +2718,11 @@ syntax value =
    | table_struct tid { fieldValue* }
    | ! oid
 
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:28:
-def $to_int(int, int) : int =
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:36:
+builtin dec $to_int(int, int) : int
 
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:31:
-def $to_bitstr(int, int) : int =
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:39:
+builtin dec $to_bitstr(int, int) : int
 
 ;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:18:1-18:28:
 def $to_number(value) : int =
@@ -4940,32 +4940,32 @@ def $joins_ctk(ctk*) : ctk =
       -- let ctk_b :: ctk_c*{ctk_c <- ctk_c*} = ctk*{ctk <- ctk*}
       -- let ctk_d = $join_ctk(ctk_a, ctk_b)
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:21:
-def $pow2(nat) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:29:
+builtin dec $pow2(nat) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:25:
-def $shl(int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:33:
+builtin dec $shl(int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:25:
-def $shr(int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:33:
+builtin dec $shr(int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:36:
-def $shr_arith(int, int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:44:
+builtin dec $shr_arith(int, int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:21:
-def $bneg(int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:29:
+builtin dec $bneg(int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:26:
-def $band(int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:34:
+builtin dec $band(int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:26:
-def $bxor(int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:34:
+builtin dec $bxor(int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:25:
-def $bor(int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:33:
+builtin dec $bor(int, int) : int
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:33:
-def $bitacc(int, int, int) : int =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:41:
+builtin dec $bitacc(int, int, int) : int
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:24:1-24:28:
 def $un_bnot(value) : value =
@@ -5112,8 +5112,8 @@ def $bin_plus(value, value) : value =
       -- let i_r' = $to_int(w as int, i_r)
       -- let i' = $to_bitstr(w as int, (i_l' * i_r'))
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:39:
-def $bin_satplus(value, value) : value =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:47:
+builtin dec $bin_satplus(value, value) : value
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:77:1-77:37:
 def $bin_minus(value, value) : value =
@@ -5159,8 +5159,8 @@ def $bin_minus(value, value) : value =
       -- let i_r' = $to_int(w as int, i_r)
       -- let i' = $to_bitstr(w as int, (i_l' * i_r'))
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:40:
-def $bin_satminus(value, value) : value =
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:48:
+builtin dec $bin_satminus(value, value) : value
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:95:1-95:35:
 def $bin_mul(value, value) : value =

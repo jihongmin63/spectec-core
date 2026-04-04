@@ -87,7 +87,7 @@ let init spec =
                   let _, _, prems = clause.it in
                   List.iter (fun prem -> assign_premise_uid prem) prems)
                 clauses
-          | Il.TypD _ -> ())
+          | _ -> ())
         il_spec
   | SlSpec _ -> () (* SL specs don't have premises in the same way *)
 

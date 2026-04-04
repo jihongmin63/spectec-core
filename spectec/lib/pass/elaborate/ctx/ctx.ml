@@ -139,27 +139,38 @@ let find_rules (ctx : t) (rid : RId.t) : Il.rule list =
 
 (* Finders for definitions *)
 
-let find_dec_opt (ctx : t) (fid : FId.t) :
+let find_defined_dec_opt (ctx : t) (fid : FId.t) :
+    (tparam list * param list * plaintyp * Il.clause list) option =
+  match FEnv.find_opt fid ctx.fenv with
+  | Some (Func.Defined (tparams, params, plaintyp, clauses)) ->
+      Some (tparams, params, plaintyp, clauses)
+  | Some (Func.Builtin _) | None -> None
+
+let find_defined_dec (ctx : t) (fid : FId.t) :
+    tparam list * param list * plaintyp * Il.clause list =
+  match find_defined_dec_opt ctx fid with
+  | Some result -> result
+  | None -> error_undef fid.at "defined dec" fid.it
+
+let bound_defined_dec (ctx : t) (fid : FId.t) : bool =
+  find_defined_dec_opt ctx fid |> Option.is_some
+
+let find_dec_signature_opt (ctx : t) (fid : FId.t) :
     (tparam list * param list * plaintyp) option =
   FEnv.find_opt fid ctx.fenv
-  |> Option.map (fun (tparams, params, plaintyp, _) ->
-         (tparams, params, plaintyp))
+  |> Option.map (function
+         | Func.Builtin (tparams, params, plaintyp)
+         | Func.Defined (tparams, params, plaintyp, _)
+         -> (tparams, params, plaintyp))
 
-let find_dec (ctx : t) (fid : FId.t) : tparam list * param list * plaintyp =
-  match find_dec_opt ctx fid with
-  | Some dec -> dec
-  | None -> error_undef fid.at "function" fid.it
+let find_dec_signature (ctx : t) (fid : FId.t) :
+    tparam list * param list * plaintyp =
+  match find_dec_signature_opt ctx fid with
+  | Some result -> result
+  | None -> error_undef fid.at "dec" fid.it
 
 let bound_dec (ctx : t) (fid : FId.t) : bool =
-  find_dec_opt ctx fid |> Option.is_some
-
-let find_clauses_opt (ctx : t) (fid : FId.t) : Il.clause list option =
-  FEnv.find_opt fid ctx.fenv |> Option.map (fun (_, _, _, clauses) -> clauses)
-
-let find_clauses (ctx : t) (fid : FId.t) : Il.clause list =
-  match find_clauses_opt ctx fid with
-  | Some clauses -> clauses
-  | None -> error_undef fid.at "function" fid.it
+  find_dec_signature_opt ctx fid |> Option.is_some
 
 (* Adders *)
 
@@ -221,17 +232,25 @@ let add_rule (ctx : t) (rid : RId.t) (rule : Il.rule) : t =
 
 (* Adders for definitions *)
 
-let add_dec (ctx : t) (fid : FId.t) (tparams : tparam list)
+let add_builtin_dec (ctx : t) (fid : FId.t) (tparams : tparam list)
     (params : param list) (plaintyp : plaintyp) : t =
-  if bound_dec ctx fid then error_dup fid.at "function" fid.it;
-  let func = (tparams, params, plaintyp, []) in
+  if bound_dec ctx fid then error_dup fid.at "dec" fid.it;
+  let func = Func.Builtin (tparams, params, plaintyp) in
   let fenv = FEnv.add fid func ctx.fenv in
   { ctx with fenv }
 
-let add_clause (ctx : t) (fid : FId.t) (clause : Il.clause) : t =
-  if not (bound_dec ctx fid) then error_undef clause.at "function" fid.it;
-  let tparams, params, plaintyp, clauses = FEnv.find fid ctx.fenv in
-  let func = (tparams, params, plaintyp, clauses @ [ clause ]) in
+let add_defined_dec (ctx : t) (fid : FId.t) (tparams : tparam list)
+    (params : param list) (plaintyp : plaintyp) : t =
+  if bound_dec ctx fid then error_dup fid.at "dec" fid.it;
+  let func = Func.Defined (tparams, params, plaintyp, []) in
+  let fenv = FEnv.add fid func ctx.fenv in
+  { ctx with fenv }
+
+let add_defined_clause (ctx : t) (fid : FId.t) (clause : Il.clause) : t =
+  if not (bound_defined_dec ctx fid) then
+    error_undef clause.at "defined dec" fid.it;
+  let tparams, params, plaintyp, clauses = find_defined_dec ctx fid in
+  let func = Func.Defined (tparams, params, plaintyp, clauses @ [ clause ]) in
   let fenv = FEnv.add fid func ctx.fenv in
   { ctx with fenv }
 

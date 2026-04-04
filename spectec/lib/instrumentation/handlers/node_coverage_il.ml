@@ -124,7 +124,7 @@ module M : Instrumentation_core.Handler.S = struct
                     let _, _, prems = clause.it in
                     List.iter (fun prem -> count_prem prem) prems)
                   clauses
-            | TypD _ -> ())
+            | _ -> ())
           il_spec
     | Instrumentation_core.Handler.SlSpec _ -> ()
 
@@ -241,7 +241,7 @@ module M : Instrumentation_core.Handler.S = struct
                           :: !uncovered)
                     prems)
                 clauses
-          | TypD _ -> ())
+          | _ -> ())
         !State.il_spec;
       if !uncovered <> [] then (
         Format.fprintf !fmt "\nNever succeeded:\n";
@@ -316,7 +316,7 @@ module M : Instrumentation_core.Handler.S = struct
                 Format.fprintf !fmt "      clause %d:\n" idx;
                 print_prems "    " prems)
               clauses
-        | TypD _ -> ())
+        | _ -> ())
       !State.il_spec
 
   (* --- Finish: print report --- *)

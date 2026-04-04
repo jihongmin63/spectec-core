@@ -149,6 +149,8 @@ and def' =
   | TypD of id * tparam list * deftyp
   (* `relation` id `:` mixop `hint(input` `%`int* `)` list(exp, `,`) `:` instr* *)
   | RelD of id * (mixop * int list) * exp list * instr list
+  (* `builtin` `dec` id `<` list(tparam, `,`) `>` list(arg, `,`) *)
+  | BuiltinDecD of id * tparam list * arg list
   (* `dec` id `<` list(tparam, `,`) `>` list(param, `,`) `:` typ instr* *)
   | DecD of id * tparam list * arg list * instr list
 

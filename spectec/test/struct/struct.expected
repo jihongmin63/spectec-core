@@ -1,25 +1,17 @@
-;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:21:
-def $sum
+;; ../../../../../examples/p4-concrete/0-aux.spectec:18:1-18:29:
+builtin dec $sum(nat*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:29:
+builtin dec $max(nat*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:29:
+builtin dec $min(nat*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:20:1-20:21:
-def $max
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:22:1-22:21:
-def $min
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:29:
-def $int_to_text
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:28:1-28:37:
+builtin dec $int_to_text(int)
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:30:1-30:31:
-def $concat_text(text*)
+dec $concat_text(text*)
 
 1. Case analysis on text*
 
@@ -33,18 +25,14 @@ def $concat_text(text*)
 
     2. Return t_h ++ $concat_text(t_t*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:37:
-def $strip_prefix
+;; ../../../../../examples/p4-concrete/0-aux.spectec:34:1-34:45:
+builtin dec $strip_prefix(text, text')
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:37:
-def $strip_suffix
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:35:1-35:45:
+builtin dec $strip_suffix(text, text')
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:41:1-41:23:
-def $init_(nat')
+dec $init_(nat')
 
 1. If ((nat' = 0)), then
 
@@ -55,7 +43,7 @@ def $init_(nat')
   1. Return (nat' - 1) :: $init_((nat' - 1))
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:46:1-46:29:
-def $repeat_<X>(X, nat')
+dec $repeat_<X>(X, nat')
 
 1. If ((nat' = 0)), then
 
@@ -65,74 +53,52 @@ def $repeat_<X>(X, nat')
 
   1. Return [X] ++ $repeat_<X>(X, (nat' - 1))
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:22:
-def $rev_<X>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:51:1-51:30:
+builtin dec $rev_<X>(X*)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:36:
+builtin dec $concat_<X>(X**)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:47:
+builtin dec $partition_<X>(X*, nat)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:53:1-53:28:
-def $concat_<X>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:43:
+builtin dec $assoc_<X, Y>(X, (X, Y)*)
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:55:1-55:39:
-def $partition_<X>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:57:1-57:35:
-def $assoc_<X, Y>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:29:
-def $distinct_<K>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:59:1-59:37:
+builtin dec $distinct_<K>(K*)
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:65:17-65:24:
 syntax set<K> = 
    | { K* }
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:67:1-67:27:
-def $empty_set<K>
+dec $empty_set<K>
 
 1. Return ({ [] })
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:70:1-70:33:
-def $in_set<K>(K, ({ K_e* }))
+dec $in_set<K>(K, ({ K_e* }))
 
 1. Return K is in K_e*
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:47:
-def $intersect_set<K>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:73:1-73:55:
+builtin dec $intersect_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:51:
+builtin dec $union_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:45:
+builtin dec $unions_set<K>(set<K>*)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:75:1-75:43:
-def $union_set<K>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:50:
+builtin dec $diff_set<K>(set<K>, set<K>')
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:47:
+builtin dec $sub_set<K>(set<K>, set<K>')
 
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:77:1-77:37:
-def $unions_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:79:1-79:42:
-def $diff_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:81:1-81:39:
-def $sub_set<K>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:38:
-def $eq_set<K>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:83:1-83:46:
+builtin dec $eq_set<K>(set<K>, set<K>')
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:89:21-89:27:
 syntax pair<K, V> = 
@@ -142,39 +108,29 @@ syntax pair<K, V> =
 syntax map<K, V> = set<pair<K, V>>
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:93:1-93:33:
-def $empty_map<K, V>
+dec $empty_map<K, V>
 
 1. Return ({ [] })
 
 ;; ../../../../../examples/p4-concrete/0-aux.spectec:96:1-96:39:
-def $dom_map<K, V>(({ (K : V)* }))
+dec $dom_map<K, V>(({ (K : V)* }))
 
 1. Return ({ K* })
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:39:
-def $find_map<K, V>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:99:1-99:47:
+builtin dec $find_map<K, V>(map<K, V>, K)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:49:
+builtin dec $find_maps<K, V>(map<K, V>*, K)
 
+;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:56:
+builtin dec $add_map<K, V>(map<K, V>, K, V)
 
-;; ../../../../../examples/p4-concrete/0-aux.spectec:101:1-101:41:
-def $find_maps<K, V>
+;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:59:
+builtin dec $adds_map<K, V>(map<K, V>, K*, V*)
 
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:103:1-103:48:
-def $add_map<K, V>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:105:1-105:51:
-def $adds_map<K, V>
-
-
-
-;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:51:
-def $update_map<K, V>
-
-
+;; ../../../../../examples/p4-concrete/0-aux.spectec:107:1-107:59:
+builtin dec $update_map<K, V>(map<K, V>, K, V)
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:6:1-7:7:
 syntax trailingCommaOpt = 
@@ -267,7 +223,7 @@ syntax nameList =
    | nameList , name
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:83:1-83:40:
-def $flatten_nameList(nameList'')
+dec $flatten_nameList(nameList'')
 
 1. If ((nameList'' has type name)), then
 
@@ -394,7 +350,7 @@ syntax typeParameterList =
    | typeParameterList , typeParameter
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:178:1-178:67:
-def $flatten_typeParameterList(typeParameterList'')
+dec $flatten_typeParameterList(typeParameterList'')
 
 1. If ((typeParameterList'' has type typeParameter)), then
 
@@ -418,7 +374,7 @@ syntax typeParameterListOpt =
    | < typeParameterList >
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:187:1-187:73:
-def $flatten_typeParameterListOpt(typeParameterListOpt)
+dec $flatten_typeParameterListOpt(typeParameterListOpt)
 
 1. Case analysis on typeParameterListOpt
 
@@ -448,7 +404,7 @@ syntax parameterList =
    | nonEmptyParameterList , parameter
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:209:1-209:55:
-def $flatten_parameterList(parameterList)
+dec $flatten_parameterList(parameterList)
 
 1. If ((parameterList matches pattern ``EMPTY`)), then
 
@@ -490,7 +446,7 @@ syntax constructorParameterListOpt =
    | ( parameterList )
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:227:1-228:26:
-def $flatten_constructorParameterListOpt(constructorParameterListOpt)
+dec $flatten_constructorParameterListOpt(constructorParameterListOpt)
 
 1. Case analysis on constructorParameterListOpt
 
@@ -514,7 +470,7 @@ syntax namedExpressionList =
    | namedExpressionList , namedExpression
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:244:1-244:73:
-def $flatten_namedExpressionList(namedExpressionList'')
+dec $flatten_namedExpressionList(namedExpressionList'')
 
 1. If ((namedExpressionList'' has type namedExpression)), then
 
@@ -737,7 +693,7 @@ syntax expressionList =
    | expressionList , expression
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:399:1-399:58:
-def $flatten_expressionList(expressionList'')
+dec $flatten_expressionList(expressionList'')
 
 1. Case analysis on expressionList''
 
@@ -986,7 +942,7 @@ syntax callTargetNonBrace =
    | prefixedTypeName < typeArgumentList >
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:453:1-453:57:
-def $expressionNonBrace(expressionNonBrace'')
+dec $expressionNonBrace(expressionNonBrace'')
 
 1. Case analysis on expressionNonBrace''
 
@@ -1194,7 +1150,7 @@ syntax simpleKeysetExpressionList =
    | simpleKeysetExpressionList , simpleKeysetExpression
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:515:1-516:28:
-def $flatten_simpleKeysetExpressionList(simpleKeysetExpressionList'')
+dec $flatten_simpleKeysetExpressionList(simpleKeysetExpressionList'')
 
 1. If ((simpleKeysetExpressionList'' has type simpleKeysetExpression)), then
 
@@ -1310,7 +1266,7 @@ syntax realTypeArgumentList =
    | realTypeArgumentList , realTypeArgument
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:549:1-549:76:
-def $flatten_realTypeArgumentList(realTypeArgumentList'')
+dec $flatten_realTypeArgumentList(realTypeArgumentList'')
 
 1. If ((realTypeArgumentList'' has type realTypeArgument)), then
 
@@ -1393,7 +1349,7 @@ syntax typeArgumentList =
    | typeArgumentList , typeArgument
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:564:1-564:64:
-def $flatten_typeArgumentList(typeArgumentList'')
+dec $flatten_typeArgumentList(typeArgumentList'')
 
 1. Case analysis on typeArgumentList''
 
@@ -1529,7 +1485,7 @@ syntax argumentList =
    | argumentListNonEmpty , argument
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:588:1-588:52:
-def $flatten_argumentList(argumentList)
+dec $flatten_argumentList(argumentList)
 
 1. If ((argumentList matches pattern ``EMPTY`)), then
 
@@ -1753,7 +1709,7 @@ syntax switchCaseList =
    | switchCaseList switchCase
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:730:1-730:58:
-def $flatten_switchCaseList(switchCaseList'')
+dec $flatten_switchCaseList(switchCaseList'')
 
 1. Case analysis on switchCaseList''
 
@@ -1844,7 +1800,7 @@ syntax blockElementStatementList =
    | blockElementStatementList blockElementStatement
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:792:1-793:27:
-def $flatten_blockElementStatementList(blockElementStatementList'')
+dec $flatten_blockElementStatementList(blockElementStatementList'')
 
 1. Case analysis on blockElementStatementList''
 
@@ -1891,7 +1847,7 @@ syntax objectDeclarationList =
    | objectDeclarationList objectDeclaration
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:839:1-839:79:
-def $flatten_objectDeclarationList(objectDeclarationList'')
+dec $flatten_objectDeclarationList(objectDeclarationList'')
 
 1. Case analysis on objectDeclarationList''
 
@@ -1928,7 +1884,7 @@ syntax typeFieldList =
    | typeFieldList typeField
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:881:1-881:55:
-def $flatten_typeFieldList(typeFieldList'')
+dec $flatten_typeFieldList(typeFieldList'')
 
 1. Case analysis on typeFieldList''
 
@@ -2009,7 +1965,7 @@ syntax methodPrototypeList =
    | methodPrototypeList methodPrototype
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:929:1-929:73:
-def $flatten_methodPrototypeList(methodPrototypeList'')
+dec $flatten_methodPrototypeList(methodPrototypeList'')
 
 1. Case analysis on methodPrototypeList''
 
@@ -2042,7 +1998,7 @@ syntax selectCaseList =
    | selectCaseList selectCase
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:957:1-957:58:
-def $flatten_selectCaseList(selectCaseList'')
+dec $flatten_selectCaseList(selectCaseList'')
 
 1. Case analysis on selectCaseList''
 
@@ -2119,7 +2075,7 @@ syntax parserStatementList =
    | parserStatementList parserStatement
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1017:1-1017:73:
-def $flatten_parserStatementList(parserStatementList'')
+dec $flatten_parserStatementList(parserStatementList'')
 
 1. Case analysis on parserStatementList''
 
@@ -2143,7 +2099,7 @@ syntax parserStateList =
    | parserStateList parserState
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1029:1-1029:61:
-def $flatten_parserStateList(parserStateList'')
+dec $flatten_parserStateList(parserStateList'')
 
 1. If ((parserStateList'' has type parserState)), then
 
@@ -2175,7 +2131,7 @@ syntax parserLocalDeclarationList =
    | parserLocalDeclarationList parserLocalDeclaration
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1044:1-1045:28:
-def $flatten_parserLocalDeclarationList(parserLocalDeclarationList'')
+dec $flatten_parserLocalDeclarationList(parserLocalDeclarationList'')
 
 1. Case analysis on parserLocalDeclarationList''
 
@@ -2203,7 +2159,7 @@ syntax constOpt =
    | const
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1072:1-1072:41:
-def $flatten_constOpt(constOpt)
+dec $flatten_constOpt(constOpt)
 
 1. If ((constOpt matches pattern ``EMPTY`)), then
 
@@ -2229,7 +2185,7 @@ syntax tableKeyList =
    | tableKeyList tableKey
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1086:1-1086:52:
-def $flatten_tableKeyList(tableKeyList'')
+dec $flatten_tableKeyList(tableKeyList'')
 
 1. Case analysis on tableKeyList''
 
@@ -2266,7 +2222,7 @@ syntax tableActionList =
    | tableActionList tableAction
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1105:1-1105:61:
-def $flatten_tableActionList(tableActionList'')
+dec $flatten_tableActionList(tableActionList'')
 
 1. Case analysis on tableActionList''
 
@@ -2296,7 +2252,7 @@ syntax tableEntryList =
    | tableEntryList tableEntry
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1126:1-1126:58:
-def $flatten_tableEntryList(tableEntryList'')
+dec $flatten_tableEntryList(tableEntryList'')
 
 1. Case analysis on tableEntryList''
 
@@ -2323,7 +2279,7 @@ syntax tablePropertyList =
    | tablePropertyList tableProperty
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1145:1-1145:67:
-def $flatten_tablePropertyList(tablePropertyList'')
+dec $flatten_tablePropertyList(tablePropertyList'')
 
 1. Case analysis on tablePropertyList''
 
@@ -2363,7 +2319,7 @@ syntax controlLocalDeclarationList =
    | controlLocalDeclarationList controlLocalDeclaration
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1177:1-1178:29:
-def $flatten_controlLocalDeclarationList(controlLocalDeclarationList'')
+dec $flatten_controlLocalDeclarationList(controlLocalDeclarationList'')
 
 1. Case analysis on controlLocalDeclarationList''
 
@@ -2554,7 +2510,7 @@ syntax p4program =
    | p4program ;
 
 ;; ../../../../../examples/p4-concrete/1-syntax.spectec:1280:1-1280:49:
-def $flatten_p4program(p4program'')
+dec $flatten_p4program(p4program'')
 
 1. Case analysis on p4program''
 
@@ -2578,7 +2534,7 @@ def $flatten_p4program(p4program'')
 syntax nameIR = text
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:7:1-7:25:
-def $name(name)
+dec $name(name)
 
 1. Case analysis on name
 
@@ -2641,7 +2597,7 @@ def $name(name)
 3. Else Phantom#29
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:20:1-20:47:
-def $tableCustomName(tableCustomName)
+dec $tableCustomName(tableCustomName)
 
 1. Case analysis on tableCustomName
 
@@ -2685,13 +2641,11 @@ syntax id = text
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:39:14-39:16:
 syntax tid = id
 
-;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:23:
-def $fresh_tid
-
-
+;; ../../../../../examples/p4-concrete/2.0-domain.spectec:41:1-41:31:
+builtin dec $fresh_tid
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:42:1-42:28:
-def $fresh_tids(nat')
+dec $fresh_tids(nat')
 
 1. If ((nat' = 0)), then
 
@@ -2710,12 +2664,12 @@ syntax rid =
    | id ( pid* )
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:59:1-59:36:
-def $rid(name, parameterList)
+dec $rid(name, parameterList)
 
 1. Return ($name(name) ( $pids(parameterList) ))
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:60:1-60:32:
-def $pids(parameterList)
+dec $pids(parameterList)
 
 1. If ((parameterList matches pattern ``EMPTY`)), then
 
@@ -2746,7 +2700,7 @@ def $pids(parameterList)
 3. Else Phantom#35
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:61:1-61:26:
-def $pid((_annotationList _direction _type name initializerOpt))
+dec $pid((_annotationList _direction _type name initializerOpt))
 
 1. If ((initializerOpt matches pattern ``EMPTY`)), then
 
@@ -2766,7 +2720,7 @@ def $pid((_annotationList _direction _type name initializerOpt))
 syntax cid = rid
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:80:1-80:50:
-def $cid(name, constructorParameterListOpt)
+dec $cid(name, constructorParameterListOpt)
 
 1. Case analysis on constructorParameterListOpt
 
@@ -2781,7 +2735,7 @@ def $cid(name, constructorParameterListOpt)
     2. Return ($name(name) ( $pids(parameterList) ))
 
 ;; ../../../../../examples/p4-concrete/2.0-domain.spectec:88:1-88:48:
-def $expression_as_lvalue(expression'')
+dec $expression_as_lvalue(expression'')
 
 1. Case analysis on expression''
 
@@ -2977,18 +2931,14 @@ syntax value =
    | table_struct tid { fieldValue* }
    | ! oid
 
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:28:
-def $to_int
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:5:1-5:36:
+builtin dec $to_int(int, int')
 
-
-
-;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:31:
-def $to_bitstr
-
-
+;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:12:1-12:39:
+builtin dec $to_bitstr(int, int')
 
 ;; ../../../../../examples/p4-concrete/2.1.2-value-aux.spectec:18:1-18:28:
-def $to_number(value)
+dec $to_number(value)
 
 1. If ((value has type number)), then
 
@@ -3350,7 +3300,7 @@ syntax constructorTypeDefIR =
    | constructorTypeIR < tid* , tid* >
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:9:1-9:34:
-def $is_baseTypeIR(typeIR)
+dec $is_baseTypeIR(typeIR)
 
 1. If ((typeIR has type baseTypeIR)), then
 
@@ -3363,7 +3313,7 @@ def $is_baseTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:16:1-16:39:
-def $is_primitiveTypeIR(typeIR)
+dec $is_primitiveTypeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3376,7 +3326,7 @@ def $is_primitiveTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:21:1-21:35:
-def $is_void_typeIR(typeIR)
+dec $is_void_typeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3391,7 +3341,7 @@ def $is_void_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:26:1-26:35:
-def $is_bool_typeIR(typeIR)
+dec $is_bool_typeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3406,7 +3356,7 @@ def $is_bool_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:31:1-31:36:
-def $is_error_typeIR(typeIR)
+dec $is_error_typeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3421,7 +3371,7 @@ def $is_error_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:36:1-36:40:
-def $is_matchkind_typeIR(typeIR)
+dec $is_matchkind_typeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3436,7 +3386,7 @@ def $is_matchkind_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:41:1-41:37:
-def $is_string_typeIR(typeIR)
+dec $is_string_typeIR(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -3451,7 +3401,7 @@ def $is_string_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:48:1-48:36:
-def $is_numberTypeIR(typeIR)
+dec $is_numberTypeIR(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -3464,7 +3414,7 @@ def $is_numberTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:53:1-53:44:
-def $is_arbitrary_int_typeIR(typeIR)
+dec $is_arbitrary_int_typeIR(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -3479,7 +3429,7 @@ def $is_arbitrary_int_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:58:1-58:40:
-def $is_fixed_int_typeIR(typeIR)
+dec $is_fixed_int_typeIR(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -3496,7 +3446,7 @@ def $is_fixed_int_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:63:1-63:40:
-def $is_fixed_bit_typeIR(typeIR)
+dec $is_fixed_bit_typeIR(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -3513,7 +3463,7 @@ def $is_fixed_bit_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:76:1-76:34:
-def $is_dataTypeIR(typeIR)
+dec $is_dataTypeIR(typeIR)
 
 1. If ((typeIR has type dataTypeIR)), then
 
@@ -3526,7 +3476,7 @@ def $is_dataTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:81:1-81:41:
-def $is_headerStackTypeIR(typeIR)
+dec $is_headerStackTypeIR(typeIR)
 
 1. If ((typeIR has type headerStackTypeIR)), then
 
@@ -3539,7 +3489,7 @@ def $is_headerStackTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:88:1-88:36:
-def $is_objectTypeIR(typeIR)
+dec $is_objectTypeIR(typeIR)
 
 1. If ((typeIR has type objectTypeIR)), then
 
@@ -3552,7 +3502,7 @@ def $is_objectTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:93:1-93:44:
-def $is_extern_object_typeIR(typeIR)
+dec $is_extern_object_typeIR(typeIR)
 
 1. If ((typeIR has type externObjectTypeIR)), then
 
@@ -3565,7 +3515,7 @@ def $is_extern_object_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:98:1-98:44:
-def $is_parser_object_typeIR(typeIR)
+dec $is_parser_object_typeIR(typeIR)
 
 1. If ((typeIR has type parserObjectTypeIR)), then
 
@@ -3578,7 +3528,7 @@ def $is_parser_object_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:103:1-103:45:
-def $is_control_object_typeIR(typeIR)
+dec $is_control_object_typeIR(typeIR)
 
 1. If ((typeIR has type controlObjectTypeIR)), then
 
@@ -3591,7 +3541,7 @@ def $is_control_object_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:108:1-108:45:
-def $is_package_object_typeIR(typeIR)
+dec $is_package_object_typeIR(typeIR)
 
 1. If ((typeIR has type packageObjectTypeIR)), then
 
@@ -3604,7 +3554,7 @@ def $is_package_object_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:113:1-113:43:
-def $is_table_object_typeIR(typeIR)
+dec $is_table_object_typeIR(typeIR)
 
 1. If ((typeIR has type controlObjectTypeIR)), then
 
@@ -3617,7 +3567,7 @@ def $is_table_object_typeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:120:1-120:41:
-def $is_synthesizedTypeIR(typeIR)
+dec $is_synthesizedTypeIR(typeIR)
 
 1. If ((typeIR has type tableObjectTypeIR)), then
 
@@ -3630,7 +3580,7 @@ def $is_synthesizedTypeIR(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.2-type-aux.spectec:125:1-125:34:
-def $is_set_typeIR(typeIR)
+dec $is_set_typeIR(typeIR)
 
 1. If ((typeIR has type setTypeIR)), then
 
@@ -3649,7 +3599,7 @@ syntax bound = set<tid>
 syntax theta = map<tid, typeIR>
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:8:1-8:31:
-def $free_type(typeIR'')
+dec $free_type(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -3868,7 +3818,7 @@ def $free_type(typeIR'')
         2. Return ({ [] })
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:9:1-9:37:
-def $free_typeDef(typeDefIR)
+dec $free_typeDef(typeDefIR)
 
 1. Case analysis on typeDefIR
 
@@ -3889,12 +3839,12 @@ def $free_typeDef(typeDefIR)
     4. Return $diff_set<tid>(bound_base, bound_tparams)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:10:1-10:49:
-def $free_parameterType((_direction typeIR _id _value?))
+dec $free_parameterType((_direction typeIR _id _value?))
 
 1. Return $free_type(typeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:11:1-11:45:
-def $free_routineType(routineTypeIR)
+dec $free_routineType(routineTypeIR)
 
 1. Case analysis on routineTypeIR
 
@@ -4003,7 +3953,7 @@ def $free_routineType(routineTypeIR)
         3. Return bound_ret
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:12:1-12:51:
-def $free_routineTypeDef(routineTypeDefIR)
+dec $free_routineTypeDef(routineTypeDefIR)
 
 1. Case analysis on routineTypeDefIR
 
@@ -4024,7 +3974,7 @@ def $free_routineTypeDef(routineTypeDefIR)
     4. Return $diff_set<tid>(bound_base, bound_tparams)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:14:1-14:40:
-def $subst_type(set<pair<tid, typeIR>>', typeIR)
+dec $subst_type(set<pair<tid, typeIR>>', typeIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4035,7 +3985,7 @@ def $subst_type(set<pair<tid, typeIR>>', typeIR)
   1. Return $subst_type'(set<pair<tid, typeIR>>', typeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:15:1-15:41:
-def $subst_type'(theta, typeIR''')
+dec $subst_type'(theta, typeIR''')
 
 1. Case analysis on typeIR'''
 
@@ -4250,7 +4200,7 @@ def $subst_type'(theta, typeIR''')
   1. Return typeIR'''
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:16:1-16:49:
-def $subst_typeDef(set<pair<tid, typeIR>>', typeDefIR)
+dec $subst_typeDef(set<pair<tid, typeIR>>', typeDefIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4261,7 +4211,7 @@ def $subst_typeDef(set<pair<tid, typeIR>>', typeDefIR)
   1. Return $subst_typeDef'(set<pair<tid, typeIR>>', typeDefIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:17:1-17:50:
-def $subst_typeDef'(theta, typeDefIR)
+dec $subst_typeDef'(theta, typeDefIR)
 
 1. Case analysis on typeDefIR
 
@@ -4306,7 +4256,7 @@ def $subst_typeDef'(theta, typeDefIR)
     4. Else Phantom#48
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:18:1-18:67:
-def $subst_parameterType(set<pair<tid, typeIR>>', parameterTypeIR)
+dec $subst_parameterType(set<pair<tid, typeIR>>', parameterTypeIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4317,14 +4267,14 @@ def $subst_parameterType(set<pair<tid, typeIR>>', parameterTypeIR)
   1. Return $subst_parameterType'(set<pair<tid, typeIR>>', parameterTypeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:19:1-19:68:
-def $subst_parameterType'(theta, (direction typeIR id value?))
+dec $subst_parameterType'(theta, (direction typeIR id value?))
 
 1. (Let typeIR_subst be $subst_type'(theta, typeIR))
 
 2. Return (direction typeIR_subst id value?)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:20:1-20:61:
-def $subst_routineType(set<pair<tid, typeIR>>', routineTypeIR)
+dec $subst_routineType(set<pair<tid, typeIR>>', routineTypeIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4335,7 +4285,7 @@ def $subst_routineType(set<pair<tid, typeIR>>', routineTypeIR)
   1. Return $subst_routineType'(set<pair<tid, typeIR>>', routineTypeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:21:1-21:62:
-def $subst_routineType'(theta, routineTypeIR)
+dec $subst_routineType'(theta, routineTypeIR)
 
 1. Case analysis on routineTypeIR
 
@@ -4444,7 +4394,7 @@ def $subst_routineType'(theta, routineTypeIR)
         3. Return ((table_apply-> typeIR_ret_subst) as routineTypeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:22:1-22:70:
-def $subst_routineTypeDef(set<pair<tid, typeIR>>', routineTypeDefIR)
+dec $subst_routineTypeDef(set<pair<tid, typeIR>>', routineTypeDefIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4455,7 +4405,7 @@ def $subst_routineTypeDef(set<pair<tid, typeIR>>', routineTypeDefIR)
   1. Return $subst_routineTypeDef'(set<pair<tid, typeIR>>', routineTypeDefIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:23:1-23:71:
-def $subst_routineTypeDef'(theta, routineTypeDefIR)
+dec $subst_routineTypeDef'(theta, routineTypeDefIR)
 
 1. Case analysis on routineTypeDefIR
 
@@ -4500,7 +4450,7 @@ def $subst_routineTypeDef'(theta, routineTypeDefIR)
     4. Else Phantom#50
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:24:1-24:73:
-def $subst_constructorType(set<pair<tid, typeIR>>', constructorTypeIR)
+dec $subst_constructorType(set<pair<tid, typeIR>>', constructorTypeIR)
 
 1. If ((set<pair<tid, typeIR>>' = ({ [] }))), then
 
@@ -4511,7 +4461,7 @@ def $subst_constructorType(set<pair<tid, typeIR>>', constructorTypeIR)
   1. Return $subst_constructorType'(set<pair<tid, typeIR>>', constructorTypeIR)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:25:1-25:74:
-def $subst_constructorType'(theta, (constructor( parameterTypeIR* )-> typeIR_obj))
+dec $subst_constructorType'(theta, (constructor( parameterTypeIR* )-> typeIR_obj))
 
 1. (Let parameterTypeIR_subst be $subst_parameterType'(theta, parameterTypeIR))*
 
@@ -4520,7 +4470,7 @@ def $subst_constructorType'(theta, (constructor( parameterTypeIR* )-> typeIR_obj
 3. Return (constructor( parameterTypeIR_subst* )-> typeIR_obj_subst)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:561:1-561:53:
-def $specialize_typeDef(typeDefIR, typeIR''*)
+dec $specialize_typeDef(typeDefIR, typeIR''*)
 
 1. Case analysis on typeDefIR
 
@@ -4545,7 +4495,7 @@ def $specialize_typeDef(typeDefIR, typeIR''*)
     4. Return $subst_type(theta, typeIR_base)
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:574:1-575:29:
-def $specialize_routineTypeDef(routineTypeDefIR, typeIR'*)
+dec $specialize_routineTypeDef(routineTypeDefIR, typeIR'*)
 
 1. Case analysis on routineTypeDefIR
 
@@ -4596,7 +4546,7 @@ def $specialize_routineTypeDef(routineTypeDefIR, typeIR'*)
     5. Else Phantom#55
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:616:1-617:30:
-def $specialize_constructorTypeDef((constructorTypeIR < tid* , tid_hidden* >), typeIR_arg*)
+dec $specialize_constructorTypeDef((constructorTypeIR < tid* , tid_hidden* >), typeIR_arg*)
 
 1. (Let tid_tparam* be tid* ++ tid_hidden*)
 
@@ -4637,7 +4587,7 @@ def $specialize_constructorTypeDef((constructorTypeIR < tid* , tid_hidden* >), t
 4. Else Phantom#58
 
 ;; ../../../../../examples/p4-concrete/2.2.3-type-subst.spectec:662:1-662:28:
-def $canon(typeIR'')
+dec $canon(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -4668,12 +4618,12 @@ def $canon(typeIR'')
   1. Return typeIR''
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:7:1-7:38:
-def $is_nominal_typeIR(typeIR)
+dec $is_nominal_typeIR(typeIR)
 
 1. Return $is_nominal_typeIR'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:8:1-8:39:
-def $is_nominal_typeIR'(typeIR)
+dec $is_nominal_typeIR'(typeIR)
 
 1. Case analysis on typeIR
 
@@ -4740,12 +4690,12 @@ def $is_nominal_typeIR'(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:25:1-25:42:
-def $is_defaultable_typeIR(typeIR)
+dec $is_defaultable_typeIR(typeIR)
 
 1. Return $is_defaultable_typeIR'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:26:1-26:43:
-def $is_defaultable_typeIR'(typeIR'')
+dec $is_defaultable_typeIR'(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -4844,12 +4794,12 @@ def $is_defaultable_typeIR'(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:54:1-54:40:
-def $is_equalable_typeIR(typeIR)
+dec $is_equalable_typeIR(typeIR)
 
 1. Return $is_equalable_typeIR'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:55:1-55:41:
-def $is_equalable_typeIR'(typeIR)
+dec $is_equalable_typeIR'(typeIR)
 
 1. Case analysis on typeIR
 
@@ -4966,12 +4916,12 @@ def $is_equalable_typeIR'(typeIR)
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:78:1-78:41:
-def $is_assignable_typeIR(typeIR)
+dec $is_assignable_typeIR(typeIR)
 
 1. Return $is_assignable_typeIR'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/2.2.4-type-util.spectec:79:1-79:42:
-def $is_assignable_typeIR'(typeIR)
+dec $is_assignable_typeIR'(typeIR)
 
 1. Case analysis on typeIR
 
@@ -6034,7 +5984,7 @@ syntax ctk =
    | dyn
 
 ;; ../../../../../examples/p4-concrete/2.3-compile-time-known.spectec:7:1-7:30:
-def $join_ctk(ctk'', ctk''')
+dec $join_ctk(ctk'', ctk''')
 
 1. Case analysis on ctk''
 
@@ -6067,7 +6017,7 @@ def $join_ctk(ctk'', ctk''')
   1. Return (dyn)
 
 ;; ../../../../../examples/p4-concrete/2.3-compile-time-known.spectec:16:1-16:27:
-def $joins_ctk(ctk''*)
+dec $joins_ctk(ctk''*)
 
 1. Case analysis on ctk''*
 
@@ -6105,53 +6055,35 @@ def $joins_ctk(ctk''*)
 
 1. Else Phantom#199
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:21:
-def $pow2
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:5:1-5:29:
+builtin dec $pow2(nat)
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:33:
+builtin dec $shl(int, int')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:33:
+builtin dec $shr(int, int')
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:7:1-7:25:
-def $shl
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:44:
+builtin dec $shr_arith(int, int', int'')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:29:
+builtin dec $bneg(int)
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:34:
+builtin dec $band(int, int')
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:8:1-8:25:
-def $shr
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:34:
+builtin dec $bxor(int, int')
 
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:33:
+builtin dec $bor(int, int')
 
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:9:1-9:36:
-def $shr_arith
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:11:1-11:21:
-def $bneg
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:12:1-12:26:
-def $band
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:13:1-13:26:
-def $bxor
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:14:1-14:25:
-def $bor
-
-
-
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:33:
-def $bitacc
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:16:1-16:41:
+builtin dec $bitacc(int, int', int'')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:24:1-24:28:
-def $un_bnot(value)
+dec $un_bnot(value)
 
 1. If ((value has type number)), then
 
@@ -6170,7 +6102,7 @@ def $un_bnot(value)
 1. Else Phantom#201
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:31:1-31:28:
-def $un_lnot(value)
+dec $un_lnot(value)
 
 1. If ((value has type primitiveValue)), then
 
@@ -6187,7 +6119,7 @@ def $un_lnot(value)
 1. Else Phantom#203
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:37:1-37:28:
-def $un_plus(value)
+dec $un_plus(value)
 
 1. If ((value has type number)), then
 
@@ -6216,7 +6148,7 @@ def $un_plus(value)
 1. Else Phantom#204
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:45:1-45:29:
-def $un_minus(value)
+dec $un_minus(value)
 
 1. If ((value has type number)), then
 
@@ -6249,7 +6181,7 @@ def $un_minus(value)
 1. Else Phantom#205
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:59:1-59:36:
-def $bin_plus(value, value')
+dec $bin_plus(value, value')
 
 1. If ((value has type number)), then
 
@@ -6341,13 +6273,11 @@ def $bin_plus(value, value')
 
 1. Else Phantom#214
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:39:
-def $bin_satplus
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:73:1-73:47:
+builtin dec $bin_satplus(value, value')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:77:1-77:37:
-def $bin_minus(value, value')
+dec $bin_minus(value, value')
 
 1. If ((value has type number)), then
 
@@ -6409,13 +6339,11 @@ def $bin_minus(value, value')
 
 1. Else Phantom#221
 
-;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:40:
-def $bin_satminus
-
-
+;; ../../../../../examples/p4-concrete/3-numerics.spectec:91:1-91:48:
+builtin dec $bin_satminus(value, value')
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:95:1-95:35:
-def $bin_mul(value, value')
+dec $bin_mul(value, value')
 
 1. If ((value has type number)), then
 
@@ -6444,7 +6372,7 @@ def $bin_mul(value, value')
 1. Else Phantom#225
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:109:1-109:35:
-def $bin_div(value, value')
+dec $bin_div(value, value')
 
 1. If ((value has type number)), then
 
@@ -6473,7 +6401,7 @@ def $bin_div(value, value')
 1. Else Phantom#229
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:115:1-115:35:
-def $bin_mod(value, value')
+dec $bin_mod(value, value')
 
 1. If ((value has type number)), then
 
@@ -6502,7 +6430,7 @@ def $bin_mod(value, value')
 1. Else Phantom#233
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:121:1-121:35:
-def $bin_shl(value, value')
+dec $bin_shl(value, value')
 
 1. If ((value has type number)), then
 
@@ -6621,7 +6549,7 @@ def $bin_shl(value, value')
 1. Else Phantom#237
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:148:1-148:35:
-def $bin_shr(value, value')
+dec $bin_shr(value, value')
 
 1. If ((value has type number)), then
 
@@ -6792,7 +6720,7 @@ def $bin_shr(value, value')
 1. Else Phantom#247
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:198:1-198:33:
-def $bin_le(value, value')
+dec $bin_le(value, value')
 
 1. If ((value has type number)), then
 
@@ -6869,7 +6797,7 @@ def $bin_le(value, value')
 1. Else Phantom#256
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:208:1-208:33:
-def $bin_ge(value, value')
+dec $bin_ge(value, value')
 
 1. If ((value has type number)), then
 
@@ -6946,7 +6874,7 @@ def $bin_ge(value, value')
 1. Else Phantom#265
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:218:1-218:33:
-def $bin_lt(value, value')
+dec $bin_lt(value, value')
 
 1. If ((value has type number)), then
 
@@ -7023,7 +6951,7 @@ def $bin_lt(value, value')
 1. Else Phantom#274
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:228:1-228:33:
-def $bin_gt(value, value')
+dec $bin_gt(value, value')
 
 1. If ((value has type number)), then
 
@@ -7100,7 +7028,7 @@ def $bin_gt(value, value')
 1. Else Phantom#283
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:238:1-238:33:
-def $bin_eq(value, value')
+dec $bin_eq(value, value')
 
 1. Case analysis on value
 
@@ -7339,7 +7267,7 @@ def $bin_eq(value, value')
 2. Else Phantom#308
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:239:1-239:36:
-def $bin_eqs(value*, value'*)
+dec $bin_eqs(value*, value'*)
 
 1. Case analysis on value*
 
@@ -7378,7 +7306,7 @@ def $bin_eqs(value*, value'*)
     4. Else Phantom#310
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:240:1-240:55:
-def $bin_eqs_fields((value, id)*, (value, id)'*)
+dec $bin_eqs_fields((value, id)*, (value, id)'*)
 
 1. Case analysis on (value, id)*
 
@@ -7417,12 +7345,12 @@ def $bin_eqs_fields((value, id)*, (value, id)'*)
     4. Else Phantom#312
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:297:1-297:33:
-def $bin_ne(value_l, value_r)
+dec $bin_ne(value_l, value_r)
 
 1. Return ~$bin_eq(value_l, value_r)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:303:1-303:36:
-def $bin_band(value, value')
+dec $bin_band(value, value')
 
 1. If ((value has type number)), then
 
@@ -7487,7 +7415,7 @@ def $bin_band(value, value')
 1. Else Phantom#320
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:315:1-315:36:
-def $bin_bxor(value, value')
+dec $bin_bxor(value, value')
 
 1. If ((value has type number)), then
 
@@ -7552,7 +7480,7 @@ def $bin_bxor(value, value')
 1. Else Phantom#328
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:327:1-327:35:
-def $bin_bor(value, value')
+dec $bin_bor(value, value')
 
 1. If ((value has type number)), then
 
@@ -7617,7 +7545,7 @@ def $bin_bor(value, value')
 1. Else Phantom#336
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:339:1-339:38:
-def $bin_concat(value, value')
+dec $bin_concat(value, value')
 
 1. If ((value has type number)), then
 
@@ -7718,7 +7646,7 @@ def $bin_concat(value, value')
 1. Else Phantom#342
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:367:1-367:36:
-def $bin_land(value, value')
+dec $bin_land(value, value')
 
 1. If ((value has type primitiveValue)), then
 
@@ -7747,7 +7675,7 @@ def $bin_land(value, value')
 1. Else Phantom#346
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:373:1-373:35:
-def $bin_lor(value, value')
+dec $bin_lor(value, value')
 
 1. If ((value has type primitiveValue)), then
 
@@ -7776,7 +7704,7 @@ def $bin_lor(value, value')
 1. Else Phantom#350
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:381:1-381:36:
-def $cast_op(typeIR, value'')
+dec $cast_op(typeIR, value'')
 
 1. Case analysis on value''
 
@@ -7901,12 +7829,12 @@ def $cast_op(typeIR, value'')
 1. Else Phantom#356
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:383:1-383:29:
-def $default(typeIR)
+dec $default(typeIR)
 
 1. Return $default'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:384:1-384:30:
-def $default'(typeIR'')
+dec $default'(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -8037,12 +7965,12 @@ def $default'(typeIR'')
 1. Else Phantom#361
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:388:1-388:37:
-def $cast_bool(typeIR, b)
+dec $cast_bool(typeIR, b)
 
 1. Return $cast_bool'($canon(typeIR), b)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:389:1-389:38:
-def $cast_bool'(typeIR'', b')
+dec $cast_bool'(typeIR'', b')
 
 1. Case analysis on typeIR''
 
@@ -8093,12 +8021,12 @@ def $cast_bool'(typeIR'', b')
 1. Else Phantom#366
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:402:1-402:38:
-def $cast_arbint(typeIR, i)
+dec $cast_arbint(typeIR, i)
 
 1. Return $cast_arbint'($canon(typeIR), i)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:403:1-403:39:
-def $cast_arbint'(typeIR''', i)
+dec $cast_arbint'(typeIR''', i)
 
 1. Case analysis on typeIR'''
 
@@ -8163,12 +8091,12 @@ def $cast_arbint'(typeIR''', i)
 1. Else Phantom#371
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:418:1-418:43:
-def $cast_fixbit(typeIR, w, i)
+dec $cast_fixbit(typeIR, w, i)
 
 1. Return $cast_fixbit'($canon(typeIR), w, i)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:419:1-419:44:
-def $cast_fixbit'(typeIR''', w', i)
+dec $cast_fixbit'(typeIR''', w', i)
 
 1. Case analysis on typeIR'''
 
@@ -8237,12 +8165,12 @@ def $cast_fixbit'(typeIR''', w', i)
 1. Else Phantom#376
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:436:1-436:43:
-def $cast_fixint(typeIR, w, i)
+dec $cast_fixint(typeIR, w, i)
 
 1. Return $cast_fixint'($canon(typeIR), w, i)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:437:1-437:44:
-def $cast_fixint'(typeIR''', w', i)
+dec $cast_fixint'(typeIR''', w', i)
 
 1. Case analysis on typeIR'''
 
@@ -8301,12 +8229,12 @@ def $cast_fixint'(typeIR''', w', i)
 1. Else Phantom#380
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:453:1-453:52:
-def $cast_struct(typeIR, tid, (value_f, id_f)*)
+dec $cast_struct(typeIR, tid, (value_f, id_f)*)
 
 1. Return $cast_struct'($canon(typeIR), tid, (value_f, id_f)*)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:454:1-454:53:
-def $cast_struct'(typeIR, tid', (value_f, id_f)*)
+dec $cast_struct'(typeIR, tid', (value_f, id_f)*)
 
 1. If ((typeIR has type structTypeIR)), then
 
@@ -8321,12 +8249,12 @@ def $cast_struct'(typeIR, tid', (value_f, id_f)*)
 1. Else Phantom#382
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:467:1-467:52:
-def $cast_header(typeIR, tid, (value_f, id_f)*)
+dec $cast_header(typeIR, tid, (value_f, id_f)*)
 
 1. Return $cast_header'($canon(typeIR), tid, (value_f, id_f)*)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:468:1-468:53:
-def $cast_header'(typeIR, tid', (value_f, id_f)*)
+dec $cast_header'(typeIR, tid', (value_f, id_f)*)
 
 1. If ((typeIR has type headerTypeIR)), then
 
@@ -8341,12 +8269,12 @@ def $cast_header'(typeIR, tid', (value_f, id_f)*)
 1. Else Phantom#384
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:485:1-485:43:
-def $cast_sequence(typeIR, value*)
+dec $cast_sequence(typeIR, value*)
 
 1. Return $cast_sequence'($canon(typeIR), value*)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:486:1-486:44:
-def $cast_sequence'(typeIR'', value*)
+dec $cast_sequence'(typeIR'', value*)
 
 1. Case analysis on typeIR''
 
@@ -8391,12 +8319,12 @@ def $cast_sequence'(typeIR'', value*)
 1. Else Phantom#385
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:516:1-516:47:
-def $cast_record(typeIR, (value, id)*)
+dec $cast_record(typeIR, (value, id)*)
 
 1. Return $cast_record'($canon(typeIR), (value, id)*)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:517:1-517:48:
-def $cast_record'(typeIR, (value_f, id_f)*)
+dec $cast_record'(typeIR, (value_f, id_f)*)
 
 1. Case analysis on typeIR
 
@@ -8435,12 +8363,12 @@ def $cast_record'(typeIR, (value_f, id_f)*)
 1. Else Phantom#388
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:551:1-551:47:
-def $cast_set_singleton(typeIR, value)
+dec $cast_set_singleton(typeIR, value)
 
 1. Return $cast_set_singleton'($canon(typeIR), value)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:552:1-552:48:
-def $cast_set_singleton'(typeIR'', value)
+dec $cast_set_singleton'(typeIR'', value)
 
 1. If ((typeIR'' has type setTypeIR)), then
 
@@ -8457,12 +8385,12 @@ def $cast_set_singleton'(typeIR'', value)
 1. Else Phantom#390
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:560:1-560:49:
-def $cast_set_mask(typeIR, value_b, value_m)
+dec $cast_set_mask(typeIR, value_b, value_m)
 
 1. Return $cast_set_mask'($canon(typeIR), value_b, value_m)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:561:1-561:50:
-def $cast_set_mask'(typeIR'', value_b, value_m)
+dec $cast_set_mask'(typeIR'', value_b, value_m)
 
 1. If ((typeIR'' has type setTypeIR)), then
 
@@ -8483,12 +8411,12 @@ def $cast_set_mask'(typeIR'', value_b, value_m)
 1. Else Phantom#392
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:571:1-571:50:
-def $cast_set_range(typeIR, value_l, value_u)
+dec $cast_set_range(typeIR, value_l, value_u)
 
 1. Return $cast_set_range'($canon(typeIR), value_l, value_u)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:572:1-572:51:
-def $cast_set_range'(typeIR'', value_l, value_u)
+dec $cast_set_range'(typeIR'', value_l, value_u)
 
 1. If ((typeIR'' has type setTypeIR)), then
 
@@ -8509,7 +8437,7 @@ def $cast_set_range'(typeIR'', value_l, value_u)
 1. Else Phantom#394
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:637:1-637:44:
-def $bitacc_op(value_b, value_h, value_l)
+dec $bitacc_op(value_b, value_h, value_l)
 
 1. (Let i_b be $to_number(value_b))
 
@@ -8530,7 +8458,7 @@ def $bitacc_op(value_b, value_h, value_l)
 5. Else Phantom#395
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:650:1-650:32:
-def $sizeof(typeIR, text)
+dec $sizeof(typeIR, text)
 
 1. Case analysis on text
 
@@ -8553,17 +8481,17 @@ def $sizeof(typeIR, text)
 1. Else Phantom#396
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:652:1-652:42:
-def $sizeof_minSizeInBits(typeIR)
+dec $sizeof_minSizeInBits(typeIR)
 
 1. Return ((d ($sizeof_minSizeInBits'(typeIR) as int)) as value)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:653:1-653:41:
-def $sizeof_minSizeInBits'(typeIR)
+dec $sizeof_minSizeInBits'(typeIR)
 
 1. Return $sizeof_minSizeInBits''($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:654:1-654:42:
-def $sizeof_minSizeInBits''(typeIR'')
+dec $sizeof_minSizeInBits''(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -8660,24 +8588,24 @@ def $sizeof_minSizeInBits''(typeIR'')
 1. Else Phantom#401
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:656:1-656:43:
-def $sizeof_minSizeInBytes(typeIR)
+dec $sizeof_minSizeInBytes(typeIR)
 
 1. (Let n_size be $sizeof_minSizeInBits'(typeIR))
 
 2. Return ((d ((n_size / 8) as int)) as value)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:658:1-658:42:
-def $sizeof_maxSizeInBits(typeIR)
+dec $sizeof_maxSizeInBits(typeIR)
 
 1. Return ((d ($sizeof_maxSizeInBits'(typeIR) as int)) as value)
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:659:1-659:41:
-def $sizeof_maxSizeInBits'(typeIR)
+dec $sizeof_maxSizeInBits'(typeIR)
 
 1. Return $sizeof_maxSizeInBits''($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:660:1-660:42:
-def $sizeof_maxSizeInBits''(typeIR'')
+dec $sizeof_maxSizeInBits''(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -8774,7 +8702,7 @@ def $sizeof_maxSizeInBits''(typeIR'')
 1. Else Phantom#406
 
 ;; ../../../../../examples/p4-concrete/3-numerics.spectec:662:1-662:43:
-def $sizeof_maxSizeInBytes(typeIR)
+dec $sizeof_maxSizeInBytes(typeIR)
 
 1. (Let n_size be $sizeof_maxSizeInBits'(typeIR))
 
@@ -8786,7 +8714,7 @@ syntax prefixedNameIR =
    | . nameIR
 
 ;; ../../../../../examples/p4-concrete/4-ir-syntax.spectec:9:1-9:63:
-def $prefixedNonTypeName(prefixedNonTypeName)
+dec $prefixedNonTypeName(prefixedNonTypeName)
 
 1. If ((prefixedNonTypeName has type nonTypeName)), then
 
@@ -8805,7 +8733,7 @@ def $prefixedNonTypeName(prefixedNonTypeName)
 2. Else Phantom#408
 
 ;; ../../../../../examples/p4-concrete/4-ir-syntax.spectec:13:1-13:57:
-def $prefixedTypeName(prefixedTypeName)
+dec $prefixedTypeName(prefixedTypeName)
 
 1. If ((prefixedTypeName has type typeName)), then
 
@@ -8824,7 +8752,7 @@ def $prefixedTypeName(prefixedTypeName)
 2. Else Phantom#410
 
 ;; ../../../../../examples/p4-concrete/4-ir-syntax.spectec:17:1-17:53:
-def $flatten_prefixedNameIR(prefixedNameIR)
+dec $flatten_prefixedNameIR(prefixedNameIR)
 
 1. Case analysis on prefixedNameIR
 
@@ -9523,7 +9451,7 @@ syntax flow =
    | ret
 
 ;; ../../../../../examples/p4-concrete/5.0-flow.spectec:9:1-9:34:
-def $join_flow(flow'', flow''')
+dec $join_flow(flow'', flow''')
 
 1. If ((flow'' matches pattern `RET`)), then
 
@@ -9543,7 +9471,7 @@ syntax varTypeIR =
 syntax frame = map<id, varTypeIR>
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:14:1-14:27:
-def $empty_frame
+dec $empty_frame
 
 1. Return $empty_map<id, varTypeIR>
 
@@ -9551,7 +9479,7 @@ def $empty_frame
 syntax tdenv = map<tid, typeDefIR>
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:20:1-20:27:
-def $empty_tdenv
+dec $empty_tdenv
 
 1. Return $empty_map<tid, typeDefIR>
 
@@ -9559,7 +9487,7 @@ def $empty_tdenv
 syntax rdenv = map<rid, routineTypeDefIR>
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:26:1-26:27:
-def $empty_rdenv
+dec $empty_rdenv
 
 1. Return $empty_map<rid, routineTypeDefIR>
 
@@ -9567,32 +9495,32 @@ def $empty_rdenv
 syntax cdenv = map<cid, constructorTypeDefIR>
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:32:1-32:27:
-def $empty_cdenv
+dec $empty_cdenv
 
 1. Return $empty_map<cid, constructorTypeDefIR>
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:39:1-39:39:
-def $check_routine_name(id_l, id_r)
+dec $check_routine_name(id_l, id_r)
 
 1. Return (id_l = id_r)
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:42:1-42:37:
-def $check_arity(id_arg?*, id_param*)
+dec $check_arity(id_arg?*, id_param*)
 
 1. Return (|id_arg?*| = |id_param*|)
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:45:1-45:42:
-def $check_arity_more(id_arg?*, id_param*)
+dec $check_arity_more(id_arg?*, id_param*)
 
 1. Return (|id_arg?*| > |id_param*|)
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:48:1-48:42:
-def $check_arity_less(id_arg?*, id_param*)
+dec $check_arity_less(id_arg?*, id_param*)
 
 1. Return (|id_arg?*| < |id_param*|)
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:51:1-51:44:
-def $get_missing_parameters(id*, id_arg*)
+dec $get_missing_parameters(id*, id_arg*)
 
 1. Case analysis on id*
 
@@ -9615,7 +9543,7 @@ def $get_missing_parameters(id*, id_arg*)
       1. Return $get_missing_parameters(id_param_t*, id_arg*)
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:68:1-68:61:
-def $find_match_named<V>(rid, V, id_arg*, pid'*)
+dec $find_match_named<V>(rid, V, id_arg*, pid'*)
 
 1. (Let (id_param # bool_param) be pid')*
 
@@ -9628,7 +9556,7 @@ def $find_match_named<V>(rid, V, id_arg*, pid'*)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:77:1-77:69:
-def $find_match_named_default<V>(rid, V, id_arg*, pid'*)
+dec $find_match_named_default<V>(rid, V, id_arg*, pid'*)
 
 1. (Let (id_param # bool_param) be pid')*
 
@@ -9643,7 +9571,7 @@ def $find_match_named_default<V>(rid, V, id_arg*, pid'*)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:91:1-91:74:
-def $find_match_unnamed_default<V>(rid, V, id_arg?*, pid*)
+dec $find_match_unnamed_default<V>(rid, V, id_arg?*, pid*)
 
 1. (Let (_pid*, (id_default # bool)*) be $partition_<pid>(pid*, |id_arg?*|))
 
@@ -9656,7 +9584,7 @@ def $find_match_unnamed_default<V>(rid, V, id_arg?*, pid*)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:100:1-100:64:
-def $find_matching<V>(id_r, id_arg?*, id_arg''*, (id_r' ( pid_r''* )), V)
+dec $find_matching<V>(id_r, id_arg?*, id_arg''*, (id_r' ( pid_r''* )), V)
 
 1. If (~$check_routine_name(id_r, id_r')), then
 
@@ -9717,7 +9645,7 @@ def $find_matching<V>(id_r, id_arg?*, id_arg''*, (id_r' ( pid_r''* )), V)
 5. Else Phantom#422
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:159:1-159:67:
-def $find_matchings<V>(id_r, id_arg?*, id_arg'*, rid''*, V''*)
+dec $find_matchings<V>(id_r, id_arg?*, id_arg'*, rid''*, V''*)
 
 1. Case analysis on rid''*
 
@@ -9756,7 +9684,7 @@ def $find_matchings<V>(id_r, id_arg?*, id_arg'*, rid''*, V''*)
     2. Else Phantom#426
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:181:1-181:66:
-def $find_overloaded<V>(({ (rid : V)* }), id_r, id_arg?*)
+dec $find_overloaded<V>(({ (rid : V)* }), id_r, id_arg?*)
 
 1. If ((|id_arg?*| > 0)), then
 
@@ -9807,7 +9735,7 @@ def $find_overloaded<V>(({ (rid : V)* }), id_r, id_arg?*)
 2. Else Phantom#433
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:218:1-218:50:
-def $find_non_overloaded<V>(({ (rid : V)* }), id)
+dec $find_non_overloaded<V>(({ (rid : V)* }), id)
 
 1. (Let V''* be $find_non_overloaded'<V>(({ (rid : V)* }), id))
 
@@ -9822,7 +9750,7 @@ def $find_non_overloaded<V>(({ (rid : V)* }), id)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.01-env.spectec:219:1-219:51:
-def $find_non_overloaded'<V>(set<pair<rid, V>>', id)
+dec $find_non_overloaded'<V>(set<pair<rid, V>>', id)
 
 1. If ((set<pair<rid, V>>' = ({ [] }))), then
 
@@ -9872,22 +9800,22 @@ syntax blockKind =
    | package
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:30:1-30:43:
-def $is_extern_blockKind(blockKind)
+dec $is_extern_blockKind(blockKind)
 
 1. Return (blockKind = (extern))
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:33:1-33:43:
-def $is_parser_blockKind(blockKind)
+dec $is_parser_blockKind(blockKind)
 
 1. Return (blockKind = (parser))
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:36:1-36:44:
-def $is_control_blockKind(blockKind)
+dec $is_control_blockKind(blockKind)
 
 1. Return (blockKind = (control))
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:39:1-39:44:
-def $is_package_blockKind(blockKind)
+dec $is_package_blockKind(blockKind)
 
 1. Return (blockKind = (package))
 
@@ -9907,7 +9835,7 @@ syntax localKind =
    | table_apply_method
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:62:1-62:45:
-def $is_function_localKind(localKind')
+dec $is_function_localKind(localKind')
 
 1. If ((localKind' matches pattern `FUNCTION->%`)), then
 
@@ -9920,7 +9848,7 @@ def $is_function_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:67:1-67:52:
-def $is_extern_function_localKind(localKind')
+dec $is_extern_function_localKind(localKind')
 
 1. If ((localKind' matches pattern `EXTERN_FUNCTION->%`)), then
 
@@ -9933,7 +9861,7 @@ def $is_extern_function_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:74:1-74:43:
-def $is_action_localKind(localKind')
+dec $is_action_localKind(localKind')
 
 1. If ((localKind' matches pattern `ACTION`)), then
 
@@ -9944,7 +9872,7 @@ def $is_action_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:79:1-79:50:
-def $is_extern_method_localKind(localKind')
+dec $is_extern_method_localKind(localKind')
 
 1. If ((localKind' matches pattern `EXTERN_METHOD->%`)), then
 
@@ -9957,7 +9885,7 @@ def $is_extern_method_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:86:1-86:59:
-def $is_extern_abstract_method_localKind(localKind')
+dec $is_extern_abstract_method_localKind(localKind')
 
 1. If ((localKind' matches pattern `EXTERN_METHODABSTRACT->%`)), then
 
@@ -9970,7 +9898,7 @@ def $is_extern_abstract_method_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:93:1-93:49:
-def $is_parser_state_localKind(localKind')
+dec $is_parser_state_localKind(localKind')
 
 1. If ((localKind' matches pattern `PARSER_STATE`)), then
 
@@ -9981,7 +9909,7 @@ def $is_parser_state_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:98:1-98:57:
-def $is_control_apply_method_localKind(localKind')
+dec $is_control_apply_method_localKind(localKind')
 
 1. If ((localKind' matches pattern `CONTROL_APPLY_METHOD`)), then
 
@@ -9992,7 +9920,7 @@ def $is_control_apply_method_localKind(localKind')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:105:1-105:55:
-def $is_table_apply_method_localKind(localKind')
+dec $is_table_apply_method_localKind(localKind')
 
 1. If ((localKind' matches pattern `TABLE_APPLY_METHOD`)), then
 
@@ -10009,7 +9937,7 @@ syntax localTypingLayer = {id id, kind localKind, tdenv tdenv, frames frame*}
 syntax typingContext = {global globalTypingLayer, block blockTypingLayer, local localTypingLayer}
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:133:1-133:41:
-def $empty_typingContext
+dec $empty_typingContext
 
 1. (Let globalTypingLayer be {cdenv $empty_cdenv, tdenv $empty_tdenv, rdenv $empty_rdenv, frame $empty_frame})
 
@@ -10022,7 +9950,7 @@ def $empty_typingContext
 5. Return TC
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:161:1-161:42:
-def $bound(cursor, TC)
+dec $bound(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -10043,12 +9971,12 @@ def $bound(cursor, TC)
     3. Return $union_set<tid>(bound_block, bound_local)
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:173:1-173:42:
-def $enter(TC)
+dec $enter(TC)
 
 1. Return TC[local.frames = $empty_frame :: TC.local.frames]
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:177:1-177:41:
-def $exit(TC)
+dec $exit(TC)
 
 1. (Let frame* be TC.local.frames)
 
@@ -10061,7 +9989,7 @@ def $exit(TC)
 2. Else Phantom#436
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:188:1-188:67:
-def $add_var(cursor, TC, id, varTypeIR)
+dec $add_var(cursor, TC, id, varTypeIR)
 
 1. Case analysis on cursor
 
@@ -10130,7 +10058,7 @@ def $add_var(cursor, TC, id, varTypeIR)
     2. Else Phantom#443
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:189:1-189:70:
-def $add_vars(p, TC, id*, varTypeIR*)
+dec $add_vars(p, TC, id*, varTypeIR*)
 
 1. Case analysis on id*
 
@@ -10159,7 +10087,7 @@ def $add_vars(p, TC, id*, varTypeIR*)
     2. Else Phantom#445
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:219:1-219:75:
-def $add_parameter(cursor, TC, (direction typeIR id value?))
+dec $add_parameter(cursor, TC, (direction typeIR id value?))
 
 1. Case analysis on direction
 
@@ -10196,7 +10124,7 @@ def $add_parameter(cursor, TC, (direction typeIR id value?))
     3. Return TC'
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:220:1-220:77:
-def $add_parameters(cursor, TC, parameterTypeIR*)
+dec $add_parameters(cursor, TC, parameterTypeIR*)
 
 1. Case analysis on parameterTypeIR*
 
@@ -10215,7 +10143,7 @@ def $add_parameters(cursor, TC, parameterTypeIR*)
     4. Return TC''
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:237:1-237:78:
-def $add_constructorParameter(TC, (direction typeIR id value''?))
+dec $add_constructorParameter(TC, (direction typeIR id value''?))
 
 1. Case analysis on value''?
 
@@ -10238,7 +10166,7 @@ def $add_constructorParameter(TC, (direction typeIR id value''?))
     4. Return TC'
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:238:1-238:80:
-def $add_constructorParameters(TC, parameterTypeIR*)
+dec $add_constructorParameters(TC, parameterTypeIR*)
 
 1. Case analysis on parameterTypeIR*
 
@@ -10257,7 +10185,7 @@ def $add_constructorParameters(TC, parameterTypeIR*)
     4. Return TC''
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:254:1-254:69:
-def $add_type(cursor, TC, tid, typeDefIR)
+dec $add_type(cursor, TC, tid, typeDefIR)
 
 1. Case analysis on cursor
 
@@ -10304,7 +10232,7 @@ def $add_type(cursor, TC, tid, typeDefIR)
     2. Else Phantom#448
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:274:1-274:72:
-def $add_types(p, TC, tid*, typeDefIR*)
+dec $add_types(p, TC, tid*, typeDefIR*)
 
 1. Case analysis on tid*
 
@@ -10333,7 +10261,7 @@ def $add_types(p, TC, tid*, typeDefIR*)
     2. Else Phantom#450
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:282:1-282:88:
-def $add_routine_overload(cursor, TC, rid, routineTypeDefIR)
+dec $add_routine_overload(cursor, TC, rid, routineTypeDefIR)
 
 1. Case analysis on cursor
 
@@ -10368,7 +10296,7 @@ def $add_routine_overload(cursor, TC, rid, routineTypeDefIR)
 1. Else Phantom#453
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:297:1-297:92:
-def $add_routine_non_overload(cursor, TC, rid, routineTypeDefIR)
+dec $add_routine_non_overload(cursor, TC, rid, routineTypeDefIR)
 
 1. Case analysis on cursor
 
@@ -10411,7 +10339,7 @@ def $add_routine_non_overload(cursor, TC, rid, routineTypeDefIR)
 1. Else Phantom#456
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:318:1-318:79:
-def $add_constructor(TC, cid, constructorTypeDefIR)
+dec $add_constructor(TC, cid, constructorTypeDefIR)
 
 1. (Let cdenv be TC.global.cdenv)
 
@@ -10426,7 +10354,7 @@ def $add_constructor(TC, cid, constructorTypeDefIR)
 2. Else Phantom#457
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:333:1-333:66:
-def $find_var(p', TC, prefixedNameIR)
+dec $find_var(p', TC, prefixedNameIR)
 
 1. If ((prefixedNameIR matches pattern `.%`)), then
 
@@ -10505,7 +10433,7 @@ def $find_var(p', TC, prefixedNameIR)
     1. Else Phantom#465
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:354:1-354:63:
-def $find_value(p', TC, prefixedNameIR)
+dec $find_value(p', TC, prefixedNameIR)
 
 1. If ((prefixedNameIR matches pattern `.%`)), then
 
@@ -10624,7 +10552,7 @@ def $find_value(p', TC, prefixedNameIR)
     1. Else Phantom#479
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:377:1-377:67:
-def $find_type(p', TC, prefixedNameIR)
+dec $find_type(p', TC, prefixedNameIR)
 
 1. If ((prefixedNameIR matches pattern `.%`)), then
 
@@ -10703,12 +10631,12 @@ def $find_type(p', TC, prefixedNameIR)
     1. Else Phantom#487
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:400:1-400:41:
-def $ids_arguments(argumentIR*)
+dec $ids_arguments(argumentIR*)
 
 1. Return $id_argument(argumentIR)*
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:401:1-401:35:
-def $id_argument(argumentIR)
+dec $id_argument(argumentIR)
 
 1. If ((argumentIR has type typedExpressionIR)), then
 
@@ -10739,7 +10667,7 @@ def $id_argument(argumentIR)
 2. Else Phantom#489
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:409:1-410:34:
-def $find_routine_overloaded(cursor, TC, prefixedNameIR, argumentIR*)
+dec $find_routine_overloaded(cursor, TC, prefixedNameIR, argumentIR*)
 
 1. Case analysis on cursor
 
@@ -10806,7 +10734,7 @@ def $find_routine_overloaded(cursor, TC, prefixedNameIR, argumentIR*)
     1. Else Phantom#493
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:435:1-436:22:
-def $find_routine_non_overloaded(p', TC, prefixedNameIR)
+dec $find_routine_non_overloaded(p', TC, prefixedNameIR)
 
 1. If ((prefixedNameIR matches pattern `.%`)), then
 
@@ -10863,7 +10791,7 @@ def $find_routine_non_overloaded(p', TC, prefixedNameIR)
     1. Else Phantom#499
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:454:1-455:38:
-def $find_constructor_overloaded(TC, prefixedNameIR, argumentIR*)
+dec $find_constructor_overloaded(TC, prefixedNameIR, argumentIR*)
 
 1. Case analysis on prefixedNameIR
 
@@ -10888,7 +10816,7 @@ def $find_constructor_overloaded(TC, prefixedNameIR, argumentIR*)
     4. Return $find_overloaded<constructorTypeDefIR>(cdenv, id, id_arg?*)
 
 ;; ../../../../../examples/p4-concrete/5.02-context.spectec:468:1-468:47:
-def $find_return_type(TC)
+dec $find_return_type(TC)
 
 1. (Let localKind be TC.local.kind)
 
@@ -10958,7 +10886,7 @@ syntax tableEntryState =
    | nolpm
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:54:1-54:38:
-def $empty_tableContext
+dec $empty_tableContext
 
 1. (Let matchPriority be {values [], init false, delta 1, largest_wins true})
 
@@ -10967,31 +10895,31 @@ def $empty_tableContext
 3. Return {keys [], actions [], priorities matchPriority, entries matchEntry, mode (nopri)}
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:76:1-76:54:
-def $add_key(TBLC, id, typeIR)
+dec $add_key(TBLC, id, typeIR)
 
 1. (Let matchKey be (typeIR, id))
 
 2. Return TBLC[keys = TBLC.keys ++ [matchKey]]
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:84:1-84:95:
-def $add_action(TBLC, prefixedNameIR, parameterTypeIR*, argumentListIR)
+dec $add_action(TBLC, prefixedNameIR, parameterTypeIR*, argumentListIR)
 
 1. (Let matchAction be (prefixedNameIR, parameterTypeIR*, argumentListIR))
 
 2. Return TBLC[actions = TBLC.actions ++ [matchAction]]
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:92:1-92:58:
-def $add_table_priority(TBLC, n)
+dec $add_table_priority(TBLC, n)
 
 1. Return TBLC[priorities.values = TBLC.priorities.values ++ [n]]
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:103:1-103:58:
-def $update_mode(TBLC, id, typeIR)
+dec $update_mode(TBLC, id, typeIR)
 
 1. Return $update_mode'(TBLC, id, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:104:1-104:59:
-def $update_mode'(TBLC, text', typeIR'')
+dec $update_mode'(TBLC, text', typeIR'')
 
 1. Case analysis on text'
 
@@ -11090,12 +11018,12 @@ def $update_mode'(TBLC, text', typeIR'')
   1. Return TBLC
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:138:1-138:85:
-def $find_action(TBLC, prefixedNameIR)
+dec $find_action(TBLC, prefixedNameIR)
 
 1. Return $find_action'(TBLC.actions, prefixedNameIR)
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:139:1-139:86:
-def $find_action'(matchAction*, prefixedNameIR)
+dec $find_action'(matchAction*, prefixedNameIR)
 
 1. Case analysis on matchAction*
 
@@ -11120,14 +11048,14 @@ def $find_action'(matchAction*, prefixedNameIR)
         1. Return $find_action'(matchAction_t*, prefixedNameIR)
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:156:1-156:50:
-def $find_table_priority_last(TBLC)
+dec $find_table_priority_last(TBLC)
 
 1. (Let n* be TBLC.priorities.values)
 
 2. Return n*[(|n*| - 1)]
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:165:1-165:78:
-def $join_tableEntryState(tableEntryState, tableEntryState')
+dec $join_tableEntryState(tableEntryState, tableEntryState')
 
 1. Case analysis on tableEntryState
 
@@ -11156,12 +11084,12 @@ def $join_tableEntryState(tableEntryState, tableEntryState')
     2. Else Phantom#500
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:171:1-171:40:
-def $tableEntry_lpm_prefix(value)
+dec $tableEntry_lpm_prefix(value)
 
 1. Return $tableEntry_lpm_prefix'(value, 0)
 
 ;; ../../../../../examples/p4-concrete/5.03-table-context.spectec:172:1-172:46:
-def $tableEntry_lpm_prefix'(value, n_prefix')
+dec $tableEntry_lpm_prefix'(value, n_prefix')
 
 1. If ((value has type number)), then
 
@@ -12074,12 +12002,12 @@ relation ConstructorTypeDef_wf: bound, (constructorTypeIR < tid_expl* , tid_impl
 2. Else Phantom#614
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:98:1-98:37:
-def $nestable_typedef(typeIR)
+dec $nestable_typedef(typeIR)
 
 1. Return $nestable'_typedef($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:99:1-99:38:
-def $nestable'_typedef(typeIR')
+dec $nestable'_typedef(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12138,12 +12066,12 @@ def $nestable'_typedef(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:117:1-117:33:
-def $nestable_new(typeIR)
+dec $nestable_new(typeIR)
 
 1. Return $nestable'_new($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:118:1-118:34:
-def $nestable'_new(typeIR')
+dec $nestable'_new(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12198,12 +12126,12 @@ def $nestable'_new(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:136:1-136:34:
-def $nestable_list(typeIR)
+dec $nestable_list(typeIR)
 
 1. Return $nestable'_list($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:137:1-137:35:
-def $nestable'_list(typeIR')
+dec $nestable'_list(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12266,12 +12194,12 @@ def $nestable'_list(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:156:1-156:35:
-def $nestable_tuple(typeIR)
+dec $nestable_tuple(typeIR)
 
 1. Return $nestable'_tuple($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:157:1-157:36:
-def $nestable'_tuple(typeIR'')
+dec $nestable'_tuple(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12386,12 +12314,12 @@ def $nestable'_tuple(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:182:1-182:35:
-def $nestable_stack(typeIR)
+dec $nestable_stack(typeIR)
 
 1. Return $nestable'_stack($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:183:1-183:36:
-def $nestable'_stack(typeIR')
+dec $nestable'_stack(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12422,12 +12350,12 @@ def $nestable'_stack(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:197:1-197:36:
-def $nestable_struct(typeIR)
+dec $nestable_struct(typeIR)
 
 1. Return $nestable'_struct($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:198:1-198:37:
-def $nestable'_struct(typeIR'')
+dec $nestable'_struct(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12542,12 +12470,12 @@ def $nestable'_struct(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:224:1-224:36:
-def $nestable_header(typeIR)
+dec $nestable_header(typeIR)
 
 1. Return $nestable'_header($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:225:1-225:37:
-def $nestable'_header(typeIR'')
+dec $nestable'_header(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12626,12 +12554,12 @@ def $nestable'_header(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:226:1-226:46:
-def $nestable_struct_in_header(typeIR)
+dec $nestable_struct_in_header(typeIR)
 
 1. Return $nestable'_struct_in_header($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:227:1-227:47:
-def $nestable'_struct_in_header(typeIR'')
+dec $nestable'_struct_in_header(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12704,12 +12632,12 @@ def $nestable'_struct_in_header(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:261:1-261:41:
-def $nestable_headerunion(typeIR)
+dec $nestable_headerunion(typeIR)
 
 1. Return $nestable'_headerunion($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:262:1-262:42:
-def $nestable'_headerunion(typeIR')
+dec $nestable'_headerunion(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12744,12 +12672,12 @@ def $nestable'_headerunion(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:282:1-282:37:
-def $nestable_serenum(typeIR)
+dec $nestable_serenum(typeIR)
 
 1. Return $nestable'_serenum($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:283:1-283:38:
-def $nestable'_serenum(typeIR'')
+dec $nestable'_serenum(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12796,12 +12724,12 @@ def $nestable'_serenum(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:284:1-284:44:
-def $nestable_new_in_serenum(typeIR)
+dec $nestable_new_in_serenum(typeIR)
 
 1. Return $nestable_new_in_serenum'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:285:1-285:45:
-def $nestable_new_in_serenum'(typeIR')
+dec $nestable_new_in_serenum'(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -12848,12 +12776,12 @@ def $nestable_new_in_serenum'(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:361:1-361:33:
-def $nestable_set(typeIR)
+dec $nestable_set(typeIR)
 
 1. Return $nestable'_set($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:362:1-362:34:
-def $nestable'_set(typeIR'')
+dec $nestable'_set(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -12952,12 +12880,12 @@ def $nestable'_set(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:363:1-363:42:
-def $nestable_tuple_in_set(typeIR)
+dec $nestable_tuple_in_set(typeIR)
 
 1. Return $nestable'_tuple_in_set($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:364:1-364:43:
-def $nestable'_tuple_in_set(typeIR'')
+dec $nestable'_tuple_in_set(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -13038,12 +12966,12 @@ def $nestable'_tuple_in_set(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:365:1-365:45:
-def $nestable_sequence_in_set(typeIR)
+dec $nestable_sequence_in_set(typeIR)
 
 1. Return $nestable'_sequence_in_set($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:366:1-366:46:
-def $nestable'_sequence_in_set(typeIR'')
+dec $nestable'_sequence_in_set(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -13136,7 +13064,7 @@ def $nestable'_sequence_in_set(typeIR'')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:430:1-430:40:
-def $definable_type_mono(typeIR')
+dec $definable_type_mono(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13185,7 +13113,7 @@ def $definable_type_mono(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:445:1-445:40:
-def $definable_type_poly(typeIR')
+dec $definable_type_poly(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13248,12 +13176,12 @@ def $definable_type_poly(typeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:478:1-478:49:
-def $nestable_function(direction, typeIR)
+dec $nestable_function(direction, typeIR)
 
 1. Return $nestable_function'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:479:1-479:50:
-def $nestable_function'(direction', typeIR')
+dec $nestable_function'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13288,12 +13216,12 @@ def $nestable_function'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:498:1-498:47:
-def $directionless_trailing(direction*)
+dec $directionless_trailing(direction*)
 
 1. Return $directionless_trailing'(true, $rev_<direction>(direction*))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:499:1-499:54:
-def $directionless_trailing'(_bool', direction''*)
+dec $directionless_trailing'(_bool', direction''*)
 
 1. Case analysis on direction''*
 
@@ -13344,12 +13272,12 @@ def $directionless_trailing'(_bool', direction''*)
 2. Else Phantom#620
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:512:1-512:47:
-def $nestable_action(direction, typeIR)
+dec $nestable_action(direction, typeIR)
 
 1. Return $nestable_action'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:513:1-513:48:
-def $nestable_action'(direction', typeIR')
+dec $nestable_action'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13382,12 +13310,12 @@ def $nestable_action'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:531:1-531:55:
-def $nestable_externfunction(direction, typeIR)
+dec $nestable_externfunction(direction, typeIR)
 
 1. Return $nestable_externfunction'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:532:1-532:56:
-def $nestable_externfunction'(direction', typeIR')
+dec $nestable_externfunction'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13440,12 +13368,12 @@ def $nestable_externfunction'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:561:1-561:53:
-def $nestable_externmethod(direction, typeIR)
+dec $nestable_externmethod(direction, typeIR)
 
 1. Return $nestable_externmethod'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:562:1-562:54:
-def $nestable_externmethod'(direction', typeIR')
+dec $nestable_externmethod'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13498,12 +13426,12 @@ def $nestable_externmethod'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:584:1-584:61:
-def $nestable_externabstractmethod(direction, typeIR)
+dec $nestable_externabstractmethod(direction, typeIR)
 
 1. Return $nestable_externabstractmethod'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:585:1-585:62:
-def $nestable_externabstractmethod'(direction', typeIR')
+dec $nestable_externabstractmethod'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13556,12 +13484,12 @@ def $nestable_externabstractmethod'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:607:1-607:58:
-def $nestable_parserapplymethod(direction, typeIR)
+dec $nestable_parserapplymethod(direction, typeIR)
 
 1. Return $nestable_parserapplymethod'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:608:1-608:59:
-def $nestable_parserapplymethod'(direction', typeIR')
+dec $nestable_parserapplymethod'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13614,12 +13542,12 @@ def $nestable_parserapplymethod'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:629:1-629:59:
-def $nestable_controlapplymethod(direction, typeIR)
+dec $nestable_controlapplymethod(direction, typeIR)
 
 1. Return $nestable_controlapplymethod'(direction, $canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:630:1-630:60:
-def $nestable_controlapplymethod'(direction', typeIR')
+dec $nestable_controlapplymethod'(direction', typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13666,7 +13594,7 @@ def $nestable_controlapplymethod'(direction', typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:657:1-657:50:
-def $definable_routine_mono(routineTypeIR')
+dec $definable_routine_mono(routineTypeIR')
 
 1. Case analysis on routineTypeIR'
 
@@ -13723,7 +13651,7 @@ def $definable_routine_mono(routineTypeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:673:1-673:50:
-def $definable_routine_poly(routineTypeIR')
+dec $definable_routine_poly(routineTypeIR')
 
 1. Case analysis on routineTypeIR'
 
@@ -13768,7 +13696,7 @@ def $definable_routine_poly(routineTypeIR')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:708:1-708:48:
-def $nestable_constructor_extern(typeIR)
+dec $nestable_constructor_extern(typeIR)
 
 1. Return $nestable'_constructor_extern($canon(typeIR))
 
@@ -13781,7 +13709,7 @@ def $nestable_constructor_extern(typeIR)
 2. Else Phantom#621
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:709:1-709:49:
-def $nestable'_constructor_extern(typeIR')
+dec $nestable'_constructor_extern(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13808,12 +13736,12 @@ def $nestable'_constructor_extern(typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:728:1-728:48:
-def $nestable_constructor_parser(typeIR)
+dec $nestable_constructor_parser(typeIR)
 
 1. Return $nestable'_constructor_parser($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:729:1-729:49:
-def $nestable'_constructor_parser(typeIR')
+dec $nestable'_constructor_parser(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13840,12 +13768,12 @@ def $nestable'_constructor_parser(typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:747:1-747:49:
-def $nestable_constructor_control(typeIR)
+dec $nestable_constructor_control(typeIR)
 
 1. Return $nestable'_constructor_control($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:748:1-748:50:
-def $nestable'_constructor_control(typeIR')
+dec $nestable'_constructor_control(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -13872,12 +13800,12 @@ def $nestable'_constructor_control(typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:766:1-766:49:
-def $nestable_constructor_package(typeIR)
+dec $nestable_constructor_package(typeIR)
 
 1. Return $nestable'_constructor_package($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:767:1-767:50:
-def $nestable'_constructor_package(typeIR')
+dec $nestable'_constructor_package(typeIR')
 
 1. If ((typeIR' has type tableObjectTypeIR)), then
 
@@ -13890,12 +13818,12 @@ def $nestable'_constructor_package(typeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:787:1-787:42:
-def $definable_constructor(typeIR)
+dec $definable_constructor(typeIR)
 
 1. Return $definable'_constructor($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.03-wellformed.spectec:788:1-788:43:
-def $definable'_constructor(typeIR')
+dec $definable'_constructor(typeIR')
 
 1. Case analysis on typeIR'
 
@@ -18102,7 +18030,7 @@ relation Parameters_ok: p, TC, parameter*
     4. Result in parameterIR_h :: parameterIR_t*, tid_fresh_h* ++ tid_fresh_t*
 
 ;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:103:1-103:48:
-def $parameterIR((_annotationList direction typeIR nameIR constantInitializerOptIR'))
+dec $parameterIR((_annotationList direction typeIR nameIR constantInitializerOptIR'))
 
 1. (Let constantInitializerIR? be constantInitializerOptIR')
 
@@ -18135,7 +18063,7 @@ relation ConstructorParameters_ok: p, TC, constructorParameter*
 2. Result in constructorParameterIR*, tid_fresh*
 
 ;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:119:1-119:81:
-def $constructorParameterIR(constructorParameterIR)
+dec $constructorParameterIR(constructorParameterIR)
 
 1. Return $parameterIR(constructorParameterIR)
 
@@ -21198,7 +21126,7 @@ relation Call_convention_ok: p, TC, actctxt, parameterTypeIR*, argumentIR*
     2. Else Phantom#1193
 
 ;; ../../../../../examples/p4-concrete/5.04-typing-relation.spectec:307:1-307:52:
-def $is_static_routineTarget(routineTargetIR')
+dec $is_static_routineTarget(routineTargetIR')
 
 1. Case analysis on routineTargetIR'
 
@@ -22038,7 +21966,7 @@ relation Inst_ok: cursor', TC, instctxt, constructorTypeIR, typeArgumentIR*, tid
 3. Else Phantom#1278
 
 ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:338:1-342:23:
-def $reduce_serenum_unary(typedExpressionIR, $check)
+dec $reduce_serenum_unary(typedExpressionIR, $check)
 
 1. (Let (_expressionIR # (( typeIR _ctk ))) be typedExpressionIR)
 
@@ -22069,7 +21997,7 @@ def $reduce_serenum_unary(typedExpressionIR, $check)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:363:1-368:44:
-def $reduce_serenum_binary(typedExpressionIR_l, typedExpressionIR_r, $check)
+dec $reduce_serenum_binary(typedExpressionIR_l, typedExpressionIR_r, $check)
 
 1. (Let (_expressionIR # (( typeIR_l _ctk ))) be typedExpressionIR_l)
 
@@ -22116,7 +22044,7 @@ def $reduce_serenum_binary(typedExpressionIR_l, typedExpressionIR_r, $check)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:408:1-408:66:
-def $coerce_unary(typedExpressionIR, typeIR_to)
+dec $coerce_unary(typedExpressionIR, typeIR_to)
 
 1. (Let (_expressionIR # (( typeIR _ctk ))) be typedExpressionIR)
 
@@ -22137,7 +22065,7 @@ def $coerce_unary(typedExpressionIR, typeIR_to)
     1. Else Phantom#1279
 
 ;; ../../../../../examples/p4-concrete/5.05.2-subtype.spectec:423:1-424:44:
-def $coerce_binary(typedExpressionIR_l, typedExpressionIR_r)
+dec $coerce_binary(typedExpressionIR_l, typedExpressionIR_r)
 
 1. (Let (_expressionIR # (( typeIR_l _ctk ))) be typedExpressionIR_l)
 
@@ -22172,12 +22100,12 @@ def $coerce_binary(typedExpressionIR_l, typedExpressionIR_r)
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:69:1-69:32:
-def $compat_lnot(typeIR)
+dec $compat_lnot(typeIR)
 
 1. Return $compat'_lnot($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:70:1-70:33:
-def $compat'_lnot(typeIR)
+dec $compat'_lnot(typeIR)
 
 1. If ((typeIR has type primitiveTypeIR)), then
 
@@ -22192,12 +22120,12 @@ def $compat'_lnot(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:90:1-90:32:
-def $compat_bnot(typeIR)
+dec $compat_bnot(typeIR)
 
 1. Return $compat'_bnot($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:91:1-91:33:
-def $compat'_bnot(typeIR)
+dec $compat'_bnot(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -22222,12 +22150,12 @@ def $compat'_bnot(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:112:1-112:38:
-def $compat_uplusminus(typeIR)
+dec $compat_uplusminus(typeIR)
 
 1. Return $compat'_uplusminus($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:113:1-113:39:
-def $compat'_uplusminus(typeIR)
+dec $compat'_uplusminus(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -22256,12 +22184,12 @@ def $compat'_uplusminus(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:138:1-138:49:
-def $compat_plusminusmult(typeIR_l, typeIR_r)
+dec $compat_plusminusmult(typeIR_l, typeIR_r)
 
 1. Return $compat'_plusminusmult($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:139:1-139:50:
-def $compat'_plusminusmult(typeIR'', typeIR''')
+dec $compat'_plusminusmult(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22316,12 +22244,12 @@ def $compat'_plusminusmult(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:175:1-175:48:
-def $compat_satplusminus(typeIR_l, typeIR_r)
+dec $compat_satplusminus(typeIR_l, typeIR_r)
 
 1. Return $compat'_satplusminus($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:176:1-176:49:
-def $compat'_satplusminus(typeIR'', typeIR''')
+dec $compat'_satplusminus(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22366,12 +22294,12 @@ def $compat'_satplusminus(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:211:1-211:42:
-def $compat_divmod(typeIR_l, typeIR_r)
+dec $compat_divmod(typeIR_l, typeIR_r)
 
 1. Return $compat'_divmod($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:212:1-212:43:
-def $compat'_divmod(typeIR'', typeIR''')
+dec $compat'_divmod(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22392,12 +22320,12 @@ def $compat'_divmod(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:278:1-278:41:
-def $compat_shift(typeIR_l, typeIR_r)
+dec $compat_shift(typeIR_l, typeIR_r)
 
 1. Return $compat'_shift($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:279:1-279:42:
-def $compat'_shift(typeIR'', typeIR''')
+dec $compat'_shift(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22486,12 +22414,12 @@ def $compat'_shift(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:369:1-369:43:
-def $compat_compare(typeIR_l, typeIR_r)
+dec $compat_compare(typeIR_l, typeIR_r)
 
 1. Return $compat'_compare($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:370:1-370:44:
-def $compat'_compare(typeIR'', typeIR''')
+dec $compat'_compare(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22546,12 +22474,12 @@ def $compat'_compare(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:406:1-406:43:
-def $compat_bitwise(typeIR_l, typeIR_r)
+dec $compat_bitwise(typeIR_l, typeIR_r)
 
 1. Return $compat'_bitwise($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:407:1-407:44:
-def $compat'_bitwise(typeIR'', typeIR''')
+dec $compat'_bitwise(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22596,12 +22524,12 @@ def $compat'_bitwise(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:442:1-442:42:
-def $compat_concat(typeIR_l, typeIR_r)
+dec $compat_concat(typeIR_l, typeIR_r)
 
 1. Return $compat'_concat($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:443:1-443:43:
-def $compat'_concat(typeIR'', typeIR''')
+dec $compat'_concat(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22658,12 +22586,12 @@ def $compat'_concat(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:454:1-454:45:
-def $result_concat(typeIR_l, typeIR_r)
+dec $result_concat(typeIR_l, typeIR_r)
 
 1. Return $result'_concat($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:455:1-455:46:
-def $result'_concat(typeIR'', typeIR''')
+dec $result'_concat(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -22720,12 +22648,12 @@ def $result'_concat(typeIR'', typeIR''')
   1. Return ?()
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:492:1-492:43:
-def $compat_logical(typeIR_l, typeIR_r)
+dec $compat_logical(typeIR_l, typeIR_r)
 
 1. Return $compat'_logical($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:493:1-493:44:
-def $compat'_logical(typeIR'', typeIR''')
+dec $compat'_logical(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type primitiveTypeIR)), then
 
@@ -22746,12 +22674,12 @@ def $compat'_logical(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:873:1-873:39:
-def $compat_array_index(typeIR)
+dec $compat_array_index(typeIR)
 
 1. Return $compat'_arrayindex($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:874:1-874:39:
-def $compat'_arrayindex(typeIR)
+dec $compat'_arrayindex(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -22780,12 +22708,12 @@ def $compat'_arrayindex(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:964:1-964:41:
-def $compat_bitslice_base(typeIR)
+dec $compat_bitslice_base(typeIR)
 
 1. Return $compat'_bitslice_base($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:965:1-965:42:
-def $compat'_bitslice_base(typeIR)
+dec $compat'_bitslice_base(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -22814,12 +22742,12 @@ def $compat'_bitslice_base(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:975:1-975:42:
-def $compat_bitslice_index(typeIR)
+dec $compat_bitslice_index(typeIR)
 
 1. Return $compat'_bitslice_index($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:976:1-976:43:
-def $compat'_bitslice_index(typeIR)
+dec $compat'_bitslice_index(typeIR)
 
 1. If ((typeIR has type numberTypeIR)), then
 
@@ -22848,12 +22776,12 @@ def $compat'_bitslice_index(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:986:1-986:48:
-def $is_valid_bitslice(typeIR, n_lo, n_hi)
+dec $is_valid_bitslice(typeIR, n_lo, n_hi)
 
 1. Return ((n_lo <= n_hi) /\ $is_valid_bitslice'($canon(typeIR), n_lo, n_hi))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:987:1-987:49:
-def $is_valid_bitslice'(typeIR', _nat'', _nat''')
+dec $is_valid_bitslice'(typeIR', _nat'', _nat''')
 
 1. If ((typeIR' has type numberTypeIR)), then
 
@@ -22886,12 +22814,12 @@ def $is_valid_bitslice'(typeIR', _nat'', _nat''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:1114:1-1114:46:
-def $is_concrete_extern_object(typeIR)
+dec $is_concrete_extern_object(typeIR)
 
 1. Return $is_concrete_extern_object'($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:1115:1-1115:47:
-def $is_concrete_extern_object'(typeIR)
+dec $is_concrete_extern_object'(typeIR)
 
 1. If (~$is_extern_object_typeIR(typeIR)), then
 
@@ -22910,7 +22838,7 @@ def $is_concrete_extern_object'(typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:1116:1-1116:58:
-def $is_concrete_extern_object''(routineTypeDefIR)
+dec $is_concrete_extern_object''(routineTypeDefIR)
 
 1. Case analysis on routineTypeDefIR
 
@@ -22927,7 +22855,7 @@ def $is_concrete_extern_object''(routineTypeDefIR)
     2. Return (true = $is_concrete_extern_object'''(routineTypeIR))
 
 ;; ../../../../../examples/p4-concrete/5.06.2-typing-expression.spectec:1117:1-1117:56:
-def $is_concrete_extern_object'''(routineTypeIR')
+dec $is_concrete_extern_object'''(routineTypeIR')
 
 1. If ((routineTypeIR' has type methodTypeIR)), then
 
@@ -22944,12 +22872,12 @@ def $is_concrete_extern_object'''(routineTypeIR')
   1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.10-typing-statement.spectec:88:1-88:46:
-def $compat_direct_application(typeIR)
+dec $compat_direct_application(typeIR)
 
 1. Return $compat'_direct_application($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.10-typing-statement.spectec:89:1-89:47:
-def $compat'_direct_application(typeIR)
+dec $compat'_direct_application(typeIR)
 
 1. Case analysis on typeIR
 
@@ -23158,12 +23086,12 @@ relation SwitchCases_general_ok: TC, f, typeIR_switch, switchCase*
     5. Result in f_t, switchCaseIR_h :: switchCaseIR_t*, switchLabel_h :: switchLabel_t*
 
 ;; ../../../../../examples/p4-concrete/5.10-typing-statement.spectec:368:1-368:34:
-def $compat_switch(typeIR)
+dec $compat_switch(typeIR)
 
 1. Return $compat'_switch($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.10-typing-statement.spectec:369:1-369:35:
-def $compat'_switch(typeIR)
+dec $compat'_switch(typeIR)
 
 1. Case analysis on typeIR
 
@@ -23320,7 +23248,7 @@ relation Decls_object_ok: p, TC, frame', rdenv', objectDeclaration*
     4. Result in frame_2, rdenv_2, objectDeclarationIR_h :: objectDeclarationIR_t*
 
 ;; ../../../../../examples/p4-concrete/5.11-typing-declaration.spectec:169:1-169:46:
-def $subst_rdenv(theta, rdenv_extern, set<pair<rid, routineTypeDefIR>>')
+dec $subst_rdenv(theta, rdenv_extern, set<pair<rid, routineTypeDefIR>>')
 
 1. If ((set<pair<rid, routineTypeDefIR>>' = ({ [] }))), then
 
@@ -23375,7 +23303,7 @@ def $subst_rdenv(theta, rdenv_extern, set<pair<rid, routineTypeDefIR>>')
 3. Else Phantom#1303
 
 ;; ../../../../../examples/p4-concrete/5.11-typing-declaration.spectec:418:1-418:81:
-def $split_constructors(methodPrototype*)
+dec $split_constructors(methodPrototype*)
 
 1. Case analysis on methodPrototype*
 
@@ -23635,12 +23563,12 @@ relation SelectCase_keyset_simple_ok: TC, typeIR_key, simpleKeysetExpression
 2. Else Phantom#1322
 
 ;; ../../../../../examples/p4-concrete/5.13.1-typing-parser-statement.spectec:76:1-76:40:
-def $compat_mask(typeIR_l, typeIR_r)
+dec $compat_mask(typeIR_l, typeIR_r)
 
 1. Return $compat'_mask($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.13.1-typing-parser-statement.spectec:77:1-77:41:
-def $compat'_mask(typeIR'', typeIR''')
+dec $compat'_mask(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -23695,12 +23623,12 @@ def $compat'_mask(typeIR'', typeIR''')
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.13.1-typing-parser-statement.spectec:113:1-113:41:
-def $compat_range(typeIR_l, typeIR_r)
+dec $compat_range(typeIR_l, typeIR_r)
 
 1. Return $compat'_range($canon(typeIR_l), $canon(typeIR_r))
 
 ;; ../../../../../examples/p4-concrete/5.13.1-typing-parser-statement.spectec:114:1-114:42:
-def $compat'_range(typeIR'', typeIR''')
+dec $compat'_range(typeIR'', typeIR''')
 
 1. If ((typeIR'' has type numberTypeIR)), then
 
@@ -23993,12 +23921,12 @@ relation SelectCase_ok: TC, nameIR_state*, typeIR_key*, (keysetExpression : name
 3. Else Phantom#1346
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:7:1-7:52:
-def $compat_table_exact_optional_key(typeIR)
+dec $compat_table_exact_optional_key(typeIR)
 
 1. Return $compat'_table_exact_optional_key($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:8:1-8:53:
-def $compat'_table_exact_optional_key(typeIR'')
+dec $compat'_table_exact_optional_key(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -24057,12 +23985,12 @@ def $compat'_table_exact_optional_key(typeIR'')
 1. Else Phantom#1349
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:21:1-21:55:
-def $compat_table_lpm_ternary_range_key(typeIR)
+dec $compat_table_lpm_ternary_range_key(typeIR)
 
 1. Return $compat'_table_lpm_ternary_range_key($canon(typeIR))
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:22:1-22:56:
-def $compat'_table_lpm_ternary_range_key(typeIR'')
+dec $compat'_table_lpm_ternary_range_key(typeIR'')
 
 1. Case analysis on typeIR''
 
@@ -24117,7 +24045,7 @@ def $compat'_table_lpm_ternary_range_key(typeIR'')
 1. Else Phantom#1353
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:34:1-34:45:
-def $compat_table_key(nameIR, typeIR)
+dec $compat_table_key(nameIR, typeIR)
 
 1. Case analysis on nameIR
 
@@ -24156,7 +24084,7 @@ def $compat_table_key(nameIR, typeIR)
   1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:87:1-88:41:
-def $split_dataplane_parameters(parameterTypeIR*)
+dec $split_dataplane_parameters(parameterTypeIR*)
 
 1. Case analysis on parameterTypeIR*
 
@@ -24447,7 +24375,7 @@ relation TableEntry_keysets_simple_ok: TC, TBLC, TBLS', matchKey*, simpleKeysetE
     2. Else Phantom#1381
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:900:1-900:44:
-def $count_table_keys(tableProperty''*)
+dec $count_table_keys(tableProperty''*)
 
 1. Case analysis on tableProperty''*
 
@@ -24474,7 +24402,7 @@ def $count_table_keys(tableProperty''*)
       1. Return $count_table_keys(tableProperty_t*)
 
 ;; ../../../../../examples/p4-concrete/5.14.1-typing-control-table.spectec:913:1-913:47:
-def $count_table_actions(tableProperty''*)
+dec $count_table_actions(tableProperty''*)
 
 1. Case analysis on tableProperty''*
 
@@ -24501,7 +24429,7 @@ def $count_table_actions(tableProperty''*)
       1. Return $count_table_actions(tableProperty_t*)
 
 ;; ../../../../../examples/p4-concrete/5.15.1-typing-call-convention.spectec:7:1-7:73:
-def $filter_default_parameters(parameterTypeIR*, id_default*)
+dec $filter_default_parameters(parameterTypeIR*, id_default*)
 
 1. Case analysis on parameterTypeIR*
 
@@ -24526,7 +24454,7 @@ def $filter_default_parameters(parameterTypeIR*, id_default*)
       1. Return parameterTypeIR_h :: $filter_default_parameters(parameterTypeIR_t*, id_default*)
 
 ;; ../../../../../examples/p4-concrete/5.15.1-typing-call-convention.spectec:26:1-26:71:
-def $align_parameters(parameterTypeIR*, argumentIR*)
+dec $align_parameters(parameterTypeIR*, argumentIR*)
 
 1. (Let (_direction _typeIR id _value?) be parameterTypeIR)*
 
@@ -24541,7 +24469,7 @@ def $align_parameters(parameterTypeIR*, argumentIR*)
 3. Else Phantom#1385
 
 ;; ../../../../../examples/p4-concrete/5.15.1-typing-call-convention.spectec:27:1-27:96:
-def $align_parameters'(_map<id, parameterTypeIR>', parameterTypeIR', argumentIR)
+dec $align_parameters'(_map<id, parameterTypeIR>', parameterTypeIR', argumentIR)
 
 1. If ((argumentIR has type typedExpressionIR)), then
 
@@ -24677,7 +24605,7 @@ syntax infer =
 syntax constraint = map<tid, infer>
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:11:1-11:41:
-def $empty_constraint(tid*)
+dec $empty_constraint(tid*)
 
 1. Return ({ (tid : (unknown))* })
 
@@ -24685,7 +24613,7 @@ def $empty_constraint(tid*)
 syntax inference = map<tid, typeIR>
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:20:1-20:60:
-def $infer(tid_infer*, parameterTypeIR*, argumentIR*)
+dec $infer(tid_infer*, parameterTypeIR*, argumentIR*)
 
 1. (Let constraint_init be $empty_constraint(tid_infer*))
 
@@ -24698,7 +24626,7 @@ def $infer(tid_infer*, parameterTypeIR*, argumentIR*)
 5. Return inference
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:21:1-21:66:
-def $infer'(constraint, parameterTypeIR, argumentIR)
+dec $infer'(constraint, parameterTypeIR, argumentIR)
 
 1. If ((argumentIR has type typedExpressionIR)), then
 
@@ -24737,7 +24665,7 @@ def $infer'(constraint, parameterTypeIR, argumentIR)
 2. Else Phantom#1401
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:23:1-23:66:
-def $gen_constraint_type(constraint', typeIR'', typeIR_arg')
+dec $gen_constraint_type(constraint', typeIR'', typeIR_arg')
 
 1. Case analysis on typeIR''
 
@@ -24958,14 +24886,14 @@ def $gen_constraint_type(constraint', typeIR'', typeIR_arg')
   1. Return constraint'
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:24:1-24:69:
-def $gen_constraint_types(constraint, typeIR_param*, typeIR_arg*)
+dec $gen_constraint_types(constraint, typeIR_param*, typeIR_arg*)
 
 1. (Let constraint_pair be $gen_constraint_type(constraint, typeIR_param, typeIR_arg))*
 
 2. Return $merge_constraints(constraint, constraint_pair*)
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:25:1-28:15:
-def $gen_constraint_routine(constraint_0, routineTypeDefIR, routineTypeDefIR')
+dec $gen_constraint_routine(constraint_0, routineTypeDefIR, routineTypeDefIR')
 
 1. If ((routineTypeDefIR has type polyRoutineTypeDefIR)), then
 
@@ -25056,14 +24984,14 @@ def $gen_constraint_routine(constraint_0, routineTypeDefIR, routineTypeDefIR')
 1. Else Phantom#1412
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:29:1-32:15:
-def $gen_constraint_routines(constraint, routineTypeDefIR_param*, routineTypeDefIR_arg*)
+dec $gen_constraint_routines(constraint, routineTypeDefIR_param*, routineTypeDefIR_arg*)
 
 1. (Let constraint_pair be $gen_constraint_routine(constraint, routineTypeDefIR_param, routineTypeDefIR_arg))*
 
 2. Return $merge_constraints(constraint, constraint_pair*)
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:34:1-34:59:
-def $merge_constraint(constraint_pre, constraint_post)
+dec $merge_constraint(constraint_pre, constraint_post)
 
 1. (Let ({ tid_pre* }) be $dom_map<tid, infer>(constraint_pre))
 
@@ -25076,7 +25004,7 @@ def $merge_constraint(constraint_pre, constraint_post)
 3. Else Phantom#1413
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:35:1-35:78:
-def $merge_constraint'(constraint_pre, constraint_post, tid*, constraint)
+dec $merge_constraint'(constraint_pre, constraint_post, tid*, constraint)
 
 1. Case analysis on tid*
 
@@ -25173,7 +25101,7 @@ def $merge_constraint'(constraint_pre, constraint_post, tid*, constraint)
     4. Else Phantom#1423
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:36:1-36:61:
-def $merge_constraints(constraint_pre', constraint*)
+dec $merge_constraints(constraint_pre', constraint*)
 
 1. Case analysis on constraint*
 
@@ -25192,7 +25120,7 @@ def $merge_constraints(constraint_pre', constraint*)
     4. Return constraint_pre_2
 
 ;; ../../../../../examples/p4-concrete/5.15.2-typing-call-inference.spectec:38:1-38:48:
-def $resolve_constraint(({ (tid : infer)* }))
+dec $resolve_constraint(({ (tid : infer)* }))
 
 1. If ((infer matches pattern `KNOWNAS%`))*, then
 
@@ -25203,7 +25131,7 @@ def $resolve_constraint(({ (tid : infer)* }))
 1. Else Phantom#1424
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:21:1-21:65:
-def $instantiable_extern(cursor, TC, instctxt)
+dec $instantiable_extern(cursor, TC, instctxt)
 
 1. Case analysis on cursor
 
@@ -25220,7 +25148,7 @@ def $instantiable_extern(cursor, TC, instctxt)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:27:1-27:65:
-def $instantiable_parser(cursor, TC, instctxt)
+dec $instantiable_parser(cursor, TC, instctxt)
 
 1. Case analysis on cursor
 
@@ -25237,7 +25165,7 @@ def $instantiable_parser(cursor, TC, instctxt)
     1. Return $is_parser_state_localKind(TC.local.kind)
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:36:1-36:66:
-def $instantiable_control(cursor, TC, instctxt)
+dec $instantiable_control(cursor, TC, instctxt)
 
 1. Case analysis on cursor
 
@@ -25254,7 +25182,7 @@ def $instantiable_control(cursor, TC, instctxt)
     1. Return $is_control_apply_method_localKind(TC.local.kind)
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:45:1-45:66:
-def $instantiable_package(cursor, TC, instctxt)
+dec $instantiable_package(cursor, TC, instctxt)
 
 1. Case analysis on cursor
 
@@ -25271,7 +25199,7 @@ def $instantiable_package(cursor, TC, instctxt)
     1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:52:1-52:64:
-def $instantiable_table(cursor, TC, instctxt)
+dec $instantiable_table(cursor, TC, instctxt)
 
 1. Case analysis on cursor
 
@@ -25288,7 +25216,7 @@ def $instantiable_table(cursor, TC, instctxt)
     1. Return false
 
 ;; ../../../../../examples/p4-concrete/5.15.3-typing-constructor-call.spectec:59:1-59:66:
-def $instantiable(p, TC, instctxt, typeIR)
+dec $instantiable(p, TC, instctxt, typeIR)
 
 1. If ($is_extern_object_typeIR($canon(typeIR))), then
 
@@ -25321,7 +25249,7 @@ def $instantiable(p, TC, instctxt, typeIR)
 5. Else Phantom#1429
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:55:1-55:33:
-def $lvalue(lvalue'')
+dec $lvalue(lvalue'')
 
 1. If ((lvalue'' has type referenceExpression)), then
 
@@ -25368,7 +25296,7 @@ def $lvalue(lvalue'')
 2. Else Phantom#1431
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:239:1-239:61:
-def $callable_builtin_function(cursor, TC)
+dec $callable_builtin_function(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25385,7 +25313,7 @@ def $callable_builtin_function(cursor, TC)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:266:1-266:53:
-def $callable_function(cursor, TC)
+dec $callable_function(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25402,7 +25330,7 @@ def $callable_function(cursor, TC)
     1. Return (~$is_extern_method_localKind(TC.local.kind) /\ ~$is_extern_abstract_method_localKind(TC.local.kind))
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:310:1-310:60:
-def $callable_extern_function(cursor, TC)
+dec $callable_extern_function(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25419,7 +25347,7 @@ def $callable_extern_function(cursor, TC)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:352:1-352:51:
-def $callable_action(cursor, TC)
+dec $callable_action(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25436,7 +25364,7 @@ def $callable_action(cursor, TC)
     1. Return ($is_action_localKind(TC.local.kind) \/ $is_control_apply_method_localKind(TC.local.kind))
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:383:1-383:59:
-def $callable_builtin_method(cursor, TC)
+dec $callable_builtin_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25453,7 +25381,7 @@ def $callable_builtin_method(cursor, TC)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:410:1-410:58:
-def $callable_extern_method(cursor, TC)
+dec $callable_extern_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25470,7 +25398,7 @@ def $callable_extern_method(cursor, TC)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:452:1-452:67:
-def $callable_extern_abstract_method(cursor, TC)
+dec $callable_extern_abstract_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25487,7 +25415,7 @@ def $callable_extern_abstract_method(cursor, TC)
     1. Return true
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:494:1-494:64:
-def $callable_parser_apply_method(cursor, TC)
+dec $callable_parser_apply_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25504,7 +25432,7 @@ def $callable_parser_apply_method(cursor, TC)
     1. Return $is_parser_state_localKind(TC.local.kind)
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:522:1-522:65:
-def $callable_control_apply_method(cursor, TC)
+dec $callable_control_apply_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25521,7 +25449,7 @@ def $callable_control_apply_method(cursor, TC)
     1. Return $is_control_apply_method_localKind(TC.local.kind)
 
 ;; ../../../../../examples/p4-concrete/5.15.4-typing-routine-call.spectec:550:1-550:63:
-def $callable_table_apply_method(cursor, TC)
+dec $callable_table_apply_method(cursor, TC)
 
 1. Case analysis on cursor
 
@@ -25538,7 +25466,7 @@ def $callable_table_apply_method(cursor, TC)
     1. Return ($is_control_apply_method_localKind(TC.local.kind) \/ $is_table_apply_method_localKind(TC.local.kind))
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:5:1-5:27:
-def $empty_theta
+dec $empty_theta
 
 1. Return $empty_map<tid, typeIR>
 
@@ -25546,7 +25474,7 @@ def $empty_theta
 syntax venv = map<id, value>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:11:1-11:25:
-def $empty_venv
+dec $empty_venv
 
 1. Return $empty_map<id, value>
 
@@ -25557,7 +25485,7 @@ syntax stateDyn = parserBlockStatementIR
 syntax senv = map<nameIR, stateDyn>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:20:1-20:25:
-def $empty_senv
+dec $empty_senv
 
 1. Return $empty_map<nameIR, stateDyn>
 
@@ -25602,7 +25530,7 @@ syntax routineDyn =
 syntax renv = map<rid, routineDyn>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:60:1-60:25:
-def $empty_renv
+dec $empty_renv
 
 1. Return $empty_map<rid, routineDyn>
 
@@ -25618,7 +25546,7 @@ syntax consDyn =
 syntax cenv = map<cid, consDyn>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:77:1-77:25:
-def $empty_cenv
+dec $empty_cenv
 
 1. Return $empty_map<cid, consDyn>
 
@@ -25634,12 +25562,12 @@ syntax objDyn =
 syntax sto = map<oid, objDyn>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:94:1-94:23:
-def $empty_sto
+dec $empty_sto
 
 1. Return $empty_map<oid, objDyn>
 
 ;; ../../../../../examples/p4-concrete/6.01-env-dynamic.spectec:98:1-98:37:
-def $add_sto(sto, oid, objDyn)
+dec $add_sto(sto, oid, objDyn)
 
 1. Return $add_map<oid, objDyn>(sto, oid, objDyn)
 
@@ -25656,17 +25584,17 @@ syntax localInstantiationLayer = {theta theta, venvs venv*}
 syntax contextInst = {path oid, global globalInstantiationLayer, block blockInstantiationLayer, local localInstantiationLayer}
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:43:1-43:45:
-def $empty_block
+dec $empty_block
 
 1. Return {theta $empty_theta, renv $empty_renv, senv $empty_senv, venv $empty_venv}
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:51:1-51:45:
-def $empty_local
+dec $empty_local
 
 1. Return {theta $empty_theta, venvs []}
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:57:1-57:40:
-def $empty_context_inst
+dec $empty_context_inst
 
 1. (Let globalInstantiationLayer be {cenv $empty_cenv, tdenv $empty_tdenv, renv $empty_renv, venv $empty_venv})
 
@@ -25679,12 +25607,12 @@ def $empty_context_inst
 5. Return Ci
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:78:1-78:43:
-def $enter_inst(Ci)
+dec $enter_inst(Ci)
 
 1. Return Ci[local.venvs = $empty_venv :: Ci.local.venvs]
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:82:1-82:42:
-def $exit_inst(Ci)
+dec $exit_inst(Ci)
 
 1. (Let venv* be Ci.local.venvs)
 
@@ -25697,12 +25625,12 @@ def $exit_inst(Ci)
 2. Else Phantom#1432
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:91:1-91:47:
-def $enter_path(Ci, id)
+dec $enter_path(Ci, id)
 
 1. Return Ci[path = Ci.path ++ [id]]
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:99:1-99:58:
-def $copy_context_inst(cursor, Ci)
+dec $copy_context_inst(cursor, Ci)
 
 1. Case analysis on cursor
 
@@ -25719,7 +25647,7 @@ def $copy_context_inst(cursor, Ci)
     1. Return Ci
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:111:1-111:65:
-def $add_value_inst(cursor, Ci, id, value)
+dec $add_value_inst(cursor, Ci, id, value)
 
 1. Case analysis on cursor
 
@@ -25762,7 +25690,7 @@ def $add_value_inst(cursor, Ci, id, value)
     2. Else Phantom#1436
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:112:1-112:68:
-def $add_values_inst(p, Ci, id*, value*)
+dec $add_values_inst(p, Ci, id*, value*)
 
 1. Case analysis on id*
 
@@ -25791,7 +25719,7 @@ def $add_values_inst(p, Ci, id*, value*)
     2. Else Phantom#1438
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:132:1-132:73:
-def $add_typedef_inst(cursor, Ci, tid, typeDefIR)
+dec $add_typedef_inst(cursor, Ci, tid, typeDefIR)
 
 1. If ((cursor matches pattern `GLOBAL`)), then
 
@@ -25802,7 +25730,7 @@ def $add_typedef_inst(cursor, Ci, tid, typeDefIR)
 1. Else Phantom#1439
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:139:1-139:73:
-def $add_state_inst(cursor, Ci, nameIR, stateDyn)
+dec $add_state_inst(cursor, Ci, nameIR, stateDyn)
 
 1. If ((cursor matches pattern `BLOCK`)), then
 
@@ -25817,7 +25745,7 @@ def $add_state_inst(cursor, Ci, nameIR, stateDyn)
 1. Else Phantom#1441
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:147:1-147:70:
-def $add_types_inst(p, Ci, tid*, typeIR*)
+dec $add_types_inst(p, Ci, tid*, typeIR*)
 
 1. Case analysis on tid*
 
@@ -25844,7 +25772,7 @@ def $add_types_inst(p, Ci, tid*, typeIR*)
     2. Else Phantom#1443
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:148:1-148:67:
-def $add_type_inst(cursor, Ci, tid, typeIR)
+dec $add_type_inst(cursor, Ci, tid, typeIR)
 
 1. Case analysis on cursor
 
@@ -25863,7 +25791,7 @@ def $add_type_inst(cursor, Ci, tid, typeIR)
 1. Else Phantom#1444
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:162:1-162:83:
-def $add_routine_overload_inst(cursor, Ci, rid, routineDyn)
+dec $add_routine_overload_inst(cursor, Ci, rid, routineDyn)
 
 1. Case analysis on cursor
 
@@ -25890,7 +25818,7 @@ def $add_routine_overload_inst(cursor, Ci, rid, routineDyn)
 1. Else Phantom#1447
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:171:1-171:87:
-def $add_routine_non_overload_inst(cursor, Ci, rid, routineDyn)
+dec $add_routine_non_overload_inst(cursor, Ci, rid, routineDyn)
 
 1. Case analysis on cursor
 
@@ -25925,7 +25853,7 @@ def $add_routine_non_overload_inst(cursor, Ci, rid, routineDyn)
 1. Else Phantom#1450
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:186:1-186:75:
-def $add_constructor_inst(cursor, Ci, cid, consDyn)
+dec $add_constructor_inst(cursor, Ci, cid, consDyn)
 
 1. If ((cursor matches pattern `GLOBAL`)), then
 
@@ -25936,7 +25864,7 @@ def $add_constructor_inst(cursor, Ci, cid, consDyn)
 1. Else Phantom#1451
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:197:1-197:66:
-def $find_value_inst(p', Ci, prefixedNameIR)
+dec $find_value_inst(p', Ci, prefixedNameIR)
 
 1. If ((prefixedNameIR matches pattern `.%`)), then
 
@@ -26025,7 +25953,7 @@ def $find_value_inst(p', Ci, prefixedNameIR)
     1. Else Phantom#1461
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:219:1-219:73:
-def $find_typedef_inst(_cursor, Ci, prefixedNameIR)
+dec $find_typedef_inst(_cursor, Ci, prefixedNameIR)
 
 1. Case analysis on prefixedNameIR
 
@@ -26042,12 +25970,12 @@ def $find_typedef_inst(_cursor, Ci, prefixedNameIR)
     2. Return $find_map<tid, typeDefIR>(Ci.global.tdenv, nameIR)
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:228:1-228:44:
-def $ids_arguments_IR(argumentIR*)
+dec $ids_arguments_IR(argumentIR*)
 
 1. Return $id_argument_IR(argumentIR)*
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:229:1-229:38:
-def $id_argument_IR(argumentIR)
+dec $id_argument_IR(argumentIR)
 
 1. If ((argumentIR has type typedExpressionIR)), then
 
@@ -26078,7 +26006,7 @@ def $id_argument_IR(argumentIR)
 2. Else Phantom#1463
 
 ;; ../../../../../examples/p4-concrete/6.02-context-instantiation.spectec:237:1-237:103:
-def $find_constructor_overloaded_inst(Ci, prefixedNameIR, argumentIR*)
+dec $find_constructor_overloaded_inst(Ci, prefixedNameIR, argumentIR*)
 
 1. Case analysis on prefixedNameIR
 
@@ -28175,7 +28103,7 @@ relation Program_inst: (declarationIR* ;)
 4. Else Phantom#1525
 
 ;; ../../../../../examples/p4-concrete/6.04-instantiation-constructor.spectec:6:1-6:84:
-def $partition_default_parameters(parameterIR*, id_default*)
+dec $partition_default_parameters(parameterIR*, id_default*)
 
 1. Case analysis on parameterIR*
 
@@ -28202,7 +28130,7 @@ def $partition_default_parameters(parameterIR*, id_default*)
         1. Return (parameterIR_h :: parameterIR_nondefault*, parameterIR_default*)
 
 ;; ../../../../../examples/p4-concrete/6.04-instantiation-constructor.spectec:30:1-30:146:
-def $align_cparams_with_args(constructorParameterIR*, argumentIR*, id_default*)
+dec $align_cparams_with_args(constructorParameterIR*, argumentIR*, id_default*)
 
 1. (Let (constructorParameterIR_nondefault*, constructorParameterIR_default*) be $partition_default_parameters(constructorParameterIR*, id_default*))
 
@@ -28221,7 +28149,7 @@ def $align_cparams_with_args(constructorParameterIR*, argumentIR*, id_default*)
 5. Else Phantom#1526
 
 ;; ../../../../../examples/p4-concrete/6.04-instantiation-constructor.spectec:31:1-31:142:
-def $align_cparams_with_args'(({ (id_map : constructorParameterIR_map)* }), constructorParameterIR*, argumentIR*)
+dec $align_cparams_with_args'(({ (id_map : constructorParameterIR_map)* }), constructorParameterIR*, argumentIR*)
 
 1. Case analysis on constructorParameterIR*
 
@@ -28282,12 +28210,12 @@ def $align_cparams_with_args'(({ (id_map : constructorParameterIR_map)* }), cons
     2. Else Phantom#1532
 
 ;; ../../../../../examples/p4-concrete/6.04-instantiation-constructor.spectec:197:1-197:59:
-def $init_table(tablePropertyListIR)
+dec $init_table(tablePropertyListIR)
 
 1. Return tablePropertyListIR
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:11:1-11:55:
-def $wrap_decl(cursor', declarationIR)
+dec $wrap_decl(cursor', declarationIR)
 
 1. If ((cursor' matches pattern `GLOBAL`)), then
 
@@ -28298,7 +28226,7 @@ def $wrap_decl(cursor', declarationIR)
 2. Return ?(declarationIR)
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:28:1-28:70:
-def $get_init_decls(objectInitializerOptIR')
+dec $get_init_decls(objectInitializerOptIR')
 
 1. (Let objectInitializerIR? be objectInitializerOptIR')
 
@@ -28317,12 +28245,12 @@ def $get_init_decls(objectInitializerOptIR')
 3. Else Phantom#1535
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:34:1-34:36:
-def $merge_venvs(venv, ({ (id : value)* }))
+dec $merge_venvs(venv, ({ (id : value)* }))
 
 1. Return $adds_map<id, value>(venv, id*, value*)
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:40:1-40:47:
-def $merge_renv_with_extern(renv, set<pair<rid, routineDyn>>')
+dec $merge_renv_with_extern(renv, set<pair<rid, routineDyn>>')
 
 1. If ((set<pair<rid, routineDyn>>' = ({ [] }))), then
 
@@ -28359,7 +28287,7 @@ def $merge_renv_with_extern(renv, set<pair<rid, routineDyn>>')
 3. Else Phantom#1539
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:81:1-81:37:
-def $is_extern_object(objDyn')
+dec $is_extern_object(objDyn')
 
 1. If ((objDyn' matches pattern `EXTERN{%%%%}`)), then
 
@@ -28372,12 +28300,12 @@ def $is_extern_object(objDyn')
 2. Return false
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:108:1-108:43:
-def $rid_IR(nameIR, parameterIR*)
+dec $rid_IR(nameIR, parameterIR*)
 
 1. Return (nameIR ( $pid_IR(parameterIR)* ))
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:109:1-109:31:
-def $pid_IR((_annotationList _direction _typeIR nameIR constantInitializerOptIR'))
+dec $pid_IR((_annotationList _direction _typeIR nameIR constantInitializerOptIR'))
 
 1. (Let constantInitializerIR? be constantInitializerOptIR')
 
@@ -28396,12 +28324,12 @@ def $pid_IR((_annotationList _direction _typeIR nameIR constantInitializerOptIR'
 3. Else Phantom#1542
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:116:1-116:54:
-def $cid_IR(nameIR, constructorParameterListIR)
+dec $cid_IR(nameIR, constructorParameterListIR)
 
 1. Return $rid_IR(nameIR, constructorParameterListIR)
 
 ;; ../../../../../examples/p4-concrete/6.08-instantiation-declaration.spectec:182:1-182:90:
-def $split_constructors_IR(methodPrototypeIR*)
+dec $split_constructors_IR(methodPrototypeIR*)
 
 1. Case analysis on methodPrototypeIR*
 

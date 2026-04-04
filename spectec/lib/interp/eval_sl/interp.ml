@@ -1085,9 +1085,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     (ctx, value_output)
   in
   (* User-defined function invocation *)
-  let invoke_func_def () =
-    let tparams, args_input, instrs = Ctx.find_func Local ctx id in
-    check (instrs <> []) id.at "function has no instructions";
+  let invoke_func_def tparams args_input instrs =
     let ctx_local = Ctx.localize ctx in
     check
       (List.length targs = List.length tparams)
@@ -1137,8 +1135,24 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
   let invoke_func' () =
     let invoke () =
       let _, v =
-        if ctx.builtins.is_builtin id then invoke_func_builtin ()
-        else invoke_func_def ()
+        match Ctx.find_func_opt Local ctx id with
+        | Some Ctx.Func.Builtin ->
+            check
+              (ctx.builtins.is_builtin id)
+              id.at
+              (F.asprintf
+                 "builtin $%s is declared in the spec but not implemented" id.it);
+            invoke_func_builtin ()
+        | Some (Ctx.Func.Defined (tparams, args_input, instrs)) ->
+            check (instrs <> []) id.at "function has no instructions";
+            invoke_func_def tparams args_input instrs
+        | None ->
+            if ctx.builtins.is_builtin id then (
+              warn id.at
+                (F.asprintf "builtin $%s is invoked without a spec declaration"
+                   id.it);
+              invoke_func_builtin ())
+            else error id.at (F.asprintf "unknown function %s" id.it)
       in
       Ok v
     in
@@ -1169,8 +1183,9 @@ let load_def (ctx : Ctx.t) (def : def) : Ctx.t =
   | RelD (id, (_, inputs), exps_input, instrs) ->
       let rel = (inputs, exps_input, instrs) in
       Ctx.add_rel Global ctx id rel
+  | BuiltinDecD (id, _, _) -> Ctx.add_func Global ctx id Ctx.Func.Builtin
   | DecD (id, tparams, args_input, instrs) ->
-      let func = (tparams, args_input, instrs) in
+      let func = Ctx.Func.Defined (tparams, args_input, instrs) in
       Ctx.add_func Global ctx id func
 
 let load_spec (ctx : Ctx.t) (spec : spec) : Ctx.t =
