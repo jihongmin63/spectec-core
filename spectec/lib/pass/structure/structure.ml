@@ -1,4 +1,5 @@
 open Common.Source
+open Common.Domain
 open Lang
 open Lang.Il
 module HEnv = Envs.HEnv
@@ -77,6 +78,8 @@ let rec struct_def (henv : HEnv.t) (tdenv : TDEnv.t) (def : def) : Sl.def =
   | TypD (id, tparams, deftyp) -> Sl.TypD (id, tparams, deftyp) $ at
   | RelD (id, nottyp, inputs, rules) ->
       struct_rel_def henv tdenv at id nottyp inputs rules
+  | BuiltinDecD (id, tparams, params, _typ, _hints) ->
+      struct_builtin_dec_def at id tparams params
   | DecD (id, tparams, _params, _typ, clauses) ->
       struct_dec_def henv tdenv at id tparams clauses
 
@@ -90,6 +93,30 @@ and struct_rel_def (henv : HEnv.t) (tdenv : TDEnv.t) (at : region) (id_rel : id)
   let instrs = Optimize.optimize henv tdenv instrs in
   let instrs = Instrument.instrument tdenv instrs in
   Sl.RelD (id_rel, (mixop, inputs), exps_input, instrs) $ at
+
+(* Structuring builtin declaration definitions *)
+
+and struct_builtin_dec_def (at : region) (id_dec : id) (tparams : tparam list)
+    (params : param list) : Sl.def =
+  let args_input, _ =
+    List.fold_left
+      (fun (args_input, frees) param ->
+        let arg_input, frees =
+          match param.it with
+          | ExpP typ ->
+              let exp_input, frees =
+                Elaborate.Fresh.fresh_exp_from_typ frees typ
+              in
+              let arg_input = ExpA exp_input $ param.at in
+              (arg_input, frees)
+          | DefP (id_def, _, _, _) ->
+              let arg_input = DefA id_def $ param.at in
+              (arg_input, frees)
+        in
+        (args_input @ [ arg_input ], frees))
+      ([], IdSet.empty) params
+  in
+  Sl.BuiltinDecD (id_dec, tparams, args_input) $ at
 
 (* Structuring declaration definitions *)
 

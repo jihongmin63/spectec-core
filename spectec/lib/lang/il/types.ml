@@ -199,6 +199,8 @@ and def' =
   | RelD of id * nottyp * int list * rule list
   (* `dec` id `<` list(tparam, `,`) `>` list(param, `,`) `:` typ clause* *)
   | DecD of id * tparam list * param list * typ * clause list
+  (* `builtin` `dec` id `<` list(tparam, `,`) `>` list(param, `,`) `:` typ hint* *)
+  | BuiltinDecD of id * tparam list * param list * typ * hint list
 
 (* Spec *)
 

@@ -17,6 +17,9 @@ let error_dup (at : region) (kind : string) (id : string) =
 
 (* Environments *)
 
+(* Function *)
+module Func = Func
+
 (* Value environment *)
 module VEnv = VEnv
 

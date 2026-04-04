@@ -280,6 +280,7 @@ and token = parse
   | "relation" { RELATION }
   | "rule" { RULE }
   | "var" { VAR }
+  | "builtin" { BUILTIN }
   | "dec" { DEC }
   | "def" { DEF }
   | "if" { IF }

@@ -17,6 +17,7 @@ let error_dup (at : region) (kind : string) (id : string) =
 
 (* Environment map types *)
 
+module Func = Func
 module TDEnv = TDEnv
 module VEnv = VEnv
 

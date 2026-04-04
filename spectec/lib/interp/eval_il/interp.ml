@@ -953,10 +953,7 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     invoke_func_builtin' ()
   in
   (* User-defined function invocation *)
-  let invoke_func_def () =
-    (* Find the function *)
-    let _, (tparams, clauses) = Ctx.find_func ctx id in
-    check_warn (clauses <> []) id.at "function has no clauses";
+  let invoke_func_def tparams clauses =
     (* Evaluate type arguments *)
     let targs =
       match targs with
@@ -1027,14 +1024,20 @@ and invoke_func (ctx : Ctx.t) (id : id) (targs : targ list) (args : arg list) :
     let invoke_func' () =
       let* _, value_output =
         if ctx.builtins.is_builtin id then invoke_func_builtin ()
-        else invoke_func_def ()
+        else
+          match Ctx.find_func_opt ctx id with
+          | Some (_, Ctx.Func.Builtin) -> invoke_func_builtin ()
+          | Some (_, Ctx.Func.Defined (tparams, clauses)) ->
+              check_warn (clauses <> []) id.at "function has no clauses";
+              invoke_func_def tparams clauses
+          | _ -> fail id.at (F.asprintf "unknown function %s" id.it)
       in
       Ok value_output
     in
     let is_anonymous fid =
-      assert (Ctx.bound_func ctx fid);
-      let cursor, _ = Ctx.find_func ctx fid in
-      cursor = Ctx.Local
+      match Ctx.find_func_opt ctx fid with
+      | Some (cursor, _) -> cursor = Ctx.Local
+      | None -> false
     in
     let is_high_order values =
       List.exists
@@ -1068,8 +1071,9 @@ let load_def (l : Ctx.global_loader) (def : def) : unit =
   | RelD (id, _, inputs, rules) ->
       let rel = (inputs, rules) in
       Ctx.load_rel l id rel
+  | BuiltinDecD (id, _, _, _, _) -> Ctx.load_func l id Ctx.Func.Builtin
   | DecD (id, tparams, _, _, clauses) ->
-      let func = (tparams, clauses) in
+      let func = Ctx.Func.Defined (tparams, clauses) in
       Ctx.load_func l id func
 
 let load_spec (filename : string) (builtins : Builtins.t) (cache : Cache.t)

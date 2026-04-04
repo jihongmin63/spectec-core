@@ -98,7 +98,7 @@ module M : Instrumentation_core.Handler.S = struct
             match def.it with
             | Sl.RelD (_, _, _, instrs) -> List.iter count_instr instrs
             | Sl.DecD (_, _, _, instrs) -> List.iter count_instr instrs
-            | Sl.TypD _ -> ())
+            | _ -> ())
           sl_spec
 
   let on_test_start = Instrumentation_core.Noop.on_test_start
@@ -146,7 +146,7 @@ module M : Instrumentation_core.Handler.S = struct
                   if not (Hashtbl.mem State.instrs_hit (instr_key instr)) then
                     uncovered := (id.it, instr_header instr) :: !uncovered)
                 instrs
-          | Sl.TypD _ -> ())
+          | _ -> ())
         !State.sl_spec;
       if !uncovered <> [] then (
         Format.fprintf !fmt "\nUncovered SL instructions:\n";
@@ -191,7 +191,7 @@ module M : Instrumentation_core.Handler.S = struct
         | Sl.DecD (id, _, _, instrs) ->
             Format.fprintf !fmt "\ndef $%s:\n" id.it;
             List.iter (print_instr "  ") instrs
-        | Sl.TypD _ -> ())
+        | _ -> ())
       !State.sl_spec
 
   (* --- Finish: print report --- *)

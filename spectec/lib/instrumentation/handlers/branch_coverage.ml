@@ -76,7 +76,7 @@ module M : Instrumentation_core.Handler.S = struct
                   (fun idx _ ->
                     State.all_clauses := (id.it, idx) :: !State.all_clauses)
                   clauses
-            | Il.TypD _ -> ())
+            | _ -> ())
           il_spec
     | Instrumentation_core.Handler.SlSpec sl_spec ->
         List.iter
@@ -86,7 +86,7 @@ module M : Instrumentation_core.Handler.S = struct
                 State.all_rules := (id.it, "0") :: !State.all_rules
             | Sl.DecD (id, _, _, _) ->
                 State.all_clauses := (id.it, 0) :: !State.all_clauses
-            | Sl.TypD _ -> ())
+            | _ -> ())
           sl_spec
 
   let on_test_start = Instrumentation_core.Noop.on_test_start
