@@ -514,7 +514,16 @@ and eval_mem_exp (note : typ') (ctx : Ctx.t) (exp_e : exp) (exp_s : exp) :
 
 and eval_len_exp (note : typ') (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   let ctx, value = eval_exp ctx exp in
-  let len = value |> Value.get_list |> List.length |> Bigint.of_int in
+  let len =
+    match value.it with
+    | TextV s -> s |> String.length |> Bigint.of_int
+    | ListV values -> values |> List.length |> Bigint.of_int
+    | _ ->
+        error exp.at
+          (Format.asprintf
+             "length operation expects either a text or a list, but got %s"
+             (Il.Print.string_of_value ~short:true value))
+  in
   let value_res = Value.Make.nat note len in
   (ctx, value_res)
 
@@ -537,9 +546,27 @@ and eval_idx_exp (_note : typ') (ctx : Ctx.t) (exp_b : exp) (exp_i : exp) :
     Ctx.t * value =
   let ctx, value_b = eval_exp ctx exp_b in
   let ctx, value_i = eval_exp ctx exp_i in
-  let values = Value.get_list value_b in
   let idx = value_i |> Value.get_num |> Num.to_int |> Bigint.to_int_exn in
-  let value_res = List.nth values idx in
+  let value_res =
+    match value_b.it with
+    | TextV s when idx < 0 || idx >= String.length s ->
+        error exp_i.at
+          (Format.asprintf "index %d out of bounds [0, %d)" idx
+             (String.length s))
+    | TextV s ->
+        let s = String.get s idx |> String.make 1 in
+        Value.Make.text Il.TextT s
+    | ListV values when idx < 0 || idx >= List.length values ->
+        error exp_i.at
+          (Format.asprintf "index %d out of bounds [0, %d)" idx
+             (List.length values))
+    | ListV values -> List.nth values idx
+    | _ ->
+        error exp_b.at
+          (Format.asprintf
+             "indexing expects either a text or a list, but got %s"
+             (Il.Print.string_of_value ~short:true value_b))
+  in
   (ctx, value_res)
 
 (* Slice expression evaluation *)
