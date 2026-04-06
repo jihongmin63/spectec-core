@@ -58,6 +58,13 @@ val hint : source:string -> region -> string -> t
 val trace_of_failtrace : Attempt.failtrace -> trace_node
 val traces_of_failtraces : Attempt.failtrace list -> trace_node list
 
+(** {1 Plain text rendering} *)
+
+(** Plain text rendering matching the legacy format:
+    [<region>Warning:<source>:<message>] for warnings,
+    [<region>Error: <message>] for errors. *)
+val to_string : t -> string
+
 (** {1 Collection} *)
 
 module Bag : sig

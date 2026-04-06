@@ -12,12 +12,19 @@ let ( let* ) = Result.bind
 
 (* Shared helpers *)
 
-let run_with_error_handling ~on_ok f =
-  match f () with
+let print_diagnostics bag =
+  Spectec.Diagnostic.Bag.to_list bag
+  |> List.iter (fun d ->
+         Printf.eprintf "%s\n%!" (Spectec.Diagnostic.to_string d))
+
+let with_error_handling ~on_ok f =
+  let result, bag = Spectec.with_diagnostics f in
+  print_diagnostics bag;
+  match result with
   | Ok v -> on_ok v
   | Error e -> Format.printf "Error:\n  %s\n" (Spectec.Error.string_of_error e)
 
-let run_unit f = run_with_error_handling ~on_ok:ignore f
+let with_error_handling_unit f = with_error_handling ~on_ok:ignore f
 
 let load_spec ~spec_dir filenames_spec =
   let filenames =
@@ -46,7 +53,7 @@ let make (type i) ~summary (module T : CLI_TASK with type input = i) =
   and input = T.cli_flags
   and config = Cli_args.config_flags in
   fun () ->
-    run_unit @@ fun () ->
+    with_error_handling_unit @@ fun () ->
     let open Spectec in
     let* () = validate_config config ~sl_mode in
     let* _files, spec_il =
@@ -78,7 +85,7 @@ let make_parse (type i) ~summary (module T : CLI_TASK with type input = i) =
   and input = T.cli_flags
   and roundtrip = flag "-r" no_arg ~doc:" roundtrip parse/unparse" in
   fun () ->
-    run_with_error_handling ~on_ok:(Format.printf "%s\n") @@ fun () ->
+    with_error_handling ~on_ok:(Format.printf "%s\n") @@ fun () ->
     let open Spectec in
     let* _files, spec_il =
       load_spec ~spec_dir:T.Target.spec_dir filenames_spec
@@ -131,7 +138,7 @@ module Make (Tgt : Spectec.Target.S) = struct
         ~doc:"N save checkpoint every N tests (default: 100)"
     and config = Cli_args.config_flags in
     fun () ->
-      run_unit @@ fun () ->
+      with_error_handling_unit @@ fun () ->
       let open Spectec in
       let* () = validate_config config ~sl_mode in
       let* spec_files, spec_il = load_spec ~spec_dir:Tgt.spec_dir [] in
@@ -165,7 +172,7 @@ module Make (Tgt : Spectec.Target.S) = struct
       let%map checkpoint_file = anon ("checkpoint-file" %: string)
       and config = Cli_args.config_flags in
       fun () ->
-        run_unit @@ fun () ->
+        with_error_handling_unit @@ fun () ->
         let* spec_files, spec_il = load_spec ~spec_dir:Tgt.spec_dir [] in
         let* checkpoint =
           Suite.Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
@@ -186,7 +193,7 @@ module Make (Tgt : Spectec.Target.S) = struct
           ~doc:"FILE output file for merged checkpoint"
       in
       fun () ->
-        run_unit @@ fun () ->
+        with_error_handling_unit @@ fun () ->
         let spec_files = Spectec.collect_spec_files Tgt.spec_dir in
         let* checkpoint1 =
           Suite.Checkpoint.verify_and_load ~file:checkpoint_file1 ~spec_files

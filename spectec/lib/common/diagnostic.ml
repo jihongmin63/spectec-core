@@ -86,6 +86,16 @@ let rec trace_of_failtrace (Attempt.Failtrace (region, message, children)) =
 
 let traces_of_failtraces = List.map trace_of_failtrace
 
+(* Plain text rendering *)
+
+let to_string d =
+  let prefix = if d.region = no_region then "" else string_of_region d.region in
+  match d.severity with
+  | Warning -> prefix ^ "Warning:" ^ d.source ^ ":" ^ d.message
+  | Error -> prefix ^ "Error: " ^ d.message
+  | Info -> prefix ^ "Info: " ^ d.message
+  | Hint -> prefix ^ "Hint: " ^ d.message
+
 (* Collection *)
 
 module Bag = struct
