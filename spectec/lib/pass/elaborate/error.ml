@@ -32,3 +32,22 @@ let single_error_to_string ((at, failtraces) : single_error) : string =
 let to_string (errors : error) : string =
   let sorted = List.sort (fun (l, _) (r, _) -> compare_region l r) errors in
   String.concat "\n" (List.map single_error_to_string sorted)
+
+(* Diagnostic conversion *)
+
+let single_to_diagnostic ((at, failtraces) : single_error) : Common.Diagnostic.t
+    =
+  let message, trace =
+    match failtraces with
+    | [] -> ("elaboration failed", [])
+    | [ Failtrace (_, msg, children) ] ->
+        (msg, Common.Diagnostic.traces_of_failtraces children)
+    | _ ->
+        ("elaboration failed", Common.Diagnostic.traces_of_failtraces failtraces)
+  in
+  Common.Diagnostic.error ~source:"elab" ~trace at message
+
+let to_diagnostics (errors : error) : Common.Diagnostic.Bag.t =
+  List.fold_left
+    (fun bag se -> Common.Diagnostic.Bag.add bag (single_to_diagnostic se))
+    Common.Diagnostic.Bag.empty errors

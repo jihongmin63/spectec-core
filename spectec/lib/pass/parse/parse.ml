@@ -35,3 +35,4 @@ type error = Error.error
 type 'a result = 'a Error.result
 
 let error_to_string = Error.to_string
+let error_to_diagnostic = Error.to_diagnostic
