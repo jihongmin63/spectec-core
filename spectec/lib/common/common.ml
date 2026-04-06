@@ -4,3 +4,4 @@ module InternalError = Internal_error
 module Error = Error
 module Print = Print
 module Attempt = Attempt
+module Diagnostic = Diagnostic
