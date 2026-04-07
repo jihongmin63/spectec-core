@@ -67,10 +67,11 @@ let generate_comamnd =
         match Generate.find_relation_rule spec_il rule with
         | Error msg -> Format.printf "Rule lookup error: %s\n" msg
         | Ok _selected_rule -> (
-            let refactored_rule = Generate.refactor_rule _selected_rule in
-            let _ = refactored_rule in
             match parse_result with
-            | Ok value -> Format.printf "%s\n" (Lang.Il.Print.string_of_value value)
+            | Ok value -> 
+              let relation, binding_prems, condition_prems = Generate.refactor_rule spec_il _selected_rule in
+              let _ = relation, binding_prems, condition_prems in
+              Format.printf "%s\n" (Lang.Il.Print.string_of_value value)
             | Error msg -> Format.printf "Parse error: %s\n" msg))
     | Error e -> Format.printf "%s\n" (Error.string_of_error e)
 
