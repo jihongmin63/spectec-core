@@ -5,7 +5,8 @@ module Excludes = Set.Make (String)
 
 type t = Excludes.t
 
-let normalize line = "../../../../../tests/interp/p4-tests/tests/" ^ line
+let normalize line =
+  "../../../../../spectec/testdata/interp/p4-tests/tests/" ^ line
 
 let from_file filename =
   In_channel.read_lines filename
