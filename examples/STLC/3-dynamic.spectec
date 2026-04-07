@@ -13,7 +13,7 @@ relation Dynamic:
 
 rule Dynamic/variable:
     E |- VAR id : val
-    -- if val = $find_map<id, val>(E, id)+
+    -- if val = $find_map<id, val>(E, id)
 
 rule Dynamic/fun:
     E |- FUN id type term : FUN id term E
