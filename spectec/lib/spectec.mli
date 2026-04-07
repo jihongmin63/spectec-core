@@ -7,6 +7,8 @@ module Error = Error
 module Task = Task
 module Target = Target
 module Diagnostic = Common.Diagnostic
+module Diagnostic_render = Common.Diagnostic_render
+module Ansi = Common.Ansi
 
 type 'a result = ('a, Error.t) Stdlib.result
 

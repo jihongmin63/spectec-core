@@ -5,3 +5,6 @@ module Error = Error
 module Print = Print
 module Attempt = Attempt
 module Diagnostic = Diagnostic
+module Ansi = Ansi
+module Source_cache = Source_cache
+module Diagnostic_render = Diagnostic_render

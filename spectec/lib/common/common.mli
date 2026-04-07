@@ -5,3 +5,6 @@ module Error : module type of Error
 module Print : module type of Print
 module Attempt : module type of Attempt
 module Diagnostic : module type of Diagnostic
+module Ansi : module type of Ansi
+module Source_cache : module type of Source_cache
+module Diagnostic_render : module type of Diagnostic_render

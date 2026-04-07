@@ -107,6 +107,8 @@ module Bag = struct
   let empty = []
   let singleton d = [ d ]
   let add ds d = d :: ds
+
+  (* [merge older newer] — keeps insertion order; [to_sorted_list] re-sorts. *)
   let merge ds1 ds2 = ds2 @ ds1
   let of_list ds = List.rev ds
   let to_list ds = List.rev ds
