@@ -11,3 +11,7 @@ let elaborate spec_el =
   Elaborate.elab_spec spec_el |> Result.map_error (fun e -> ElaborateError e)
 
 let structure spec = Structure.struct_spec spec
+
+let error_to_diagnostics = function
+  | ParseError e -> Diagnostic.Bag.singleton (Parse.error_to_diagnostic e)
+  | ElaborateError e -> Elaborate.error_to_diagnostics e

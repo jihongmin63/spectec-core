@@ -7,6 +7,7 @@ end
 type error = region * string
 
 val error_to_string : error -> string
+val error_to_diagnostic : error -> Diagnostic.t
 
 val run :
   (module Target.S) ->

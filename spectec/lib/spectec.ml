@@ -7,9 +7,23 @@ module Error = Error
 module Task = Task
 module Target = Target
 
+module Diagnostic = struct
+  include Diagnostic
+  module Render = Render
+  module Ansi = Ansi
+end
+
 type 'a result = ('a, Error.t) Stdlib.result
 
 let ( let* ) = Result.bind
+
+(* --- Diagnostics --- *)
+
+let with_diagnostics f =
+  Diagnostic.Sink.reset_global ();
+  let result = f () in
+  let bag = Diagnostic.Sink.drain (Diagnostic.Sink.global ()) in
+  (result, bag)
 
 (* --- Pipeline transformations --- *)
 

@@ -26,6 +26,23 @@ let handler_param (module D : Descriptor.S) :
   in
   map combined ~f:D.parse
 
+(** [--color] flag selection. [Auto] enables color on a TTY (and respects the
+    [NO_COLOR] environment variable); [Always] / [Never] force the choice. *)
+type color = Auto | Always | Never
+
+let color_arg : color Core.Command.Arg_type.t =
+  Core.Command.Arg_type.create (function
+    | "auto" -> Auto
+    | "always" -> Always
+    | "never" -> Never
+    | s -> failwith ("expected auto|always|never, got: " ^ s))
+
+let color_flag : color Core.Command.Param.t =
+  let open Core.Command.Param in
+  flag "--color"
+    (optional_with_default Auto color_arg)
+    ~doc:"WHEN colorize diagnostics: auto|always|never (default: auto)"
+
 (** Shared instrumentation config CLI flags — one set of flags per descriptor *)
 let config_flags : Config.t Core.Command.Param.t =
   let open Core.Command.Param in

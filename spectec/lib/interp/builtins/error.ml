@@ -25,3 +25,17 @@ let string_of_error = function
   | MissingImplError (at, msg) ->
       Printf.sprintf "%sMissing builtin implementation: %s"
         (string_of_region at) msg
+
+let region_and_message = function
+  | TypeError (at, expected, got) ->
+      ( at,
+        Printf.sprintf "Type error: expected %s, got %s" expected
+          (Value.to_string got) )
+  | ArityError (at, msg) -> (at, Printf.sprintf "Arity error: %s" msg)
+  | RuntimeError (at, msg) -> (at, Printf.sprintf "Runtime error: %s" msg)
+  | MissingImplError (at, msg) ->
+      (at, Printf.sprintf "Missing builtin implementation: %s" msg)
+
+let to_diagnostic (err : t) : Diagnostic.t =
+  let at, message = region_and_message err in
+  Diagnostic.error ~source:"builtins" at message

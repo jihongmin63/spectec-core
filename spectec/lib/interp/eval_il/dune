@@ -5,6 +5,7 @@
  (public_name spectec.interp.eval_il)
  (libraries
   spectec.common
+  spectec.diagnostic
   spectec.lang
   spectec.envs
   spectec.instrumentation

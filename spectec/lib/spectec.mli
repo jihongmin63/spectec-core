@@ -7,7 +7,30 @@ module Error = Error
 module Task = Task
 module Target = Target
 
+module Diagnostic : sig
+  include module type of struct
+    include Diagnostic
+  end
+
+  module Render = Render
+  module Ansi = Ansi
+end
+
 type 'a result = ('a, Error.t) Stdlib.result
+
+(** {1 Diagnostics}
+
+    Warnings emitted during pipeline passes (parse, elaborate, interpret) are
+    collected automatically. Use {!with_diagnostics} as the single entry point
+    for running pipeline operations that may emit warnings — it handles the
+    collection lifecycle so callers cannot forget to reset or drain. *)
+
+(** [with_diagnostics f] runs [f] with a fresh diagnostic context and returns
+    its result paired with all diagnostics emitted during the call. The sink is
+    reset on entry, so sequential calls are independent. If [f] raises, the
+    exception propagates and diagnostics emitted so far are discarded (the next
+    call to [with_diagnostics] resets the sink regardless). *)
+val with_diagnostics : (unit -> 'a) -> 'a * Diagnostic.Bag.t
 
 (** {1 Pipeline transformations} *)
 

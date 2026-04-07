@@ -1,4 +1,3 @@
-open Common.Error
 open Common.Source
 
 exception InterpError of region * string
@@ -6,7 +5,7 @@ exception InterpError of region * string
 (* Error *)
 
 let error (at : region) (msg : string) = raise (InterpError (at, msg))
-let warn (at : region) (msg : string) = warn at "sl-interp" msg
+let warn (at : region) (msg : string) = Diagnostic.warn at "sl-interp" msg
 
 (* Builtin errors *)
 

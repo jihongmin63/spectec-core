@@ -3,7 +3,7 @@
 (library
  (name parse)
  (public_name spectec.pipeline.frontend)
- (libraries spectec.common spectec.lang)
+ (libraries spectec.common spectec.diagnostic spectec.lang)
  (modules error lexer parser parse))
 
 (ocamllex
