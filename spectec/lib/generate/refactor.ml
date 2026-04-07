@@ -42,29 +42,7 @@ let find_relation_rule spec selector =
                    rule_name relation_name))
       | _ -> assert false)
 
-
-
-
-
-
-let refactor_rule spec selected_rule = 
-  let relation_has_output : string -> bool = fun id -> 
-    match
-      List.find_opt
-      (fun def ->
-        match def.it with
-        | Il.RelD (relation_id, _, _, _) -> relation_id.it = id
-        | _ -> false)
-      spec
-    with
-    | None -> false
-    | Some relation -> (
-        match relation.it with
-        | RelD (_, nottyp, inputs, _) -> 
-          let _, typs = nottyp.it in (List.length typs <> List.length inputs)
-        | _ -> false
-      )
-  in
+let refactor_rule selected_rule = 
   let rec binding_prem prem =
     let rec binding_exp exp =
       match exp.it with
@@ -73,14 +51,13 @@ let refactor_rule spec selected_rule =
       | _ -> false
     in
     match prem.it with
-    | Il.RulePr (id, _) -> relation_has_output id.it
+    | Il.RulePr _ -> true
     | IfPr exp -> binding_exp exp
     | ElsePr -> false
     | LetPr _ -> true
     | IterPr (prem_iter, _) -> binding_prem prem_iter
     | DebugPr _ -> false
   in
-  let _ = spec in
   let rule' = selected_rule.rule.it in
   let _, _, prems = rule' in
   let rec refactor_prems prems binding_prems condition_prems =
