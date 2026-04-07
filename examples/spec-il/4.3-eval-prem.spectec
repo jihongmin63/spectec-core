@@ -3,8 +3,6 @@ rule Eval_prem/rel:
   -- Eval_exps: C |- exp* : OK val*
   -- Call_rel: C |- id val* : OK val_output*
 
-rulegroup Eval_prem/ifpr {
-
   rule Eval_prem/fail:
     C |- IF exp : FAIL
     -- Eval_exp: C |- exp : FAIL
@@ -17,7 +15,7 @@ rulegroup Eval_prem/ifpr {
     C |- IF exp : FAIL
     -- Eval_exp: C |- exp : OK (BOOL false)
 
-}
+
 
 rule Eval_prem/ifholdpr:
   C |- IFHOLD id `: exp* : OK C
@@ -60,7 +58,6 @@ dec $eval_prem_list_aux(ctx, vari*, val*) : ctx
 def $eval_prem_list_aux(ctx, eps, val*) = ctx
 def $eval_prem_list_aux(ctx, (id iter*) :: vari*, val*) = $add_val(ctx, id (iter* ++ [ STAR ]), LIST val*)
 
-rulegroup Eval_prem/iter {
 
   rule Eval_prem/opt_none:
     C |- ITER prem iterprem : OK $fold<ctx, vari>(C, vari_bind*, def $eval_prem_opt_none_aux)
@@ -88,7 +85,7 @@ rulegroup Eval_prem/iter {
     -- if OK (ctx val_trans**) = $eval_prem_list_list_aux(C eps, ctx_sub*, vari_bind*, prem)
     -- if val** = $transposeval(val_trans**, eps)
     -- (if val_final = LIST val*)*
-}
+
 
 rule Eval_prem/fail:
   C |- prem : FAIL

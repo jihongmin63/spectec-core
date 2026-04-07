@@ -83,7 +83,7 @@ syntax unop = boolunop | numunop
 syntax binop = boolbinop | numbinop
 syntax cmpop = polycmpop | numcmpop
 
-extern syntax json
+syntax json
 syntax val =
   | BOOL bool
   | num

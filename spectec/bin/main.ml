@@ -70,7 +70,10 @@ let generate_comamnd =
             match parse_result with
             | Ok value -> 
               let relation, binding_prems, condition_prems = Generate.refactor_rule spec_il _selected_rule in
-              let _ = relation, binding_prems, condition_prems in
+              let _ = Format.printf "%s\n" (Lang.Il.Print.string_of_prems binding_prems) in
+              let _ = Format.printf "%s\n" (Lang.Il.Print.string_of_prems condition_prems) in
+              let input_structures = Generate.find_structure spec_il relation binding_prems in
+              let _ = condition_prems, input_structures in
               Format.printf "%s\n" (Lang.Il.Print.string_of_value value)
             | Error msg -> Format.printf "Parse error: %s\n" msg))
     | Error e -> Format.printf "%s\n" (Error.string_of_error e)

@@ -1,6 +1,5 @@
 ;; Call_func
 
-rulegroup Call_func/ok {
 
     rule Call_func/defined:
       C |- id targ* arg* : $invoke_defined_func(C, id, tparam*, clause*, elsclause?, targ_new*, val_input*)
@@ -13,7 +12,6 @@ rulegroup Call_func/ok {
     ;; rule Call_func/builtin: $invoke_builtin_func(id, targ*, val*)
     ;; rule Call_func/table: $invoke_table_func(id, targ*, val*)
 
-}
 
 
 rule Call_func/fail:
@@ -26,7 +24,6 @@ rule Call_rel/ext:
   C |- id val* : $invoke_extern_rel(id, val*)
   -- if EXT = $find_rel(C, id)
 
-rulegroup Call_rel/defined {
     
     rule Call_rel/defined_eps:
       C |- id val* : $do_backtrack_rulepath(C, id_els, rulmatch_els, rulpath_els, val*)
@@ -43,7 +40,7 @@ rulegroup Call_rel/defined {
       -- if resvals* = $concat_<resvals>($do_backtrack_rulepath(C, id, rulmatch, rulpath, val*)**)
       -- if eps =/= $search_resvals(resvals*)
       -- if val_output* = $search_resvals(resvals*)
-}
+
 
 rule Call_rel/fail:
   C |- id val* : FAIL
