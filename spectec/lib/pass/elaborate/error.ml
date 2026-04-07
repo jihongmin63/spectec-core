@@ -1,4 +1,3 @@
-open Common.Error
 open Common.Source
 open Common.Attempt
 
@@ -16,7 +15,7 @@ let error_with_traces (failtraces : failtrace list) =
 let error (at : region) (msg : string) =
   raise (ElabError (at, [ Failtrace (at, msg, []) ]))
 
-let warn (at : region) (msg : string) = warn at "elab" msg
+let warn (at : region) (msg : string) = Diagnostic.warn at "elab" msg
 
 (* Checks *)
 
@@ -35,19 +34,17 @@ let to_string (errors : error) : string =
 
 (* Diagnostic conversion *)
 
-let single_to_diagnostic ((at, failtraces) : single_error) : Common.Diagnostic.t
-    =
+let single_to_diagnostic ((at, failtraces) : single_error) : Diagnostic.t =
   let message, trace =
     match failtraces with
     | [] -> ("elaboration failed", [])
     | [ Failtrace (_, msg, children) ] ->
-        (msg, Common.Diagnostic.traces_of_failtraces children)
-    | _ ->
-        ("elaboration failed", Common.Diagnostic.traces_of_failtraces failtraces)
+        (msg, Diagnostic.traces_of_failtraces children)
+    | _ -> ("elaboration failed", Diagnostic.traces_of_failtraces failtraces)
   in
-  Common.Diagnostic.error ~source:"elab" ~trace at message
+  Diagnostic.error ~source:"elab" ~trace at message
 
-let to_diagnostics (errors : error) : Common.Diagnostic.Bag.t =
+let to_diagnostics (errors : error) : Diagnostic.Bag.t =
   List.fold_left
-    (fun bag se -> Common.Diagnostic.Bag.add bag (single_to_diagnostic se))
-    Common.Diagnostic.Bag.empty errors
+    (fun bag se -> Diagnostic.Bag.add bag (single_to_diagnostic se))
+    Diagnostic.Bag.empty errors

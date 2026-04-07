@@ -1,4 +1,4 @@
-open Source
+open Common.Source
 
 (* Core types *)
 
@@ -81,7 +81,8 @@ let hint ~source region message =
 
 (* Bridge from Attempt.failtrace *)
 
-let rec trace_of_failtrace (Attempt.Failtrace (region, message, children)) =
+let rec trace_of_failtrace
+    (Common.Attempt.Failtrace (region, message, children)) =
   { region; message; children = List.map trace_of_failtrace children }
 
 let traces_of_failtraces = List.map trace_of_failtrace
@@ -145,3 +146,9 @@ module Sink = struct
   let global () = !global_ref
   let reset_global () = global_ref := create ()
 end
+
+(* Convenience: emit a warning into the global sink. Used by passes that just
+   want to record a warning without threading a sink through every call. *)
+
+let warn (at : region) (source : string) (msg : string) =
+  Sink.emit (Sink.global ()) (warning ~source at msg)

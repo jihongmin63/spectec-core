@@ -6,9 +6,15 @@
 module Error = Error
 module Task = Task
 module Target = Target
-module Diagnostic = Common.Diagnostic
-module Diagnostic_render = Common.Diagnostic_render
-module Ansi = Common.Ansi
+
+module Diagnostic : sig
+  include module type of struct
+    include Diagnostic
+  end
+
+  module Render = Render
+  module Ansi = Ansi
+end
 
 type 'a result = ('a, Error.t) Stdlib.result
 

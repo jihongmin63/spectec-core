@@ -4,7 +4,7 @@
     passes (parse, elaborate, interpret). Both the CLI and a future LSP server
     render diagnostics from this representation. *)
 
-open Source
+open Common.Source
 
 (** {1 Core types} *)
 
@@ -55,8 +55,8 @@ val hint : source:string -> region -> string -> t
 
 (** {1 Bridge from [Attempt.failtrace]} *)
 
-val trace_of_failtrace : Attempt.failtrace -> trace_node
-val traces_of_failtraces : Attempt.failtrace list -> trace_node list
+val trace_of_failtrace : Common.Attempt.failtrace -> trace_node
+val traces_of_failtraces : Common.Attempt.failtrace list -> trace_node list
 
 (** {1 Plain text rendering} *)
 
@@ -110,3 +110,10 @@ module Sink : sig
 
   val reset_global : unit -> unit
 end
+
+(** {1 Convenience}
+
+    [warn at source msg] is shorthand for emitting a warning into the global
+    sink — used by passes that want to record a warning without threading a sink
+    through every call. *)
+val warn : region -> string -> string -> unit

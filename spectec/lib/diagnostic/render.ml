@@ -5,7 +5,7 @@
       Each section is built by its own small function returning [string option],
       so adding or reordering a section is a one-line change. *)
 
-open Source
+open Common.Source
 
 (* --- Severity styling --- *)
 

@@ -14,13 +14,13 @@ let ( let* ) = Result.bind
 
 (* Resolve [--color] into an [Ansi.t]. [Auto] honors the [NO_COLOR] env
    variable convention and falls back on a stderr TTY check. *)
-let resolve_ansi : Cli_args.color -> Spectec.Ansi.t = function
-  | Always -> Spectec.Ansi.color
-  | Never -> Spectec.Ansi.plain
+let resolve_ansi : Cli_args.color -> Spectec.Diagnostic.Ansi.t = function
+  | Always -> Spectec.Diagnostic.Ansi.color
+  | Never -> Spectec.Diagnostic.Ansi.plain
   | Auto ->
       if Sys.getenv_opt "NO_COLOR" = None && Unix.isatty Unix.stderr then
-        Spectec.Ansi.color
-      else Spectec.Ansi.plain
+        Spectec.Diagnostic.Ansi.color
+      else Spectec.Diagnostic.Ansi.plain
 
 (* Run [f], render any diagnostics it produced (plus any error returned) to
    stderr, and pass the success value to [on_ok]. On [Error _], exits with
@@ -37,7 +37,7 @@ let with_error_handling ~color ~on_ok f =
   in
   if not (Spectec.Diagnostic.Bag.is_empty combined) then
     Printf.eprintf "%s\n%!"
-      (Spectec.Diagnostic_render.render_bag ~ansi combined);
+      (Spectec.Diagnostic.Render.render_bag ~ansi combined);
   match result with Ok v -> on_ok v | Error _ -> exit 1
 
 let with_error_handling_unit ~color f =
