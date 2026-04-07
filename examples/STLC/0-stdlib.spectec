@@ -1,0 +1,31 @@
+syntax pair<K, V> = K `: V
+
+syntax set<K> = `{ K* }
+
+syntax map<K, V> = set<pair<K, V>>
+
+dec $empty_map<K, V> : map<K, V>
+  hint(prose_in "an empty map")
+def $empty_map<K, V> = `{ eps }
+
+builtin dec $find_map<K, V>(map<K, V>, K) : V?
+  hint(prose_in "the value of" %1 "in map" %0)
+
+builtin dec $add_map<K, V>(map<K, V>, K, V) : map<K, V>
+  hint(prose_in %0 "where" %1 "to" %2 "is added")
+
+builtin dec $adds_map<K, V>(map<K, V>, K*, V*) : map<K, V>
+  hint(prose_in %0 "where each of" %1 "to" %2 "are added")
+
+builtin dec $update_map<K, V>(map<K, V>, K, V) : map<K, V>
+  hint(prose_in "the map" %0 "with the value for" %1 "is updated to" %2)
+
+dec $extend_map<K, V>(map<K, V>, map<K, V>) : map<K, V>
+def $extend_map<K, V>(`{ (K_a `: V_a)* }, `{ (K_b `: V_b)* })
+  = `{ (K_c `: V_c)* }
+  -- if `{ (K_c `: V_c)* }
+      = $adds_map<K, V>(`{ (K_a `: V_a)* }, K_b*, V_b*)
+
+var n : nat
+var i : int
+var b : bool

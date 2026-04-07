@@ -1,0 +1,44 @@
+syntax val
+syntax env = map<id, val>
+
+var E : env
+
+syntax val =
+    | BOOL bool
+    | FUN id term env
+
+relation Dynamic:
+    env |- term : val
+    hint(input %0 %1)
+
+rule Dynamic/variable:
+    E |- VAR id : val
+    -- if val = $find_map<id, val>(E, id)+
+
+rule Dynamic/fun:
+    E |- FUN id type term : FUN id term E
+
+rule Dynamic/let:
+    E |- LET id term_var IN term : val'
+    -- Dynamic: E |- term_var : val
+    -- if E_updated = $add_map<id, val>(E, id, val)
+    -- Dynamic: E_updated |- term : val'
+
+rule Dynamic/boolean:
+    E |- BOOL bool : BOOL bool
+
+rule Dynamic/condition_true:
+    E |- IF term_cond THEN term_then ELSE term_else : val
+    -- Dynamic: E |- term_cond : BOOL true
+    -- Dynamic: E |- term_then : val
+
+rule Dynamic/condition_false:
+    E |- IF term_cond THEN term_then ELSE term_else : val
+    -- Dynamic: E |- term_cond : BOOL false
+    -- Dynamic: E |- term_else : val
+
+rule Dynamic/app:
+    E |- APP term_f term_x : val
+    -- Dynamic: E |- term_f : FUN id term_body E'
+    -- Dynamic: E |- term_x : val_x
+    -- Dynamic: $add_map<id, val>(E', id, val_x) |- term_body : val

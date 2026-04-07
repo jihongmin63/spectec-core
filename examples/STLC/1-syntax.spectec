@@ -1,0 +1,19 @@
+syntax id = text
+syntax term
+syntax type
+
+syntax term =
+    | VAR id
+    | FUN id type term
+    | LET id term IN term
+    | BOOL bool 
+    | IF term THEN term ELSE term
+    | APP term term
+
+var t : term
+
+syntax type =
+    | BOOL
+    | type TO type
+
+var ty : type

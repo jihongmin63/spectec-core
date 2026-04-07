@@ -1,0 +1,35 @@
+syntax context = map<id, type>
+
+var C : context
+
+relation Static:
+    context |- term : type
+    hint(input %0 %1)
+
+rule Static/variable:
+    C |- VAR id : ty
+    -- if ty = $find_map<id, type>(C, id)
+
+rule Static/fun:
+    C |- FUN id ty term : (ty TO ty')
+    -- if C_updated = $add_map<id, type>(C, id, ty)
+    -- Static: C_updated |- term : ty'
+
+rule Static/let:
+    C |- LET id term_var IN term : ty'
+    -- Static: C |- term_var : ty
+    -- Static: $add_map<id, type>(C, id, ty) |- term : ty'
+
+rule Static/boolean:
+    C |- BOOL bool : BOOL
+
+rule Static/condition:
+    C |- IF term_cond THEN term_then ELSE term_else : ty
+    -- Static: C |- term_cond : BOOL
+    -- Static: C |- term_then : ty
+    -- Static: C |- term_else : ty
+
+rule Static/app:
+    C |- APP term_f term_x : ty_2
+    -- Static: C |- term_f : ty_1 TO ty_2
+    -- Static: C |- term_x : ty_1
