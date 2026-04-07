@@ -2,7 +2,7 @@
 _build
 _test
 *.opam
-debug.txt
+*.txt
 
 # spectec build and executables
 spectec-core
