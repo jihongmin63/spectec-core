@@ -1,0 +1,4 @@
+(library
+ (name generate)
+ (public_name spectec.generate)
+ (libraries bignum.bigint spectec.common spectec.lang))

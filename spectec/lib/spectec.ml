@@ -6,6 +6,7 @@
 module Error = Error
 module Task = Task
 module Target = Target
+module Generate = Generate
 
 type 'a result = ('a, Error.t) Stdlib.result
 
