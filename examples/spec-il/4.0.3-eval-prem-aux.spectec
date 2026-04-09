@@ -4,7 +4,7 @@ def $match_rule(C, id, rulmatch, val*) = C' prem*
     -- if exp* `- prem* = rulmatch
     -- if OK C' = $assign_exps(C, exp*, val*)
 
-dec $invoke_extern_rel(id, val*) : res<val*>
+;;dec $invoke_extern_rel(id, val*) : res<val*>
 
 syntax resvals = res<val*>
 

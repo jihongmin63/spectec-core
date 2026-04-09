@@ -20,26 +20,26 @@ rule Call_func/fail:
 
 ;; Call_rel
 
-rule Call_rel/ext:
-  C |- id val* : $invoke_extern_rel(id, val*)
-  -- if EXT = $find_rel(C, id)
+;;rule Call_rel/ext:
+;;  C |- id val* : $invoke_extern_rel(id, val*)
+;;  -- if EXT = $find_rel(C, id)
 
     
-    rule Call_rel/defined_eps:
-      C |- id val* : $do_backtrack_rulepath(C, id_els, rulmatch_els, rulpath_els, val*)
-      -- if DEF rulgroup* elsgroup = $find_rel(C, id)
-      -- (if id `: rulmatch `= rulpath* = rulgroup)*
-      -- if resvals* = $concat_<resvals>($do_backtrack_rulepath(C, id, rulmatch, rulpath, val*)**)
-      -- if eps = $search_resvals(resvals*)
-      -- if id_els `: rulmatch_els `= rulpath_els = elsgroup
+rule Call_rel/defined_eps:
+  C |- id val* : $do_backtrack_rulepath(C, id_els, rulmatch_els, rulpath_els, val*)
+  -- if DEF rulgroup* elsgroup = $find_rel(C, id)
+  -- (if id `: rulmatch `= rulpath* = rulgroup)*
+  -- if resvals* = $concat_<resvals>($do_backtrack_rulepath(C, id, rulmatch, rulpath, val*)**)
+  -- if eps = $search_resvals(resvals*)
+  -- if id_els `: rulmatch_els `= rulpath_els = elsgroup
 
-    rule Call_rel/defined_list:
-      C |- id val* : OK val_output*
-      -- if DEF rulgroup* elsgroup? = $find_rel(C, id)
-      -- (if id `: rulmatch `= rulpath* = rulgroup)*
-      -- if resvals* = $concat_<resvals>($do_backtrack_rulepath(C, id, rulmatch, rulpath, val*)**)
-      -- if eps =/= $search_resvals(resvals*)
-      -- if val_output* = $search_resvals(resvals*)
+rule Call_rel/defined_list:
+  C |- id val* : OK val_output*
+  -- if DEF rulgroup* elsgroup? = $find_rel(C, id)
+  -- (if id `: rulmatch `= rulpath* = rulgroup)*
+  -- if resvals* = $concat_<resvals>($do_backtrack_rulepath(C, id, rulmatch, rulpath, val*)**)
+  -- if eps =/= $search_resvals(resvals*)
+  -- if val_output* = $search_resvals(resvals*)
 
 
 rule Call_rel/fail:
