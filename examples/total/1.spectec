@@ -1,0 +1,29 @@
+syntax one =
+    | A 
+    | B
+
+syntax two = 
+    | X bool 
+    | Y
+
+dec $fun0(one, nat) : bool
+def $fun0(A, 0) = true
+def $fun0(A, n) = false
+    -- if 
+
+dec $fun1(one) : bool ;; total
+def $fun1(A) = true
+def $fun1(B) = false
+
+dec $fun2(two) : bool ;; total
+def $fun2(X bool) = bool
+def $fun2(Y) = true
+
+dec $fun3(two) : bool ;; partial
+def $fun3(X true) = true
+def $fun3(Y) = true
+
+dec $func4(one, two) : bool ;; partial
+def $func4(A, two) = true
+def $func4(B, X true) = true
+def $func4(B, Y) = false

@@ -38,13 +38,12 @@ let structure_command =
     | Ok spec_sl -> Format.printf "%s\n" (Lang.Sl.Print.string_of_spec spec_sl)
     | Error e -> Format.printf "%s\n" (Error.string_of_error e)
 
-let generate_comamnd =
-  Core.Command.basic ~summary:"generate the inputs according to the spec"
+let checktotal_comamnd =
+  Core.Command.basic ~summary:"check whether a function is total"
   @@
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
-  let%map rule = anon ("applying rule" %: string)
-    and value_filename = anon ("expected result" %: string)
+  let%map function_id = anon ("applying rule" %: string)
     and spec_filenames = anon (sequence ("spec files" %: string)) in
   fun () ->
     let elaborate_result =
@@ -52,30 +51,10 @@ let generate_comamnd =
       let* spec_il = elaborate spec in
       Ok spec_il
     in
-    let parse_result =
-      try
-        let ic = open_in value_filename in
-        let length = in_channel_length ic in
-        let content = really_input_string ic length in
-        close_in ic;
-        Generate.parse_il_value content
-      with
-      | Sys_error msg -> Error msg
-    in
     match elaborate_result with
-    | Ok spec_il -> (
-        match Generate.find_relation_rule spec_il rule with
-        | Error msg -> Format.printf "Rule lookup error: %s\n" msg
-        | Ok _selected_rule -> (
-            match parse_result with
-            | Ok value -> 
-              let relation, binding_prems, condition_prems = Generate.refactor_rule _selected_rule in
-              let _ = Format.printf "%s\n" (Lang.Il.Print.string_of_prems binding_prems) in
-              let _ = Format.printf "%s\n" (Lang.Il.Print.string_of_prems condition_prems) in
-              let input_structures = Generate.find_structure spec_il relation binding_prems in
-              let _ = input_structures in
-              Format.printf "%s\n" (Lang.Il.Print.string_of_value value)
-            | Error msg -> Format.printf "Parse error: %s\n" msg))
+    | Ok spec_il -> 
+      let funcdef = Generate.find_function function_id spec_il in
+      Format.printf "%s\n" (Generate.check_total spec_il funcdef)
     | Error e -> Format.printf "%s\n" (Error.string_of_error e)
 
 (* Instantiate CLI commands for P4 *)
@@ -98,7 +77,7 @@ let command =
     [
       ("elab", elab_command);
       ("struct", structure_command);
-      ("generate", generate_comamnd);
+      ("total", checktotal_comamnd);
       ("p4", p4_command);
     ]
 
