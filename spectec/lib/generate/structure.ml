@@ -2,11 +2,9 @@ module Il = Lang.Il
 open Refactor
 open Common.Source
 
-type argument_type = PLAIN of Il.exp | DEFTYP of Il.id
-type parent_type = REL of Il.id * Il.notexp | LET of Il.id
 
-type original_variable = {expression : argument_type; structure : Il.typ}
-type binded_varaible = {expression : argument_type; structure : Il.typ; parent : parent_type}
+type input = { name : Il.id; body : Il.exp(*To Do*)}
+type binded = {(*To Do*)} 
 
 let search_rel spec id =
   let def = List.find (fun def ->
@@ -31,7 +29,7 @@ let check_total spec funcdef =
       assert false
       )
     else (
-      let init_types = List.map (fun param ->
+      let init_typs = List.map (fun param ->
         match param.it with
         | Il.ExpP typ -> typ
         | _ -> 
@@ -44,51 +42,41 @@ let check_total spec funcdef =
           (let _ = Format.printf "Currently do not support functions with side prems" in
           assert false)
         else (
-          let arguments = 
-            List.map2 (fun arg typ -> 
-              match arg.it with
-              | Il.ExpA exp -> (
-                  {expression = exp_2_argument_typ exp; structure = typ}
-                )
-              | _ -> assert false
-            ) args init_types
+          let inputs : input list = List.map2 (fun arg init_typ ->
+            match arg.it with
+            | Il.ExpA (Il.VarE id) -> {name = id; body = Il.VarE id}
+            | _ -> assert false
+          ) args init_typs
           in
-          let rec find_structure_aux prems arguments binded_varaibles =
+          let rec find_structure_aux prems inputs bindeds =
             match prems with
             | [] -> arguments, binded_varaibles
             | prem :: prems -> (
-              let updated_arguments, updated_binded_varaibles = (
+              let updated_inputs, updated_bindeds = (
                 match prem.it with
-                | Il.RulePr (id, notexp) ->
-                  let nottyp, inputs = search_rel spec id in
-                  let exps = snd notexp in let typs = snd nottyp.it in
-                  let updated_binded_varaibles = List.fold_left (
-                    fun binded_varaibles input ->
-                    {expression = exp_2_argument_typ (List.nth exps input); structure = List.nth typs input; parent = REL (id, notexp)} :: binded_varaibles
-                  ) binded_varaibles inputs in
-                  arguments, updated_binded_varaibles
-                | Il.LetPr (exp_id, exp_val) -> assert false 
-                | Il.IfPr exp -> assert false
-                | Il.IterPr (prem, iterexp) -> assert false
+                | Il.RulePr (id, notexp) -> (*To Do*) assert false 
+                | Il.LetPr (exp_id, exp_val) -> (*To Do*) assert false 
+                | Il.IfPr exp -> (*To Do*) assert false
+                | Il.IterPr (prem, iterexp) -> (*To Do*) assert false
                 | _ -> assert false
               )
               in
-              find_structure_aux prems updated_arguments updated_binded_varaibles
+              find_structure_aux prems updated_inputs updated_bindeds
             )
           in 
           find_structure_aux binding_prems arguments []
         )
       in 
-      let is_total arguments_list = 
-        (* based on init type, construct a set that has to be satisfied *)
+      let is_total inputs_list = 
+        (* To Do *)
         false
       in
       let refactored_clauses : refactored_clause' list = refactor_function funcdef in
-      let arguments_list, _ = List.split (
+      let inputs_list, _ = List.split (
         List.map (
           fun refactored_clause -> find_structure refactored_clause 
         ) refactored_clauses
       ) in
-      Format.printf (if is_total arguments_list then "%s is total" else "%s is partial") id.it 
+      Format.printf (if is_total inputs_list then "%s is total" else "%s is partial") id.it 
     )
   | _ -> assert false
