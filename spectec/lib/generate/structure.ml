@@ -2,9 +2,10 @@ module Il = Lang.Il
 open Refactor
 open Common.Source
 
+type binded_body = STRUCT of Il.id * Il.atom | VARIANT of Il.id * nat | LET of Il.exp | REL of id * notexp
 
-type input = { name : Il.id; body : Il.exp(*To Do*)}
-type binded = {(*To Do*)} 
+type input = { name : Il.id; body : Il.exp; iters : Il.iterexp list}
+type binded = {name : Il.id; body : binded_body; iters : Il.iterexp list}
 
 let search_rel spec id =
   let def = List.find (fun def ->
@@ -15,11 +16,6 @@ let search_rel spec id =
   match def.it with
   | Il.RelD (_, nottyp, inputs, _) -> nottyp, inputs
   | _ -> assert false
-
-let exp_2_argument_typ exp =
-  match exp.it with
-  | Il.VarE id -> DEFTYP id
-  | _ -> PLAIN exp
 
 let check_total spec funcdef =  
   match funcdef.it with
@@ -42,15 +38,26 @@ let check_total spec funcdef =
           (let _ = Format.printf "Currently do not support functions with side prems" in
           assert false)
         else (
+          let counter = 0 in
           let inputs : input list = List.map2 (fun arg init_typ ->
             match arg.it with
-            | Il.ExpA (Il.VarE id) -> {name = id; body = Il.VarE id}
+            | Il.ExpA exp -> (
+                let rec find_id exp = 
+                  match exp.it with
+                  | Il.VarE id -> id, []
+                  | Il.IterE (exp, iterexp) -> 
+                    let id, iters = find_id exp in
+                    id, iters @ [iterexp]
+                  | _ -> assert false
+                in
+                let id, iters = find_id exp in
+                {name = id; body = exp; iters = iters})
             | _ -> assert false
           ) args init_typs
           in
           let rec find_structure_aux prems inputs bindeds =
             match prems with
-            | [] -> arguments, binded_varaibles
+            | [] -> inputs, bindeds
             | prem :: prems -> (
               let updated_inputs, updated_bindeds = (
                 match prem.it with
@@ -64,7 +71,7 @@ let check_total spec funcdef =
               find_structure_aux prems updated_inputs updated_bindeds
             )
           in 
-          find_structure_aux binding_prems arguments []
+          find_structure_aux binding_prems inputs []
         )
       in 
       let is_total inputs_list = 

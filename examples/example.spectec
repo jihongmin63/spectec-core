@@ -1,0 +1,4 @@
+syntax ty = A 
+
+dec $fun(ty**) : bool
+def $fun(ty**) = true
