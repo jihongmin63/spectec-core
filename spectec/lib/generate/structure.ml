@@ -4,9 +4,7 @@ open Shared_exp
 open Print
 open Common.Source
 
-module SharedExp = Map.Make(Int)
-
-type variable = {name : Il.id; iters : iter list; body : int}
+type variable = {name : Il.id; iters : iter list; body : Il.exp}
 (*
 type binded_body = STRUCT of Il.id * Il.atom | VARIANT of Il.id * int | LET of Il.exp | REL of string * notexp
 type binded = {name : Il.id; body : binded_body; iters : Il.iterexp list}
@@ -30,12 +28,12 @@ let exp_to_input exp body =
 let debug inputs map  = 
   let _ = Format.printf "\n[INPUTS]\n" in
   let _ = List.map (fun input ->
-    Format.printf "%s | %d\n" (input.name.it) (input.body)
+    Format.printf "%s | %s\n" (input.name.it) (Lang.Il.Print.string_of_exp input.body)
   ) inputs in
   let _ = Format.printf "\n[MAP]\n" in
   List.map (fun pair ->
     let key, value = pair in  
-    Format.printf "%d | %s\n" key (string_of_exp' value)
+    Format.printf "%s | %s\n" (Lang.Il.Print.string_of_exp key) (string_of_exp' value)
   ) (SharedExp.bindings map)
 
 let check_total spec funcdef =  
@@ -53,7 +51,6 @@ let check_total spec funcdef =
           (let _ = Format.printf "Currently do not support functions with side prems" in
           assert false)
         else (
-          let hash = ref 0 in
           let emptymap : exp' SharedExp.t = SharedExp.empty in 
           let rec generate_input args map inputs =
             match args with
@@ -61,7 +58,7 @@ let check_total spec funcdef =
             | arg :: args ->
               match arg.it with
               | Il.ExpA exp ->
-                let updated_map, body = exp_to_hashed map hash exp in
+                let updated_map, body = exp_to_hashed map exp in
                 let input = exp_to_input exp body in
                 generate_input args updated_map (input :: inputs)
               | Il.DefA _ ->
@@ -69,28 +66,51 @@ let check_total spec funcdef =
                 assert false
           in
           let map, inputs = generate_input args emptymap [] in
+          let dummyexp = ref "#" in
+          let _ = dummyexp in
           let rec find_structure_aux prems inputs map =
+            let _ = debug inputs map in
             match prems with
             | [] -> inputs, map
             | prem :: prems -> (
               let updated_inputs, updated_map = (
-                match prem.it with
-                | Il.RulePr _ ->
-                  let _ = Format.printf "Currently do not support Relational call" in
-                  assert false
-                | Il.LetPr (exp_id, exp_val) -> (
-                    match filter_id_iter exp_id with
-                    | Some (id, iters) -> (
-                        match filter_id_iter exp_val with
-                        | Some _ -> (*To Do*) assert false
-                        | None -> 
-                          let updated_map, body = exp_to_hashed map hash exp_val in
-                          ({name = id; iters = iters; body = body} :: inputs), updated_map
-                      )
-                    | None -> assert false )
-                | Il.IfPr _ -> (*To Do*) assert false
-                | Il.IterPr _ -> (*To Do*) assert false
-                | _ -> assert false
+                let rec update_by_prem prem =
+                  match prem.it with
+                  | Il.RulePr _ ->
+                    let _ = Format.printf "Currently do not support Relational call" in
+                    assert false
+                  | Il.LetPr (exp_id, exp_val) -> (
+                      (* match->let인 경우 여러개 변수가 binding되는 경우도 존재 *)
+                      match filter_id_iter exp_id with
+                      | Some (id, iters) -> (
+                          match SharedExp.find_opt exp_val map with
+                          | Some _ -> ({name = id; iters = iters; body = exp_val} :: inputs), map
+                          | None -> 
+                            let updated_map, body = exp_to_hashed map exp_val in
+                            ({name = id; iters = iters; body = body} :: inputs), updated_map
+                        )
+                      | None -> assert false )
+                  | Il.IfPr exp ->
+                    let rec find_exp exp =
+                      match exp.it with
+                      | Il.MatchE (exp, pattern) -> (
+                          let _ = exp in
+                          match pattern with
+                          | Il.CaseP mixop -> 
+                            assert false
+                          | _ -> 
+                            let _ = Format.printf "Currently do not support other match cases" in
+                            assert false
+                        )
+                      | SubE _ -> 
+                        let _ = Format.printf "Currently do not support subtyping" in
+                        assert false
+                      | IterE (exp, _) -> find_exp exp
+                      | _ -> assert false
+                    in find_exp exp
+                  | Il.IterPr (prem, _) -> update_by_prem prem
+                  | _ -> assert false
+                in update_by_prem prem
               )
               in
               find_structure_aux prems updated_inputs updated_map

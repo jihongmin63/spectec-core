@@ -46,7 +46,7 @@ let string_of_iter iter = match iter with Il.Opt -> "?" | List -> "*"
 
 (* References *)
 
-let string_of_exp_ref exp = "#" ^ string_of_int exp
+let string_of_exp_ref exp = "(" ^ Lang.Il.Print.string_of_exp exp ^ ")"
 
 (* Types *)
 
@@ -192,8 +192,8 @@ and string_of_args args =
   | [] -> ""
   | _ -> "(" ^ String.concat ", " (List.map string_of_arg args) ^ ")"
 
-let string_of_shared_exp_element (id, exp') =
-  string_of_exp_ref id ^ " = " ^ string_of_exp' exp'
+let string_of_shared_exp_element (key, exp') =
+  string_of_exp_ref key ^ " = " ^ string_of_exp' exp'
 
 let string_of_shared_exp shared_exp =
   SharedExp.bindings shared_exp

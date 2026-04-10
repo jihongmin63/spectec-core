@@ -1,3 +1,8 @@
-dec $fun(nat*, nat*) : bool
-def $fun(nat_1*, nat_2*) = true
-    -- if nat_3* = nat_1* ++ nat_2* 
+syntax typ =
+    | A nat
+    | B
+
+dec $fun(typ*, typ*) : typ*
+def $fun(typ_1*, typ_2*) = typ_3*
+    -- if (typ_1 = A nat)*
+    -- if typ_3* = typ_1* ++ typ_2* 

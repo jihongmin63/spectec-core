@@ -81,7 +81,7 @@ and optyp = Il.optyp
 
 (* Expressions *)
 
-and exp = int
+and exp = Il.exp
 and exp' =
   | BoolS of bool                         (* bool *)
   | NumS of num                           (* num *)
@@ -165,15 +165,15 @@ and prem =
 (* translation *)
 
 
-module SharedExp = Map.Make(Int)
+module SharedExp = Map.Make(struct
+  type t = Il.exp
+  let compare lhs rhs =
+    String.compare (Lang.Il.Print.string_of_exp lhs) (Lang.Il.Print.string_of_exp rhs)
+end)
 
-let fresh_id hash =
-  hash := !hash + 1;
-  !hash
-
-let add_shared_node map hash node =
-  let node_id = fresh_id hash in
-  SharedExp.add node_id node map, node_id
+let add_shared_node map key node =
+  if SharedExp.mem key map then map, key
+  else SharedExp.add key node map, key
 
 let rec typ'_to_hashed (typ' : Il.typ') : typ =
   match typ' with
@@ -211,93 +211,93 @@ let rec filter_id_iter exp =
   | _ -> None
 
 
-let rec exp_to_hashed map hash (exp : Il.exp) =
+let rec exp_to_hashed map (exp : Il.exp) =
   let exp_to_hashed_aux exp =
     match exp.it with
-    | Il.BoolE bool -> add_shared_node map hash (BoolS bool)
-    | Il.NumE num -> add_shared_node map hash (NumS num)
-    | Il.TextE text -> add_shared_node map hash (TextS text)
-    | Il.VarE id -> add_shared_node map hash (VarS id.it)
+    | Il.BoolE bool -> add_shared_node map exp (BoolS bool)
+    | Il.NumE num -> add_shared_node map exp (NumS num)
+    | Il.TextE text -> add_shared_node map exp (TextS text)
+    | Il.VarE id -> add_shared_node map exp (VarS id.it)
     | Il.UnE (unop, optyp, subexp) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (UnS (unop, optyp, subexp_id))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (UnS (unop, optyp, subexp_id))
     | Il.BinE (binop, optyp, exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (BinS (binop, optyp, exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (BinS (binop, optyp, exp1_id, exp2_id))
     | Il.CmpE (cmpop, optyp, exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (CmpS (cmpop, optyp, exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (CmpS (cmpop, optyp, exp1_id, exp2_id))
     | Il.UpCastE (typ, subexp) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (UpCastS (typ_to_hashed typ, subexp_id))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (UpCastS (typ_to_hashed typ, subexp_id))
     | Il.DownCastE (typ, subexp) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (DownCastS (typ_to_hashed typ, subexp_id))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (DownCastS (typ_to_hashed typ, subexp_id))
     | Il.SubE (subexp, typ) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (SubS (subexp_id, typ_to_hashed typ))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (SubS (subexp_id, typ_to_hashed typ))
     | Il.MatchE (subexp, pattern) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (MatchS (subexp_id, pattern))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (MatchS (subexp_id, pattern))
     | Il.TupleE exps ->
-      let updated_map, exp_ids = exp_list_to_hashed map hash exps in
-      add_shared_node updated_map hash (TupleS exp_ids)
+      let updated_map, exp_ids = exp_list_to_hashed map exps in
+      add_shared_node updated_map exp (TupleS exp_ids)
     | Il.CaseE notexp ->
-      let updated_map, notexp' = notexp_to_hashed map hash notexp in
-      add_shared_node updated_map hash (CaseS notexp')
+      let updated_map, notexp' = notexp_to_hashed map notexp in
+      add_shared_node updated_map exp (CaseS notexp')
     | Il.StrE fields ->
-      let updated_map, fields' = field_list_to_hashed map hash fields in
-      add_shared_node updated_map hash (StrS fields')
+      let updated_map, fields' = field_list_to_hashed map fields in
+      add_shared_node updated_map exp (StrS fields')
     | Il.OptE exp_opt ->
-      let updated_map, exp_opt' = opt_exp_to_hashed map hash exp_opt in
-      add_shared_node updated_map hash (OptS exp_opt')
+      let updated_map, exp_opt' = opt_exp_to_hashed map exp_opt in
+      add_shared_node updated_map exp (OptS exp_opt')
     | Il.ListE exps ->
-      let updated_map, exp_ids = exp_list_to_hashed map hash exps in
-      add_shared_node updated_map hash (ListS exp_ids)
+      let updated_map, exp_ids = exp_list_to_hashed map exps in
+      add_shared_node updated_map exp (ListS exp_ids)
     | Il.ConsE (exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (ConsS (exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (ConsS (exp1_id, exp2_id))
     | Il.CatE (exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (CatS (exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (CatS (exp1_id, exp2_id))
     | Il.MemE (exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (MemS (exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (MemS (exp1_id, exp2_id))
     | Il.LenE subexp ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (LenS subexp_id)
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (LenS subexp_id)
     | Il.DotE (subexp, atom) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (DotS (subexp_id, atom.it))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (DotS (subexp_id, atom.it))
     | Il.IdxE (exp1, exp2) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      add_shared_node updated_map hash (IdxS (exp1_id, exp2_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      add_shared_node updated_map exp (IdxS (exp1_id, exp2_id))
     | Il.SliceE (exp1, exp2, exp3) ->
-      let updated_map, exp1_id = exp_to_hashed map hash exp1 in
-      let updated_map, exp2_id = exp_to_hashed updated_map hash exp2 in
-      let updated_map, exp3_id = exp_to_hashed updated_map hash exp3 in
-      add_shared_node updated_map hash (SliceS (exp1_id, exp2_id, exp3_id))
+      let updated_map, exp1_id = exp_to_hashed map exp1 in
+      let updated_map, exp2_id = exp_to_hashed updated_map exp2 in
+      let updated_map, exp3_id = exp_to_hashed updated_map exp3 in
+      add_shared_node updated_map exp (SliceS (exp1_id, exp2_id, exp3_id))
     | Il.UpdE (target, path, value) ->
-      let updated_map, target_id = exp_to_hashed map hash target in
-      let updated_map, path' = path_to_hashed updated_map hash path in
-      let updated_map, value_id = exp_to_hashed updated_map hash value in
-      add_shared_node updated_map hash (UpdS (target_id, path', value_id))
+      let updated_map, target_id = exp_to_hashed map target in
+      let updated_map, path' = path_to_hashed updated_map path in
+      let updated_map, value_id = exp_to_hashed updated_map value in
+      add_shared_node updated_map exp (UpdS (target_id, path', value_id))
     | Il.CallE (id, targs, args) ->
-      let updated_map, args' = args_to_hashed map hash args in
+      let updated_map, args' = args_to_hashed map args in
       let targs' = List.map targ_to_hashed targs in
-      add_shared_node updated_map hash (CallS (id.it, targs', args'))
+      add_shared_node updated_map exp (CallS (id.it, targs', args'))
     | Il.HoldE (id, notexp) ->
-      let updated_map, notexp' = notexp_to_hashed map hash notexp in
-      add_shared_node updated_map hash (HoldS (id.it, notexp'))
+      let updated_map, notexp' = notexp_to_hashed map notexp in
+      add_shared_node updated_map exp (HoldS (id.it, notexp'))
     | Il.IterE (subexp, iterexp) ->
-      let updated_map, subexp_id = exp_to_hashed map hash subexp in
-      add_shared_node updated_map hash (IterS (subexp_id, iterexp_to_hashed iterexp))
+      let updated_map, subexp_id = exp_to_hashed map subexp in
+      add_shared_node updated_map exp (IterS (subexp_id, iterexp_to_hashed iterexp))
   in
   match filter_id_iter exp with
   | Some (id, iters) ->
@@ -338,56 +338,56 @@ let rec exp_to_hashed map hash (exp : Il.exp) =
     | None -> exp_to_hashed_aux exp)
   | None -> exp_to_hashed_aux exp
 
-and exp_list_to_hashed map hash exps =
+and exp_list_to_hashed map exps =
   List.fold_left (fun (current_map, acc_ids) exp ->
-    let updated_map, exp_id = exp_to_hashed current_map hash exp in
+    let updated_map, exp_id = exp_to_hashed current_map exp in
     updated_map, exp_id :: acc_ids
   ) (map, []) exps
   |> fun (updated_map, rev_ids) -> updated_map, List.rev rev_ids
 
-and opt_exp_to_hashed map hash = function
+and opt_exp_to_hashed map = function
   | None -> map, None
   | Some exp ->
-    let updated_map, exp_id = exp_to_hashed map hash exp in
+    let updated_map, exp_id = exp_to_hashed map exp in
     updated_map, Some exp_id
 
-and field_list_to_hashed map hash fields =
+and field_list_to_hashed map fields =
   List.fold_left (fun (current_map, acc_fields) (atom, exp) ->
-    let updated_map, exp_id = exp_to_hashed current_map hash exp in
+    let updated_map, exp_id = exp_to_hashed current_map exp in
     updated_map, (atom.it, exp_id) :: acc_fields
   ) (map, []) fields
   |> fun (updated_map, rev_fields) -> updated_map, List.rev rev_fields
 
-and notexp_to_hashed map hash (mixop, exps) =
-  let updated_map, exp_ids = exp_list_to_hashed map hash exps in
+and notexp_to_hashed map (mixop, exps) =
+  let updated_map, exp_ids = exp_list_to_hashed map exps in
   updated_map, (mixop, exp_ids)
 
-and path_to_hashed map hash (path : Il.path) =
+and path_to_hashed map (path : Il.path) =
   match path.it with
   | Il.RootP -> map, RootP
   | Il.IdxP (base_path, idx_exp) ->
-    let updated_map, base_path' = path_to_hashed map hash base_path in
-    let updated_map, idx_exp_id = exp_to_hashed updated_map hash idx_exp in
+    let updated_map, base_path' = path_to_hashed map base_path in
+    let updated_map, idx_exp_id = exp_to_hashed updated_map idx_exp in
     updated_map, IdxP (base_path', idx_exp_id)
   | Il.SliceP (base_path, start_exp, end_exp) ->
-    let updated_map, base_path' = path_to_hashed map hash base_path in
-    let updated_map, start_exp_id = exp_to_hashed updated_map hash start_exp in
-    let updated_map, end_exp_id = exp_to_hashed updated_map hash end_exp in
+    let updated_map, base_path' = path_to_hashed map base_path in
+    let updated_map, start_exp_id = exp_to_hashed updated_map start_exp in
+    let updated_map, end_exp_id = exp_to_hashed updated_map end_exp in
     updated_map, SliceP (base_path', start_exp_id, end_exp_id)
   | Il.DotP (base_path, atom) ->
-    let updated_map, base_path' = path_to_hashed map hash base_path in
+    let updated_map, base_path' = path_to_hashed map base_path in
     updated_map, DotP (base_path', atom.it)
 
-and arg_to_hashed map hash (arg : Il.arg) =
+and arg_to_hashed map (arg : Il.arg) =
   match arg.it with
   | Il.ExpA exp ->
-    let updated_map, exp_id = exp_to_hashed map hash exp in
+    let updated_map, exp_id = exp_to_hashed map exp in
     updated_map, ExpA exp_id
   | Il.DefA id -> map, DefA id.it
 
-and args_to_hashed map hash args =
+and args_to_hashed map args =
   List.fold_left (fun (current_map, acc_args) arg ->
-    let updated_map, arg' = arg_to_hashed current_map hash arg in
+    let updated_map, arg' = arg_to_hashed current_map arg in
     updated_map, arg' :: acc_args
   ) (map, []) args
   |> fun (updated_map, rev_args) -> updated_map, List.rev rev_args
