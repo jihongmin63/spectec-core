@@ -1,3 +1,3 @@
 dec $fun(nat*, nat*) : bool
 def $fun(nat_1*, nat_2*) = true
-    -- if nat_3* = nat_1* ++ nat_2*
+    -- if nat_3* = nat_1* ++ nat_2* 

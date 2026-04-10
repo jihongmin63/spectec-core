@@ -27,6 +27,17 @@ let exp_to_input exp body =
   | Some (id, iters) -> {name = id; iters = iters; body = body}
   | None -> assert false
 
+let debug inputs map  = 
+  let _ = Format.printf "\n[INPUTS]\n" in
+  let _ = List.map (fun input ->
+    Format.printf "%s | %d\n" (input.name.it) (input.body)
+  ) inputs in
+  let _ = Format.printf "\n[MAP]\n" in
+  List.map (fun pair ->
+    let key, value = pair in  
+    Format.printf "%d | %s\n" key (string_of_exp' value)
+  ) (SharedExp.bindings map)
+
 let check_total spec funcdef =  
   let _ = spec in
   match funcdef.it with
@@ -86,14 +97,7 @@ let check_total spec funcdef =
             )
           in 
           let inputs, map = find_structure_aux binding_prems inputs map in
-          let _ = List.map (fun input ->
-            Format.printf "%s | %d\n" (input.name.it) (input.body)
-          ) inputs in
-          let _ = Format.printf "--\n" in
-          let _ = List.map (fun pair ->
-            let key, value = pair in  
-            Format.printf "%d | %s\n" key (string_of_exp' value)
-          ) (SharedExp.bindings map) in
+          let _ = debug inputs map in
           (*To-do : filter real inputs only*)
           inputs
         )
