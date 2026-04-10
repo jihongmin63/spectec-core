@@ -1,8 +1,3 @@
-syntax typ =
-    | A nat
-    | B
+syntax typ = A
 
-dec $fun(typ*, typ*) : typ*
-def $fun(typ_1*, typ_2*) = typ_3*
-    -- if (typ_1 = A nat)*
-    -- if typ_3* = typ_1* ++ typ_2* 
+syntax typp = A
