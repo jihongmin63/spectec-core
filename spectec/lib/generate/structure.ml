@@ -1,6 +1,7 @@
 module Il = Lang.Il
 open Refactor
 open Shared_exp
+open Print
 open Common.Source
 
 module SharedExp = Map.Make(Int)
@@ -21,24 +22,15 @@ let search_rel spec id =
   | Il.RelD (_, nottyp, inputs, _) -> nottyp, inputs
   | _ -> assert false
 
-let rec filter_id_iter exp =
-  match exp.it with
-  | Il.VarE id -> Some (id, [])
-  | IterE (exp, iterexp) ->
-    let iter, _ = iterexp in
-    (match filter_id_iter exp with
-    | Some (id, iters) -> Some (id, iter :: iters)
-    | None -> None)
-  | _ -> None
-
 let exp_to_input exp body =
   match filter_id_iter exp with
   | Some (id, iters) -> {name = id; iters = iters; body = body}
   | None -> assert false
 
 let check_total spec funcdef =  
+  let _ = spec in
   match funcdef.it with
-  | Il.DecD (id, tparams, params, _, _) ->
+  | Il.DecD (_, tparams, _, _, _) ->
     if List.length tparams <> 0 then (
       let _ = Format.printf "Currently do not support generic function" in
       assert false
@@ -72,21 +64,21 @@ let check_total spec funcdef =
             | prem :: prems -> (
               let updated_inputs, updated_map = (
                 match prem.it with
-                | Il.RulePr (id, notexp) ->
+                | Il.RulePr _ ->
                   let _ = Format.printf "Currently do not support Relational call" in
                   assert false
                 | Il.LetPr (exp_id, exp_val) -> (
                     match filter_id_iter exp_id with
                     | Some (id, iters) -> (
                         match filter_id_iter exp_val with
-                        | Some (id_val, id_iters) -> (*To Do*) assert false
+                        | Some _ -> (*To Do*) assert false
                         | None -> 
                           let updated_map, body = exp_to_hashed map hash exp_val in
                           ({name = id; iters = iters; body = body} :: inputs), updated_map
                       )
                     | None -> assert false )
-                | Il.IfPr exp -> (*To Do*) assert false
-                | Il.IterPr (prem, iterexp) -> (*To Do*) assert false
+                | Il.IfPr _ -> (*To Do*) assert false
+                | Il.IterPr _ -> (*To Do*) assert false
                 | _ -> assert false
               )
               in
@@ -94,18 +86,22 @@ let check_total spec funcdef =
             )
           in 
           let inputs, map = find_structure_aux binding_prems inputs map in
+          let _ = List.map (fun input ->
+            Format.printf "%s | %d\n" (input.name.it) (input.body)
+          ) inputs in
+          let _ = Format.printf "--\n" in
+          let _ = List.map (fun pair ->
+            let key, value = pair in  
+            Format.printf "%d | %s\n" key (string_of_exp' value)
+          ) (SharedExp.bindings map) in
           (*To-do : filter real inputs only*)
           inputs
         )
       in 
       let refactored_clauses : refactored_clause' list = refactor_function funcdef in
-      let inputs_list = List.map (
+      let _ = List.map (
           fun refactored_clause -> find_structure refactored_clause 
         ) refactored_clauses in
-      let is_total inputs_list = 
-        (* To Do *)
-        false
-      in
-      Format.printf (if is_total inputs_list then "%s is total" else "%s is partial") id.it 
+      "false"
     )
   | _ -> assert false

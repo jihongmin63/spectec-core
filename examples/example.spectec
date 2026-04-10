@@ -1,4 +1,3 @@
-syntax ty = A 
-
-dec $fun(ty**) : bool
-def $fun(ty**) = true
+dec $fun(nat*, nat*) : bool
+def $fun(nat_1*, nat_2*) = true
+    -- if nat_3* = nat_1* ++ nat_2*
