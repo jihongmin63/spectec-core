@@ -2,10 +2,58 @@ module Il = Lang.Il
 open Refactor
 open Common.Source
 
-type binded_body = STRUCT of Il.id * Il.atom | VARIANT of Il.id * nat | LET of Il.exp | REL of id * notexp
+module SharedExp = Map.Make(Int)
 
-type input = { name : Il.id; body : Il.exp; iters : Il.iterexp list}
+type input = {name : Il.id; iters : iter list; body : int}
+(*
+type binded_body = STRUCT of Il.id * Il.atom | VARIANT of Il.id * int | LET of Il.exp | REL of string * notexp
 type binded = {name : Il.id; body : binded_body; iters : Il.iterexp list}
+*)
+
+let rec exp_to_hased map hash exp = 
+  hash := !hash + 1 in
+  let hashval = !hash in
+  match exp with
+  | Il.BoolE bool -> SharedExp.add hashval (BoolS bool) map
+  | NumE num -> SharedExp.add hashval (NumS num) map
+  | TextE text -> SharedExp.add hashval (TextS text) map
+  | VarE id -> SharedExp.add hashval (VarS id.it) map
+  | UnE (unop, optyp, exp) -> 
+    let updated_map = exp_to_hased map hash exp in
+    SharedExp.add hashval (UnS (unop, optyp, hashval + 1)) updated_map
+  | BinE (binop, optyp, exp1, exp) ->
+    let updated_map1 = exp_to_hased map hash exp1 in
+    let hashval' = !hash in
+    let updated_map2 = exp_to_hased updated_map1 hash exp2 in
+    SharedExp.add hashval (BinS (binop, optyp, hashval + 1, hashval' + 1)) updated_map2
+  | CmpE (cmpop, optyp, exp1, exp2) ->
+    let updated_map1 = exp_to_hased map hash exp1 in
+    let hashval' = !hash in
+    let updated_map2 = exp_to_hased updated_map1 hash exp2 in
+    SharedExp.add hashval (CmpS (cmpop, optyp, hashval + 1, hashval' + 1)) updated_map2
+  | UpCastE typ * exp                  (* exp as typ *)
+  | DownCastE typ * exp                (* exp as typ *)
+  | SubE exp * typ                     (* exp `<:` typ *)
+  | MatchE exp * pattern               (* exp `matches` pattern *)
+  | TupleE exp list                    (* `(` exp* `)` *)
+  | CaseE notexp                       (* notexp *)
+  | StrE (atom * exp) list             (* { expfield* } *)
+  | OptE exp option                    (* exp? *)
+  | ListE exp list                     (* `[` exp* `]` *)
+  | ConsE exp * exp                    (* exp `::` exp *)
+  | CatE exp * exp                     (* exp `++` exp *)
+  | MemE exp * exp                     (* exp `<-` exp *)
+  | LenE exp                           (* `|` exp `|` *)
+  | DotE exp * atom                    (* exp.atom *)
+  | IdxE exp * exp                     (* exp `[` exp `]` *)
+  | SliceE exp * exp * exp             (* exp `[` exp `:` exp `]` *)
+  | UpdE exp * path * exp              (* exp `[` path `=` exp `]` *)
+  | CallE id * targ list * arg list    (* $id`<` targ* `>``(` arg* `)` *)
+  | HoldE id * notexp                  (* id `:` notexp `holds` *)
+  | IterE exp * iterexp
+  ()
+and arg_to_hased map arg arg = ()
+
 
 let search_rel spec id =
   let def = List.find (fun def ->
@@ -38,7 +86,6 @@ let check_total spec funcdef =
           (let _ = Format.printf "Currently do not support functions with side prems" in
           assert false)
         else (
-          let counter = 0 in
           let inputs : input list = List.map2 (fun arg init_typ ->
             match arg.it with
             | Il.ExpA exp -> (
