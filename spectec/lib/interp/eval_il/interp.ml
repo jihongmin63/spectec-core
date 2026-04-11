@@ -292,7 +292,6 @@ let rec eval_exp (ctx : Ctx.t) (exp : exp) : Ctx.t * value =
   | SliceE (exp_b, exp_l, exp_h) -> eval_slice_exp note ctx exp_b exp_l exp_h
   | UpdE (exp_b, path, exp_f) -> eval_upd_exp note ctx exp_b path exp_f
   | CallE (id, targs, args) -> eval_call_exp note ctx id targs args
-  | HoldE (id, notexp) -> eval_hold_exp note ctx id notexp
   | IterE (exp, iterexp) -> eval_iter_exp note ctx exp iterexp
 
 and eval_exps (ctx : Ctx.t) (exps : exp list) : Ctx.t * value list =
@@ -822,20 +821,6 @@ and eval_call_exp (_note : typ') (ctx : Ctx.t) (id : id) (targs : targ list)
   let+ ctx, value_res = invoke_func ctx id targs args in
   (ctx, value_res)
 
-(* Conditional relation holds expression evaluation *)
-
-and eval_hold_exp (note : typ') (ctx : Ctx.t) (id : id) (notexp : notexp) :
-    Ctx.t * value =
-  let _, exps_input = notexp in
-  let ctx, values_input = eval_exps ctx exps_input in
-  let ctx, hold =
-    match invoke_rel ctx id values_input with
-    | Ok _ -> (ctx, true)
-    | Error _ -> (ctx, false)
-  in
-  let value_res = hold |> Value.Make.bool note in
-  (ctx, value_res)
-
 (* Iterated expression evaluation *)
 
 and eval_iter_exp (note : typ') (ctx : Ctx.t) (exp : exp) (iterexp : iterexp) :
@@ -907,6 +892,20 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
       fail exp_cond.at
         (F.asprintf "condition %s was not met" (Print.string_of_exp exp_cond))
   in
+  let eval_if_hold_prem ctx id notexp =
+    let _, exps_input = notexp in
+    let ctx, values_input = eval_exps ctx exps_input in
+    match invoke_rel ctx id values_input with
+    | Ok _ -> Ok ctx
+    | Error _ -> fail id.at (F.asprintf "condition hold %s was not met" id.it)
+  in
+  let eval_if_not_hold_prem ctx id notexp =
+    let _, exps_input = notexp in
+    let ctx, values_input = eval_exps ctx exps_input in
+    match invoke_rel ctx id values_input with
+    | Ok _ -> fail id.at (F.asprintf "condition not-hold %s was not met" id.it)
+    | Error _ -> Ok ctx
+  in
   let eval_let_prem ctx exp_l exp_r =
     let ctx, value = eval_exp ctx exp_r in
     let ctx = assign_exp ctx exp_l value in
@@ -926,6 +925,8 @@ and eval_prem (ctx : Ctx.t) (prem : prem) : Ctx.t attempt =
     match prem.it with
     | RulePr (id, notexp) -> eval_rule_prem ctx id notexp
     | IfPr exp_cond -> eval_if_prem ctx exp_cond
+    | IfHoldPr (id, notexp) -> eval_if_hold_prem ctx id notexp
+    | IfNotHoldPr (id, notexp) -> eval_if_not_hold_prem ctx id notexp
     | ElsePr -> Ok ctx
     | LetPr (exp_l, exp_r) -> eval_let_prem ctx exp_l exp_r
     | IterPr (prem, iterexp) -> eval_iter_prem ctx prem iterexp

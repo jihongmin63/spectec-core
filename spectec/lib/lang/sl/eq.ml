@@ -90,11 +90,15 @@ and eq_phantom_opt (phantom_opt_a : phantom option)
 
 and eq_pathcond (pathcond_a : pathcond) (pathcond_b : pathcond) : bool =
   match (pathcond_a, pathcond_b) with
-  | ForallC (exp_a, iterexps_a), ForallC (exp_b, iterexps_b) ->
-      eq_exp exp_a exp_b && eq_iterexps iterexps_a iterexps_b
-  | ExistsC (exp_a, iterexps_a), ExistsC (exp_b, iterexps_b) ->
-      eq_exp exp_a exp_b && eq_iterexps iterexps_a iterexps_b
+  | ForallC (pathcond_a, iterexps_a), ForallC (pathcond_b, iterexps_b) ->
+      eq_pathcond pathcond_a pathcond_b && eq_iterexps iterexps_a iterexps_b
+  | ExistsC (pathcond_a, iterexps_a), ExistsC (pathcond_b, iterexps_b) ->
+      eq_pathcond pathcond_a pathcond_b && eq_iterexps iterexps_a iterexps_b
   | PlainC exp_a, PlainC exp_b -> eq_exp exp_a exp_b
+  | HoldC (id_a, (mixop_a, exps_a)), HoldC (id_b, (mixop_b, exps_b)) ->
+      eq_id id_a id_b && eq_mixop mixop_a mixop_b && eq_exps exps_a exps_b
+  | NotHoldC (id_a, (mixop_a, exps_a)), NotHoldC (id_b, (mixop_b, exps_b)) ->
+      eq_id id_a id_b && eq_mixop mixop_a mixop_b && eq_exps exps_a exps_b
   | _ -> false
 
 and eq_pathconds (pathconds_a : pathcond list) (pathconds_b : pathcond list) :
@@ -129,6 +133,21 @@ and eq_instr (instr_a : instr) (instr_b : instr) : bool =
   | ( IfI (exp_cond_a, iterexps_a, instrs_then_a, phantom_opt_a),
       IfI (exp_cond_b, iterexps_b, instrs_then_b, phantom_opt_b) ) ->
       eq_exp exp_cond_a exp_cond_b
+      && eq_iterexps iterexps_a iterexps_b
+      && eq_instrs instrs_then_a instrs_then_b
+      && eq_phantom_opt phantom_opt_a phantom_opt_b
+  | ( IfHoldI (id_a, (mixop_a, exps_a), iterexps_a, instrs_then_a, phantom_opt_a),
+      IfHoldI (id_b, (mixop_b, exps_b), iterexps_b, instrs_then_b, phantom_opt_b)
+    ) ->
+      eq_id id_a id_b && eq_mixop mixop_a mixop_b && eq_exps exps_a exps_b
+      && eq_iterexps iterexps_a iterexps_b
+      && eq_instrs instrs_then_a instrs_then_b
+      && eq_phantom_opt phantom_opt_a phantom_opt_b
+  | ( IfNotHoldI
+        (id_a, (mixop_a, exps_a), iterexps_a, instrs_then_a, phantom_opt_a),
+      IfNotHoldI
+        (id_b, (mixop_b, exps_b), iterexps_b, instrs_then_b, phantom_opt_b) ) ->
+      eq_id id_a id_b && eq_mixop mixop_a mixop_b && eq_exps exps_a exps_b
       && eq_iterexps iterexps_a iterexps_b
       && eq_instrs instrs_then_a instrs_then_b
       && eq_phantom_opt phantom_opt_a phantom_opt_b

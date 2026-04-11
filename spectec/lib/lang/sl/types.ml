@@ -109,9 +109,11 @@ and pid = int
 and phantom = pid * pathcond list
 
 and pathcond =
-  | ForallC of exp * iterexp list
-  | ExistsC of exp * iterexp list
+  | ForallC of pathcond * iterexp list
+  | ExistsC of pathcond * iterexp list
   | PlainC of exp
+  | HoldC of id * notexp
+  | NotHoldC of id * notexp
 
 (* Case analysis *)
 
@@ -129,7 +131,9 @@ and guard =
 and instr = instr' phrase
 and instr' =
   | IfI of exp * iterexp list * instr list * phantom option
-  | CaseI of exp * case list * phantom option 
+  | IfHoldI of id * notexp * iterexp list * instr list * phantom option
+  | IfNotHoldI of id * notexp * iterexp list * instr list * phantom option
+  | CaseI of exp * case list * phantom option
   | OtherwiseI of instr
   | LetI of exp * exp * iterexp list
   | RuleI of id * notexp * iterexp list

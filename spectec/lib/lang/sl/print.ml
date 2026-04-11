@@ -114,9 +114,6 @@ let rec string_of_exp exp =
       ^ string_of_exp exp_f ^ "]"
   | Il.CallE (defid, targs, args) ->
       string_of_defid defid ^ string_of_targs targs ^ string_of_args args
-  | Il.HoldE (relid, notexp) ->
-      "(" ^ string_of_relid relid ^ ": " ^ string_of_notexp notexp ^ " holds"
-      ^ ")"
   | Il.IterE (exp, iterexp) -> string_of_exp exp ^ string_of_iterexp iterexp
 
 and string_of_exps sep exps = String.concat sep (List.map string_of_exp exps)
@@ -188,13 +185,21 @@ and string_of_phantom phantom =
 
 and string_of_pathcond pathcond =
   match pathcond with
-  | ForallC (exp, iterexps) ->
-      Format.asprintf "(forall %s)%s" (string_of_exp exp)
+  | ForallC (pathcond, iterexps) ->
+      Format.asprintf "(forall %s)%s"
+        (string_of_pathcond pathcond)
         (string_of_iterexps iterexps)
-  | ExistsC (exp, iterexps) ->
-      Format.asprintf "(exists %s)%s" (string_of_exp exp)
+  | ExistsC (pathcond, iterexps) ->
+      Format.asprintf "(exists %s)%s"
+        (string_of_pathcond pathcond)
         (string_of_iterexps iterexps)
   | PlainC exp -> "(" ^ string_of_exp exp ^ ")"
+  | HoldC (relid, notexp) ->
+      Format.asprintf "(%s: %s holds)" (string_of_relid relid)
+        (string_of_notexp notexp)
+  | NotHoldC (relid, notexp) ->
+      Format.asprintf "(%s: %s does not hold)" (string_of_relid relid)
+        (string_of_notexp notexp)
 
 and string_of_pathconds pathconds =
   List.map string_of_pathcond pathconds |> String.concat " /\\ "
@@ -235,6 +240,30 @@ and string_of_instr ?(level = 0) ?(index = 0) instr =
   | IfI (exp_cond, iterexps, instrs_then, Some phantom) ->
       Format.asprintf "%sIf (%s)%s, then\n\n%s\n\n%sElse %s" order
         (string_of_exp exp_cond)
+        (string_of_iterexps iterexps)
+        (string_of_instrs ~level:(level + 1) instrs_then)
+        order
+        (string_of_phantom phantom)
+  | IfHoldI (id_rel, notexp, iterexps, instrs_then, None) ->
+      Format.asprintf "%sIf (%s: %s holds)%s, then\n\n%s" order
+        (string_of_relid id_rel) (string_of_notexp notexp)
+        (string_of_iterexps iterexps)
+        (string_of_instrs ~level:(level + 1) instrs_then)
+  | IfHoldI (id_rel, notexp, iterexps, instrs_then, Some phantom) ->
+      Format.asprintf "%sIf (%s: %s holds)%s, then\n\n%s\n\n%sElse %s" order
+        (string_of_relid id_rel) (string_of_notexp notexp)
+        (string_of_iterexps iterexps)
+        (string_of_instrs ~level:(level + 1) instrs_then)
+        order
+        (string_of_phantom phantom)
+  | IfNotHoldI (id_rel, notexp, iterexps, instrs_then, None) ->
+      Format.asprintf "%sIf (%s: %s does not hold)%s, then\n\n%s" order
+        (string_of_relid id_rel) (string_of_notexp notexp)
+        (string_of_iterexps iterexps)
+        (string_of_instrs ~level:(level + 1) instrs_then)
+  | IfNotHoldI (id_rel, notexp, iterexps, instrs_then, Some phantom) ->
+      Format.asprintf "%sIf (%s: %s does not hold)%s, then\n\n%s\n\n%sElse %s"
+        order (string_of_relid id_rel) (string_of_notexp notexp)
         (string_of_iterexps iterexps)
         (string_of_instrs ~level:(level + 1) instrs_then)
         order
