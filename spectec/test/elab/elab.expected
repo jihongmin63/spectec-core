@@ -11373,7 +11373,7 @@ relation Cast_expl_canon: typeIR -> typeIR
 
    ;; ../../../../../spectec/examples/p4-concrete/5.05.2-subtype.spectec:15:1-18:47:
    rule not-equals: typeIR_a -> typeIR_b
-      -- if ~Type_alpha: typeIR_a ~~ typeIR_b holds
+      -- if Type_alpha: typeIR_a ~~ typeIR_b does not hold
       -- if Cast_expl_canon_neq: typeIR_a -> typeIR_b holds
 
 ;; ../../../../../spectec/examples/p4-concrete/5.04-typing-relation.spectec:33:1-33:65:
@@ -11762,7 +11762,7 @@ relation Cast_impl_canon: typeIR -> typeIR
 
    ;; ../../../../../spectec/examples/p4-concrete/5.05.2-subtype.spectec:201:1-204:47:
    rule not-equals: typeIR_a -> typeIR_b
-      -- if ~Type_alpha: typeIR_a ~~ typeIR_b holds
+      -- if Type_alpha: typeIR_a ~~ typeIR_b does not hold
       -- if Cast_impl_canon_neq: typeIR_a -> typeIR_b holds
 
 ;; ../../../../../spectec/examples/p4-concrete/5.04-typing-relation.spectec:37:1-37:65:
@@ -15544,7 +15544,7 @@ def $coerce_unary(typedExpressionIR, typeIR) : typedExpressionIR? =
    ;; ../../../../../spectec/examples/p4-concrete/5.05.2-subtype.spectec:414:1-419:63:
    clause 1(typedExpressionIR, typeIR_to) = ?(typedExpressionIR_cast)
       -- let _expressionIR # ( typeIR ctk ) = typedExpressionIR
-      -- if ~Type_alpha: typeIR ~~ typeIR_to holds
+      -- if Type_alpha: typeIR ~~ typeIR_to does not hold
       -- if Cast_impl: typeIR -> typeIR_to holds
       -- let typedExpressionIR_cast = ( typeIR_to ) typedExpressionIR as expressionIR # ( typeIR_to ctk )
 
@@ -15561,7 +15561,7 @@ def $coerce_binary(typedExpressionIR, typedExpressionIR) : (typedExpressionIR, t
    clause 1(typedExpressionIR_l, typedExpressionIR_r) = ?((typedExpressionIR_l_cast, typedExpressionIR_r))
       -- let _expressionIR # ( typeIR_l ctk_l ) = typedExpressionIR_l
       -- let _expressionIR' # ( typeIR_r _ctk ) = typedExpressionIR_r
-      -- if ~Type_alpha: typeIR_l ~~ typeIR_r holds
+      -- if Type_alpha: typeIR_l ~~ typeIR_r does not hold
       -- if Cast_impl: typeIR_l -> typeIR_r holds
       -- let typedExpressionIR_l_cast = ( typeIR_r ) typedExpressionIR_l as expressionIR # ( typeIR_r ctk_l )
 
@@ -15569,8 +15569,8 @@ def $coerce_binary(typedExpressionIR, typedExpressionIR) : (typedExpressionIR, t
    clause 2(typedExpressionIR_l, typedExpressionIR_r) = ?((typedExpressionIR_l, typedExpressionIR_r_cast))
       -- let _expressionIR # ( typeIR_l _ctk ) = typedExpressionIR_l
       -- let _expressionIR' # ( typeIR_r ctk_r ) = typedExpressionIR_r
-      -- if ~Type_alpha: typeIR_l ~~ typeIR_r holds
-      -- if ~Cast_impl: typeIR_l -> typeIR_r holds
+      -- if Type_alpha: typeIR_l ~~ typeIR_r does not hold
+      -- if Cast_impl: typeIR_l -> typeIR_r does not hold
       -- if Cast_impl: typeIR_r -> typeIR_l holds
       -- let typedExpressionIR_r_cast = ( typeIR_l ) typedExpressionIR_r as expressionIR # ( typeIR_l ctk_r )
 
@@ -16625,7 +16625,7 @@ relation SelectCase_keyset_simple_ok: typingContext typeIR |- simpleKeysetExpres
       -- let set< typeIR'*{typeIR' <- typeIR'*} > = typeIR'' as setTypeIR
       -- if typeIR'*{typeIR' <- typeIR'*} matches [ _/1 ]
       -- let [typeIR] = typeIR'*{typeIR' <- typeIR'*}
-      -- if ~Type_alpha: typeIR ~~ typeIR_key holds
+      -- if Type_alpha: typeIR ~~ typeIR_key does not hold
       -- if Cast_impl: typeIR -> typeIR_key holds
       -- let typeIR_cast = set< [typeIR_key] > as typeIR
       -- let typedExpressionIR_cast = ( typeIR_cast ) typedExpressionIR as expressionIR # ( typeIR_cast dyn )
@@ -17677,7 +17677,7 @@ def $merge_constraint'(constraint, constraint, tid*, constraint) : constraint =
       -- let ?(infer'') = infer'''?{infer''' <- infer'''?}
       -- if infer'' matches `KNOWNAS%`
       -- let knownas typeIR_post = infer''
-      -- if ~Cast_impl: typeIR_pre -> typeIR_post holds
+      -- if Cast_impl: typeIR_pre -> typeIR_post does not hold
       -- if Cast_impl: typeIR_post -> typeIR_pre holds
       -- let constraint_updated = $update_map<tid, infer>(constraint, tid_h, knownas typeIR_pre)
 

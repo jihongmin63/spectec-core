@@ -51,6 +51,16 @@ let instr_header instr =
       Format.sprintf "If (%s)%s"
         (Sl.Print.string_of_exp exp)
         (Sl.Print.string_of_iterexps iterexps)
+  | Sl.IfHoldI (id, notexp, iterexps, _, _) ->
+      Format.sprintf "If (%s: %s holds)%s"
+        (Sl.Print.string_of_relid id)
+        (Sl.Print.string_of_notexp notexp)
+        (Sl.Print.string_of_iterexps iterexps)
+  | Sl.IfNotHoldI (id, notexp, iterexps, _, _) ->
+      Format.sprintf "If (%s: %s does not hold)%s"
+        (Sl.Print.string_of_relid id)
+        (Sl.Print.string_of_notexp notexp)
+        (Sl.Print.string_of_iterexps iterexps)
   | Sl.CaseI (exp, _, _) ->
       Format.sprintf "Case on %s" (Sl.Print.string_of_exp exp)
   | Sl.OtherwiseI _ -> "Otherwise"
@@ -82,6 +92,8 @@ module M : Instrumentation_core.Handler.S = struct
     State.total_instrs := !State.total_instrs + 1;
     match instr.it with
     | Sl.IfI (_, _, instrs, _) -> List.iter count_instr instrs
+    | Sl.IfHoldI (_, _, _, instrs, _) -> List.iter count_instr instrs
+    | Sl.IfNotHoldI (_, _, _, instrs, _) -> List.iter count_instr instrs
     | Sl.CaseI (_, cases, _) ->
         List.iter (fun (_, instrs) -> List.iter count_instr instrs) cases
     | Sl.OtherwiseI inner -> count_instr inner
@@ -170,6 +182,10 @@ module M : Instrumentation_core.Handler.S = struct
     Format.fprintf !fmt "%5s %s%s\n" count indent content;
     match instr.it with
     | Sl.IfI (_, _, instrs, _) -> List.iter (print_instr (indent ^ "  ")) instrs
+    | Sl.IfHoldI (_, _, _, instrs, _) ->
+        List.iter (print_instr (indent ^ "  ")) instrs
+    | Sl.IfNotHoldI (_, _, _, instrs, _) ->
+        List.iter (print_instr (indent ^ "  ")) instrs
     | Sl.CaseI (_, cases, _) ->
         List.iter
           (fun (guard, instrs) ->

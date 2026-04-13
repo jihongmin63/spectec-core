@@ -78,7 +78,7 @@ end
 
 let rec is_fallible prem =
   match prem.it with
-  | LetPr _ | ElsePr | DebugPr _ -> false
+  | LetPr _ | ElsePr | DebugPr _ | IfHoldPr _ | IfNotHoldPr _ -> false
   | IterPr (inner, _) -> is_fallible inner
   | IfPr _ | RulePr _ -> true
 
@@ -92,7 +92,7 @@ module M : Instrumentation_core.Handler.S = struct
   let rec count_prem prem =
     match prem.it with
     (* count IfPr, RulePr, and their iterations *)
-    | LetPr _ | ElsePr | DebugPr _ ->
+    | LetPr _ | ElsePr | DebugPr _ | IfHoldPr _ | IfNotHoldPr _ ->
         State.total_prems := !State.total_prems + 1
     | IterPr (inner, _) -> count_prem inner
     | IfPr _ ->
@@ -155,7 +155,7 @@ module M : Instrumentation_core.Handler.S = struct
     else
       let rec incr_failures prem =
         match prem.it with
-        | LetPr _ | ElsePr | DebugPr _ -> ()
+        | LetPr _ | ElsePr | DebugPr _ | IfHoldPr _ | IfNotHoldPr _ -> ()
         | IterPr (inner, _) -> incr_failures inner
         | IfPr _ | RulePr _ ->
             let key = prem_key prem in

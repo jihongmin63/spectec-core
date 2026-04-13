@@ -58,11 +58,13 @@ let pid () =
 let negate_exp (exp : exp) : exp =
   Il.UnE (`NotOp, `BoolT, exp) $$ (exp.at, exp.note)
 
-let negate_pathcond (pathcond : pathcond) : pathcond =
+let rec negate_pathcond (pathcond : pathcond) : pathcond =
   match pathcond with
-  | ForallC (exp_cond, iterexps) -> ExistsC (negate_exp exp_cond, iterexps)
-  | ExistsC (exp_cond, iterexps) -> ForallC (negate_exp exp_cond, iterexps)
+  | ForallC (pathcond, iterexps) -> ExistsC (negate_pathcond pathcond, iterexps)
+  | ExistsC (pathcond, iterexps) -> ForallC (negate_pathcond pathcond, iterexps)
   | PlainC exp_cond -> PlainC (negate_exp exp_cond)
+  | HoldC (id, notexp) -> NotHoldC (id, notexp)
+  | NotHoldC (id, notexp) -> HoldC (id, notexp)
 
 (* Phantom insertion *)
 
@@ -76,7 +78,8 @@ and insert_phantom' (tdenv : TDEnv.t) (pathconds : pathcond list)
   match instr.it with
   | IfI (exp_cond, iterexps, instrs_then) ->
       let pathcond =
-        if iterexps = [] then PlainC exp_cond else ForallC (exp_cond, iterexps)
+        if iterexps = [] then PlainC exp_cond
+        else ForallC (PlainC exp_cond, iterexps)
       in
       let instrs_then =
         let pathconds = pathconds @ [ pathcond ] in
@@ -88,6 +91,36 @@ and insert_phantom' (tdenv : TDEnv.t) (pathconds : pathcond list)
         (pid, pathconds)
       in
       Sl.IfI (exp_cond, iterexps, instrs_then, Some phantom) $ at
+  | IfHoldI (id, notexp, iterexps, instrs_then) ->
+      let pathcond =
+        if iterexps = [] then HoldC (id, notexp)
+        else ForallC (HoldC (id, notexp), iterexps)
+      in
+      let instrs_then =
+        let pathconds = pathconds @ [ pathcond ] in
+        insert_phantom tdenv pathconds instrs_then
+      in
+      let phantom =
+        let pid = pid () in
+        let pathconds = pathconds @ [ negate_pathcond pathcond ] in
+        (pid, pathconds)
+      in
+      Sl.IfHoldI (id, notexp, iterexps, instrs_then, Some phantom) $ at
+  | IfNotHoldI (id, notexp, iterexps, instrs_then) ->
+      let pathcond =
+        if iterexps = [] then NotHoldC (id, notexp)
+        else ForallC (NotHoldC (id, notexp), iterexps)
+      in
+      let instrs_then =
+        let pathconds = pathconds @ [ pathcond ] in
+        insert_phantom tdenv pathconds instrs_then
+      in
+      let phantom =
+        let pid = pid () in
+        let pathconds = pathconds @ [ negate_pathcond pathcond ] in
+        (pid, pathconds)
+      in
+      Sl.IfNotHoldI (id, notexp, iterexps, instrs_then, Some phantom) $ at
   | CaseI (exp, cases, total) ->
       let pathconds_cases =
         List.map
@@ -145,6 +178,12 @@ and insert_nothing' (instr : instr) : Sl.instr =
   | IfI (exp_cond, iterexps, instrs_then) ->
       let instrs_then = insert_nothing instrs_then in
       Sl.IfI (exp_cond, iterexps, instrs_then, None) $ at
+  | IfHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = insert_nothing instrs_then in
+      Sl.IfHoldI (id, notexp, iterexps, instrs_then, None) $ at
+  | IfNotHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = insert_nothing instrs_then in
+      Sl.IfNotHoldI (id, notexp, iterexps, instrs_then, None) $ at
   | CaseI (exp, cases, _total) ->
       let cases =
         let guards, blocks = List.split cases in

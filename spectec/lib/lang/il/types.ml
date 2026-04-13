@@ -125,7 +125,6 @@ and exp' =
   | SliceE of exp * exp * exp             (* exp `[` exp `:` exp `]` *)
   | UpdE of exp * path * exp              (* exp `[` path `=` exp `]` *)
   | CallE of id * targ list * arg list    (* $id`<` targ* `>``(` arg* `)` *)
-  | HoldE of id * notexp                  (* id `:` notexp `holds` *)
   | IterE of exp * iterexp                (* exp iterexp *)
 
 and notexp = mixop * exp list
@@ -184,6 +183,8 @@ and prem = prem' phrase
 and prem' =
   | RulePr of id * notexp          (* id `:` notexp *)
   | IfPr of exp                    (* `if` exp *)
+  | IfHoldPr of id * notexp        (* `if` id `:` notexp `holds` *)
+  | IfNotHoldPr of id * notexp     (* `if` id `:` notexp `does not hold` *)
   | ElsePr                         (* `otherwise` *)
   | LetPr of exp * exp             (* `let` exp `=` exp *)
   | IterPr of prem * iterexp       (* prem iterexp *)

@@ -72,6 +72,12 @@ let rec parallelize_if_disjunction (instr : instr) : instr list =
             (fun exp_cond -> IfI (exp_cond, iterexps, instrs_then) $ at)
             exps_cond
       | None -> [ instr ])
+  | IfHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = parallelize_if_disjunctions instrs_then in
+      [ IfHoldI (id, notexp, iterexps, instrs_then) $ at ]
+  | IfNotHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = parallelize_if_disjunctions instrs_then in
+      [ IfNotHoldI (id, notexp, iterexps, instrs_then) $ at ]
   | _ -> [ instr ]
 
 and parallelize_if_disjunctions (instrs : instr list) : instr list =
@@ -260,6 +266,17 @@ let rec remove_redundant_bindings' (henv : HEnv.t) (bind : Bind.t)
       let instr_h = IfI (exp_cond, iterexps, instrs_then) $ at in
       let instrs_t = remove_redundant_bindings' henv bind instrs_t in
       instr_h :: instrs_t
+  | { it = IfHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t ->
+      let instrs_then = instrs_then |> remove_redundant_bindings' henv bind in
+      let instr_h = IfHoldI (id, notexp, iterexps, instrs_then) $ at in
+      let instrs_t = remove_redundant_bindings' henv bind instrs_t in
+      instr_h :: instrs_t
+  | { it = IfNotHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t
+    ->
+      let instrs_then = instrs_then |> remove_redundant_bindings' henv bind in
+      let instr_h = IfNotHoldI (id, notexp, iterexps, instrs_then) $ at in
+      let instrs_t = remove_redundant_bindings' henv bind instrs_t in
+      instr_h :: instrs_t
   | { it = CaseI (exp, cases, total); at; _ } :: instrs_t ->
       let cases =
         let guards, blocks = List.split cases in
@@ -302,6 +319,17 @@ let rec remove_redundant_bindings (henv : HEnv.t) (instrs : instr list) :
   | { it = IfI (exp_cond, iterexps, instrs_then); at; _ } :: instrs_t ->
       let instrs_then = instrs_then |> remove_redundant_bindings henv in
       let instr_h = IfI (exp_cond, iterexps, instrs_then) $ at in
+      let instrs_t = remove_redundant_bindings henv instrs_t in
+      instr_h :: instrs_t
+  | { it = IfHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t ->
+      let instrs_then = instrs_then |> remove_redundant_bindings henv in
+      let instr_h = IfHoldI (id, notexp, iterexps, instrs_then) $ at in
+      let instrs_t = remove_redundant_bindings henv instrs_t in
+      instr_h :: instrs_t
+  | { it = IfNotHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t
+    ->
+      let instrs_then = instrs_then |> remove_redundant_bindings henv in
+      let instr_h = IfNotHoldI (id, notexp, iterexps, instrs_then) $ at in
       let instrs_t = remove_redundant_bindings henv instrs_t in
       instr_h :: instrs_t
   | { it = CaseI (exp, cases, total); at; _ } :: instrs_t ->
@@ -577,6 +605,21 @@ let rec merge_if (tdenv : TDEnv.t) (instrs : instr list) : instr list =
           in
           let instrs_t = merge_if tdenv instrs_t in
           instr_h :: instrs_t)
+  | { it = IfHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t ->
+      let instr_h =
+        let instrs_then = merge_if tdenv instrs_then in
+        IfHoldI (id, notexp, iterexps, instrs_then) $ at
+      in
+      let instrs_t = merge_if tdenv instrs_t in
+      instr_h :: instrs_t
+  | { it = IfNotHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t
+    ->
+      let instr_h =
+        let instrs_then = merge_if tdenv instrs_then in
+        IfNotHoldI (id, notexp, iterexps, instrs_then) $ at
+      in
+      let instrs_t = merge_if tdenv instrs_t in
+      instr_h :: instrs_t
   | { it = CaseI (exp, cases, total); at; _ } :: instrs_t ->
       let instr_h =
         let guards, blocks = List.split cases in
@@ -588,6 +631,85 @@ let rec merge_if (tdenv : TDEnv.t) (instrs : instr list) : instr list =
       instr_h :: instrs_t
   | instr_h :: instrs_t ->
       let instrs_t = merge_if tdenv instrs_t in
+      instr_h :: instrs_t
+
+(* [5-2] Merge consecutive if-hold statements with the same condition *)
+
+let rec merge_identical_if_hold (at : region) (id_target : id)
+    (notexp_target : notexp) (iterexps_target : iterexp list)
+    (instrs_then_target : instr list) (instrs : instr list) : instr list option
+    =
+  merge_identical_if_hold' id_target notexp_target iterexps_target [] instrs
+  |> Option.map (fun (instrs_then, instrs_leftover) ->
+         let instr =
+           let instrs_then = merge_block instrs_then_target instrs_then in
+           IfHoldI (id_target, notexp_target, iterexps_target, instrs_then) $ at
+         in
+         instr :: instrs_leftover)
+
+and merge_identical_if_hold' (id_target : id) (notexp_target : notexp)
+    (iterexps_target : iterexp list) (instrs_leftover : instr list)
+    (instrs : instr list) : (instr list * instr list) option =
+  match instrs with
+  | ({ it = IfHoldI (id, notexp, iterexps, instrs_then); _ } as instr_h)
+    :: instrs_t ->
+      let mixop_target, exps_target = notexp_target in
+      let mixop, exps = notexp in
+      if
+        Sl.Eq.eq_id id id_target
+        && Sl.Eq.eq_mixop mixop mixop_target
+        && Sl.Eq.eq_exps exps exps_target
+        && Sl.Eq.eq_iterexps iterexps iterexps_target
+      then
+        let instrs_leftover = instrs_leftover @ instrs_t in
+        Some (instrs_then, instrs_leftover)
+      else
+        let instrs_leftover = instrs_leftover @ [ instr_h ] in
+        merge_identical_if_hold' id_target notexp_target iterexps_target
+          instrs_leftover instrs_t
+  | _ -> None
+
+let rec merge_if_hold (instrs : instr list) : instr list =
+  match instrs with
+  | [] -> []
+  | { it = IfI (exp_cond, iterexps, instrs_then); at; _ } :: instrs_t ->
+      let instr_h =
+        let instrs_then = merge_if_hold instrs_then in
+        IfI (exp_cond, iterexps, instrs_then) $ at
+      in
+      let instrs_t = merge_if_hold instrs_t in
+      instr_h :: instrs_t
+  | { it = IfHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t -> (
+      match
+        merge_identical_if_hold at id notexp iterexps instrs_then instrs_t
+      with
+      | Some instrs -> merge_if_hold instrs
+      | None ->
+          let instr_h =
+            let instrs_then = merge_if_hold instrs_then in
+            IfHoldI (id, notexp, iterexps, instrs_then) $ at
+          in
+          let instrs_t = merge_if_hold instrs_t in
+          instr_h :: instrs_t)
+  | { it = IfNotHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t
+    ->
+      let instr_h =
+        let instrs_then = merge_if_hold instrs_then in
+        IfNotHoldI (id, notexp, iterexps, instrs_then) $ at
+      in
+      let instrs_t = merge_if_hold instrs_t in
+      instr_h :: instrs_t
+  | { it = CaseI (exp, cases, total); at; _ } :: instrs_t ->
+      let instr_h =
+        let guards, blocks = List.split cases in
+        let blocks = List.map merge_if_hold blocks in
+        let cases = List.combine guards blocks in
+        CaseI (exp, cases, total) $ at
+      in
+      let instrs_t = merge_if_hold instrs_t in
+      instr_h :: instrs_t
+  | instr_h :: instrs_t ->
+      let instrs_t = merge_if_hold instrs_t in
       instr_h :: instrs_t
 
 (* [5-2-a] if-and-if to case analysis *)
@@ -815,6 +937,21 @@ let rec casify (tdenv : TDEnv.t) (instrs : instr list) : instr list =
           in
           let instrs_t = casify tdenv instrs_t in
           instr_h :: instrs_t)
+  | { it = IfHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t ->
+      let instr_h =
+        let instrs_then = casify tdenv instrs_then in
+        IfHoldI (id, notexp, iterexps, instrs_then) $ at
+      in
+      let instrs_t = casify tdenv instrs_t in
+      instr_h :: instrs_t
+  | { it = IfNotHoldI (id, notexp, iterexps, instrs_then); at; _ } :: instrs_t
+    ->
+      let instr_h =
+        let instrs_then = casify tdenv instrs_then in
+        IfNotHoldI (id, notexp, iterexps, instrs_then) $ at
+      in
+      let instrs_t = casify tdenv instrs_t in
+      instr_h :: instrs_t
   | { it = CaseI (exp, cases, total); at; _ } :: instrs_t -> (
       match casify_from_case tdenv at exp cases total instrs_t with
       | Some instrs -> casify tdenv instrs
@@ -857,6 +994,12 @@ and totalize_case_analysis' (tdenv : TDEnv.t) (instr : instr) : instr =
   | IfI (exp_cond, iterexps, instrs_then) ->
       let instrs_then = totalize_case_analysis tdenv instrs_then in
       IfI (exp_cond, iterexps, instrs_then) $ at
+  | IfHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = totalize_case_analysis tdenv instrs_then in
+      IfHoldI (id, notexp, iterexps, instrs_then) $ at
+  | IfNotHoldI (id, notexp, iterexps, instrs_then) ->
+      let instrs_then = totalize_case_analysis tdenv instrs_then in
+      IfNotHoldI (id, notexp, iterexps, instrs_then) $ at
   | CaseI (exp, cases, false) -> (
       let cases =
         let guards, blocks = List.split cases in
@@ -886,7 +1029,9 @@ let optimize_pre (instrs : instr list) : instr list =
 let rec optimize_loop (henv : HEnv.t) (tdenv : TDEnv.t) (instrs : instr list) :
     instr list =
   let instrs_optimized =
-    instrs |> remove_redundant_bindings henv |> merge_if tdenv |> casify tdenv
+    instrs
+    |> remove_redundant_bindings henv
+    |> merge_if tdenv |> merge_if_hold |> casify tdenv
   in
   if Ol.Eq.eq_instrs instrs instrs_optimized then instrs
   else optimize_loop henv tdenv instrs_optimized
