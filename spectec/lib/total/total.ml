@@ -339,6 +339,18 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
                   SharedExp.add ov outer_src e
                 ) env' outer_vars vars' in
                 (env'', outer_vars))
+            | OptE expopt ->
+              (match expopt with
+              | None -> (env, [])
+              | Some inner_lhs ->
+                (* ?(inner_lhs) 패턴: match로 Some임이 확인된 후 등장하므로 내부 진입.
+                   value에서 Opt 한 겹을 벗겨 inner_val을 추출한다. *)
+                let inner_val = match value.it with
+                  | IterE (iv, _) -> iv
+                  | OptE (Some iv) -> iv
+                  | _ -> value
+                in
+                bind_pattern inner_lhs inner_val env)
             | _ -> (env, [])
           in
           let (env', new_vars) = bind_pattern lhs rhs_val env in
