@@ -262,6 +262,25 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
               ) env_with_elem outer_vars in
               MEM (env', outer_vars)
             | output -> output)
+          | MatchE (inner_exp, OptP `Some) ->
+            (* Opt match: inner_exp is known to be Some after this premise.
+               Look up inner_exp in env to find the resolved Opt value,
+               then extract and self-register the inner value so it becomes
+               accessible to subsequent premises. *)
+            let resolved = match SharedExp.find_opt inner_exp env with
+              | Some v -> v
+              | None -> inner_exp
+            in
+            let inner_val = match resolved.it with
+              | IterE (iv, _) -> iv
+              | OptE (Some iv) -> iv
+              | _ -> resolved
+            in
+            let all_vars = variables_in_exp inner_val in
+            let env' = List.fold_left (fun e v ->
+              if SharedExp.mem v e then e else SharedExp.add v v e
+            ) env all_vars in
+            MEM (env', all_vars)
           | _ -> MEM (env, []) (* SubE, CmpE, etc. — constrain path but introduce no new variables *)
         )
         | LetPr (lhs, rhs) ->
