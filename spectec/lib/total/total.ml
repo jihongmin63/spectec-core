@@ -84,6 +84,7 @@ let rec filter_id exp =
   | _ -> assert false
 
 let rec variables_in_exp exp =
+  let _ = Format.printf "exp : %s\n" (Print.string_of_exp exp) in
   match exp.it with
   | VarE _ -> [exp]
   | UnE (_, _, exp) | UpCastE (_, exp) | DownCastE (_, exp) | SubE (exp, _) | MatchE (exp, _) | LenE exp | DotE (exp, _) ->
@@ -107,18 +108,23 @@ let rec variables_in_exp exp =
     (variables_in_exp exp) @ (variables_in_exp exp_l) @ (variables_in_exp exp_n)
   | UpdE (exp, path, exp_new) ->
     (variables_in_exp exp) @ (variables_in_path path) @ (variables_in_exp exp_new)
-  | IterE (exp, iterexp) ->
-    let vars = variables_in_exp exp in
-    let _, itervars = iterexp in
-    vars @
-    (List.filter_map (fun var ->
-      if (List.exists (fun (itervar : var) ->
-          let id = filter_id var in
-          let iterid, _, _ = itervar in
-          id.it = iterid.it) itervars)
-      then Some (IterE (var, iterexp) $$ (no_region % (IterT (var.note $ no_region, fst iterexp))))
-      else
-      None) vars)
+  | IterE (exp_iter, iterexp) ->
+    let vars = variables_in_exp exp_iter in
+    let iter, itervars = iterexp in
+    (
+    match iter with
+    | Opt -> [exp]
+    | List ->
+      vars @
+      (List.filter_map (fun var ->
+        if (List.exists (fun (itervar : var) ->
+            let id = filter_id var in
+            let iterid, _, _ = itervar in
+            id.it = iterid.it) itervars)
+        then Some (IterE (var, iterexp) $$ (no_region % (IterT (var.note $ no_region, fst iterexp))))
+        else
+        None) vars)
+    )
   | BoolE _ | NumE _ | TextE _ | CallE _ -> []
 and variables_in_path path =
   match path.it with
@@ -410,6 +416,7 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
       | ExpA exp -> exp
       | DefA _ -> let _ = Format.printf "Do not support function parameter\n" in assert false
     ) args in
+    let _ = Format.printf "\n[ENV INIT]\n" in
     let init_env : exp SharedExp.t = List.fold_left (fun env exp ->
         let vars = variables_in_exp exp in
         List.fold_left (fun env var ->

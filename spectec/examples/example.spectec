@@ -1,6 +1,6 @@
 syntax type = A | B type
 
-dec $fun(type?) : type
-def $fun(type?) = A
-    -- if type' = type?
-    -- if B (B (B (B A))) = type'
+dec $fun(type*?) : type
+def $fun(type*?) = A
+    -- if type'* = type*?
+    -- if A = type'*
