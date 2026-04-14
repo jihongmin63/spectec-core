@@ -51,10 +51,34 @@ let p4_command =
       ("checkpoint", P4_Cmd.make_checkpoint ());
     ]
 
+let total_command =
+  Command.basic
+    ~summary:"check whether every function is total after elaborating a spec"
+    (let%map_open.Command
+       verbose = flag "-v" no_arg ~doc:" Enable verbose mode"
+     and filenames = anon (sequence ("spec files" %: string))
+     and color = Cli.Cli_args.color_flag
+     in
+     fun () ->
+       Cli.Command.with_error_handling
+         ~color
+         ~on_ok:(fun _ -> ())
+       @@ fun () ->
+       let* spec = parse_spec_files filenames in
+       let* spec_il = elaborate spec in
+       let _ = Format.printf "%s\n" (Lang.Il.Print.string_of_spec spec_il) in
+       let res = Total.are_funcdefs_total spec_il in
+       let _ = if verbose then res else res in
+       Ok spec_il
+    )
+
 let command =
   Core.Command.group ~summary:"SpecTec command line tools"
     [
-      ("elab", elab_command); ("struct", structure_command); ("p4", p4_command);
+      ("elab", elab_command);
+      ("struct", structure_command);
+      ("p4", p4_command);
+      ("total", total_command)
     ]
 
 let () = Command_unix.run ~version command

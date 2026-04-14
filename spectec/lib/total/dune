@@ -1,0 +1,4 @@
+(library
+ (name total)
+ (public_name spectec.total)
+ (libraries spectec.lang.il spectec.pass.elaborate))
