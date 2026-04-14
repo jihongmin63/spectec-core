@@ -84,7 +84,6 @@ let rec filter_id exp =
   | _ -> assert false
 
 let rec variables_in_exp exp =
-  let _ = Format.printf "exp : %s\n" (Print.string_of_exp exp) in
   match exp.it with
   | VarE _ -> [exp]
   | UnE (_, _, exp) | UpCastE (_, exp) | DownCastE (_, exp) | SubE (exp, _) | MatchE (exp, _) | LenE exp | DotE (exp, _) ->
@@ -313,27 +312,33 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
                   (e', acc @ vars')
                 ) (env, []) sub_exps)
             | IterE (inner_lhs, iterexp) ->
-              (* Descent through iteration: bind the element variable *)
-              let elem_val = match value.it with
-                | IterE (inner_val, _) -> inner_val
-                | _ -> value
-              in
-              let (env', vars') = bind_pattern inner_lhs elem_val env in
-              (* Ascent: wrap newly bound element variables in IterE for the outer env.
-                 Each outer var maps to IterE(inner_src, iterexp), not to itself, to preserve
-                 the SharedExp ancestry chain back to the original input. *)
-              let outer_vars = List.map (fun v ->
-                IterE (v, iterexp) $$ (v.at % IterT (v.note $ no_region, fst iterexp))
-              ) vars' in
-              let env'' = List.fold_left2 (fun e ov v ->
-                let inner_src = match SharedExp.find_opt v env' with
-                  | Some s -> s
-                  | None -> v
+              let iter, _itervars = iterexp in
+              (match iter with
+              | Opt ->
+                (* Optional iter may be absent, so do not bind inner variables into env. *)
+                (SharedExp.add lhs value env, [lhs])
+              | List ->
+                (* Descent through iteration: bind the element variable *)
+                let elem_val = match value.it with
+                  | IterE (inner_val, _) -> inner_val
+                  | _ -> value
                 in
-                let outer_src = IterE (inner_src, iterexp) $$ (inner_src.at % IterT (inner_src.note $ no_region, fst iterexp)) in
-                SharedExp.add ov outer_src e
-              ) env' outer_vars vars' in
-              (env'', outer_vars)
+                let (env', vars') = bind_pattern inner_lhs elem_val env in
+                (* Ascent: wrap newly bound element variables in IterE for the outer env.
+                   Each outer var maps to IterE(inner_src, iterexp), not to itself, to preserve
+                   the SharedExp ancestry chain back to the original input. *)
+                let outer_vars = List.map (fun v ->
+                  IterE (v, iterexp) $$ (v.at % IterT (v.note $ no_region, fst iterexp))
+                ) vars' in
+                let env'' = List.fold_left2 (fun e ov v ->
+                  let inner_src = match SharedExp.find_opt v env' with
+                    | Some s -> s
+                    | None -> v
+                  in
+                  let outer_src = IterE (inner_src, iterexp) $$ (inner_src.at % IterT (inner_src.note $ no_region, fst iterexp)) in
+                  SharedExp.add ov outer_src e
+                ) env' outer_vars vars' in
+                (env'', outer_vars))
             | _ -> (env, [])
           in
           let (env', new_vars) = bind_pattern lhs rhs_val env in
@@ -416,7 +421,6 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
       | ExpA exp -> exp
       | DefA _ -> let _ = Format.printf "Do not support function parameter\n" in assert false
     ) args in
-    let _ = Format.printf "\n[ENV INIT]\n" in
     let init_env : exp SharedExp.t = List.fold_left (fun env exp ->
         let vars = variables_in_exp exp in
         List.fold_left (fun env var ->
