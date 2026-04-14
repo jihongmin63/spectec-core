@@ -2,5 +2,5 @@ syntax type = A nat | B type
 
 dec $fun(type*) : nat*
 def $fun(type*) = nat*
-    -- (if type'* = type*)
-    -- (if A nat = type')*
+    -- (if B type' = type)*
+    -- (if A nat = type)*

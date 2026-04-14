@@ -328,6 +328,14 @@ let debug env =
     Format.printf "%s -> %s\n" (Print.string_of_exp (fst pair)) (Print.string_of_exp (snd pair))
   ) pairs
 
+let find_by_id (target_id : id) (env : exp SharedExp.t) : exp option =
+  SharedExp.bindings env
+  |> List.find_map (fun (k, v) ->
+    match k.it with
+    | VarE id when id.it = target_id.it -> Some v
+    | _ -> None
+  )
+
 let rec filter_id exp =
   match exp.it with
   | VarE id -> id
@@ -456,7 +464,11 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
               let inner_var = VarE iterid $$ (iterid.at % typ.it) in
               let inner_val = match SharedExp.find_opt inner_var env with
                 | Some v -> v
-                | None -> inner_var
+                | None -> (
+                  match find_by_id iterid env with
+                  | Some v -> v
+                  | None -> inner_var
+                )
               in
               SharedExp.add inner_var inner_val ie
             ) env itervars in
@@ -587,7 +599,11 @@ let is_funcdef_total spec (funcdef : (tparam list * param list * clause list)) =
             let inner_var = VarE iterid $$ (iterid.at % typ.it) in
             let inner_val = match SharedExp.find_opt inner_var env with
               | Some v -> v
-              | None -> inner_var
+              | None -> (
+                match find_by_id iterid env with
+                | Some v -> v
+                | None -> inner_var
+              )
             in
             SharedExp.add inner_var inner_val ie
           ) env itervars in
