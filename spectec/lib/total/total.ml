@@ -101,10 +101,11 @@ and of_path path =
 
 (* ─── Spec: look up typing information from the spec ──────────────────────── *)
 
-(** Return the field types for [target_mixop] in the variant type that
-    [exp]'s type annotation resolves to, or [] if not found. *)
-let field_typs_of_mixop spec (exp : exp) (target_mixop : mixop) =
-  match exp.note with
+(** Look up [target_mixop] in the variant type of [exp], returning [Some typs]
+    if the case is found (with [typs] possibly empty for 0-field cases) or
+    [None] if [exp]'s type is not a variant type or doesn't contain the case. *)
+let find_variant_case spec (exp_note : typ') (target_mixop : mixop) =
+  match exp_note with
   | VarT (id, _) ->
     let deftyp_opt = List.find_map (fun def ->
       match def.it with
@@ -115,13 +116,20 @@ let field_typs_of_mixop spec (exp : exp) (target_mixop : mixop) =
     | Some dt -> (match dt.it with
       | VariantT cases ->
         (match List.find_opt (fun (nottyp, _) ->
-          let (m, _) = nottyp.it in m = target_mixop
+          let (m, _) = nottyp.it in Xl.Mixop.eq m target_mixop
         ) cases with
-        | Some (nottyp, _) -> let (_, typs) = nottyp.it in typs
-        | None -> [])
-      | _ -> [])
-    | None -> [])
-  | _ -> []
+        | Some (nottyp, _) -> let (_, typs) = nottyp.it in Some typs
+        | None -> None)
+      | _ -> None)
+    | None -> None)
+  | _ -> None
+
+(** Return the field types for [target_mixop] in the variant type that
+    [exp]'s type annotation resolves to, or [] if not found. *)
+let field_typs_of_mixop spec (exp : exp) (target_mixop : mixop) =
+  match find_variant_case spec exp.note target_mixop with
+  | Some typs -> typs
+  | None -> []
 
 (* ─── Scope: enter and leave an iteration scope ───────────────────────────── *)
 
@@ -346,8 +354,31 @@ let rec prem_binds_variable (ctx : checker) prem env =
       | MEM (new_inner_env, new_inner_vars) ->
         ascend env inner_env new_inner_env new_inner_vars iterexp
       | output -> output)
+    | CmpE (`EqOp, _, lhs, rhs) ->
+      (* Variant-equality narrowing: if one side is a CaseE (specific variant
+         constructor) and the other is a VarE whose type contains that case,
+         narrow the variable's resolved value to that case. *)
+      let _ = Format.printf "%s vs %s\n" (string_of_typ_ lhs.note) (string_of_typ_ rhs.note) in
+      let try_narrow case_exp var_exp =
+        match case_exp.it, var_exp.it with
+        | CaseE (mixop, sub_exps), VarE _ | CaseE (mixop, sub_exps), IterE _ | IterE _, CaseE (mixop, sub_exps)  | VarE _, CaseE (mixop, sub_exps) ->
+          (match find_variant_case ctx.spec case_exp.note mixop with
+          | Some field_typs when List.length field_typs = List.length sub_exps ->
+            let resolved = match SharedExp.find_opt var_exp env with
+              | Some v -> v | None -> var_exp
+            in
+            Some (MEM (SharedExp.add resolved case_exp env, []))
+          | _ -> None)
+        | _ -> None
+      in
+      (match try_narrow lhs rhs with
+      | Some result -> result
+      | None ->
+        match try_narrow rhs lhs with
+        | Some result -> result
+        | None -> MEM (env, []))
     | _ ->
-      (* SubE, CmpE, etc. — constrain the path but introduce no new variables *)
+      (* SubE, other CmpE variants, etc. — no new variables *)
       MEM (env, [])
   )
   | LetPr (lhs, rhs) ->
@@ -370,7 +401,9 @@ let rec prem_binds_variable (ctx : checker) prem env =
     Short-circuits on FAIL or OTHERWISE. *)
 let iterate_prems (ctx : checker) env prems =
   let rec loop env = function
-    | [] -> MEM (env, [])
+    | [] ->
+      let _ = Env.debug env in
+      MEM (env, [])
     | prem :: rest ->
       let _ = Env.debug env in
       (match prem_binds_variable ctx prem env with
