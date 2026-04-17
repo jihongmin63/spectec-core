@@ -105,71 +105,6 @@ module Env = struct
 
 end
 
-(* ─── Vars: extract variable sub-expressions from terms ───────────────────── *)
-
-module Vars = struct
-
-  let rec filter_id exp =
-    match exp.it with
-    | VarE id -> id
-    | IterE (e, _) -> filter_id e
-    | _ -> assert false
-
-  let exp_mapsto_env env ctx exp =
-    let rec exp_mapsto_env_aux env exp =
-      match exp.it with
-      | VarE _ -> Env.init_exp env exp ctx
-      | UnE (_, _, exp) | UpCastE (_, exp) | DownCastE (_, exp)
-      | SubE (exp, _) | MatchE (exp, _) | LenE exp | DotE (exp, _) -> exp_mapsto_env_aux env exp
-      | BinE (_, _, l, r) | CmpE (_, _, l, r)
-      | ConsE (l, r) | CatE (l, r) | MemE (l, r) | IdxE (l, r) ->
-        let env' = exp_mapsto_env_aux env l in
-        exp_mapsto_env_aux env' r
-      | ListE es | TupleE es | CaseE (_, es) ->
-        List.fold_left (fun env exp -> exp_mapsto_env_aux env exp) env es
-      | OptE None | BoolE _ | NumE _ | TextE _ | CallE _ -> env
-      | OptE (Some exp) -> exp_mapsto_env_aux env exp
-      | StrE fields -> List.fold_left (fun env (_, exp) -> exp_mapsto_env_aux env exp) env fields
-      | SliceE (e, l, n) ->
-        let env' = exp_mapsto_env_aux env l in
-        let env'' = exp_mapsto_env_aux env' n in
-        exp_mapsto_env_aux env'' e
-      | UpdE (e, path, new_e) ->
-        let env' = exp_mapsto_env_aux env new_e in
-        let env'' = path_mapsto_env_aux env' path in
-        exp_mapsto_env_aux env'' e
-      | IterE (e_iter, iterexp) ->
-        let env' = exp_mapsto_env_aux env e_iter in
-        let value = Environment.find_dummy env' e_iter in
-        let iter, _ = iterexp in
-        (match iter with
-        | Opt -> 
-            let dummy = ctx.fresh_dummy exp.note in
-            let env' = Environment.add_binding env exp dummy in
-            Environment.set_dummy env' dummy (Some dummy)
-        | List ->
-          (match value.it with
-          | VarE id ->
-            let dummy = ctx.fresh_dummy exp.note in
-            let env'' = Environment.add_binding env' exp dummy in
-            let value = IterE (value, (List, [(id, value.note $ no_region, [List])])) $$ (no_region % e_iter.note) in
-            Environment.set_dummy env'' dummy (Some value)
-          | _ -> assert false)
-        )
-    and path_mapsto_env_aux env path =
-      match path.it with
-      | RootP -> env
-      | IdxP (p, e) -> 
-        let env' = path_mapsto_env_aux env p in
-        exp_mapsto_env_aux env' e
-      | SliceP (p, l, n) ->
-        let env' = path_mapsto_env_aux env p in
-        let env'' = exp_mapsto_env_aux env' l in
-        exp_mapsto_env_aux env'' n
-      | DotP (p, _) -> path_mapsto_env_aux env p
-    in
-    exp_mapsto_env_aux env exp
-end
 
 (* ─── Spec: look up typing information from the spec ──────────────────────── *)
 
@@ -205,9 +140,125 @@ module Spec = struct
     | Some typs -> typs
     | None -> []
 
+  let check_and_find_one_variant spec (exp_note : typ') =
+    match exp_note with
+    | VarT (id, _) ->
+      let deftyp_opt = List.find_map (fun def ->
+        match def.it with
+        | TypD (tid, _, deftyp) when tid.it = id.it -> Some deftyp
+        | _ -> None
+      ) spec in
+      (match deftyp_opt with
+      | Some dt -> (match dt.it with
+        | VariantT cases ->
+          (match cases with
+          | [case] -> Some case
+          | _ -> None) (* TO DO : control struct *)
+        | _ -> None)
+      | None -> None)
+    | _ -> None
+
+end
+
+(* ─── Vars: extract variable sub-expressions from terms ───────────────────── *)
+
+module Vars = struct
+
+  let rec filter_id exp =
+    match exp.it with
+    | VarE id -> id
+    | IterE (e, _) -> filter_id e
+    | _ -> assert false
+
+  let exp_mapsto_env env ctx exp =
+    let rec exp_mapsto_env_aux env exp =
+      match exp.it with
+      | VarE _ -> 
+        (
+        match Spec.check_and_find_one_variant ctx.spec exp.note with
+        | None -> Env.init_exp env exp ctx
+        | Some case ->
+            let nottype, _ = case in
+            let mixop, _ = nottype.it in
+            let field_typs = Spec.field_typs_of_mixop ctx.spec exp mixop in
+            let dummies = List.map (fun (typ : typ) -> ctx.fresh_dummy typ.it) field_typs in
+            let case_exp = CaseE (mixop, dummies) $$ (exp.at % exp.note) in
+            let location = ctx.fresh_dummy exp.note in
+            let env' = Environment.set_dummy env location (Some case_exp) in
+            let env'' = Environment.add_binding env' exp location in
+            List.fold_left (fun e d -> Environment.set_dummy e d (Some d)) env'' dummies
+        )
+      | UnE (_, _, exp) | UpCastE (_, exp) | DownCastE (_, exp)
+      | SubE (exp, _) | MatchE (exp, _) | LenE exp | DotE (exp, _) -> exp_mapsto_env_aux env exp
+      | BinE (_, _, l, r) | CmpE (_, _, l, r)
+      | ConsE (l, r) | CatE (l, r) | MemE (l, r) | IdxE (l, r) ->
+        let env' = exp_mapsto_env_aux env l in
+        exp_mapsto_env_aux env' r
+      | ListE es | TupleE es | CaseE (_, es) ->
+        List.fold_left (fun env exp -> exp_mapsto_env_aux env exp) env es
+      | OptE None | BoolE _ | NumE _ | TextE _ | CallE _ -> env
+      | OptE (Some exp) -> exp_mapsto_env_aux env exp
+      | StrE fields -> List.fold_left (fun env (_, exp) -> exp_mapsto_env_aux env exp) env fields
+      | SliceE (e, l, n) ->
+        let env' = exp_mapsto_env_aux env l in
+        let env'' = exp_mapsto_env_aux env' n in
+        exp_mapsto_env_aux env'' e
+      | UpdE (e, path, new_e) ->
+        let env' = exp_mapsto_env_aux env new_e in
+        let env'' = path_mapsto_env_aux env' path in
+        exp_mapsto_env_aux env'' e
+      | IterE (e_iter, iterexp) ->
+        let env' = exp_mapsto_env_aux env e_iter in
+        let value = Environment.find_dummy env' e_iter in
+        let iter, _ = iterexp in
+        (match iter with
+        | Opt -> 
+            let dummy = ctx.fresh_dummy exp.note in
+            let env' = Environment.add_binding env exp dummy in
+            Environment.set_dummy env' dummy (Some dummy)
+        | List ->
+          (match value.it with
+          | VarE id ->
+            let dummy = ctx.fresh_dummy exp.note in
+            let env'' = Environment.add_binding env' exp dummy in
+            let value = IterE (value, (List, [(id, value.note $ no_region, [])])) $$ (no_region % e_iter.note) in
+            Environment.set_dummy env'' dummy (Some value)
+          | _ -> assert false)
+        )
+    and path_mapsto_env_aux env path =
+      match path.it with
+      | RootP -> env
+      | IdxP (p, e) -> 
+        let env' = path_mapsto_env_aux env p in
+        exp_mapsto_env_aux env' e
+      | SliceP (p, l, n) ->
+        let env' = path_mapsto_env_aux env p in
+        let env'' = exp_mapsto_env_aux env' l in
+        exp_mapsto_env_aux env'' n
+      | DotP (p, _) -> path_mapsto_env_aux env p
+    in
+    exp_mapsto_env_aux env exp
 end
 
 (* ─── Scope: enter and leave an iteration scope ───────────────────────────── *)
+
+module Scope = struct
+  let rec descend env exp loc =
+    match exp.it with
+    | IterE (inner_exp, _) -> (
+      match Environment.find_val env loc with
+      | Some (Some value) -> (
+        let _ = Format.printf "++ %s %s\n" (Print.string_of_exp inner_exp) (Print.string_of_exp value) in
+        match value.it with
+        | IterE (inner_loc, _) -> (
+          let env' = descend env inner_exp inner_loc in
+          Environment.add_binding env' inner_exp inner_loc)
+        | _ -> env
+      ) 
+      | _ -> assert false
+    )
+    | _ -> env
+end
 
 (*module Scope = struct
 
@@ -307,7 +358,15 @@ module Pattern = struct
       (match Environment.find_val env location with
        | Some (Some value) ->
         (match value.it with
-        | IterE (location, _) -> Environment.add_binding env inner_exp location, [lhs]
+        | IterE (location, _) -> 
+          (
+            match inner_exp.note with
+            | IterT _ -> (
+              let env' = Scope.descend env inner_exp location in
+              Environment.add_binding env' inner_exp location, [lhs]
+            )
+            | _ -> bind ctx inner_exp location env
+          )
         | _ -> assert false)
        | _ -> assert false
       )
@@ -363,7 +422,7 @@ let rec prem_binds_variable (ctx : checker) prem env =
               let env' = Vars.exp_mapsto_env env ctx iter_exp in
               let dummy = Environment.find_dummy env' iter_exp in
               let location = Environment.find_dummy env' inner_exp in
-              let env'' = Environment.set_dummy env' location (Some (IterE (dummy, (Opt, [(Pattern.get_id dummy, dummy.note $ no_region, [Opt])])) $$ (no_region % inner_exp.note))) in
+              let env'' = Environment.set_dummy env' location (Some (IterE (dummy, (Opt, [(Pattern.get_id dummy, dummy.note $ no_region, [])])) $$ (no_region % inner_exp.note))) in
               MEM (env'', [inner_exp])
             )
           | _ -> assert false
