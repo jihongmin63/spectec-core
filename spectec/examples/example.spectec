@@ -1,5 +1,7 @@
 syntax type = A nat | B type
 
-dec $fun(type?*) : nat?
-def $fun(type?*) = eps
-    -- (if eps = type?)*
+dec $fun(type??) : nat?
+def $fun(type??) = eps
+    -- (if type'? = type??)
+    -- (if type'' = type'?)
+    -- (if A nat = type'')

@@ -54,150 +54,92 @@ end
 
 (* ─── Vars: extract variable sub-expressions from terms ───────────────────── *)
 
-let rec filter_id exp =
-  match exp.it with
-  | VarE id -> id
-  | IterE (e, _) -> filter_id e
-  | _ -> assert false
+module Vars = struct
 
-let rec of_exp exp =
-  match exp.it with
-  | VarE _ -> [exp]
-  | UnE (_, _, e) | UpCastE (_, e) | DownCastE (_, e)
-  | SubE (e, _) | MatchE (e, _) | LenE e | DotE (e, _) ->
-    of_exp e
-  | BinE (_, _, l, r) | CmpE (_, _, l, r)
-  | ConsE (l, r) | CatE (l, r) | MemE (l, r) | IdxE (l, r) ->
-    of_exp l @ of_exp r
-  | ListE es | TupleE es ->
-    List.concat_map of_exp es
-  | OptE None -> []
-  | OptE (Some e) -> of_exp e
-  | CaseE (_, es) -> List.concat_map of_exp es
-  | StrE fields -> List.concat_map (fun (_, e) -> of_exp e) fields
-  | SliceE (e, l, n) -> of_exp e @ of_exp l @ of_exp n
-  | UpdE (e, path, new_e) -> of_exp e @ of_path path @ of_exp new_e
-  | IterE (e_iter, iterexp) ->
-    let vars = of_exp e_iter in
-    let iter, itervars = iterexp in
-    (match iter with
-    | Opt -> [exp]
-    | List ->
-      vars @
-      List.filter_map (fun var ->
-        if List.exists (fun (itervar : var) ->
-            let id = filter_id var in
-            let iterid, _, _ = itervar in
-            id.it = iterid.it
-          ) itervars
-        then Some (IterE (var, iterexp) $$ (no_region % IterT (var.note $ no_region, fst iterexp)))
-        else None
-      ) vars)
-  | BoolE _ | NumE _ | TextE _ | CallE _ -> []
-and of_path path =
-  match path.it with
-  | RootP -> []
-  | IdxP (p, e) -> of_path p @ of_exp e
-  | SliceP (p, l, n) -> of_path p @ of_exp l @ of_exp n
-  | DotP (p, _) -> of_path p
+  let rec filter_id exp =
+    match exp.it with
+    | VarE id -> id
+    | IterE (e, _) -> filter_id e
+    | _ -> assert false
+
+  let rec of_exp exp =
+    match exp.it with
+    | VarE _ -> [exp]
+    | UnE (_, _, e) | UpCastE (_, e) | DownCastE (_, e)
+    | SubE (e, _) | MatchE (e, _) | LenE e | DotE (e, _) ->
+      of_exp e
+    | BinE (_, _, l, r) | CmpE (_, _, l, r)
+    | ConsE (l, r) | CatE (l, r) | MemE (l, r) | IdxE (l, r) ->
+      of_exp l @ of_exp r
+    | ListE es | TupleE es ->
+      List.concat_map of_exp es
+    | OptE None -> []
+    | OptE (Some e) -> of_exp e
+    | CaseE (_, es) -> List.concat_map of_exp es
+    | StrE fields -> List.concat_map (fun (_, e) -> of_exp e) fields
+    | SliceE (e, l, n) -> of_exp e @ of_exp l @ of_exp n
+    | UpdE (e, path, new_e) -> of_exp e @ of_path path @ of_exp new_e
+    | IterE (e_iter, iterexp) ->
+      let vars = of_exp e_iter in
+      let iter, itervars = iterexp in
+      (match iter with
+      | Opt -> [exp]
+      | List ->
+        vars @
+        List.filter_map (fun var ->
+          if List.exists (fun (itervar : var) ->
+              let id = filter_id var in
+              let iterid, _, _ = itervar in
+              id.it = iterid.it
+            ) itervars
+          then Some (IterE (var, iterexp) $$ (no_region % IterT (var.note $ no_region, fst iterexp)))
+          else None
+        ) vars)
+    | BoolE _ | NumE _ | TextE _ | CallE _ -> []
+  and of_path path =
+    match path.it with
+    | RootP -> []
+    | IdxP (p, e) -> of_path p @ of_exp e
+    | SliceP (p, l, n) -> of_path p @ of_exp l @ of_exp n
+    | DotP (p, _) -> of_path p
+
+end
 
 (* ─── Spec: look up typing information from the spec ──────────────────────── *)
 
-(** Look up [target_mixop] in the variant type of [exp], returning [Some typs]
-    if the case is found (with [typs] possibly empty for 0-field cases) or
-    [None] if [exp]'s type is not a variant type or doesn't contain the case. *)
-let find_variant_case spec (exp_note : typ') (target_mixop : mixop) =
-  match exp_note with
-  | VarT (id, _) ->
-    let deftyp_opt = List.find_map (fun def ->
-      match def.it with
-      | TypD (tid, _, deftyp) when tid.it = id.it -> Some deftyp
-      | _ -> None
-    ) spec in
-    (match deftyp_opt with
-    | Some dt -> (match dt.it with
-      | VariantT cases ->
-        (match List.find_opt (fun (nottyp, _) ->
-          let (m, _) = nottyp.it in Xl.Mixop.eq m target_mixop
-        ) cases with
-        | Some (nottyp, _) -> let (_, typs) = nottyp.it in Some typs
-        | None -> None)
-      | _ -> None)
-    | None -> None)
-  | _ -> None
+module Spec = struct
 
-(** Return the field types for [target_mixop] in the variant type that
-    [exp]'s type annotation resolves to, or [] if not found. *)
-let field_typs_of_mixop spec (exp : exp) (target_mixop : mixop) =
-  match find_variant_case spec exp.note target_mixop with
-  | Some typs -> typs
-  | None -> []
+  (** Look up [target_mixop] in the variant type of [exp], returning [Some typs]
+      if the case is found (with [typs] possibly empty for 0-field cases) or
+      [None] if [exp]'s type is not a variant type or doesn't contain the case. *)
+  let find_variant_case spec (exp_note : typ') (target_mixop : mixop) =
+    match exp_note with
+    | VarT (id, _) ->
+      let deftyp_opt = List.find_map (fun def ->
+        match def.it with
+        | TypD (tid, _, deftyp) when tid.it = id.it -> Some deftyp
+        | _ -> None
+      ) spec in
+      (match deftyp_opt with
+      | Some dt -> (match dt.it with
+        | VariantT cases ->
+          (match List.find_opt (fun (nottyp, _) ->
+            let (m, _) = nottyp.it in Xl.Mixop.eq m target_mixop
+          ) cases with
+          | Some (nottyp, _) -> let (_, typs) = nottyp.it in Some typs
+          | None -> None)
+        | _ -> None)
+      | None -> None)
+    | _ -> None
 
-(* ─── Scope: enter and leave an iteration scope ───────────────────────────── *)
+  (** Return the field types for [target_mixop] in the variant type that
+      [exp]'s type annotation resolves to, or [] if not found. *)
+  let field_typs_of_mixop spec (exp : exp) (target_mixop : mixop) =
+    match find_variant_case spec exp.note target_mixop with
+    | Some typs -> typs
+    | None -> []
 
-  (** Build the inner environment for an iter scope.
-      Each itervar's outer (iterated) binding is unwrapped to its element form
-      so that premises inside the scope see the element-level variable. *)
-let descend env itervars =
-  List.fold_left (fun ie (itervar : var) ->
-    let iterid, typ, _iters = itervar in
-    let inner_var = VarE iterid $$ (iterid.at % typ.it) in
-    let inner_val =
-      match SharedExp.find_opt inner_var env with
-      | Some v -> v                    (* v : exp option — propagate directly *)
-      | None ->
-        (match Env.find_by_id iterid env with
-        | Some v -> v                  (* v : exp option — propagate directly *)
-        | None -> Some inner_var)      (* not found: wrap as present *)
-    in
-    SharedExp.add inner_var inner_val ie
-  ) env itervars
-
-  (** Merge inner-scope results back into the outer environment:
-      1. Propagate refinements made to pre-existing outer vars.
-      2. Add newly bound element-level vars with deep-resolved outer sources
-         so the ancestry chain reaches back to the original input.
-      3. Wrap newly bound vars in IterE and add outer-level bindings. *)
-let ascend outer_env inner_env new_inner_env new_inner_vars iterexp =
-  let env_propagated = SharedExp.fold (fun k v e ->
-    match SharedExp.find_opt k e with
-    | Some _ ->
-      let old_inner = match SharedExp.find_opt k inner_env with
-        | Some ov -> ov | None -> Some k
-      in
-      let changed = match old_inner, v with
-        | Some oa, Some vb -> compare_exp_canon oa vb <> 0
-        | None, None -> false
-        | _ -> true
-      in
-      if changed then SharedExp.add k v e else e
-    | None -> e
-  ) new_inner_env outer_env in
-  let newly_bound = List.filter (fun v ->
-    not (SharedExp.mem v outer_env)
-  ) new_inner_vars in
-  let env_with_elem = List.fold_left (fun e v ->
-    let inner_src = match SharedExp.find_opt v new_inner_env with
-      | Some (Some s) -> s | _ -> v
-    in
-    SharedExp.add v (Env.resolve_deep outer_env inner_src) e
-  ) env_propagated newly_bound in
-  let outer_vars = List.map (fun v ->
-    IterE (v, iterexp) $$ (v.at % IterT (v.note $ no_region, fst iterexp))
-  ) newly_bound in
-  let env' = List.fold_left (fun e ov ->
-    let elem_v = match ov.it with IterE (v, _) -> v | _ -> ov in
-    let inner_src = match SharedExp.find_opt elem_v new_inner_env with
-      | Some (Some s) -> s | _ -> elem_v
-    in
-    let outer_val = match Env.resolve_deep outer_env inner_src with
-      | Some root_src ->
-        Some (IterE (root_src, iterexp) $$ (root_src.at % IterT (root_src.note $ no_region, fst iterexp)))
-      | None -> None
-    in
-    SharedExp.add ov outer_val e
-  ) env_with_elem outer_vars in
-  MEM (env', outer_vars)
+end
 
 (* ─── Checker context: shared state for a single funcdef analysis ──────────── *)
 
@@ -227,7 +169,79 @@ let add_var_with_dummy (ctx : checker) (var : exp) (env : exp option SharedExp.t
   let env'' = SharedExp.add dummy (Some dummy) env' in
   (env'', dummy)
 
+(* ─── Scope: enter and leave an iteration scope ───────────────────────────── *)
+
+module Scope = struct
+
+  (** Build the inner environment for an iter scope.
+      Each itervar's outer (iterated) binding is unwrapped to its element form
+      so that premises inside the scope see the element-level variable. *)
+  let descend env itervars =
+    List.fold_left (fun ie (itervar : var) ->
+      let iterid, typ, _iters = itervar in
+      let inner_var = VarE iterid $$ (iterid.at % typ.it) in
+      let inner_val =
+        match SharedExp.find_opt inner_var env with
+        | Some v -> v                    (* v : exp option — propagate directly *)
+        | None ->
+          (match Env.find_by_id iterid env with
+          | Some v -> v                  (* v : exp option — propagate directly *)
+          | None -> Some inner_var)      (* not found: wrap as present *)
+      in
+      SharedExp.add inner_var inner_val ie
+    ) env itervars
+
+  (** Merge inner-scope results back into the outer environment:
+      1. Propagate refinements made to pre-existing outer vars.
+      2. Add newly bound element-level vars with deep-resolved outer sources
+         so the ancestry chain reaches back to the original input.
+      3. Wrap newly bound vars in IterE and add outer-level bindings. *)
+  let ascend outer_env inner_env new_inner_env new_inner_vars iterexp =
+    let env_propagated = SharedExp.fold (fun k v e ->
+      match SharedExp.find_opt k e with
+      | Some _ ->
+        let old_inner = match SharedExp.find_opt k inner_env with
+          | Some ov -> ov | None -> Some k
+        in
+        let changed = match old_inner, v with
+          | Some oa, Some vb -> compare_exp_canon oa vb <> 0
+          | None, None -> false
+          | _ -> true
+        in
+        if changed then SharedExp.add k v e else e
+      | None -> e
+    ) new_inner_env outer_env in
+    let newly_bound = List.filter (fun v ->
+      not (SharedExp.mem v outer_env)
+    ) new_inner_vars in
+    let env_with_elem = List.fold_left (fun e v ->
+      let inner_src = match SharedExp.find_opt v new_inner_env with
+        | Some (Some s) -> s | _ -> v
+      in
+      SharedExp.add v (Env.resolve_deep outer_env inner_src) e
+    ) env_propagated newly_bound in
+    let outer_vars = List.map (fun v ->
+      IterE (v, iterexp) $$ (v.at % IterT (v.note $ no_region, fst iterexp))
+    ) newly_bound in
+    let env' = List.fold_left (fun e ov ->
+      let elem_v = match ov.it with IterE (v, _) -> v | _ -> ov in
+      let inner_src = match SharedExp.find_opt elem_v new_inner_env with
+        | Some (Some s) -> s | _ -> elem_v
+      in
+      let outer_val = match Env.resolve_deep outer_env inner_src with
+        | Some root_src ->
+          Some (IterE (root_src, iterexp) $$ (root_src.at % IterT (root_src.note $ no_region, fst iterexp)))
+        | None -> None
+      in
+      SharedExp.add ov outer_val e
+    ) env_with_elem outer_vars in
+    MEM (env', outer_vars)
+
+end
+
 (* ─── Pattern: bind lhs patterns against resolved values ──────────────────── *)
+
+module Pattern = struct
 
   (** Match [lhs] against [value], extending [env] with new variable bindings.
       [rhs] is the original (pre-resolution) rhs expression; it is used to
@@ -306,6 +320,8 @@ let add_var_with_dummy (ctx : checker) (var : exp) (env : exp option SharedExp.t
       bind ctx rhs inner_lhs inner_val env
     | _ -> (env, [])
 
+end
+
 (* ─── Totality stub (long-term TODO) ──────────────────────────────────────── *)
 
 let total_check spec envs params : bool * string =
@@ -332,7 +348,7 @@ let rec prem_binds_variable (ctx : checker) prem env =
         | Some (Some v) -> v | _ -> inner_exp
       in
       (* Step 2–3: look up field types from spec, create fresh dummies *)
-      let field_typs = field_typs_of_mixop ctx.spec inner_exp mixop in
+      let field_typs = Spec.field_typs_of_mixop ctx.spec inner_exp mixop in
       let dummies = List.map (fun (typ : typ) -> ctx.fresh_dummy typ.it) field_typs in
       (* Step 4–5: refine the resolved target and register each dummy *)
       let case_exp = CaseE (mixop, dummies) $$ (inner_exp.at % inner_exp.note) in
@@ -349,7 +365,7 @@ let rec prem_binds_variable (ctx : checker) prem env =
         | OptE (Some iv) -> iv
         | _ -> resolved
       in
-      let all_vars = of_exp inner_val in
+      let all_vars = Vars.of_exp inner_val in
       let env' = List.fold_left (fun e v ->
         if SharedExp.mem v e then e
         else let (e', _dummy) = add_var_with_dummy ctx v e in e'
@@ -365,11 +381,11 @@ let rec prem_binds_variable (ctx : checker) prem env =
     | IterE (inner_cond, iterexp) ->
       (* Enter the iterated context before evaluating the inner condition *)
       let _iter, itervars = iterexp in
-      let inner_env = descend env itervars in
+      let inner_env = Scope.descend env itervars in
       let inner_prem = IfPr inner_cond $ prem.at in
       (match prem_binds_variable ctx inner_prem inner_env with
       | MEM (new_inner_env, new_inner_vars) ->
-        ascend env inner_env new_inner_env new_inner_vars iterexp
+        Scope.ascend env inner_env new_inner_env new_inner_vars iterexp
       | output -> output)
     | CmpE (`EqOp, _, lhs, rhs) ->
       (* None-equality narrowing: if one side is ?() (OptE None), mark the
@@ -389,7 +405,7 @@ let rec prem_binds_variable (ctx : checker) prem env =
       let try_narrow case_exp var_exp =
         match case_exp.it, var_exp.it with
         | CaseE (mixop, sub_exps), VarE _ | CaseE (mixop, sub_exps), IterE _ | IterE _, CaseE (mixop, sub_exps)  | VarE _, CaseE (mixop, sub_exps) ->
-          (match find_variant_case ctx.spec case_exp.note mixop with
+          (match Spec.find_variant_case ctx.spec case_exp.note mixop with
           | Some field_typs when List.length field_typs = List.length sub_exps ->
             let resolved = match SharedExp.find_opt var_exp env with
               | Some (Some v) -> v | _ -> var_exp
@@ -420,15 +436,15 @@ let rec prem_binds_variable (ctx : checker) prem env =
     (match Env.resolve_deep env rhs with
     | None -> MEM (env, [])   (* rhs is explicitly absent — no bindings *)
     | Some rhs_val ->
-      let (env', new_vars) = bind ctx rhs lhs rhs_val env in
+      let (env', new_vars) = Pattern.bind ctx rhs lhs rhs_val env in
       MEM (env', new_vars))
   | IterPr (inner_prem, iterexp) ->
     (* Descent into the scope, process inner premise, then ascend *)
     let _iter, itervars = iterexp in
-    let inner_env = descend env itervars in
+    let inner_env = Scope.descend env itervars in
     (match prem_binds_variable ctx inner_prem inner_env with
     | MEM (new_inner_env, new_inner_vars) ->
-      ascend env inner_env new_inner_env new_inner_vars iterexp
+      Scope.ascend env inner_env new_inner_env new_inner_vars iterexp
     | output -> output)
 
 (** Thread [env] through each premise in order.
@@ -483,7 +499,7 @@ let iterate_clause (ctx : checker) (clause : clause) =
             let (env', _dummy) = add_var_with_dummy ctx var env in env')
         | _ ->
           let (env', _dummy) = add_var_with_dummy ctx var env in env'
-      ) env (of_exp exp)
+      ) env (Vars.of_exp exp)
     ) SharedExp.empty expargs
   in
   match iterate_prems ctx init_env prems with
@@ -509,3 +525,13 @@ let are_funcdefs_total spec =
     | _ -> None
   ) spec in
   List.map (is_funcdef_total spec) funcdefs
+
+  (* TO DO *)
+  (*
+    [ ] code review
+    [ ] STRUCT
+    [ ] LIST matching
+    [ ] connect dummies with iteration
+    [ ] more examples..
+    [ ] total check!
+  *)
