@@ -9,7 +9,7 @@ end)
 
 type output =
   | TEMP of (exp * exp) list  (** Temporary output: only extracted inputs *)
-  | MEM of exp SharedExp.t * exp list
+  | MEM of exp option SharedExp.t * exp list
   | OTHERWISE         (** Hit an ElsePr branch *)
   | FAIL of string    (** Unsupported construct *)
 
@@ -29,10 +29,11 @@ module Env = struct
     let pairs = SharedExp.bindings env in
     let _ = Format.printf "\n[ENV]\n" in
     List.map (fun (k, v) ->
-      Format.printf "%s -> %s\n" (Print.string_of_exp k) (Print.string_of_exp v)
+      let v_str = match v with Some e -> "[ " ^ Print.string_of_exp e ^ " ]" | None -> "X" in
+      Format.printf "%s -> %s\n" (Print.string_of_exp k) v_str
     ) pairs
 
-  let find_by_id (target_id : id) (env : exp SharedExp.t) : exp option =
+  let find_by_id (target_id : id) (env : exp option SharedExp.t) : (exp option) option =
     SharedExp.bindings env
     |> List.find_map (fun (k, v) ->
       match k.it with
@@ -44,9 +45,10 @@ module Env = struct
       or is absent.  Used for rhs resolution and iter source-root lookup. *)
   let rec resolve_deep env exp =
     match SharedExp.find_opt exp env with
-    | Some v when compare_exp_canon v exp <> 0 -> resolve_deep env v
-    | Some v -> v
-    | None -> exp
+    | Some (Some v) when compare_exp_canon v exp <> 0 -> resolve_deep env v
+    | Some (Some v) -> Some v
+    | Some None -> None
+    | None -> Some exp
 
 end
 
@@ -142,11 +144,11 @@ let descend env itervars =
     let inner_var = VarE iterid $$ (iterid.at % typ.it) in
     let inner_val =
       match SharedExp.find_opt inner_var env with
-      | Some v -> v
+      | Some v -> v                    (* v : exp option — propagate directly *)
       | None ->
         (match Env.find_by_id iterid env with
-        | Some v -> v
-        | None -> inner_var)
+        | Some v -> v                  (* v : exp option — propagate directly *)
+        | None -> Some inner_var)      (* not found: wrap as present *)
     in
     SharedExp.add inner_var inner_val ie
   ) env itervars
@@ -161,9 +163,14 @@ let ascend outer_env inner_env new_inner_env new_inner_vars iterexp =
     match SharedExp.find_opt k e with
     | Some _ ->
       let old_inner = match SharedExp.find_opt k inner_env with
-        | Some ov -> ov | None -> k
+        | Some ov -> ov | None -> Some k
       in
-      if compare_exp_canon old_inner v <> 0 then SharedExp.add k v e else e
+      let changed = match old_inner, v with
+        | Some oa, Some vb -> compare_exp_canon oa vb <> 0
+        | None, None -> false
+        | _ -> true
+      in
+      if changed then SharedExp.add k v e else e
     | None -> e
   ) new_inner_env outer_env in
   let newly_bound = List.filter (fun v ->
@@ -171,7 +178,7 @@ let ascend outer_env inner_env new_inner_env new_inner_vars iterexp =
   ) new_inner_vars in
   let env_with_elem = List.fold_left (fun e v ->
     let inner_src = match SharedExp.find_opt v new_inner_env with
-      | Some s -> s | None -> v
+      | Some (Some s) -> s | _ -> v
     in
     SharedExp.add v (Env.resolve_deep outer_env inner_src) e
   ) env_propagated newly_bound in
@@ -181,11 +188,14 @@ let ascend outer_env inner_env new_inner_env new_inner_vars iterexp =
   let env' = List.fold_left (fun e ov ->
     let elem_v = match ov.it with IterE (v, _) -> v | _ -> ov in
     let inner_src = match SharedExp.find_opt elem_v new_inner_env with
-      | Some s -> s | None -> elem_v
+      | Some (Some s) -> s | _ -> elem_v
     in
-    let root_src = Env.resolve_deep outer_env inner_src in
-    let outer_src = IterE (root_src, iterexp) $$ (root_src.at % IterT (root_src.note $ no_region, fst iterexp)) in
-    SharedExp.add ov outer_src e
+    let outer_val = match Env.resolve_deep outer_env inner_src with
+      | Some root_src ->
+        Some (IterE (root_src, iterexp) $$ (root_src.at % IterT (root_src.note $ no_region, fst iterexp)))
+      | None -> None
+    in
+    SharedExp.add ov outer_val e
   ) env_with_elem outer_vars in
   MEM (env', outer_vars)
 
@@ -210,11 +220,11 @@ let make_checker spec =
 (** Register [var] as pointing to a fresh dummy, which self-maps as the
     terminal sentinel. Future refinement of [dummy] propagates to [var]
     via resolve_deep. Returns the updated env and the dummy expression. *)
-let add_var_with_dummy (ctx : checker) (var : exp) (env : exp SharedExp.t)
-    : exp SharedExp.t * exp =
+let add_var_with_dummy (ctx : checker) (var : exp) (env : exp option SharedExp.t)
+    : exp option SharedExp.t * exp =
   let dummy = ctx.fresh_dummy var.note in
-  let env'  = SharedExp.add var   dummy env  in
-  let env'' = SharedExp.add dummy dummy env' in
+  let env'  = SharedExp.add var   (Some dummy) env  in
+  let env'' = SharedExp.add dummy (Some dummy) env' in
   (env'', dummy)
 
 (* ─── Pattern: bind lhs patterns against resolved values ──────────────────── *)
@@ -225,7 +235,7 @@ let add_var_with_dummy (ctx : checker) (var : exp) (env : exp SharedExp.t)
   let rec bind (ctx : checker) rhs lhs value env =
     match lhs.it with
     | VarE _ ->
-      (SharedExp.add lhs value env, [lhs])
+      (SharedExp.add lhs (Some value) env, [lhs])
     | StrE fields ->
       (match value.it with
       | StrE value_fields ->
@@ -265,7 +275,7 @@ let add_var_with_dummy (ctx : checker) (var : exp) (env : exp SharedExp.t)
       (match fst iterexp with
       | Opt ->
         (* Optional iter may be absent — do not bind inner variables into env *)
-        (SharedExp.add lhs value env, [lhs])
+        (SharedExp.add lhs (Some value) env, [lhs])
       | List ->
         let elem_val = match value.it with
           | IterE (inner_val, _) -> inner_val
@@ -279,10 +289,10 @@ let add_var_with_dummy (ctx : checker) (var : exp) (env : exp SharedExp.t)
         ) vars' in
         let env'' = List.fold_left2 (fun e ov v ->
           let inner_src = match SharedExp.find_opt v env' with
-            | Some s -> s | None -> v
+            | Some (Some s) -> s | _ -> v
           in
-          let outer_src = IterE (inner_src, iterexp) $$ (inner_src.at % IterT (inner_src.note $ no_region, fst iterexp)) in
-          SharedExp.add ov outer_src e
+          let outer_val = Some (IterE (inner_src, iterexp) $$ (inner_src.at % IterT (inner_src.note $ no_region, fst iterexp))) in
+          SharedExp.add ov outer_val e
         ) env' outer_vars vars' in
         (env'', outer_vars))
     | OptE None -> (env, [])
@@ -319,20 +329,20 @@ let rec prem_binds_variable (ctx : checker) prem env =
       (* Step 1: resolve inner_exp one level — we update the VALUE it points to
          (not inner_exp itself) so the SharedExp ancestry chain stays intact. *)
       let resolved = match SharedExp.find_opt inner_exp env with
-        | Some v -> v | None -> inner_exp
+        | Some (Some v) -> v | _ -> inner_exp
       in
       (* Step 2–3: look up field types from spec, create fresh dummies *)
       let field_typs = field_typs_of_mixop ctx.spec inner_exp mixop in
       let dummies = List.map (fun (typ : typ) -> ctx.fresh_dummy typ.it) field_typs in
       (* Step 4–5: refine the resolved target and register each dummy *)
       let case_exp = CaseE (mixop, dummies) $$ (inner_exp.at % inner_exp.note) in
-      let env' = SharedExp.add resolved case_exp env in
-      let env'' = List.fold_left (fun e d -> SharedExp.add d d e) env' dummies in
+      let env' = SharedExp.add resolved (Some case_exp) env in
+      let env'' = List.fold_left (fun e d -> SharedExp.add d (Some d) e) env' dummies in
       MEM (env'', dummies)
     | MatchE (inner_exp, OptP `Some) ->
       (* Opt match: inner_exp is now known to be Some; extract and register vars *)
       let resolved = match SharedExp.find_opt inner_exp env with
-        | Some v -> v | None -> inner_exp
+        | Some (Some v) -> v | _ -> inner_exp
       in
       let inner_val = match resolved.it with
         | IterE (iv, _) -> iv
@@ -345,6 +355,13 @@ let rec prem_binds_variable (ctx : checker) prem env =
         else let (e', _dummy) = add_var_with_dummy ctx v e in e'
       ) env all_vars in
       MEM (env', all_vars)
+    | MatchE (inner_exp, OptP `None) ->
+      (* None match: the option is absent — mark resolved value as None *)
+      let resolved = match SharedExp.find_opt inner_exp env with
+        | Some (Some v) -> v | _ -> inner_exp
+      in
+      let env' = SharedExp.add resolved None env in
+      MEM (env', [])
     | IterE (inner_cond, iterexp) ->
       (* Enter the iterated context before evaluating the inner condition *)
       let _iter, itervars = iterexp in
@@ -355,28 +372,44 @@ let rec prem_binds_variable (ctx : checker) prem env =
         ascend env inner_env new_inner_env new_inner_vars iterexp
       | output -> output)
     | CmpE (`EqOp, _, lhs, rhs) ->
+      (* None-equality narrowing: if one side is ?() (OptE None), mark the
+         other variable as definitively absent. *)
+      let try_none_narrow none_exp var_exp =
+        match none_exp.it with
+        | OptE None ->
+          let resolved = match SharedExp.find_opt var_exp env with
+            | Some (Some v) -> v | _ -> var_exp
+          in
+          Some (MEM (SharedExp.add resolved None env, []))
+        | _ -> None
+      in
       (* Variant-equality narrowing: if one side is a CaseE (specific variant
          constructor) and the other is a VarE whose type contains that case,
          narrow the variable's resolved value to that case. *)
-      let _ = Format.printf "%s vs %s\n" (string_of_typ_ lhs.note) (string_of_typ_ rhs.note) in
       let try_narrow case_exp var_exp =
         match case_exp.it, var_exp.it with
         | CaseE (mixop, sub_exps), VarE _ | CaseE (mixop, sub_exps), IterE _ | IterE _, CaseE (mixop, sub_exps)  | VarE _, CaseE (mixop, sub_exps) ->
           (match find_variant_case ctx.spec case_exp.note mixop with
           | Some field_typs when List.length field_typs = List.length sub_exps ->
             let resolved = match SharedExp.find_opt var_exp env with
-              | Some v -> v | None -> var_exp
+              | Some (Some v) -> v | _ -> var_exp
             in
-            Some (MEM (SharedExp.add resolved case_exp env, []))
+            Some (MEM (SharedExp.add resolved (Some case_exp) env, []))
           | _ -> None)
         | _ -> None
       in
-      (match try_narrow lhs rhs with
+      (match try_none_narrow lhs rhs with
       | Some result -> result
       | None ->
-        match try_narrow rhs lhs with
+        match try_none_narrow rhs lhs with
         | Some result -> result
-        | None -> MEM (env, []))
+        | None ->
+          match try_narrow lhs rhs with
+          | Some result -> result
+          | None ->
+            match try_narrow rhs lhs with
+            | Some result -> result
+            | None -> MEM (env, []))
     | _ ->
       (* SubE, other CmpE variants, etc. — no new variables *)
       MEM (env, [])
@@ -384,9 +417,11 @@ let rec prem_binds_variable (ctx : checker) prem env =
   | LetPr (lhs, rhs) ->
     (* Resolve rhs transitively — a single lookup misses chains like
        rhs → _dummy#0 → CaseE(a, [_dummy#1]). *)
-    let rhs_val = Env.resolve_deep env rhs in
-    let (env', new_vars) = bind ctx rhs lhs rhs_val env in
-    MEM (env', new_vars)
+    (match Env.resolve_deep env rhs with
+    | None -> MEM (env, [])   (* rhs is explicitly absent — no bindings *)
+    | Some rhs_val ->
+      let (env', new_vars) = bind ctx rhs lhs rhs_val env in
+      MEM (env', new_vars))
   | IterPr (inner_prem, iterexp) ->
     (* Descent into the scope, process inner premise, then ascend *)
     let _iter, itervars = iterexp in
@@ -406,11 +441,11 @@ let iterate_prems (ctx : checker) env prems =
       MEM (env, [])
     | prem :: rest ->
       let _ = Env.debug env in
+      let _ = Format.printf "\n-- %s\n" (Print.string_of_prem prem) in
       (match prem_binds_variable ctx prem env with
       | MEM (updated_env, _) -> loop updated_env rest
       | output -> output)
   in
-  let _ = Env.debug env in
   loop env prems
 
 (** Analyse a single clause: initialise the environment from the argument
@@ -424,10 +459,30 @@ let iterate_clause (ctx : checker) (clause : clause) =
       let _ = Format.printf "Do not support function parameter\n" in
       assert false
   ) args in
-  let init_env : exp SharedExp.t =
+  let init_env : exp option SharedExp.t =
     List.fold_left (fun env exp ->
       List.fold_left (fun env var ->
-        let (env', _dummy) = add_var_with_dummy ctx var env in env'
+        match var.it with
+        | IterE (inner_exp, iterexp) ->
+          (match fst iterexp with
+          | List ->
+            (* Allocate a fresh dummy but point it at IterE(inner_dummy, iterexp)
+               so the chain is: type?* → dummy_1 → IterE(dummy_0, iterexp).
+               Refinements to dummy_0 propagate transitively via resolve_deep. *)
+            let inner_val = match SharedExp.find_opt inner_exp env with
+              | Some (Some v) -> v
+              | _ -> inner_exp
+            in
+            let iter_val = IterE (inner_val, iterexp) $$ (var.at % var.note) in
+            let dummy = ctx.fresh_dummy var.note in
+            let env'  = SharedExp.add var   (Some dummy)    env  in
+            let env'' = SharedExp.add dummy (Some iter_val) env' in
+            env''
+          | Opt ->
+            (* Opt IterE is a leaf — allocate a fresh dummy as before *)
+            let (env', _dummy) = add_var_with_dummy ctx var env in env')
+        | _ ->
+          let (env', _dummy) = add_var_with_dummy ctx var env in env'
       ) env (of_exp exp)
     ) SharedExp.empty expargs
   in
