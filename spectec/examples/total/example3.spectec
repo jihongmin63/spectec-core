@@ -1,0 +1,6 @@
+syntax type = A nat
+
+dec $fun(type?*?) : nat*
+def $fun(type?*?) = nat*
+    -- if type'?* = type?*?
+    -- (if A nat = type'?)*
