@@ -72,10 +72,9 @@ let call_rel spec rel_id input_vals =
   with Qc_eval_il.StepLimitExceeded -> `Timeout
 
 let dispatch spec (command : Qc_ir.qc_command) :
-    (unit, error) Stdlib.result =
+    (Test.outcome * Test.opt, error) Stdlib.result =
   match command with
   | Qc_ir.QcProp { name = _; free_vars; generator; prems_rel; goal_rel } ->
-    Printf.printf "Test]\n";
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
             | None -> Ok (gen_free_vars spec free_vars)) with
@@ -103,10 +102,8 @@ let dispatch spec (command : Qc_ir.qc_command) :
              | `R (Error _) -> Property.Bool_testable.property false
              | `R (Ok _) -> Property.Bool_testable.property true))
       in
-      Test.quickcheck prop Test.Prop;
-      Ok ())
+      Ok (Test.quickcheck prop Test.Prop, Test.Prop))
   | Qc_ir.QcGen { name = _; free_vars; generator; prems_rel } ->
-    Printf.printf "Generation]\n";
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
             | None -> Ok (gen_free_vars spec free_vars)) with
@@ -130,8 +127,7 @@ let dispatch spec (command : Qc_ir.qc_command) :
               (Property.of_result (Property.Result.with_ok true)))
       in
       let config = { Test.default_config with Test.max_size = 5 } in
-      Test.quickcheck ~config:config prop Test.Gen;
-      Ok ())
+      Ok (Test.quickcheck ~config:config prop Test.Gen, Test.Gen))
 
 let quickcheck_file spec_il path : unit result =
   match Qc_parse.parse_file path with
@@ -141,15 +137,16 @@ let quickcheck_file spec_il path : unit result =
     | Error msg -> Error (ElabError msg)
     | Ok (cmds, synthetic_defs) ->
       let spec_with_synth = spec_il @ synthetic_defs in
-      let results = List.map (fun cmd ->
-        let name = match cmd with
-          | Qc_ir.QcProp { name; _ } | Qc_ir.QcGen { name; _ } -> name
-        in
-        Printf.printf "\n[Quickcheck %s: " name;
-        dispatch spec_with_synth cmd) cmds
-      in
-      List.fold_left (fun acc r ->
+      List.fold_left (fun acc cmd ->
         match acc with
         | Error _ -> acc
-        | Ok () -> r)
-        (Ok ()) results
+        | Ok () ->
+          let name, mode_label = match cmd with
+            | Qc_ir.QcProp { name; _ } -> name, "Test"
+            | Qc_ir.QcGen  { name; _ } -> name, "Generation"
+          in
+          Printf.printf "[Quickcheck %s: %s]\n" name mode_label;
+          (match dispatch spec_with_synth cmd with
+           | Error _ as e -> e
+           | Ok (outcome, opt) -> Test.print_outcome opt outcome; Ok ()))
+        (Ok ()) cmds

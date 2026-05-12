@@ -101,23 +101,21 @@ let check ?(config = default_config) prop =
 
 type opt = Prop | Gen
 
-let quickcheck ?(config = default_config) prop opt =
-  match check ~config prop with
+let quickcheck ?(config = default_config) prop _opt =
+  check ~config prop
+
+let print_outcome opt = function
   | Pass { num_tests; stamps } ->
     (match opt with
-    | Prop ->  Printf.printf "OK, passed %d samples.\n" num_tests
-    | Gen -> Printf.printf "OK, generated %d tests.\n" num_tests);
-    if stamps <> [] then
-      List.iter (fun (lbl, count) ->
-        Printf.printf "%3d%% %s\n\n"
-          (count * 100 / num_tests) lbl)
-        stamps
+    | Prop -> Printf.printf "OK, passed %d samples.\n" num_tests
+    | Gen  -> Printf.printf "OK, generated %d tests.\n" num_tests);
+    List.iter (fun (lbl, count) ->
+      Printf.printf "%3d%% %s\n\n" (count * 100 / num_tests) lbl) stamps
   | Fail { num_tests; counterexample } ->
     (match opt with
     | Prop ->
       Printf.printf "Falsifiable, after %d tests:\n" num_tests;
       List.iter (fun s -> Printf.printf "  %s\n" s) counterexample
-    | Gen -> ()
-    )
+    | Gen -> ())
   | Gave_up { num_tests } ->
     Printf.printf "Gave up after %d tests (too many discarded).\n" num_tests

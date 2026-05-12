@@ -209,12 +209,26 @@ let parse_file (path : string) : (Qc_ast.ast_file, string) result =
     if blocks = [] then
       Error (Printf.sprintf "quickcheck: no blocks found in '%s'" path)
     else
-      List.fold_right
-        (fun (name, body) acc ->
+      let dup_check =
+        List.fold_left (fun acc (name, _) ->
           match acc with
           | Error _ -> acc
-          | Ok bs ->
-            (match parse_block name body with
-             | Error e -> Error e
-             | Ok b -> Ok (b :: bs)))
-        blocks (Ok [])
+          | Ok seen ->
+            if List.mem name seen then
+              Error (Printf.sprintf "quickcheck: duplicate block name '%s'" name)
+            else
+              Ok (name :: seen))
+          (Ok []) blocks
+      in
+      match dup_check with
+      | Error e -> Error e
+      | Ok _ ->
+        List.fold_right
+          (fun (name, body) acc ->
+            match acc with
+            | Error _ -> acc
+            | Ok bs ->
+              (match parse_block name body with
+               | Error e -> Error e
+               | Ok b -> Ok (b :: bs)))
+          blocks (Ok [])
