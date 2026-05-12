@@ -1,5 +1,6 @@
 quickcheck/[name]:
     (input1 : typ1) (input2 : typ2) (input3 : typ3) ...
+    (hint generator [generator name])
     Goal premise
     -- condition premis1
     -- condition premis2
@@ -8,6 +9,7 @@ quickcheck/[name]:
 
 quickcheck/[name]:
     (input1 : typ1) (input2 : typ2) (input3 : typ3) ...
+    (hint generator [generator name])
     -- condition premis1
     -- condition premis2
     -- condition premis3

@@ -44,13 +44,10 @@ let quickcheck_command =
   let%map filenames = anon (sequence ("spec files" %: string))
   and quickcheck_file =
     flag "--qc" (required string) ~doc:"PATH path to .quickcheck input file"
-  and manual =
-    flag "--manual" (listed string)
-      ~doc:"NAME (repeatable) apply manual generator to quickcheck block named NAME"
   and color = Cli.Cli_args.Output.color_flag in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun spec_il ->
-        match Quickcheck.quickcheck_file ~manual spec_il quickcheck_file with
+        match Quickcheck.quickcheck_file spec_il quickcheck_file with
         | Ok () -> ()
         | Error e ->
           Printf.eprintf "%s\n%!" (Quickcheck.error_to_string e);

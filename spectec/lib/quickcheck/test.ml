@@ -105,8 +105,8 @@ let quickcheck ?(config = default_config) prop opt =
   match check ~config prop with
   | Pass { num_tests; stamps } ->
     (match opt with
-    | Prop ->  Printf.printf "OK, generated %d samples.\n" num_tests
-    | Gen -> Printf.printf "OK, passed %d tests.\n" num_tests);
+    | Prop ->  Printf.printf "OK, passed %d samples.\n" num_tests
+    | Gen -> Printf.printf "OK, generated %d tests.\n" num_tests);
     if stamps <> [] then
       List.iter (fun (lbl, count) ->
         Printf.printf "%3d%% %s\n\n"

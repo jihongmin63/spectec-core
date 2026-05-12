@@ -13,7 +13,7 @@ let error_to_string = function
   | ElabError msg -> Printf.sprintf "elaboration error: %s" msg
   | NoManualGenerator name ->
     Printf.sprintf
-      "quickcheck --manual: no manual generator for block '%s'. \
+      "quickcheck: no manual generator named '%s'. \
        Add a case in manual_gen.ml gen_inputs." name
 
 let error_to_diagnostic e =
@@ -67,17 +67,18 @@ let gen_free_vars_manual (spec_il : spec) (name : string) :
 
 
 let call_rel spec rel_id input_vals =
-  try `R (Qc_eval_il.run ~max_steps:10_000
+  try `R (Qc_eval_il.run ~max_steps:100
             (module Nop_target) spec rel_id input_vals "")
   with Qc_eval_il.StepLimitExceeded -> `Timeout
 
-let dispatch ~use_manual spec (command : Qc_ir.qc_command) :
+let dispatch spec (command : Qc_ir.qc_command) :
     (unit, error) Stdlib.result =
   match command with
-  | Qc_ir.QcProp { name; free_vars; prems_rel; goal_rel } ->
-    let _ = Printf.printf "Test]\n" in
-    (match (if use_manual then gen_free_vars_manual spec name
-            else Ok (gen_free_vars spec free_vars)) with
+  | Qc_ir.QcProp { name = _; free_vars; generator; prems_rel; goal_rel } ->
+    Printf.printf "Test]\n";
+    (match (match generator with
+            | Some gen_name -> gen_free_vars_manual spec gen_name
+            | None -> Ok (gen_free_vars spec free_vars)) with
     | Error _ as e -> e
     | Ok gen ->
       let prop =
@@ -104,10 +105,11 @@ let dispatch ~use_manual spec (command : Qc_ir.qc_command) :
       in
       Test.quickcheck prop Test.Prop;
       Ok ())
-  | Qc_ir.QcGen { name; free_vars; prems_rel } ->
-    let _ = Printf.printf "Generation]\n" in
-    (match (if use_manual then gen_free_vars_manual spec name
-            else Ok (gen_free_vars spec free_vars)) with
+  | Qc_ir.QcGen { name = _; free_vars; generator; prems_rel } ->
+    Printf.printf "Generation]\n";
+    (match (match generator with
+            | Some gen_name -> gen_free_vars_manual spec gen_name
+            | None -> Ok (gen_free_vars spec free_vars)) with
     | Error _ as e -> e
     | Ok gen ->
       let prop =
@@ -131,7 +133,7 @@ let dispatch ~use_manual spec (command : Qc_ir.qc_command) :
       Test.quickcheck ~config:config prop Test.Gen;
       Ok ())
 
-let quickcheck_file ?(manual = []) spec_il path : unit result =
+let quickcheck_file spec_il path : unit result =
   match Qc_parse.parse_file path with
   | Error msg -> Error (ParseError msg)
   | Ok ast ->
@@ -144,7 +146,7 @@ let quickcheck_file ?(manual = []) spec_il path : unit result =
           | Qc_ir.QcProp { name; _ } | Qc_ir.QcGen { name; _ } -> name
         in
         Printf.printf "\n[Quickcheck %s: " name;
-        dispatch ~use_manual:(List.mem name manual) spec_with_synth cmd) cmds
+        dispatch spec_with_synth cmd) cmds
       in
       List.fold_left (fun acc r ->
         match acc with

@@ -133,6 +133,11 @@ let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
   let var_decls =
     List.map (fun p -> (p.Qc_ast.p_id, p.Qc_ast.p_typ)) block.params
   in
+  let generator =
+    match block.hint with
+    | Some (Qc_ast.GeneratorHint n) -> Some n
+    | None -> None
+  in
   match block.goal with
   | Some goal ->
     (* Property mode: prems are filters, goal is the property to check. *)
@@ -186,7 +191,7 @@ let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
            sr_outputs = [];
          } in
          Ok
-           (Qc_ir.QcProp { name; free_vars; prems_rel; goal_rel },
+           (Qc_ir.QcProp { name; free_vars; generator; prems_rel; goal_rel },
             [prems_def; goal_def]))
   | None ->
     (* Generation mode: only filter premises, no goal. *)
@@ -214,7 +219,7 @@ let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
          sr_outputs = output_vars;
        } in
        Ok
-         (Qc_ir.QcGen { name; free_vars; prems_rel },
+         (Qc_ir.QcGen { name; free_vars; generator; prems_rel },
           [prems_def]))
 
 (* --- top-level -------------------------------------------------------- *)

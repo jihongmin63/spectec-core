@@ -6,7 +6,7 @@ type error =
 type 'a result = ('a, error) Stdlib.result
 
 val quickcheck_file :
-  ?manual:string list -> Lang.Il.spec -> string -> unit result
+  Lang.Il.spec -> string -> unit result
 
 val error_to_string : error -> string
 val error_to_diagnostic : error -> Diagnostic.t
