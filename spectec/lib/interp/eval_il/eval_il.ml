@@ -19,7 +19,7 @@ let run_relation_fresh (filename : string) (builtins : Builtins.t)
 
 type error = region * string
 
-let run ?(max_steps = -1) (module T : Target.S) (spec : spec) (rid : string)
+let run (module T : Target.S) (spec : spec) (rid : string)
     (values : value list) (filename : string) : (Ctx.t * value list, error) result =
   let builtins = Builtins.make T.builtins in
   let cache =
@@ -27,7 +27,6 @@ let run ?(max_steps = -1) (module T : Target.S) (spec : spec) (rid : string)
       ~state_version:T.state_version
   in
   let inner () =
-    Interp.step_budget := max_steps;
     run_relation_fresh filename builtins cache spec rid values |> Result.ok
   in
   try T.handler inner with Error.InterpError (at, msg) -> Error (at, msg)
@@ -38,3 +37,5 @@ let error_to_diagnostic ((at, msg) : error) : Diagnostic.t =
   Diagnostic.error ~source:"il-interp" at msg
 
 module Ctx = Ctx
+
+let step_hook = Interp.step_hook

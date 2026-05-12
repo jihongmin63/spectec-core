@@ -1,8 +1,8 @@
-quickcheck/prop:
+quickcheck/eval_prog:
     (prog : prog)
     Eval_prog: |- prog -| _
     -- Check_prog: |- prog
 
-quickcheck/gen:
+quickcheck/gen_prog:
     (prog : prog)
     -- Check_prog: |- prog

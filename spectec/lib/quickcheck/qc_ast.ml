@@ -6,16 +6,14 @@ type ast_param = {
   p_typ : plaintyp;
 }
 
-(* A single quickcheck/prop or quickcheck/gen block *)
-type ast_block =
-  | AB_Prop of {
-      params : ast_param list;
-      goal   : prem;         (* EL-level goal premise *)
-      prems  : prem list;    (* EL-level filter premises *)
-    }
-  | AB_Gen of {
-      params : ast_param list;
-      prems  : prem list;
-    }
+(* A single quickcheck/<name> block.
+   goal = None  → generation mode
+   goal = Some  → property mode *)
+type ast_block = {
+  name   : string;
+  params : ast_param list;
+  goal   : prem option;
+  prems  : prem list;
+}
 
 type ast_file = ast_block list

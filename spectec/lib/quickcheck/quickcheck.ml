@@ -1,6 +1,25 @@
 open Il_gen
 open Lang.Il
 
+type error =
+  | ParseError of string
+  | ElabError of string
+  | NoManualGenerator of string
+
+type 'a result = ('a, error) Stdlib.result
+
+let error_to_string = function
+  | ParseError msg -> Printf.sprintf "parse error: %s" msg
+  | ElabError msg -> Printf.sprintf "elaboration error: %s" msg
+  | NoManualGenerator name ->
+    Printf.sprintf
+      "quickcheck --manual: no manual generator for block '%s'. \
+       Add a case in manual_gen.ml gen_inputs." name
+
+let error_to_diagnostic e =
+  Diagnostic.error ~source:"quickcheck" Common.Source.no_region
+    (error_to_string e)
+
 module Nop_target : Interp.Target.S = struct
   let builtins = []
   let handler f =
@@ -40,88 +59,95 @@ let gen_free_vars (spec_il : spec) (free_vars : Qc_ir.ir_var list) :
            (gen_of_typ spec_il v.Qc_ir.iv_typ))
        free_vars)
 
-let gen_free_vars_manual (spec_il : spec) (i : int) :
-    (id' * value) list Gen.t =
-  match Manual_gen.gen_inputs spec_il i with
-  | Some gen -> gen
-  | None ->
-    failwith (Printf.sprintf
-      "quickcheck --manual: no manual generator for block %d. \
-       Add a case in manual_gen.ml gen_inputs." i)
+let gen_free_vars_manual (spec_il : spec) (name : string) :
+    ((id' * value) list Gen.t, error) Stdlib.result =
+  match Manual_gen.gen_inputs spec_il name with
+  | Some gen -> Ok gen
+  | None -> Error (NoManualGenerator name)
+
 
 let call_rel spec rel_id input_vals =
-  try `R (Interp.eval_il ~max_steps:10_000
+  try `R (Qc_eval_il.run ~max_steps:10_000
             (module Nop_target) spec rel_id input_vals "")
-  with Interp.StepLimitExceeded -> `Timeout
+  with Qc_eval_il.StepLimitExceeded -> `Timeout
 
-let dispatch ~use_manual ~idx spec (command : Qc_ir.qc_command) =
+let dispatch ~use_manual spec (command : Qc_ir.qc_command) :
+    (unit, error) Stdlib.result =
   match command with
-  | Qc_ir.QcProp { free_vars; prems_rel; goal_rel } ->
+  | Qc_ir.QcProp { name; free_vars; prems_rel; goal_rel } ->
     let _ = Printf.printf "Test]\n" in
-    let gen =
-      if use_manual then gen_free_vars_manual spec idx
-      else gen_free_vars spec free_vars
-    in
-    let prop =
-      Property.for_all ~shrink:(shrink_env spec) ~generalize:(generalize_env spec) ~show:show_env gen (fun initial_env ->
-        let prems_inputs =
-          List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
-        in
-        match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
-        | `Timeout | `R (Error _) ->
-          Property.of_result Property.Result.nothing
-        | `R (Ok (_, output_vals)) ->
-          let output_env =
-            List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
-              prems_rel.Qc_ir.sr_outputs
+    (match (if use_manual then gen_free_vars_manual spec name
+            else Ok (gen_free_vars spec free_vars)) with
+    | Error _ as e -> e
+    | Ok gen ->
+      let prop =
+        Property.for_all ~shrink:(shrink_env spec) ~generalize:(generalize_env spec) ~show:show_env gen (fun initial_env ->
+          let prems_inputs =
+            List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
           in
-          let full_env = initial_env @ output_env in
-          let goal_inputs =
-            List.map (fun id -> List.assoc id full_env) goal_rel.Qc_ir.sr_inputs
-          in
-          (match call_rel spec goal_rel.Qc_ir.sr_id goal_inputs with
-           | `Timeout -> Property.of_result Property.Result.nothing
-           | `R (Error _) -> Property.Bool_testable.property false
-           | `R (Ok _) -> Property.Bool_testable.property true))
-    in
-    Test.quickcheck prop Test.Prop
-  | Qc_ir.QcGen { free_vars; prems_rel } ->
+          match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
+          | `Timeout | `R (Error _) ->
+            Property.of_result Property.Result.nothing
+          | `R (Ok (_, output_vals)) ->
+            let output_env =
+              List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
+                prems_rel.Qc_ir.sr_outputs
+            in
+            let full_env = initial_env @ output_env in
+            let goal_inputs =
+              List.map (fun id -> List.assoc id full_env) goal_rel.Qc_ir.sr_inputs
+            in
+            (match call_rel spec goal_rel.Qc_ir.sr_id goal_inputs with
+             | `Timeout -> Property.of_result Property.Result.nothing
+             | `R (Error _) -> Property.Bool_testable.property false
+             | `R (Ok _) -> Property.Bool_testable.property true))
+      in
+      Test.quickcheck prop Test.Prop;
+      Ok ())
+  | Qc_ir.QcGen { name; free_vars; prems_rel } ->
     let _ = Printf.printf "Generation]\n" in
-    let gen =
-      if use_manual then gen_free_vars_manual spec idx
-      else gen_free_vars spec free_vars
-    in
-    let prop =
-      Property.for_all ~show:show_env gen (fun initial_env ->
-        let prems_inputs =
-          List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
-        in
-        match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
-        | `Timeout | `R (Error _) ->
-          Property.of_result Property.Result.nothing
-        | `R (Ok (_, output_vals)) ->
-          let output_env =
-            List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
-              prems_rel.Qc_ir.sr_outputs
+    (match (if use_manual then gen_free_vars_manual spec name
+            else Ok (gen_free_vars spec free_vars)) with
+    | Error _ as e -> e
+    | Ok gen ->
+      let prop =
+        Property.for_all ~show:show_env gen (fun initial_env ->
+          let prems_inputs =
+            List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
           in
-          let full_env = initial_env @ output_env in
-          Property.label (show_env full_env)
-            (Property.of_result (Property.Result.with_ok true)))
-    in
-    let config = { Test.default_config with Test.max_size = 5 } in
-    Test.quickcheck ~config:config prop Test.Gen
+          match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
+          | `Timeout | `R (Error _) ->
+            Property.of_result Property.Result.nothing
+          | `R (Ok (_, output_vals)) ->
+            let output_env =
+              List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
+                prems_rel.Qc_ir.sr_outputs
+            in
+            let full_env = initial_env @ output_env in
+            Property.label (show_env full_env)
+              (Property.of_result (Property.Result.with_ok true)))
+      in
+      let config = { Test.default_config with Test.max_size = 5 } in
+      Test.quickcheck ~config:config prop Test.Gen;
+      Ok ())
 
-let quickcheck_file ?(manual = []) spec_il path =
+let quickcheck_file ?(manual = []) spec_il path : unit result =
   match Qc_parse.parse_file path with
-  | Error msg ->
-    failwith (Printf.sprintf "quickcheck: failed to parse '%s': %s" path msg)
+  | Error msg -> Error (ParseError msg)
   | Ok ast ->
     match Qc_elab.elaborate spec_il ast with
-    | Error msg ->
-      failwith
-        (Printf.sprintf "quickcheck: failed to elaborate '%s': %s" path msg)
+    | Error msg -> Error (ElabError msg)
     | Ok (cmds, synthetic_defs) ->
       let spec_with_synth = spec_il @ synthetic_defs in
-      List.iteri (fun i cmd ->
-        Printf.printf "\n[Quickcheck %d: " i;
-        dispatch ~use_manual:(List.mem i manual) ~idx:i spec_with_synth cmd) cmds
+      let results = List.map (fun cmd ->
+        let name = match cmd with
+          | Qc_ir.QcProp { name; _ } | Qc_ir.QcGen { name; _ } -> name
+        in
+        Printf.printf "\n[Quickcheck %s: " name;
+        dispatch ~use_manual:(List.mem name manual) spec_with_synth cmd) cmds
+      in
+      List.fold_left (fun acc r ->
+        match acc with
+        | Error _ -> acc
+        | Ok () -> r)
+        (Ok ()) results

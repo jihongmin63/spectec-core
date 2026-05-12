@@ -23,16 +23,16 @@ open Common.Source
      Some (Gen.map (fun v -> [(id, v)]) (gen_prog _spec))
 *)
 
-let gen_inputs (_spec : spec) (i : int) :
+let gen_inputs (_spec : spec) (name : string) :
     (string * value) list Gen.t option =
   ignore no_region;
-  match i with
-  (* Add cases here. Match on the block index, e.g.:
+  match name with
+  (* Add cases here. Match on the block name, e.g.:
 
-     | 0 ->
+     | "eval_prog" ->
        Some (Gen.map (fun v -> [("prog", v)]) (gen_prog _spec))
 
-     | 1 ->
+     | "my_block" ->
        Some (
          let open Gen in
          let* v1 = ... and* v2 = ... in

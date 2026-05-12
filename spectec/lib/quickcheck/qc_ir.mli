@@ -13,11 +13,13 @@ type synth_rel = {
 
 type qc_command =
   | QcProp of {
+      name      : string;
       free_vars : ir_var list;
       prems_rel : synth_rel;
       goal_rel  : synth_rel;
     }
   | QcGen of {
+      name      : string;
       free_vars : ir_var list;
       prems_rel : synth_rel;
     }

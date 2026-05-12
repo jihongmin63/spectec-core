@@ -45,12 +45,16 @@ let quickcheck_command =
   and quickcheck_file =
     flag "--qc" (required string) ~doc:"PATH path to .quickcheck input file"
   and manual =
-    flag "--manual" (listed int)
-      ~doc:"INDEX (repeatable) apply manual generator to quickcheck block at INDEX"
+    flag "--manual" (listed string)
+      ~doc:"NAME (repeatable) apply manual generator to quickcheck block named NAME"
   and color = Cli.Cli_args.Output.color_flag in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun spec_il ->
-        Quickcheck.quickcheck_file ~manual spec_il quickcheck_file)
+        match Quickcheck.quickcheck_file ~manual spec_il quickcheck_file with
+        | Ok () -> ()
+        | Error e ->
+          Printf.eprintf "%s\n%!" (Quickcheck.error_to_string e);
+          exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in

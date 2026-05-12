@@ -11,7 +11,6 @@ val error_to_string : error -> string
 val error_to_diagnostic : error -> Diagnostic.t
 
 val eval_il :
-  ?max_steps:int ->
   (module Target.S) ->
   Lang.Il.spec ->
   string ->

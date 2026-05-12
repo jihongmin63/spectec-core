@@ -1,0 +1,14 @@
+quickcheck/[name]:
+    (input1 : typ1) (input2 : typ2) (input3 : typ3) ...
+    Goal premise
+    -- condition premis1
+    -- condition premis2
+    -- condition premis3
+    ...
+
+quickcheck/[name]:
+    (input1 : typ1) (input2 : typ2) (input3 : typ3) ...
+    -- condition premis1
+    -- condition premis2
+    -- condition premis3
+    ...
