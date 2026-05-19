@@ -43,6 +43,7 @@ let try_parse_hint (grp : string) : Qc_ast.ast_hint option =
   let parts = String.split_on_char ' ' inner |> List.filter (fun s -> s <> "") in
   match parts with
   | ["hint"; "generator"; name] -> Some (Qc_ast.GeneratorHint name)
+  | ["hint"; "generalize"]      -> Some Qc_ast.GeneralizeHint
   | _ -> None
 
 (* Parse "(id : typ_str)" into an ast_param. *)
@@ -113,45 +114,42 @@ let classify (line : string) : line_kind =
 let parse_block (name : string) (block_lines : string list) :
     (Qc_ast.ast_block, string) result =
   (* Process each paren group on a param line: may be a hint or a param. *)
-  let process_groups hint params groups =
+  let process_groups hints params groups =
     List.fold_left (fun acc grp ->
       match acc with
       | Error _ -> acc
-      | Ok (hint, params) ->
+      | Ok (hints, params) ->
         (match try_parse_hint grp with
-         | Some h ->
-           if hint <> None then
-             Error (Printf.sprintf "quickcheck/%s: more than one hint" name)
-           else Ok (Some h, params)
+         | Some h -> Ok (hints @ [h], params)
          | None ->
            match parse_param_group grp with
            | Error e -> Error e
-           | Ok p -> Ok (hint, params @ [p])))
-      (Ok (hint, params)) groups
+           | Ok p -> Ok (hints, params @ [p])))
+      (Ok (hints, params)) groups
   in
-  let rec collect_params params hint lines =
+  let rec collect_params params hints lines =
     match lines with
     | [] ->
-      Ok { Qc_ast.name; params; hint; goal = None; prems = [] }
+      Ok { Qc_ast.name; params; hints; goal = None; prems = [] }
     | line :: rest -> (
         match classify line with
-        | L_Blank -> collect_params params hint rest
+        | L_Blank -> collect_params params hints rest
         | L_Param -> (
             let groups = extract_paren_groups line in
-            match process_groups hint params groups with
+            match process_groups hints params groups with
             | Error e -> Error e
-            | Ok (hint', params') -> collect_params params' hint' rest)
+            | Ok (hints', params') -> collect_params params' hints' rest)
         | L_Header _ ->
           Error (Printf.sprintf "quickcheck/%s: unexpected nested header" name)
         | L_Prem | L_Goal ->
-          collect_body params hint None [] (line :: rest))
-  and collect_body params hint goal prems lines =
+          collect_body params hints None [] (line :: rest))
+  and collect_body params hints goal prems lines =
     match lines with
     | [] ->
-      Ok { Qc_ast.name; params; hint; goal; prems = List.rev prems }
+      Ok { Qc_ast.name; params; hints; goal; prems = List.rev prems }
     | line :: rest -> (
         match classify line with
-        | L_Blank -> collect_body params hint goal prems rest
+        | L_Blank -> collect_body params hints goal prems rest
         | L_Header _ ->
           Error (Printf.sprintf "quickcheck/%s: unexpected nested header" name)
         | L_Param ->
@@ -159,7 +157,7 @@ let parse_block (name : string) (block_lines : string list) :
         | L_Prem -> (
             match parse_prem_line line with
             | Error e -> Error e
-            | Ok p -> collect_body params hint goal (p :: prems) rest)
+            | Ok p -> collect_body params hints goal (p :: prems) rest)
         | L_Goal -> (
             match goal with
             | Some _ ->
@@ -167,9 +165,9 @@ let parse_block (name : string) (block_lines : string list) :
             | None -> (
                 match P.parse_prem (String.trim line) with
                 | Error e -> Error (P.error_to_string e)
-                | Ok g -> collect_body params hint (Some g) prems rest)))
+                | Ok g -> collect_body params hints (Some g) prems rest)))
   in
-  collect_params [] None block_lines
+  collect_params [] [] block_lines
 
 (* --- top-level -------------------------------------------------------- *)
 

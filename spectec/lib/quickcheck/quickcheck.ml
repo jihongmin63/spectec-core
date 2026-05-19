@@ -220,14 +220,15 @@ let call_rel spec rel_id input_vals =
 let dispatch spec (command : Qc_ir.qc_command) :
     (Test.outcome * Test.opt, error) Stdlib.result =
   match command with
-  | Qc_ir.QcProp { name = _; free_vars; generator; prems_rel; goal_rel } ->
+  | Qc_ir.QcProp { name = _; free_vars; generator; generalize; prems_rel; goal_rel } ->
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
             | None -> Ok (gen_free_vars spec free_vars)) with
     | Error _ as e -> e
     | Ok gen ->
+      let generalize_fn = if generalize then generalize_env spec else fun _ -> [] in
       let prop =
-        Property.for_all ~shrink:(shrink_env spec) ~generalize:(generalize_env spec) ~show:show_env gen (fun initial_env ->
+        Property.for_all ~shrink:(shrink_env spec) ~generalize:generalize_fn ~show:show_env gen (fun initial_env ->
           let prems_inputs =
             List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
           in

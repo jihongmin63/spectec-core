@@ -6,9 +6,10 @@ type ast_param = {
   p_typ : plaintyp;
 }
 
-(* A hint annotation: (hint generator NAME) *)
+(* A hint annotation: (hint generator NAME) or (hint generalize) *)
 type ast_hint =
   | GeneratorHint of string
+  | GeneralizeHint
 
 (* A single quickcheck/<name> block.
    goal = None  → generation mode
@@ -16,7 +17,7 @@ type ast_hint =
 type ast_block = {
   name   : string;
   params : ast_param list;
-  hint   : ast_hint option;
+  hints  : ast_hint list;
   goal   : prem option;
   prems  : prem list;
 }

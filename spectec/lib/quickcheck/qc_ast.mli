@@ -7,11 +7,12 @@ type ast_param = {
 
 type ast_hint =
   | GeneratorHint of string
+  | GeneralizeHint
 
 type ast_block = {
   name   : string;
   params : ast_param list;
-  hint   : ast_hint option;
+  hints  : ast_hint list;
   goal   : prem option;
   prems  : prem list;
 }
