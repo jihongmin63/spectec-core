@@ -8,7 +8,7 @@ type config = {
 }
 
 let default_config = {
-  num_tests = 100;
+  num_tests = 500;
   max_size = 20;
   seed = `Deterministic 43;
   verbose = false;
@@ -41,7 +41,11 @@ let rec shrink_loop (r : Property.Result.t) : Property.Result.t =
   | None    -> r
   | Some r' -> shrink_loop r'
 
-let rec generalize_loop (r : Property.Result.t) : Property.Result.t =
+let generalize_max_iters = 10
+
+let rec generalize_loop ?(iters = 0) (r : Property.Result.t) : Property.Result.t =
+  if iters >= generalize_max_iters then r
+  else
   let candidates = r.Property.Result.generalize () in
   let found = List.find_map (fun (_, gens) ->
     if gens = [] then None
@@ -50,13 +54,13 @@ let rec generalize_loop (r : Property.Result.t) : Property.Result.t =
         Gen.run gen ~size:3 ~rand:(Random.make 0)) gens in
       if List.exists (fun r' -> r'.Property.Result.ok = Some false) results
       && List.for_all (fun r' -> r'.Property.Result.ok <> Some true) results
-      then Some (List.hd results)
+      then Some (List.find (fun r' -> r'.Property.Result.ok = Some false) results)
       else None)
   candidates
   in
   match found with
   | None    -> r
-  | Some r' -> generalize_loop r'
+  | Some r' -> generalize_loop ~iters:(iters + 1) r'
 
 let check ?(config = default_config) prop =
   let rand =
