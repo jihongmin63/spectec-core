@@ -40,170 +40,129 @@ let shrink_env spec (env : (id' * value) list) : (id' * value) list list =
     (shrink_value vi))
   (List.mapi (fun i p -> (i, p)) env)
 
+let rec sequence_gen = function
+  | [] -> Gen.return []
+  | g :: gs -> Gen.bind g (fun x -> Gen.map (fun xs -> x :: xs) (sequence_gen gs))
+
+let rec cross_product = function
+  | [] -> [([], [])]
+  | (i, paths) :: rest ->
+      List.concat_map (fun (d, s, g) ->
+        List.map (fun (s_acc, g_acc) ->
+          ((i, (d, s)) :: s_acc, (i, g) :: g_acc)
+        ) (cross_product rest)
+      ) paths
+
+let rec powerset = function
+  | [] -> [[]]
+  | x :: xs ->
+      let rest = powerset xs in
+      rest @ List.map (fun s -> x :: s) rest
+
+let nonempty_subsets l = List.filter (fun s -> s <> []) (powerset l)
+
+let build_generalizations sub_paths_map combos make_display make_gen =
+  List.concat_map (fun indices ->
+    let selected = List.map (fun i -> (i, List.assoc i sub_paths_map)) indices in
+    List.map (fun (s_env, g_env) ->
+      (* Min depth across positions: "deep in ALL positions" > "deep in one position only".
+         This ensures [nat]+[bool] (min=1) ranks above [nat]+[expr] (min=0). *)
+      let min_d = List.fold_left (fun acc (_, (d, _)) -> min acc d) max_int s_env in
+      let gens = List.map (fun i -> List.assoc i g_env) indices in
+      let gen = Gen.map (fun values -> make_gen (List.combine indices values)) (sequence_gen gens) in
+      (min_d + 1, make_display s_env, gen)
+    ) (cross_product selected)
+  ) combos
+
+let patch_mixfix lookup fallback vc =
+  let _, patched = List.fold_left (fun (arg_idx, acc) part ->
+    match part with
+    | Mixfix.Atom a -> (arg_idx, Mixfix.Atom a :: acc)
+    | Mixfix.Arg _ ->
+        let v = match lookup arg_idx with Some v -> v | None -> fallback arg_idx in
+        (arg_idx + 1, Mixfix.Arg v :: acc)
+  ) (0, []) vc in
+  List.rev patched
+
 let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t Gen.t) list =
   let open Common.Source in
   let t = v.note.typ in
   let root = [(0, "[" ^ Print.string_of_typ (t $ no_region) ^ "]", gen_of_typ spec (t $ no_region))] in
-  let rec sequence_gen = function
-    | [] -> Gen.return []
-    | g :: gs -> Gen.bind g (fun x -> Gen.map (fun xs -> x :: xs) (sequence_gen gs))
-  in
-  let rec powerset = function
-    | [] -> [[]]
-    | x :: xs ->
-        let tail = powerset xs in
-        tail @ List.map (fun acc -> x :: acc) tail
-  in
-  let get_combinations l = List.filter (fun x -> x <> []) (powerset l) in
 
   let sub_paths =
     match v.it with
     | StructV fields ->
-        let idx_list = List.mapi (fun i _ -> i) fields in
-        let combos = get_combinations idx_list in
         let sub_paths_map = List.mapi (fun i (_, vj) -> (i, _generalize_paths spec vj)) fields in
-        
-        List.concat_map (fun indices ->
-          let selected_sub_paths = List.map (fun i -> (i, List.assoc i sub_paths_map)) indices in
-          
-          let rec cross_product = function
-            | [] -> [([], [])]
-            | (i, paths) :: rest ->
-                List.concat_map (fun (d, s, g) ->
-                  List.map (fun (s_acc, g_acc) -> 
-                    ((i, (d, s)) :: s_acc, (i, g) :: g_acc)
-                  ) (cross_product rest)
-                ) paths
-          in
-          
-          List.map (fun (s_env, g_env) ->
-            let max_d = List.fold_left (fun acc (_, (d, _)) -> max acc d) 0 s_env in
-            
-            let display = 
-              let fields' = List.mapi (fun j (aj, vj) ->
-                match List.assoc_opt j s_env with
-                | Some (_, sub_str) -> (aj, Value.text sub_str)
-                | None -> (aj, vj)
-              ) fields in
-              Print.string_of_value (Value.make_val t (StructV fields'))
-            in
-
-            let gen =
-              let gens = List.map (fun i -> List.assoc i g_env) indices in
-              Gen.map (fun values ->
-                let val_env = List.combine indices values in
-                let fields' = List.mapi (fun j (aj, vj) ->
-                  match List.assoc_opt j val_env with
-                  | Some new_v -> (aj, new_v)
-                  | None -> (aj, vj)
-                ) fields in
-                Value.make_val t (StructV fields')
-              ) (sequence_gen gens)
-            in
-            (max_d + 1, display, gen)
-          ) (cross_product selected_sub_paths)
-        ) combos
+        let combos = nonempty_subsets (List.mapi (fun i _ -> i) fields) in
+        let make_display s_env =
+          let fields' = List.mapi (fun j (aj, vj) ->
+            match List.assoc_opt j s_env with
+            | Some (_, sub_str) -> (aj, Value.text sub_str)
+            | None -> (aj, vj)
+          ) fields in
+          Print.string_of_value (Value.make_val t (StructV fields'))
+        in
+        let make_gen val_env =
+          let fields' = List.mapi (fun j (aj, vj) ->
+            match List.assoc_opt j val_env with
+            | Some new_v -> (aj, new_v)
+            | None -> (aj, vj)
+          ) fields in
+          Value.make_val t (StructV fields')
+        in
+        build_generalizations sub_paths_map combos make_display make_gen
 
     | TupleV vs ->
-        let idx_list = List.mapi (fun i _ -> i) vs in
-        let combos = get_combinations idx_list in
         let sub_paths_map = List.mapi (fun i vi -> (i, _generalize_paths spec vi)) vs in
-        
-        List.concat_map (fun indices ->
-          let selected_sub_paths = List.map (fun i -> (i, List.assoc i sub_paths_map)) indices in
-          let rec cross_product = function
-            | [] -> [([], [])]
-            | (i, paths) :: rest ->
-                List.concat_map (fun (d, s, g) ->
-                  List.map (fun (s_acc, g_acc) -> ((i, (d, s)) :: s_acc, (i, g) :: g_acc)) (cross_product rest)
-                ) paths
-          in
-          List.map (fun (s_env, g_env) ->
-            let max_d = List.fold_left (fun acc (_, (d, _)) -> max acc d) 0 s_env in
-            let display = 
-              let vs' = List.mapi (fun j vj ->
-                match List.assoc_opt j s_env with
-                | Some (_, sub_str) -> Value.text sub_str
-                | None -> vj
-              ) vs in
-              Print.string_of_value (Value.make_val t (TupleV vs'))
-            in
-            let gen =
-              let gens = List.map (fun i -> List.assoc i g_env) indices in
-              Gen.map (fun values ->
-                let val_env = List.combine indices values in
-                let vs' = List.mapi (fun j vj ->
-                  match List.assoc_opt j val_env with
-                  | Some new_v -> new_v
-                  | None -> vj
-                ) vs in
-                Value.make_val t (TupleV vs')
-              ) (sequence_gen gens)
-            in
-            (max_d + 1, display, gen)
-          ) (cross_product selected_sub_paths)
-        ) combos
+        let combos = nonempty_subsets (List.mapi (fun i _ -> i) vs) in
+        let make_display s_env =
+          let vs' = List.mapi (fun j vj ->
+            match List.assoc_opt j s_env with
+            | Some (_, sub_str) -> Value.text sub_str
+            | None -> vj
+          ) vs in
+          Print.string_of_value (Value.make_val t (TupleV vs'))
+        in
+        let make_gen val_env =
+          let vs' = List.mapi (fun j vj ->
+            match List.assoc_opt j val_env with
+            | Some new_v -> new_v
+            | None -> vj
+          ) vs in
+          Value.make_val t (TupleV vs')
+        in
+        build_generalizations sub_paths_map combos make_display make_gen
 
     | CaseV vc ->
         let args = Mixfix.args vc in
-        let idx_list = List.mapi (fun i _ -> i) args in
-        let combos = get_combinations idx_list in
-        let sub_paths_map = List.mapi (fun i _ -> (i, _generalize_paths spec (List.nth args i))) args in
-        
-        List.concat_map (fun indices ->
-          let selected_sub_paths = List.map (fun i -> (i, List.assoc i sub_paths_map)) indices in
-          let rec cross_product = function
-            | [] -> [([], [])]
-            | (i, paths) :: rest ->
-                List.concat_map (fun (d, s, g) ->
-                  List.map (fun (s_acc, g_acc) -> ((i, (d, s)) :: s_acc, (i, g) :: g_acc)) (cross_product rest)
-                ) paths
+        let sub_paths_map = List.mapi (fun i vi -> (i, _generalize_paths spec vi)) args in
+        let combos = nonempty_subsets (List.mapi (fun i _ -> i) args) in
+        let fallback i = List.nth args i in
+        let make_display s_env =
+          let display_args = patch_mixfix
+            (fun i -> match List.assoc_opt i s_env with Some (_, s) -> Some (Value.text s) | None -> None)
+            fallback vc
           in
-          List.map (fun (s_env, g_env) ->
-            let max_d = List.fold_left (fun acc (_, (d, _)) -> max acc d) 0 s_env in
-            
-            let display_args = 
-              let _, patched = List.fold_left (fun (arg_idx, acc) part ->
-                match part with
-                | Mixfix.Atom a -> (arg_idx, Mixfix.Atom a :: acc)
-                | Mixfix.Arg _ ->
-                    let v = match List.assoc_opt arg_idx s_env with
-                      | Some (_, sub_str) -> Value.text sub_str
-                      | None -> List.nth args arg_idx
-                    in
-                    (arg_idx + 1, Mixfix.Arg v :: acc)
-              ) (0, []) vc in List.rev patched
-            in
-            let display = Print.string_of_value (Value.make_val t (CaseV display_args)) in
+          Print.string_of_value (Value.make_val t (CaseV display_args))
+        in
+        let make_gen val_env =
+          let patched_args = patch_mixfix (fun i -> List.assoc_opt i val_env) fallback vc in
+          Value.make_val t (CaseV patched_args)
+        in
+        build_generalizations sub_paths_map combos make_display make_gen
 
-            let gen =
-              let gens = List.map (fun i -> List.assoc i g_env) indices in
-              Gen.map (fun values ->
-                let val_env = List.combine indices values in
-                let _, patched = List.fold_left (fun (arg_idx, acc) part ->
-                  match part with
-                  | Mixfix.Atom a -> (arg_idx, Mixfix.Atom a :: acc)
-                  | Mixfix.Arg _ ->
-                      let v = match List.assoc_opt arg_idx val_env with
-                        | Some new_v -> new_v
-                        | None -> List.nth args arg_idx
-                      in
-                      (arg_idx + 1, Mixfix.Arg v :: acc)
-                ) (0, []) vc in List.rev patched
-              ) (sequence_gen gens)
-              |> Gen.map (fun patched_args -> Value.make_val t (CaseV patched_args))
-            in
-            (max_d + 1, display, gen)
-          ) (cross_product selected_sub_paths)
-        ) combos
     | _ -> []
   in
-  let generalization_score s = 
-    String.fold_left (fun acc c -> if c = '[' then acc + 1 else acc) 0 s 
+  let generalization_score s =
+    String.fold_left (fun acc c -> if c = '[' then acc + 1 else acc) 0 s
   in
   root @
-  List.stable_sort (fun (_, s1, _) (_, s2, _) -> 
-    compare (generalization_score s2) (generalization_score s1)
+  (* Primary: score descending (more positions generalized = tried first by generalize_loop).
+     Secondary: depth descending so that "deep in all positions" (e.g. [nat]+[bool])
+     beats "deep in one, shallow in another" (e.g. [nat]+[expr]) within the same score. *)
+  List.stable_sort (fun (d1, s1, _) (d2, s2, _) ->
+    let c = compare (generalization_score s2) (generalization_score s1) in
+    if c <> 0 then c else compare d2 d1
   ) sub_paths
 
 let show_env (bindings : (id' * value) list) : string =
