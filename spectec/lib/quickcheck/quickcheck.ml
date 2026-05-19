@@ -43,7 +43,7 @@ let shrink_env spec (env : (id' * value) list) : (id' * value) list list =
 let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t Gen.t) list =
   let open Common.Source in
   let t = v.note.typ in
-  let root = [(0, (Print.string_of_value v) ^ "[" ^ Print.string_of_typ (t $ no_region) ^ "]", gen_of_typ spec (t $ no_region))] in
+  let root = [(0, "[" ^ Print.string_of_typ (t $ no_region) ^ "]", gen_of_typ spec (t $ no_region))] in
   let rec sequence_gen = function
     | [] -> Gen.return []
     | g :: gs -> Gen.bind g (fun x -> Gen.map (fun xs -> x :: xs) (sequence_gen gs))
@@ -206,32 +206,35 @@ let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t 
     compare (generalization_score s2) (generalization_score s1)
   ) sub_paths
 
+let show_env (bindings : (id' * value) list) : string =
+  String.concat ", "
+    (List.map (fun (id, v) -> id ^ "=" ^ Print.string_of_value v) bindings)
+
 let generalize_env spec (counter_env : (id' * value) list) : (string * ((id' * value) list Gen.t)) list =
   let n = List.length counter_env in
   if n = 0 then []
   else
-    List.concat_map (fun (i, (_, v_i)) ->
-      let sub_paths = (_generalize_paths spec v_i) in
-      List.map (fun (_, display, path_gen) ->
-        let label =
-          String.concat ", " (List.mapi (fun j (id_j, v_j) ->
-            if j = i then id_j ^ "=" ^ display
-            else id_j ^ "=" ^ Print.string_of_value v_j)
-          counter_env)
-        in
-        let gen' = Gen.map (fun new_vi ->
-          List.mapi (fun j (id_j, v_j) ->
-            if j = i then (id_j, new_vi) else (id_j, v_j))
-          counter_env)
-          path_gen
-        in
-        (label, gen'))
-      sub_paths)
-    (List.mapi (fun i p -> (i, p)) counter_env)
-
-let show_env (bindings : (id' * value) list) : string =
-  String.concat ", "
-    (List.map (fun (id, v) -> id ^ "=" ^ Print.string_of_value v) bindings)
+    let candidates =
+      List.concat_map (fun (i, (_, v_i)) ->
+        let sub_paths = (_generalize_paths spec v_i) in
+        List.map (fun (_, display, path_gen) ->
+          let label =
+            String.concat ", " (List.mapi (fun j (id_j, v_j) ->
+              if j = i then id_j ^ "=" ^ display
+              else id_j ^ "=" ^ Print.string_of_value v_j)
+            counter_env)
+          in
+          let gen' = Gen.map (fun new_vi ->
+            List.mapi (fun j (id_j, v_j) ->
+              if j = i then (id_j, new_vi) else (id_j, v_j))
+            counter_env)
+            path_gen
+          in
+          (label, gen'))
+        sub_paths)
+      (List.mapi (fun i p -> (i, p)) counter_env)
+    in
+    List.map (fun (s, gens) -> ((show_env counter_env) ^ "\n  (Generalized)\n  " ^ s, gens)) candidates
 
 let gen_free_vars (spec_il : spec) (free_vars : Qc_ir.ir_var list) :
     (id' * value) list Gen.t =
