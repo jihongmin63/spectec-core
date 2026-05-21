@@ -1,5 +1,8 @@
 open Il_gen
 open Lang.Il
+open Smart_gen
+
+(* -------------------------------------------------------------------------- *)
 
 type error =
   | ParseError of string
@@ -40,25 +43,11 @@ let shrink_env spec (env : (id' * value) list) : (id' * value) list list =
     (shrink_value vi))
   (List.mapi (fun i p -> (i, p)) env)
 
-let gen_free_vars (spec_il : spec) (free_vars : Qc_ir.ir_var list) :
-    (id' * value) list Gen.t =
-  Gen.sequence
-    (List.map
-       (fun v ->
-         Gen.map
-           (fun value -> (v.Qc_ir.iv_id, value))
-           (gen_of_typ spec_il v.Qc_ir.iv_typ))
-       free_vars)
-
 let gen_free_vars_manual (spec_il : spec) (name : string) :
     ((id' * value) list Gen.t, error) Stdlib.result =
   match Manual_gen.gen_inputs spec_il name with
   | Some gen -> Ok gen
   | None -> Error (NoManualGenerator name)
-
-let _smart_gen_free_vars (_spec_il : spec) (_free_vars : Qc_ir.ir_var list) (_prems : prem list) :
-    (id' * value) list Gen.t =
-  failwith "not implemented"
 
 let call_prems spec env (p : Qc_ir.qc_prems) =
   try `R (Qc_eval_il.run_prems ~max_steps:100
@@ -76,7 +65,7 @@ let dispatch spec (command : Qc_ir.qc_command) :
   | Qc_ir.QcProp { name = _; free_vars; generator; generalize; prems; goal } ->
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
-            | None -> Ok (gen_free_vars spec free_vars)) with
+            | None -> Ok (smart_gen_free_vars spec free_vars prems.Qc_ir.qp_prems)) with
     | Error _ as e -> e
     | Ok gen ->
       let generalize_fn = if generalize then Generalize.generalize_env spec else fun _ -> [] in
@@ -100,7 +89,7 @@ let dispatch spec (command : Qc_ir.qc_command) :
   | Qc_ir.QcGen { name = _; free_vars; generator; prems } ->
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
-            | None -> Ok (gen_free_vars spec free_vars)) with
+            | None -> Ok (smart_gen_free_vars spec free_vars prems.Qc_ir.qp_prems)) with
     | Error _ as e -> e
     | Ok gen ->
       let prop =
