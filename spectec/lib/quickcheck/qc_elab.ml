@@ -23,25 +23,6 @@ and elab_plaintyp' (pt' : El.plaintyp') : typ' =
     in
     VarT (id, il_targs)
 
-(* Build a synthetic notexp: a flat list of Mixfix.Arg (VarE id) for each var. *)
-let make_notexp (vars : (id' * typ) list) : notexp =
-  List.map (fun (id, typ) ->
-    Mixfix.Arg { it = VarE (id $ no_region); note = typ.it; at = no_region }
-  ) vars
-
-(* Build a synthetic RelD with one rule. *)
-let make_synth_rel_def (rel_id : id') (all_vars : (id' * typ) list)
-    (n_inputs : int) (prems : prem list) : def =
-  let notexp = make_notexp all_vars in
-  let inputs = List.init n_inputs Fun.id in
-  let rule_id = "rule" $ no_region in
-  let rule = (rule_id, notexp, prems) $ no_region in
-  (* nottyp is ignored at load time — use a dummy *)
-  let nottyp =
-    (List.map (fun (_, typ) -> Mixfix.Arg typ) all_vars) $ no_region
-  in
-  RelD (rel_id $ no_region, nottyp, inputs, [rule]) $ no_region
-
 (* --- output variable pre-declaration ------------------------------------ *)
 
 (* Reverse of elab_plaintyp: Il.typ → El.plaintyp, for VarPr injection. *)
@@ -121,7 +102,7 @@ let prepend_output_varpr_prems (spec : spec)
 (* --- block elaboration ------------------------------------------------ *)
 
 let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
-    (Qc_ir.qc_command * def list, string) result =
+    (Qc_ir.qc_command, string) result =
   let name = block.name in
   let free_vars =
     List.map
@@ -163,35 +144,12 @@ let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
            | Some g -> g
          in
          let input_ids = List.map (fun v -> v.Qc_ir.iv_id) free_vars in
-         let input_pairs =
-           List.map (fun v -> (v.Qc_ir.iv_id, v.Qc_ir.iv_typ)) free_vars
-         in
-         let prems_rel_id = Printf.sprintf "__qc_%s_prems__" name in
-         let prems_all_vars = input_pairs @ prems_output_vars in
-         let prems_def =
-           make_synth_rel_def prems_rel_id prems_all_vars
-             (List.length free_vars) il_prems
-         in
-         let prems_rel = Qc_ir.{
-           sr_id      = prems_rel_id;
-           sr_inputs  = input_ids;
-           sr_outputs = prems_output_vars;
+         let prems = Qc_ir.{
+           qp_inputs  = input_ids;
+           qp_outputs = prems_output_vars;
+           qp_prems   = il_prems;
          } in
-         let goal_rel_id = Printf.sprintf "__qc_%s_goal__" name in
-         let goal_all_vars = prems_all_vars in
-         let goal_def =
-           make_synth_rel_def goal_rel_id goal_all_vars
-             (List.length goal_all_vars) [il_goal]
-         in
-         let goal_input_ids = List.map fst goal_all_vars in
-         let goal_rel = Qc_ir.{
-           sr_id      = goal_rel_id;
-           sr_inputs  = goal_input_ids;
-           sr_outputs = [];
-         } in
-         Ok
-           (Qc_ir.QcProp { name; free_vars; generator; generalize; prems_rel; goal_rel },
-            [prems_def; goal_def]))
+         Ok (Qc_ir.QcProp { name; free_vars; generator; generalize; prems; goal = il_goal }))
   | None ->
     (* Generation mode: only filter premises, no goal. *)
     let prems = block.prems in
@@ -203,34 +161,23 @@ let elab_block (spec_il : spec) (block : Qc_ast.ast_block) :
        Error (Elaborate.error_to_string e)
      | Ok (il_prems, output_vars) ->
        let input_ids = List.map (fun v -> v.Qc_ir.iv_id) free_vars in
-       let input_pairs =
-         List.map (fun v -> (v.Qc_ir.iv_id, v.Qc_ir.iv_typ)) free_vars
-       in
-       let prems_rel_id = Printf.sprintf "__qc_%s_prems__" name in
-       let prems_all_vars = input_pairs @ output_vars in
-       let prems_def =
-         make_synth_rel_def prems_rel_id prems_all_vars
-           (List.length free_vars) il_prems
-       in
-       let prems_rel = Qc_ir.{
-         sr_id      = prems_rel_id;
-         sr_inputs  = input_ids;
-         sr_outputs = output_vars;
+       let prems = Qc_ir.{
+         qp_inputs  = input_ids;
+         qp_outputs = output_vars;
+         qp_prems   = il_prems;
        } in
-       Ok
-         (Qc_ir.QcGen { name; free_vars; generator; prems_rel },
-          [prems_def]))
+       Ok (Qc_ir.QcGen { name; free_vars; generator; prems }))
 
 (* --- top-level -------------------------------------------------------- *)
 
 let elaborate (spec_il : spec) (ast : Qc_ast.ast_file) :
-    (Qc_ir.t * spec, string) result =
+    (Qc_ir.t, string) result =
   List.fold_right
     (fun block acc ->
       match acc with
       | Error _ -> acc
-      | Ok (cmds, defs) ->
+      | Ok cmds ->
         (match elab_block spec_il block with
          | Error e -> Error e
-         | Ok (cmd, new_defs) -> Ok (cmd :: cmds, defs @ new_defs)))
-    ast (Ok ([], []))
+         | Ok cmd -> Ok (cmd :: cmds)))
+    ast (Ok [])

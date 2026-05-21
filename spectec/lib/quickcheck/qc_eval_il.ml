@@ -17,3 +17,8 @@ let run ?(max_steps = -1) target spec rid values filename =
   step_budget := max_steps;
   Eval_il.step_hook := check_step;
   Eval_il.run target spec rid values filename
+
+let run_prems ?(max_steps = -1) target spec input_env prems output_vars =
+  step_budget := max_steps;
+  Eval_il.step_hook := check_step;
+  Eval_il.run_prems target spec input_env prems output_vars ""

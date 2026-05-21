@@ -84,7 +84,7 @@ let patch_mixfix lookup fallback vc =
   ) (0, []) vc in
   List.rev patched
 
-let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t Gen.t) list =
+let rec generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t Gen.t) list =
   let open Common.Source in
   let t = v.note.typ in
   let root = [(0, "[" ^ Print.string_of_typ (t $ no_region) ^ "]", gen_of_typ spec (t $ no_region))] in
@@ -92,7 +92,7 @@ let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t 
   let sub_paths =
     match v.it with
     | StructV fields ->
-        let sub_paths_map = List.mapi (fun i (_, vj) -> (i, _generalize_paths spec vj)) fields in
+        let sub_paths_map = List.mapi (fun i (_, vj) -> (i, generalize_paths spec vj)) fields in
         let combos = nonempty_subsets (List.mapi (fun i _ -> i) fields) in
         let make_display s_env =
           let fields' = List.mapi (fun j (aj, vj) ->
@@ -113,7 +113,7 @@ let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t 
         build_generalizations sub_paths_map combos make_display make_gen
 
     | TupleV vs ->
-        let sub_paths_map = List.mapi (fun i vi -> (i, _generalize_paths spec vi)) vs in
+        let sub_paths_map = List.mapi (fun i vi -> (i, generalize_paths spec vi)) vs in
         let combos = nonempty_subsets (List.mapi (fun i _ -> i) vs) in
         let make_display s_env =
           let vs' = List.mapi (fun j vj ->
@@ -135,7 +135,7 @@ let rec _generalize_paths (spec : spec) (v : Value.t) : (int * string * Value.t 
 
     | CaseV vc ->
         let args = Mixfix.args vc in
-        let sub_paths_map = List.mapi (fun i vi -> (i, _generalize_paths spec vi)) args in
+        let sub_paths_map = List.mapi (fun i vi -> (i, generalize_paths spec vi)) args in
         let combos = nonempty_subsets (List.mapi (fun i _ -> i) args) in
         let fallback i = List.nth args i in
         let make_display s_env =
@@ -175,7 +175,7 @@ let generalize_env spec (counter_env : (id' * value) list) : (string * ((id' * v
   else
     let candidates =
       List.concat_map (fun (i, (_, v_i)) ->
-        let sub_paths = (_generalize_paths spec v_i) in
+        let sub_paths = (generalize_paths spec v_i) in
         List.map (fun (_, display, path_gen) ->
           let label =
             String.concat ", " (List.mapi (fun j (id_j, v_j) ->
@@ -211,16 +211,24 @@ let gen_free_vars_manual (spec_il : spec) (name : string) :
   | Some gen -> Ok gen
   | None -> Error (NoManualGenerator name)
 
+let _smart_gen_free_vars (_spec_il : spec) (_free_vars : Qc_ir.ir_var list) (_prems : prem list) :
+    (id' * value) list Gen.t =
+  failwith "not implemented"
 
-let call_rel spec rel_id input_vals =
-  try `R (Qc_eval_il.run ~max_steps:100
-            (module Nop_target) spec rel_id input_vals "")
+let call_prems spec env (p : Qc_ir.qc_prems) =
+  try `R (Qc_eval_il.run_prems ~max_steps:100
+            (module Nop_target) spec env p.Qc_ir.qp_prems p.Qc_ir.qp_outputs)
+  with Qc_eval_il.StepLimitExceeded -> `Timeout
+
+let call_goal spec env (goal : prem) =
+  try `R (Qc_eval_il.run_prems ~max_steps:100
+            (module Nop_target) spec env [goal] [])
   with Qc_eval_il.StepLimitExceeded -> `Timeout
 
 let dispatch spec (command : Qc_ir.qc_command) :
     (Test.outcome * Test.opt, error) Stdlib.result =
   match command with
-  | Qc_ir.QcProp { name = _; free_vars; generator; generalize; prems_rel; goal_rel } ->
+  | Qc_ir.QcProp { name = _; free_vars; generator; generalize; prems; goal } ->
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
             | None -> Ok (gen_free_vars spec free_vars)) with
@@ -229,28 +237,22 @@ let dispatch spec (command : Qc_ir.qc_command) :
       let generalize_fn = if generalize then generalize_env spec else fun _ -> [] in
       let prop =
         Property.for_all ~shrink:(shrink_env spec) ~generalize:generalize_fn ~show:show_env gen (fun initial_env ->
-          let prems_inputs =
-            List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
-          in
-          match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
+          match call_prems spec initial_env prems with
           | `Timeout | `R (Error _) ->
             Property.of_result Property.Result.nothing
-          | `R (Ok (_, output_vals)) ->
+          | `R (Ok output_vals) ->
             let output_env =
               List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
-                prems_rel.Qc_ir.sr_outputs
+                prems.Qc_ir.qp_outputs
             in
             let full_env = initial_env @ output_env in
-            let goal_inputs =
-              List.map (fun id -> List.assoc id full_env) goal_rel.Qc_ir.sr_inputs
-            in
-            (match call_rel spec goal_rel.Qc_ir.sr_id goal_inputs with
+            (match call_goal spec full_env goal with
              | `Timeout -> Property.of_result Property.Result.nothing
              | `R (Error _) -> Property.Bool_testable.property false
              | `R (Ok _) -> Property.Bool_testable.property true))
       in
       Ok (Test.quickcheck prop Test.Prop, Test.Prop))
-  | Qc_ir.QcGen { name = _; free_vars; generator; prems_rel } ->
+  | Qc_ir.QcGen { name = _; free_vars; generator; prems } ->
     (match (match generator with
             | Some gen_name -> gen_free_vars_manual spec gen_name
             | None -> Ok (gen_free_vars spec free_vars)) with
@@ -258,16 +260,13 @@ let dispatch spec (command : Qc_ir.qc_command) :
     | Ok gen ->
       let prop =
         Property.for_all ~show:show_env gen (fun initial_env ->
-          let prems_inputs =
-            List.map (fun id -> List.assoc id initial_env) prems_rel.Qc_ir.sr_inputs
-          in
-          match call_rel spec prems_rel.Qc_ir.sr_id prems_inputs with
+          match call_prems spec initial_env prems with
           | `Timeout | `R (Error _) ->
             Property.of_result Property.Result.nothing
-          | `R (Ok (_, output_vals)) ->
+          | `R (Ok output_vals) ->
             let output_env =
               List.mapi (fun i (id, _) -> (id, List.nth output_vals i))
-                prems_rel.Qc_ir.sr_outputs
+                prems.Qc_ir.qp_outputs
             in
             let full_env = initial_env @ output_env in
             Property.label (show_env full_env)
@@ -282,8 +281,7 @@ let quickcheck_file spec_il path : unit result =
   | Ok ast ->
     match Qc_elab.elaborate spec_il ast with
     | Error msg -> Error (ElabError msg)
-    | Ok (cmds, synthetic_defs) ->
-      let spec_with_synth = spec_il @ synthetic_defs in
+    | Ok cmds ->
       List.fold_left (fun acc cmd ->
         match acc with
         | Error _ -> acc
@@ -293,7 +291,7 @@ let quickcheck_file spec_il path : unit result =
             | Qc_ir.QcGen  { name; _ } -> name, "Generation"
           in
           Printf.printf "[Quickcheck %s: %s]\n" name mode_label;
-          (match dispatch spec_with_synth cmd with
+          (match dispatch spec_il cmd with
            | Error _ as e -> e
            | Ok (outcome, opt) -> Test.print_outcome opt outcome; Ok ()))
         (Ok ()) cmds

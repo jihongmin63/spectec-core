@@ -31,6 +31,31 @@ let run (module T : Target.S) (spec : spec) (rid : string)
   in
   try T.handler inner with Error.InterpError (at, msg) -> Error (at, msg)
 
+let run_prems (module T : Target.S) (spec : spec)
+    (input_bindings : (id' * value) list)
+    (prems : prem list)
+    (output_vars : (id' * typ) list)
+    (filename : string) : (value list, error) result =
+  let builtins = Builtins.make T.builtins in
+  let cache =
+    Cache.make ~is_impure_func:T.is_impure_func ~is_impure_rel:T.is_impure_rel
+      ~state_version:T.state_version
+  in
+  let inner () =
+    Cache.clear cache;
+    let ctx = Interp.load_spec filename builtins cache spec in
+    let ctx =
+      List.fold_left
+        (fun ctx (id, v) -> Ctx.add_value ~shadow:true ctx (id $ no_region, []) v)
+        ctx input_bindings
+    in
+    let+ ctx' = Interp.eval_prems ctx prems in
+    List.map (fun (id, _typ) -> Ctx.find_value ctx' (id $ no_region, []))
+      output_vars
+    |> Result.ok
+  in
+  try T.handler inner with Error.InterpError (at, msg) -> Error (at, msg)
+
 let error_to_string = Error.to_string
 
 let error_to_diagnostic ((at, msg) : error) : Diagnostic.t =

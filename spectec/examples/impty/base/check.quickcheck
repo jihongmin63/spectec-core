@@ -3,7 +3,7 @@ quickcheck/base_type_safety:
     (hint generalize)
     (hint generator base_prog)
     Eval_prog: |- prog -| _
-    -- Check_prog: |- prog
+    -- Check_prog: |- progfix
 
 quickcheck/base_gen_prog:
     (prog : prog)
