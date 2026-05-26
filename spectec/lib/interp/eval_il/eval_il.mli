@@ -6,11 +6,8 @@ end
 
 type error = region * string
 
-exception StepLimitExceeded
-
 val error_to_string : error -> string
-val error_to_diagnostic : error -> Diagnostic.t
-val step_hook : (unit -> unit) ref
+val error_to_diagnostic : error -> Diag.t
 
 val run :
   (module Target.S) ->

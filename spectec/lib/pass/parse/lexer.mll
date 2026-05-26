@@ -162,6 +162,7 @@ and token = parse
   | "`," { TICK_COMMA }
   | "`;" { TICK_SEMICOLON }
   | "`:" { TICK_COLON }
+  | "`:=" { TICK_COLON_EQ }
   | "`#" { TICK_HASH }
   | "`$" { TICK_DOLLAR }
   | "`@" { TICK_AT }
@@ -169,6 +170,7 @@ and token = parse
   | "`!" { TICK_BANG }
   | "`!=" { TICK_BANG_EQ }
   | "`~" { TICK_TILDE }
+  | "`~~" { TICK_TILDE2 }
   | "``<" { TICK2_LANGLE }
   | "`<" { TICK_LANGLE }
   | "`<<" { TICK_LANGLE2 }
@@ -234,6 +236,7 @@ and token = parse
   | ":" { COLON }
   | "::" { COLON2 }
   | ":/" { COLON_SLASH }
+  | ":=" { COLON_EQ }
   | "#" { HASH }
   | "##" { HASH2 }
   | "$" { DOLLAR }
@@ -281,6 +284,8 @@ and token = parse
   | "builtin" { BUILTIN }
   | "dec" { DEC }
   | "def" { DEF }
+  | "generator" { GENERATOR }
+  | "property" { PROPERTY }
   | "if" { IF }
   | "otherwise" { OTHERWISE }
   | "debug" { DEBUG }

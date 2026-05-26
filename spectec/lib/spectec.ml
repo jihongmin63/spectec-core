@@ -6,12 +6,7 @@
 module Error = Error
 module Task = Task
 module Target = Target
-
-module Diagnostic = struct
-  include Diagnostic
-  module Render = Render
-  module Ansi = Ansi
-end
+module Diagnostic = Diag
 
 type 'a result = ('a, Error.t) Stdlib.result
 
@@ -20,9 +15,9 @@ let ( let* ) = Result.bind
 (* --- Diagnostics --- *)
 
 let with_diagnostics f =
-  Diagnostic.Sink.reset_global ();
+  Diag.Sink.reset_global ();
   let result = f () in
-  let bag = Diagnostic.Sink.drain (Diagnostic.Sink.global ()) in
+  let bag = Diag.Sink.drain (Diag.Sink.global ()) in
   (result, bag)
 
 (* --- Pipeline transformations --- *)
@@ -44,6 +39,8 @@ let collect_spec_files spec_dir =
 
 let parse_spec_files filenames =
   Pass.parse_files filenames |> Result.map_error (fun e -> Error.PassError e)
+
+type il = Pass.il = { lang : Lang.Il.spec; qc : Qc_il.spec }
 
 let elaborate spec_el =
   Pass.elaborate spec_el |> Result.map_error (fun e -> Error.PassError e)

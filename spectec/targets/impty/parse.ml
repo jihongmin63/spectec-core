@@ -1,8 +1,8 @@
 (** Recursive-descent parser for impty.
 
     Consumes the token stream from {!Lexer} and emits an IL [value] tree shaped
-    to match the surface syntax in [examples/impty/*/spec.spectec]. Precedence
-    is encoded by the call structure of [parse_expr] and friends. *)
+    to match the surface syntax in [specs/impty/*/spec.spectec]. Precedence is
+    encoded by the call structure of [parse_expr] and friends. *)
 
 open Common.Source
 open Lang.Il
@@ -204,7 +204,7 @@ and parse_primary c : value =
 
 (* Sequencing is left-associative via `;`. *)
 and parse_stmt c =
-  left_assoc ~op_token:Lexer.Semi ~op_atom:";" ~var:"command"
+  left_assoc ~op_token:Lexer.Semi ~op_atom:"`;" ~var:"command"
     ~next:parse_stmt_atom c
 
 and parse_stmt_atom c : value =

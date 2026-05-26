@@ -5,10 +5,8 @@ type error
 type ctx_il
 type ctx_sl
 
-exception StepLimitExceeded
-
 val error_to_string : error -> string
-val error_to_diagnostic : error -> Diagnostic.t
+val error_to_diagnostic : error -> Diag.t
 
 val eval_il :
   (module Target.S) ->

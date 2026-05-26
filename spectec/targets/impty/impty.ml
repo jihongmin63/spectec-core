@@ -1,10 +1,10 @@
 (** impty target — typed imperative language.
 
     Two specs share one parser:
-    - [examples/impty/base] — imperative core (arithmetic, conditionals, loops).
-    - [examples/impty/closure] — adds function values and call expressions. *)
+    - [specs/impty/base] — imperative core (arithmetic, conditionals, loops).
+    - [specs/impty/closure] — adds function values and call expressions. *)
 
-let test_base_dir = "spectec/testdata/interp/impty-tests"
+let test_base_dir = "spectec/testdata/interp/impty"
 
 let collect_files_recursive ~suffix dir =
   let rec gather acc path =
@@ -27,7 +27,7 @@ let contains_substring s sub =
 
 module Target : Spectec.Target.S = struct
   let name = "impty"
-  let spec_dir = "spectec/examples/impty/base"
+  let spec_dir = "spectec/specs/impty/base"
 
   (* The impty spec is fully self-contained: arithmetic, comparison, boolean,
      and list/map operations are SpecTec primitives or defined in the spec. *)
@@ -129,6 +129,48 @@ module Eval_cli : Cli.Task_cli.S = struct
   let flags = cli_flags
 end
 
+let quickcheck_command =
+  Core.Command.basic
+    ~summary:"run quickcheck properties declared in an impty spec"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames_spec = Cli.Cli_args.Spec.files_flag
+  and generalize =
+    flag "--generalize" no_arg
+      ~doc:" generalize counterexamples after shrinking"
+  and max_steps =
+    flag "--max-steps"
+      (optional_with_default 100 int)
+      ~doc:"N max steps per relation evaluation (default 100)"
+  and num_tests =
+    flag "--num-tests"
+      (optional_with_default 100 int)
+      ~doc:"N number of test cases to generate (default 100)"
+  and save =
+    flag "--save" no_arg ~doc:" save passing test inputs to {property}.json"
+  and color = Cli.Cli_args.Output.color_flag in
+  fun () ->
+    Cli.Error_handling.guard_unit ~color @@ fun () ->
+    (* Alias before [open Spectec] so [(module T)] packs impty's Target rather
+       than the Spectec.Target module type holder. *)
+    let module T = Target in
+    let open Spectec in
+    let ( let* ) = Result.bind in
+    let filenames =
+      match filenames_spec with
+      | [] -> collect_spec_files T.spec_dir
+      | files -> files
+    in
+    let* spec = parse_spec_files filenames in
+    let* { lang; qc } = elaborate spec in
+    Quickcheck.Driver.check
+      ~target:(module T)
+      ~generalize ~max_steps ~num_tests ~save
+      ~manual_gens:Manual_gen.manual_gens lang qc
+    |> Result.map_error (fun e ->
+           Error.QuickcheckError (Quickcheck.Driver.error_to_string e))
+
 module Cli : Cli.Target_cli.S = struct
   module Target = Target
 
@@ -150,5 +192,6 @@ module Cli : Cli.Target_cli.S = struct
         Subcommand.make_batch target ~name:"batch"
           [ (module Typecheck_cli); (module Eval_cli) ];
         Subcommand.make_checkpoint target ~name:"checkpoint";
+        ("quickcheck", quickcheck_command);
       ]
 end
