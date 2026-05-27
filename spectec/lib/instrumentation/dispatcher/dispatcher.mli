@@ -20,3 +20,16 @@ val with_handler :
   (module Instrumentation_api.Handler.S) ->
   (unit -> 'a) ->
   'a
+
+(** Start buffering emitted events instead of forwarding them to handlers.
+    Nest-safe: calling [begin_buffering] while already buffering starts a
+    fresh buffer (the previous one is discarded). *)
+val begin_buffering : unit -> unit
+
+(** Forward all buffered events to the active handlers, then return to
+    passthrough mode.  No-op if not currently buffering. *)
+val commit_buffer : unit -> unit
+
+(** Discard all buffered events and return to passthrough mode.
+    No-op if not currently buffering. *)
+val drop_buffer : unit -> unit

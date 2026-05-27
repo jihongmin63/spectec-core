@@ -4,6 +4,14 @@ type session = Idle | Active of (module Instrumentation_api.Handler.S) list
 
 let session = ref Idle
 
+(* Per-test-case event buffer.  [None] = passthrough (normal mode);
+   [Some q] = buffering mode: events are enqueued and forwarded to handlers
+   only on [commit_buffer ()], or silently dropped on [drop_buffer ()].
+   Call [begin_buffering ()] before evaluating a test case and
+   [commit_buffer ()] / [drop_buffer ()] depending on whether the verdict is
+   [Pass] or [Fail]/[Discard]. *)
+let buffer : Instrumentation_api.Event.t Queue.t option ref = ref None
+
 let finish_all_handlers handlers =
   handlers
   |> List.fold_left
@@ -32,13 +40,35 @@ let init ~spec ~handlers =
   init_handlers ~spec [] handlers;
   session := Active handlers
 
-let emit (ev : Instrumentation_api.Event.t) : unit =
+let forward_to_session ev =
   match !session with
   | Active hs ->
-      List.iter
-        (fun (module H : Instrumentation_api.Handler.S) -> H.handle ev)
-        hs
+      List.iter (fun (module H : Instrumentation_api.Handler.S) -> H.handle ev) hs
   | Idle -> ()
+
+let emit (ev : Instrumentation_api.Event.t) : unit =
+  match !buffer with
+  | Some q -> (
+      match ev with
+      | Instrumentation_api.Event.Rel_enter _ ->
+          (* Rel_enter must reach step-budget handlers immediately — they are
+             added via [with_handler] and decrement a per-call budget on each
+             relation entry.  Coverage handlers ignore Rel_enter, so bypassing
+             the buffer here does not affect coverage correctness. *)
+          forward_to_session ev
+      | _ -> Queue.add ev q)
+  | None -> forward_to_session ev
+
+let begin_buffering () = buffer := Some (Queue.create ())
+
+let commit_buffer () =
+  match !buffer with
+  | None -> ()
+  | Some q ->
+      buffer := None;
+      Queue.iter forward_to_session q
+
+let drop_buffer () = buffer := None
 
 let finish () =
   match !session with
