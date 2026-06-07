@@ -58,11 +58,13 @@ let gen_free_vars_manual ~(manual_gens : (string * manual_gen) list)
   | Some gen_fn -> Ok (gen_fn spec_il)
   | None -> Error (NoManualGenerator name)
 
-let run_property ~target ~generalize ~max_steps ~num_tests
+let run_property ~target ~generalize ~max_steps ~num_tests ~max_size
     ~(manual_gens : (string * manual_gen) list) (core_spec : spec)
     ~(side_prems : prem list) ~(goal : prem) ~(hints : hint list) :
-    (Test.outcome, error) Stdlib.result =
-  let config = { Test.default_config with Test.num_tests } in
+    ( Test.outcome * (id' * value) list option * ((id' * value) list -> bool),
+      error )
+    Stdlib.result =
+  let config = { Test.default_config with Test.num_tests; Test.max_size } in
   let generator = find_generator_hint hints in
   let inputs = Free_vars.of_premises ~core_spec (side_prems @ [ goal ]) in
   let eval_env = Premise_eval.{ target; core_spec; max_steps } in
@@ -76,10 +78,13 @@ let run_property ~target ~generalize ~max_steps ~num_tests
       let generalize_fn =
         if generalize then Some (Generalize.generalize_env core_spec) else None
       in
+      (* Holds the most recent failing assignment. Shrinking re-runs the body
+         on smaller inputs, so by the time [Test.run] returns this is the
+         minimal counterexample. *)
+      let captured : (id' * value) list option ref = ref None in
       let prop =
         Property.for_all ~shrink:(shrink_env core_spec)
-          ?generalize:generalize_fn ~show:show_env gen
-          (fun bindings ->
+          ?generalize:generalize_fn ~show:show_env gen (fun bindings ->
             Instrumentation.Dispatcher.begin_buffering ();
             match Premise_eval.eval_side eval_env ~bindings side_prems with
             | Premise_eval.Holds -> (
@@ -89,6 +94,7 @@ let run_property ~target ~generalize ~max_steps ~num_tests
                     Property.of_verdict Property.Verdict.pass
                 | Premise_eval.Fails ->
                     Instrumentation.Dispatcher.drop_buffer ();
+                    captured := Some bindings;
                     Property.of_verdict Property.Verdict.fail
                 | Premise_eval.StepLimit | Premise_eval.Unsupported _ ->
                     Instrumentation.Dispatcher.drop_buffer ();
@@ -98,9 +104,27 @@ let run_property ~target ~generalize ~max_steps ~num_tests
                 Instrumentation.Dispatcher.drop_buffer ();
                 Property.of_verdict Property.Verdict.discard)
       in
-      Ok (Test.run ~config prop)
+      (* True iff [bindings] is still a counterexample: side premises hold but the
+         goal fails. Events are buffered then dropped so this re-check stays out
+         of coverage. Lets callers confirm a rendered counterexample reproduces. *)
+      let recheck (bindings : (id' * value) list) : bool =
+        Instrumentation.Dispatcher.begin_buffering ();
+        let is_counterexample =
+          match Premise_eval.eval_side eval_env ~bindings side_prems with
+          | Premise_eval.Holds -> (
+              match Premise_eval.eval eval_env ~bindings goal with
+              | Premise_eval.Fails -> true
+              | _ -> false)
+          | _ -> false
+        in
+        Instrumentation.Dispatcher.drop_buffer ();
+        is_counterexample
+      in
+      let outcome = Test.run ~config prop in
+      Ok (outcome, !captured, recheck)
 
-let check ~target ~generalize ~max_steps ~num_tests ~manual_gens
+let check ~target ~generalize ~max_steps ~num_tests
+    ?(max_size = Test.default_config.max_size) ?on_counterexample ~manual_gens
     (spec_il : spec) (qc_spec : Qc_il.spec) : unit result =
   List.fold_left
     (fun acc qc_def ->
@@ -113,11 +137,14 @@ let check ~target ~generalize ~max_steps ~num_tests ~manual_gens
               let name = name_id.it in
               Printf.printf "[Quickcheck %s: Test]\n" name;
               match
-                run_property ~target ~generalize ~max_steps ~num_tests
+                run_property ~target ~generalize ~max_steps ~num_tests ~max_size
                   ~manual_gens spec_il ~side_prems ~goal ~hints
               with
               | Error _ as e -> e
-              | Ok outcome ->
+              | Ok (outcome, captured, recheck) ->
                   Test.print_outcome outcome;
+                  (match (on_counterexample, outcome, captured) with
+                  | Some f, Test.Fail _, Some env -> f name env recheck
+                  | _ -> ());
                   Ok ())))
     (Ok ()) qc_spec
