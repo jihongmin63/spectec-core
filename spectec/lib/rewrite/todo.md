@@ -351,3 +351,56 @@ re-run the survey for the net flip count.
   mirror yet.
 - [ ] **Tests.** Add a `test/` case pinning the `impty/base` CTRS output
   (`.expected`) so regressions in the translation surface in `make test`.
+
+## P1 — confirmed generic bug: table action-enum *value* built from the id STREAM, not the per-element id (action-name switch labels stick)
+
+Found by isolating the post-`lift_match_eq_to_let` still-STUCK in-scope set (interpreter
+`Typechecker success`, Maude stuck). **Shared by ≥4 programs**: `cases.p4`,
+`apply-cf.p4`, `default-switch.p4`, `exit5.p4` — every control whose apply body has a
+`switch (t.apply().action_run) { <action-name>: … }` with an **action-name label**
+(an empty switch / `default:`-only switch is fine).
+
+Minimal repro (bare control, p4-old accepts it):
+```p4
+control ctrl() {
+  action a() {} table t { actions = { a; } default_action = a; }
+  apply { switch (t.apply().action_run) { a: { } } }   // a: sticks; remove it -> OK
+}
+```
+
+Bisected (M0–M5 isolation + stepwise reduce): the label rule
+`SwitchLabel_table_ok/expressionNonBrace-prefixedNonTypeName` looks the action-enum
+member up with `$find_var(LOCAL, TC, "action_list(t).a")` and checks
+`value_label = TABLE_ENUM "action_list(t)" '.' nameIR_label`. Every component works in
+isolation ($canon, $strip_prefix/suffix→"t", registration, $find_var, the some/option
+wrapping). The break is the **registered enum VALUE's shape**: it is
+`tableValue-TABLE-ENUM-dot-2("action_list(t)", cons(txt("a"), nil))` — a **List**
+`["a"]` in the constructor's **second `Text` slot** (`op … : Text Text -> TableValue`),
+i.e. an ill-sorted term that can never match the well-sorted lookup value
+`tableValue(…, txt("a"))`. So the equality fails and the label rule never fires.
+
+Root (simplified IL of `TableType_ok`, 5.14.1):
+```
+-- (let value_enum_field    = table_enum "action_list("++nameIR++")" . id_enum_field)
+                                                    *{id_enum_field<-id_enum_field*, value_enum_field<-value_enum_field*}
+-- (let varTypeIR_enum_field = table_enum … { id_enum_field*{…} } lctk
+                               ?(table_enum "action_list("++nameIR++")" . id_enum_field))   ← value_enum_field INLINED
+                                                    *{value_enum_field<-value_enum_field*, varTypeIR_enum_field<-varTypeIR_enum_field*}
+```
+The spec is `varTypeIR_enum_field = _EMPTY typeIR LCTK value_enum_field`, i.e. the value
+field should be the **co-iterated** `?(value_enum_field)`. A `Simplify` inline replaced
+`value_enum_field` with its definition `table_enum … . id_enum_field` **inside the
+`varTypeIR_enum_field` iteration**, where `id_enum_field` is NOT a binder — so it denotes
+the whole `id_enum_field*` stream, giving `tableValue(tid, [ids…])` instead of
+`tableValue(tid, id)`. (`$flatten_prefixedNameIR` itself is correct: `-> Text`,
+`(_NAME a) = "a"`.) `value_enum_field` even stays listed as an unused binder, confirming
+it was substituted away rather than properly kept.
+
+Fix lives in the inline/substitution machinery ([simplify.ml](simplify.ml)
+`inline_lets`/`inline_value_lets`, or [prem_env.ml](prem_env.ml) `subst_exp`'s IterE
+binder-relift — the `binds_from` guard only fires for a bare `VarE from_e`, not the
+iterated `value_enum_field*{…}` form): never inline/substitute a per-element binding
+into another iteration that does not co-iterate the element variables its RHS drags in
+(here `id_enum_field`). Same delicate family as the option-equality item below; the
+impty golden does NOT cover it, so a fix must be re-surveyed over `p4_16_samples`
+(cases/apply-cf/default-switch/exit5 must flip to OK, and previously-OK must stay OK).
