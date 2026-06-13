@@ -57,3 +57,30 @@ The bridge looks for the binary in this order (a missing binary is a clean
 ```bash
 spectec/_build/default/bin/main.exe run --lang impty --search spec.spectec
 ```
+
+## Measuring *pure rewriting* time — [`rewrite-time.sh`](rewrite-time.sh)
+
+End-to-end `run` wall-clock is dominated by the OCaml front-end (spec parse +
+elaboration), module emission, and Maude start-up / module parsing — **not** by
+the rewriting itself (see [lib/rewrite/CLAUDE.md](../../lib/rewrite/CLAUDE.md)
+"성능 측정 시 주의"). `Maude_run` writes one self-contained temp file (module +
+command + `quit`) and runs `maude -no-banner <file>`; maude always prints
+`rewrites: N in Xms cpu (Yms real)`, which `parse_output` then discards.
+
+`rewrite-time.sh` recovers that stats line: it slips a `--maude-bin` wrapper into
+a normal run to copy the temp file aside, then re-runs the real maude on it and
+prints the pure cpu/real ms and the rewrite count (and, for context, the
+end-to-end wall-clock). Pass your usual `run` command after `--`:
+
+```bash
+SPEC=$(find spectec/specs/p4 -name '*.spectec' | sort | tr '\n' ' ')
+spectec/tools/maude/rewrite-time.sh -n 3 -- \
+  spectec/_build/default/bin/main.exe run \
+  --p4 spectec/testdata/interp/p4/p4c/p4_16_samples/tuple3.p4 \
+  -i spectec/testdata/interp/p4/p4c/includes $SPEC
+# -> end-to-end ~12s, but pure-cpu 0ms (303 rewrites)
+```
+
+`-n REPS` (default 1) re-runs the captured module and reports the minimum
+cpu/real ms. The real maude binary is resolved via `SPECTEC_MAUDE_BIN`, then the
+repo-relative `maude` here, then `PATH`.

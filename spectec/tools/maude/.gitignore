@@ -1,5 +1,7 @@
 # The Maude binary and its .maude library are downloaded, not checked in
-# (see README.md). Ignore everything here except this file and the README.
+# (see README.md). Ignore everything here except this file, the README, and
+# checked-in helper scripts.
 *
 !.gitignore
 !README.md
+!rewrite-time.sh

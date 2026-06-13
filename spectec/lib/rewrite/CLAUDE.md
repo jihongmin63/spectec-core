@@ -247,13 +247,33 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
 
 기동 비용을 빼거나 줄이는 방법:
 
-1. **Maude 자체 통계를 읽기 (가장 간단).** `reduce`는
+1. **Maude 자체 통계를 읽기 (가장 간단) — 스크립트로 자동화돼 있음:
+   [`tools/maude/rewrite-time.sh`](../../tools/maude/rewrite-time.sh).** `reduce`는
    `rewrites: N in Xms cpu (Yms real)`를 항상 출력하지만 `parse_output`이
-   `result` 줄만 보고 버립니다. `--maude-bin`에 래퍼 스크립트를 줘서 생성된
-   모듈+명령 임시 파일을 복사해 두고(`cp "$2" /tmp/captured.maude; exec
-   maude "$@"`), 그 파일로 maude를 직접 돌려 통계 줄을 읽으면 순수 실행
-   시간만 측정됩니다. 인터프리터 쪽 baseline은 `impty parse -p FILE`
-   (스펙 로드+프로그램 파싱만, ~16ms)을 빼면 됩니다.
+   `result` 줄만 보고 버립니다. 이 스크립트는 `--maude-bin`에 래퍼를 끼워
+   `Maude_run.run`이 maude에 넘기는 self-contained 임시 파일(모듈+명령+`quit`)을
+   복사해 두고, 그 파일로 maude를 직접 다시 돌려 통계 줄을 파싱합니다 — **순수
+   rewriting의 cpu/real ms와 rewrites 수만** 보고하고, 참고로 end-to-end
+   wall-clock도 함께 찍습니다. 사용법:
+
+   ```bash
+   # repo 루트에서. `--` 뒤는 평소 쓰던 run 명령을 그대로 (스크립트가
+   # --maude-bin 래퍼와 넉넉한 --timeout만 덧붙임). -n REPS는 캡처한 모듈을
+   # N회 재실행해 최소 cpu/real을 보고(순수 비용에 가장 근접).
+   SPEC=$(find spectec/specs/p4 -name '*.spectec' | sort | tr '\n' ' ')
+   spectec/tools/maude/rewrite-time.sh -n 3 -- \
+     spectec/_build/default/bin/main.exe run \
+     --p4 spectec/testdata/interp/p4/p4c/p4_16_samples/tuple3.p4 \
+     -i spectec/testdata/interp/p4/p4c/includes $SPEC
+   # -> end-to-end ~12s, 그러나 pure-cpu 0ms (303 rewrites)
+   ```
+
+   실측(2026-06): p4 선언 샘플들(tuple3/intType/octal/cast_noop)은 모두
+   순수 rewriting **0ms**(303~1157 rewrites)인데 end-to-end는 11~19s —
+   전부 P4 스펙 emission + maude의 거대 모듈 파싱 비용입니다. 부하를 키운
+   `impty` loop(`i <= 2000`)은 74k rewrites / 24ms cpu vs end-to-end 121ms로
+   순수 시간이 분명히 잡힙니다(스크립트 검증). 인터프리터 쪽 baseline은
+   `impty parse -p FILE`(스펙 로드+프로그램 파싱만, ~16ms)을 빼면 됩니다.
 2. **배치 실행으로 상각.** 모듈 텍스트는 입력 프로그램과 무관하게 동일하므로,
    모듈 1개 + `reduce` 명령 N개를 한 파일에 이어붙이면 기동을 1회만 치릅니다
    (실측: 4건 합계 25ms → 테스트당 ~6ms). 스위트 단위 실행/측정이 목적이면
