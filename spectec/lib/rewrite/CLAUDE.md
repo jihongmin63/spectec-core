@@ -325,6 +325,15 @@ Priority-ordered. The big ones:
   (`$itermap`/`$unzip`/`$iterall`/`$itercollect`); `Simplify.collapse_rezip_iters`
   pre-folds unzip→re-zip round-trips. Remaining nits: helper symbols can be very
   long; the captured-body `$unzip` is non-left-linear (see [todo.md](todo.md)).
+- **Iteration-binder-scope discipline (Fix A, 2026-06-13).** `Simplify.subst_prem`'s
+  `IterPr` branch now threads `elem_bound` (every element var bound by some iteration
+  in the block, via `iter_binders_prem`) and withholds any pair whose `to_e` drags in
+  an element var bound by ANOTHER iteration — the premise-position analog of
+  `Prem_env.subst_exp`'s `binds_from` guard. This fixed the table action-enum
+  STREAM-vs-element bug end-to-end (`cases`/`apply-cf`/`default-switch`/`exit5` all
+  flip STUCK→OK; impty goldens byte-identical). The remaining `$find_overloaded`
+  named-argument `:=`-helper frontier (was thought a separate "identity rename") is a
+  deeper hoist/redundancy reconstruction issue — see [todo.md](todo.md).
 - **P2 `otherwise` (`ElsePr`) is dropped** (`conds_of_prem` → `[]`), so a
   fallthrough clause loses its "no earlier clause applied" guard and overlaps the
   earlier rules → **non-confluent** (e.g. `impty/base` `$lookup` emits two rules

@@ -84,37 +84,81 @@ gets the deep `if`-equality instead.
   bmv2/ebpf/ubpf programs that were stuck on header/metadata field access, not on
   architecture coverage.
 
-## P1 — next frontier: a defined function in a `:=` pattern, this time from `IterPr`/`$itercollect` (`$find_overloaded`)
+## P1 — next frontier: a defined function in a `:=` pattern from `$find_overloaded`'s NAMED-argument clauses (root-cause REVISED 2026-06-13)
 
-The same illegal shape (a `$`-function on the LHS of a Maude `:=`) survives in
-`$find_overloaded`'s clauses (overload resolution, [5.01-env.spectec:181](../../specs/p4-old/5.01-env.spectec)),
-emitted from **iterated premises** rather than an `if`-equality, so `lift_match_eq_to_let`
-does not reach it. Precise instances (scan of an emitted module):
+A `$`-function on the LHS of a Maude `:=` still survives in `$find_overloaded`'s
+"all arguments named" clauses (clauses 0/1, overload resolution,
+[5.01-env.spectec:184](../../specs/p4-old/5.01-env.spectec)). Two circular helpers
+remain after Fix A (`$find-matchings(..) := nil` is now gone):
 
 ```
-$itercollect-…(id) := id-arg-prime
-$itercollect-…(id-arg-prime, id-arg) := id
-$find-matchings(id-r, x, id-arg-prime, rid, V) := nil
+$itercollect-…-id(id-arg) := id
+$itercollect-…-id-arg-prime(id) := id-arg-prime
 ```
 
-Root: `$find_overloaded`'s premises `(id_arg? = id_arg')*` (an iterated *identity
-rename*, binding `id_arg'*` from the parameter `id_arg?*`) and `if $find_matchings(..)
-= eps`. The first compiles to `$itercollect` helpers whose orientation
-([to_maude.ml](to_maude.ml) `print_cond`, the `fl <> []` branch) lands the helper on
-the pattern side because a fresh var sits *inside* the call — which Maude cannot run
-backwards, so the condition is unsatisfiable and overload resolution sticks. Likely
-in scope for table/switch action resolution and other callable-overload programs (the
-post-fix still-STUCK set that the **interpreter accepts** — `p4-old-il-pos.expected`
-says `Typechecker success`, not `Excluding` — e.g. `cases.p4`, `bool_to_bit_cast.p4`,
-`apply-cf.p4`, `def-use.p4`; see repo-root `p4old_samples_stuck_analysis.md`).
+**The earlier diagnosis ("an iterated *identity rename* `(id_arg? = id_arg')*`,
+collapse it in Simplify") was WRONG.** Reading the *elaborated* IL (`elab` subcommand)
+shows the spec premise `(id_arg? = id_arg')*` is elaborated into a **some-extraction
+chain**, not an identity rename:
 
-Delicate: this is the iterated-option machinery the **option-equality** item below
-touches (`Prem_env.subst_exp`'s `IterE` empty-binder guard). A clean fix probably
-collapses the iterated identity rename `(id_arg? = id_arg')*` in `Simplify` (substitute
-`id_arg'* := id_arg?*`, dropping the `$itercollect`) and/or guards `to_maude`'s
-orientation never to make a defined-function App a `:=` pattern. Verify with the
-impty golden AND the p4-old `cases.p4`/`bool_to_bit_cast.p4` end-to-end runs, and
-re-run the survey for the net flip count.
+```
+-- (let id?{id <- id?} = id_arg?)*          ;; alias: id? ≡ id_arg?
+-- (if id?{id <- id?} matches (_))*          ;; each is some
+-- (let ?(id_arg') = id?{id <- id?})*        ;; id_arg' = the some-content
+```
+
+i.e. it means "every argument is named (some), and `id_arg'` is the unwrapped name".
+
+**Real root cause:** `Prem_env.hoist_pairs` (head-only reconstruction) transitively
+derives `id_arg? ≡ ?(id_arg')` and folds the head pattern to `?(id_arg')*` (binding
+`id_arg'` via `$unzip`), but does NOT propagate `id_arg? → ?(id_arg')` to the rest of
+the clause: `$find_matchings(id_r, id_arg?*, …)` keeps the now-unbound `id_arg?*`, and
+the chain premises A/B/C stay as circular `$itercollect` helpers (`id_arg` / `id`
+become phantom/unbound vars). The two surviving clauses are even INCONSISTENT — the
+`none` clause feeds `$find_matchings` `$itermap…(id_arg)` (phantom `id_arg`) while the
+`some` clause feeds it `$itermap…(id_arg')` (the head-bound one). So this is a
+**hoist/redundancy reconstruction-consistency bug for an iterated some-extraction**,
+not a missing rename-collapse. A correct fix must, once the head is reconstructed to
+`?(id_arg')*`, either (a) propagate `id_arg? → ?(id_arg')` consistently through the
+premise bodies AND drop the now-redundant A/B/C chain, or (b) suppress the head fold
+for this shape and keep the clean `id_arg?*` head with a binder-position
+`$unzip`-destructure (the shape clauses 2/3, the *unnamed* case, already get cleanly).
+This touches core hoist/redundancy logic the impty golden exercises, so it needs care
++ golden re-verification. Related: the iterated-option machinery the **option-equality**
+item below touches (`Prem_env.subst_exp`'s `IterE` empty-binder guard).
+
+**Scope + a minimal trigger.** Positional-argument overload programs
+(`cases.p4`/`apply-cf.p4`/`def-use.p4`) hit the CLEAN unnamed clauses (2/3) and already
+pass after Fix A; `bool_to_bit_cast.p4` uses no explicit named args, so its stuck is a
+SEPARATE frontier. The minimal trigger for THIS bug is an all-named call:
+
+```p4
+control c() { action a(bit<8> x, bit<8> y) {} apply { a(x = 8w1, y = 8w2); } }
+```
+
+It `FAIL (stuck)`s today (and `a(x=.., z=..)` must keep failing — z is not a param).
+
+**What was tried (2026-06-13) and why it is insufficient.** Folding the structural
+reconstruction pair `id_arg? → ?(id_arg')` into the `if $find_matchings(id_arg?*, ..)`
+guard's call ARGUMENTS (a refined `subst_guards_with` that protects the equality's own
+top-level operands so it does NOT trivialize a guard like `(if id_arg? = ?())*`) makes
+`$find_matchings` consistent with the reconstructed head and keeps the impty golden
+byte-identical. But it is a PREREQUISITE, not a fix: the circular `$itercollect := …`
+helpers from the redundant chain A/B/C remain, and once the input correctly routes to
+clauses 0/1 (instead of wrongly matching the unnamed clauses 2/3), Maude cannot satisfy
+the defined-function `:=` and the named-arg repro then **times out / loops** instead of
+returning. (A *broad* guard-fold that also folds into `(if id_arg? = ?())*` "fixes" the
+repro fast but is UNSOUND — it trivializes+drops the all-unnamed guard, so clauses 2/3
+overlap clauses 0/1.) The real fix must ELIMINATE the bad helpers by dropping the
+redundant some-extraction chain A/B/C (its result `id_arg'` is head-bound; A/B/C are
+dead once `$find_matchings` is consistent). That needs `remove_redundant_prems` to (i)
+handle `IterPr(LetPr …)` — today its `IterPr` case only handles `IterPr(IfPr …)` by
+design (line ~575, stranding concern) — and (ii) decide the entailment with the HEAD
+pattern's equivalences in scope (the redundancy env is built from `others`/premises only
+and does not see that the head `?(id_arg')*` already enforces the some-ness). Both are
+core changes the impty golden exercises. Verify any fix with the impty golden, the
+minimal repro above (valid resolves, invalid fails, neither loops), the four P1-(c)
+programs, AND re-run the survey for the net flip count.
 
 ## P2 — approximations to revisit
 
@@ -352,13 +396,31 @@ re-run the survey for the net flip count.
 - [ ] **Tests.** Add a `test/` case pinning the `impty/base` CTRS output
   (`.expected`) so regressions in the translation surface in `make test`.
 
-## P1 — confirmed generic bug: table action-enum *value* built from the id STREAM, not the per-element id (action-name switch labels stick)
+## P1 — **FIXED 2026-06-13 (Fix A)**: table action-enum *value* built from the id STREAM, not the per-element id (action-name switch labels stick)
 
 Found by isolating the post-`lift_match_eq_to_let` still-STUCK in-scope set (interpreter
 `Typechecker success`, Maude stuck). **Shared by ≥4 programs**: `cases.p4`,
 `apply-cf.p4`, `default-switch.p4`, `exit5.p4` — every control whose apply body has a
 `switch (t.apply().action_run) { <action-name>: … }` with an **action-name label**
 (an empty switch / `default:`-only switch is fine).
+
+- **FIXED 2026-06-13 in `Simplify` (iteration-binder-scope discipline).**
+  [simplify.ml](simplify.ml)'s `subst_prem` `IterPr` branch recursed straight through
+  the `iterexp` wrapper, dropping the binder scope — so an env pair
+  `value_enum_field → table_enum…id_enum_field` (an element binding from a SIBLING
+  iteration) got applied inside the `varTypeIR_enum_field` iteration, lifting
+  `id_enum_field` from element depth to its stream `id_enum_field*` (the ill-sorted
+  List-in-Text). Fix: thread `elem_bound` (every element variable bound by some
+  iteration in the block, via the new `iter_binders_prem`/`iter_binders_exp`) into
+  `subst_prem` and, at each `IterPr`, withhold any pair whose `to_e` drags in an
+  element variable bound elsewhere but not by THIS iteration. This is the
+  premise-position analog of `Prem_env.subst_exp`'s `binds_from`/relift guard (which
+  only fires on `IterE` *expression* nodes; the `IterPr` binders sit on the wrapper).
+  Verified: impty COPS+Maude goldens byte-identical; p4-old simplified-IL diff is
+  exactly `$find_overloaded` + `TableType_ok` (8 lines); **all four targets flip
+  STUCK→OK end-to-end** (cases/apply-cf/default-switch/exit5); `def-use`, p4 `tuple3`
+  still pass. Side effect: it also removed one of `$find_overloaded`'s defined-function
+  `:=` helpers (`$find-matchings(..) := nil`) — see the revised P1-(b) below.
 
 Minimal repro (bare control, p4-old accepts it):
 ```p4

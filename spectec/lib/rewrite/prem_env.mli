@@ -72,3 +72,6 @@ val hoist_pairs : spec -> prem_env -> Free.t -> (exp * exp) list
 (** [subst_exp from_e to_e in_e] replaces every occurrence of [from_e] (compared
     by IL equality) with [to_e] throughout [in_e]. *)
 val subst_exp : exp -> exp -> exp -> exp
+
+(** The element variables an iteration's binder list binds. *)
+val binder_ids : var list -> Common.Domain.IdSet.t

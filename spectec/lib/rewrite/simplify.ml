@@ -285,6 +285,34 @@ let subst_notexp (pairs : (exp * exp) list) (ne : notexp) : notexp =
 let structural_pairs (pairs : (exp * exp) list) : (exp * exp) list =
   List.filter (fun (_, (to_e : exp)) -> Prem_env.is_structural to_e) pairs
 
+(* Element variables bound by an iteration ([IterE]/[IterPr]) somewhere in the
+   block. A substitution must never carry one of these into a DIFFERENT
+   iteration that does not co-bind it: that lifts an element variable from element
+   depth to stream depth, an ill-sorted term (a per-element [tableValue(tid, id)]
+   collapsing to a stream-valued [tableValue(tid, id-stream)]). See [subst_prem]'s
+   [IterPr] guard. *)
+let rec iter_binders_exp (e : exp) : IdSet.t =
+  let here =
+    match e.it with
+    | IterE (_, (_, vars)) -> Prem_env.binder_ids vars
+    | _ -> IdSet.empty
+  in
+  List.fold_left
+    (fun s se -> IdSet.union s (iter_binders_exp se))
+    here (Exp_map.subexps e.it)
+
+let rec iter_binders_prem (p : prem) : IdSet.t =
+  let from_exps =
+    List.fold_left
+      (fun s e -> IdSet.union s (iter_binders_exp e))
+      IdSet.empty (Exp_map.exps_of_prem p)
+  in
+  match p.it with
+  | IterPr (inner, (_, vars)) ->
+      IdSet.union (Prem_env.binder_ids vars)
+        (IdSet.union from_exps (iter_binders_prem inner))
+  | _ -> from_exps
+
 let subst_rule_prem (spec : spec) (safe : IdSet.t) (ipairs : (exp * exp) list)
     (pairs : (exp * exp) list) (id : id) (ne : notexp) : notexp =
   match Prem_env.find_rel_in_spec spec id.it with
@@ -311,8 +339,9 @@ let subst_rule_prem (spec : spec) (safe : IdSet.t) (ipairs : (exp * exp) list)
       |> Mixfix.fill (Mixfix.to_mixop ne)
 
 let rec subst_prem (spec : spec) (safe : IdSet.t) (known : IdSet.t)
-    (srcs : (id * IdSet.t) list) (ipairs : (exp * exp) list)
-    (pairs : (exp * exp) list) (prem : prem) : prem =
+    (elem_bound : IdSet.t) (srcs : (id * IdSet.t) list)
+    (ipairs : (exp * exp) list) (pairs : (exp * exp) list) (prem : prem) : prem
+    =
   (* Everything but relation-output positions only ever takes structural folds and
      subtype injections, so a var=var equality like `if K_h = K` stays a guard
      instead of rewriting the `K_h` a pattern binds. *)
@@ -351,8 +380,23 @@ let rec subst_prem (spec : spec) (safe : IdSet.t) (known : IdSet.t)
         RelAssertPr
           { call = { relid; notexp = subst_notexp bpairs notexp }; expect }
     | DebugPr e -> DebugPr (subst_with bpairs e)
-    | IterPr (inner, iterexp) ->
-        IterPr (subst_prem spec safe known srcs ipairs pairs inner, iterexp)
+    | IterPr (inner, ((_, vars) as iterexp)) ->
+        (* Iteration-binder-scope discipline: a pair whose [to_e] drags in an
+           element variable bound by SOME OTHER iteration (not by this one) would
+           lift that variable to this iteration's stream depth -- an ill-sorted
+           term. The expression-position analog is [Prem_env.subst_exp]'s
+           [binds_from]/relift guard; this closes the gap for premise-position
+           binders, which sit on the [IterPr] wrapper that [subst_prem] otherwise
+           recurses straight through. *)
+        let bound = Prem_env.binder_ids vars in
+        let safe_here (_, (to_e : exp)) =
+          IdSet.is_empty
+            (IdSet.inter (Free.free_exp to_e) (IdSet.diff elem_bound bound))
+        in
+        let pairs' = List.filter safe_here pairs in
+        IterPr
+          ( subst_prem spec safe known elem_bound srcs ipairs pairs' inner,
+            iterexp )
     | IfPr ({ cond = { it = CmpE (`EqOp, _, _, _); _ }; _ } as r) -> IfPr r
     | IfPr { cond; role } -> IfPr { cond = subst_with bpairs cond; role }
     | ElsePr -> ElsePr
@@ -1456,9 +1500,17 @@ let simplify_block (spec : spec) ~(head_bound : exp list -> IdSet.t)
           prems
       in
       let srcs = destructure_source_map prems in
+      (* Every element variable bound by some iteration in the block (see
+         [iter_binders_prem]); the scope guard in [subst_prem]'s [IterPr] case
+         uses it to refuse cross-iteration variable capture. *)
+      let elem_bound =
+        List.fold_left
+          (fun s p -> IdSet.union s (iter_binders_prem p))
+          IdSet.empty prems
+      in
       let prems' =
         prems
-        |> List.map (subst_prem spec hb known srcs ipairs pairs)
+        |> List.map (subst_prem spec hb known elem_bound srcs ipairs pairs)
         (* hoist (struct-input) pairs must also reach `if` guards, else the root is
            stranded once the head binds its fields instead of the whole input. *)
         |> List.map (subst_guards_with hpairs)
