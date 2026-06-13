@@ -138,3 +138,38 @@ Maude는 `pattern := term` 의 **좌변을 constructor 패턴으로만** 매칭�
 
 따라서 이 표는 "p4-old 실행 커버리지의 현재 표면"으로 읽되, 각 STUCK의 책임 소재
 (스펙 vs 번역)는 개별 추적 후에만 단정한다.
+
+## 업데이트 (2026-06-13) — `$itermap`-in-pattern 수정 + 범위 구분
+
+### 수정 결과 (commit 2b5a85f2)
+위 P1 근본 원인(`if (call = struct-pattern)` → `$itermap` in `:=` 패턴)을
+`Simplify.lift_match_eq_to_let`로 수정(`if (opaque_call = 구조화-iter-패턴)`을
+`LetPr(패턴, call)`로 정규화 → `$unzip` binder 컴파일). **impty/base golden
+byte-identical.** 빠른 표본(이전 STUCK 60개) 중 **44개(73%)가 OK로 전환** —
+bmv2/ebpf/ubpf 다수 포함(헤더/메타데이터 필드 접근이 같은 버그였음).
+
+### 핵심 방법론 — 인터프리터 대조로 "범위 내 번역버그" vs "범위 밖"을 가른다
+p4-old에는 별도의 **IL 인터프리터**(레퍼런스)가 있고, 그 기대 출력
+[`test/interp/p4-old-il-pos.expected`](spectec/test/interp/p4-old-il-pos.expected)는
+각 샘플을 `Typechecker success` / `Excluding file` 로 표시한다. 어떤 STUCK가:
+
+- **인터프리터 `Excluding`** → p4-old가 애초에 다루지 않는 프로그램. Maude STUCK은
+  **충실(범위 밖)**. 예: constStruct / constant_folding / enumCast / constructor_cast /
+  action-two-params (모두 cast/const 의미가 p4-old 미모델 — constStruct가 막힌
+  `(bit<16>)s.x`의 DYN-ctk가 그 예).
+- **인터프리터 `Typechecker success`** → 인터프리터는 통과하는데 Maude만 STUCK
+  ⇒ **순수 번역 버그(범위 내)**. 예: cases / bool_to_bit_cast / apply-cf / def-use /
+  default-switch / elimActRun1 / exit5.
+
+수정 후 still-STUCK 22개 표본에서 **9개가 범위 내 번역 버그, 13개가 범위 밖**.
+STUCK 수를 그대로 "버그 수"로 읽으면 안 되고, 반드시 이 대조로 걸러야 한다.
+
+### 다음 프론티어 (범위 내) — `$find_overloaded` 의 `$itercollect`/`$find-matchings`-in-`:=`-pattern
+정밀 스캔 결과, 수정 후에도 `$find_overloaded`(오버로드 해석)의 절들이 정의 함수를
+`:=` 패턴에 남긴다(같은 부류, 단 `if`-등식이 아니라 **`IterPr`/`$itercollect`**에서
+발생 → `lift_match_eq_to_let`이 닿지 않음):
+`$itercollect-…(id) := id-arg-prime`, `$find-matchings(…) := nil`.
+근원은 `(id_arg? = id_arg')*` 반복 동일-이름 바인딩 + `if $find_matchings(..) = eps`의
+방향. cases/bool_to_bit_cast 등 테이블/콜 오버로드 경로를 막을 개연성. 상세·수정안은
+[todo.md](spectec/lib/rewrite/todo.md) P1 참조. 단, 이는 option-equality 머신러리와
+얽혀 delicate하므로 golden + cases.p4 end-to-end로 가드하며 신중히 손대야 한다.

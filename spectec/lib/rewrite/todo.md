@@ -70,14 +70,51 @@ the survey after the fix).
 The sibling **`tablestruct` rule is correct** for the identical shape: it binds the
 field list to a fresh `iterbind-0:List` and recovers the streams with `$unzip-…`
 conditions (the proper binder-position compilation, "**`IterE` binder position**"
-above). So the correct code path already exists — only struct/header/header-union
-take the wrong branch, emitting the value-position `$itermap` re-zip into pattern
-position. Strongly suspect `Simplify.collapse_rezip_iters` mis-folding the
-unzip→re-zip round-trip here (it is meant to fold exactly this pattern), leaving an
-`$itermap` where a binder-`$unzip` was required. Fix in
-[to_ctrs.ml](to_ctrs.ml)/[simplify.ml](simplify.ml); guard against ever placing a
-`$`-function term on the LHS of an emitted `:=` condition. Both specs likely
-affected (same member-access shape in `specs/p4`).
+above). The elaborator emits that shallow-`if` + destructuring-`let` shape for a
+variant result type (`tableTypeIR`); a single-constructor type (`structTypeIR`, …)
+gets the deep `if`-equality instead.
+
+- **FIXED 2026-06-13 (commit 2b5a85f2), in `Simplify`.** `lift_match_eq_to_let`
+  rewrites `if ($f(..) = C { (typ id ;)* })` — an opaque-call destructure against a
+  pattern carrying a *structured* iteration — into `let C { (typ id ;)* } = $f(..)`,
+  routing it through [to_ctrs]'s `LetPr` → `pattern_of_exp` → `$unzip` (binder
+  position). The opaque-call anchor (mirroring `binds_by_match`) keeps it off genuine
+  value-equality guards. impty/base golden byte-identical. Impact: of 60 previously
+  STUCK `p4_16_samples` (p4-old) **44 now typecheck end-to-end** — including the
+  bmv2/ebpf/ubpf programs that were stuck on header/metadata field access, not on
+  architecture coverage.
+
+## P1 — next frontier: a defined function in a `:=` pattern, this time from `IterPr`/`$itercollect` (`$find_overloaded`)
+
+The same illegal shape (a `$`-function on the LHS of a Maude `:=`) survives in
+`$find_overloaded`'s clauses (overload resolution, [5.01-env.spectec:181](../../specs/p4-old/5.01-env.spectec)),
+emitted from **iterated premises** rather than an `if`-equality, so `lift_match_eq_to_let`
+does not reach it. Precise instances (scan of an emitted module):
+
+```
+$itercollect-…(id) := id-arg-prime
+$itercollect-…(id-arg-prime, id-arg) := id
+$find-matchings(id-r, x, id-arg-prime, rid, V) := nil
+```
+
+Root: `$find_overloaded`'s premises `(id_arg? = id_arg')*` (an iterated *identity
+rename*, binding `id_arg'*` from the parameter `id_arg?*`) and `if $find_matchings(..)
+= eps`. The first compiles to `$itercollect` helpers whose orientation
+([to_maude.ml](to_maude.ml) `print_cond`, the `fl <> []` branch) lands the helper on
+the pattern side because a fresh var sits *inside* the call — which Maude cannot run
+backwards, so the condition is unsatisfiable and overload resolution sticks. Likely
+in scope for table/switch action resolution and other callable-overload programs (the
+post-fix still-STUCK set that the **interpreter accepts** — `p4-old-il-pos.expected`
+says `Typechecker success`, not `Excluding` — e.g. `cases.p4`, `bool_to_bit_cast.p4`,
+`apply-cf.p4`, `def-use.p4`; see repo-root `p4old_samples_stuck_analysis.md`).
+
+Delicate: this is the iterated-option machinery the **option-equality** item below
+touches (`Prem_env.subst_exp`'s `IterE` empty-binder guard). A clean fix probably
+collapses the iterated identity rename `(id_arg? = id_arg')*` in `Simplify` (substitute
+`id_arg'* := id_arg?*`, dropping the `$itercollect`) and/or guards `to_maude`'s
+orientation never to make a defined-function App a `:=` pattern. Verify with the
+impty golden AND the p4-old `cases.p4`/`bool_to_bit_cast.p4` end-to-end runs, and
+re-run the survey for the net flip count.
 
 ## P2 — approximations to revisit
 
