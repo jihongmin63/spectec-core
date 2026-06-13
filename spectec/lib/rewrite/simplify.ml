@@ -1357,6 +1357,47 @@ let collapse_rezip_iters (spec : spec) (prems : prem list) (outs : exp list) :
   in
   go prems outs
 
+(* Whether [e] embeds a *structured* iteration -- an [IterE] whose body is not
+   already a bare variable. Such a body compiles, in value position, to an
+   [$itermap] re-zip helper (see [to_ctrs]'s [term_of_exp]); in binder position it
+   must instead bind a fresh variable and recover the streams with [$unzip] (see
+   [pattern_of_exp]). *)
+let rec has_structured_iter (e : exp) : bool =
+  (match e.it with
+  | IterE ({ it = VarE _; _ }, _) -> false
+  | IterE _ -> true
+  | _ -> false)
+  || List.exists has_structured_iter (Exp_map.subexps e.it)
+
+(* Rewrite an equality premise that destructures an opaque call's result against a
+   pattern carrying a structured iteration -- `if ($f(..) = struct _ { (typ id ;)* })`
+   -- into the equivalent binding `let`. The elaborator emits such a deep `if`
+   only for a SINGLE-constructor result type (`structTypeIR`/`headerTypeIR`/...);
+   for a variant (`tableTypeIR`) it already emits a shallow `if` + a destructuring
+   `let`, which is why `tablestruct` field access works but `struct`/`header`/
+   `header_union`/serenum field access does not. Left as an [IfPr] equality,
+   [to_ctrs] compiles BOTH sides with [term_of_exp], so the pattern's iteration
+   becomes an [$itermap] (a defined function) on the LHS of a Maude `:=` match --
+   which the matcher cannot run backwards, so the rule never fires and the field
+   access stays stuck. Routing it through [LetPr] gives the pattern [to_ctrs]'s
+   binder-position compilation ([pattern_of_exp] -> [$unzip]), exactly as the
+   variant case. The opaque-call anchor (mirroring [binds_by_match]) keeps this off
+   genuine value-equality guards: a function result is computed, never a
+   pre-bound stream, so matching a binder pattern against it is always a
+   destructure. *)
+let lift_match_eq_to_let (prem : prem) : prem =
+  match prem.it with
+  | IfPr { cond = { it = CmpE (`EqOp, _, e1, e2); _ }; _ } ->
+      let is_call (e : exp) = match e.it with CallE _ -> true | _ -> false in
+      let let_it pat rhs = LetPr (pat, rhs) in
+      if is_call e1 && (not (has_structured_iter e1)) && has_structured_iter e2
+      then { prem with it = let_it e2 e1 }
+      else if
+        is_call e2 && (not (has_structured_iter e2)) && has_structured_iter e1
+      then { prem with it = let_it e1 e2 }
+      else prem
+  | _ -> prem
+
 (* Substitute, then prune, iterating to a fixed point. [outs] are the output
    expressions of the conclusion (a relation's arguments, or a clause's return
    expression); binder positions (clause args) are handled by the caller.
@@ -1459,6 +1500,12 @@ let simplify_block (spec : spec) ~(head_bound : exp list -> IdSet.t)
      pattern is reconstructed (so the destructured tail and its re-zipped reuse
      are in their final, structurally-equal form). *)
   let prems, outs = collapse_rezip_iters spec prems outs in
+  (* Turn a deep `if ($f(..) = C { (typ id ;)* })` destructure into a binding
+     `let`, so its iterated pattern unzips in binder position instead of re-zipping
+     to an unmatchable [$itermap] (struct/header/header-union/serenum field
+     access). After [collapse_rezip_iters], whose round-trip fold does not reach
+     this single-constructor `if`-equality shape. *)
+  let prems = List.map lift_match_eq_to_let prems in
   (* Last: move each remaining `if S <: T` injection into an `as` cast on S's
      definition and drop the `<:`. After [settle], so the binders it retargets are
      in their final form; after [normalize_deep], so the cast it mints survives. *)
