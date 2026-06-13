@@ -224,10 +224,18 @@ spectec/_build/default/bin/main.exe rewrite spectec/specs/impty/base/spec.specte
   | diff - spectec/specs/impty/base/spec.rewrite   # must match
 ```
 
-Specs live in `spectec/specs/{impty/{base,closure},p4}`; `impty/base` is the
-end-to-end reference that fully translates today. `p4` now translates in full
-too (iterations are supported); to dump it pass every file in sorted order:
-`rewrite $(find spectec/specs/p4 -name '*.spectec' | sort)`.
+Specs live in `spectec/specs/{impty/{base,closure},p4-old,p4}`; `impty/base` is
+the end-to-end reference that fully translates today. Both `p4` and `p4-old`
+translate in full (iterations are supported); to dump one pass every file in
+sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort)`.
+
+> **실행은 `p4-old` 스펙에 집중하세요 — `p4`(새 스펙)는 실행 프론티어 이슈가
+> 있습니다.** `specs/p4`는 control apply body의 generic call(`f(8w0)`)이 새
+> 제약-기반 추론 경로(`CallableType_ok`→`Call_ok`/`$infer`)에서 Maude `FAIL
+> (stuck)` 납니다(원인 미확정, [todo.md](todo.md) 참조). **동일 프로그램은
+> `specs/p4-old`에서 end-to-end로 동작**하므로(`RoutineType_ok` 경로), P4
+> 실행/회귀 확인은 `p4-old`로 하세요. `p4`는 번역(`rewrite` 덤프)까지만
+> 신뢰합니다.
 
 ## 성능 측정 시 주의 — 단순 wall-clock은 Maude 기동 비용에 지배된다
 
