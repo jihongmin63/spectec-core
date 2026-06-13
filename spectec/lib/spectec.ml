@@ -1,12 +1,20 @@
 (** Spectec - Entrypoint API facade.
 
-    Provides the core pipeline (parse, elaborate, structure), a unified
+    Provides the core pipeline (parse, elaborate, structure, rewrite), a unified
     interpreter entry point, and the core type modules (Error, Task, Target). *)
 
 module Error = Error
 module Task = Task
 module Target = Target
 module Diagnostic = Diag
+module Rewrite_system = Rewrite.Rewrite_system
+module Simplify = Rewrite.Simplify
+module To_maude = Rewrite.To_maude
+module Maude_run = Rewrite.Maude_run
+module Cocoweb = Rewrite.Cocoweb
+module Muterm = Rewrite.Muterm
+module Aprove = Rewrite.Aprove
+module Termination = Rewrite.Termination
 
 type 'a result = ('a, Error.t) Stdlib.result
 
@@ -37,6 +45,8 @@ let henv_of_el_spec spec_el = Pass.henv_of_el_spec spec_el
 let henv_with_il_spec henv spec_il = Pass.henv_with_il_spec henv spec_il
 let annotate ~henv spec_sl = Pass.annotate ~henv spec_sl
 let shorten spec_pl = Pass.shorten spec_pl
+let rewrite spec_il = Rewrite.rewrite_spec spec_il
+let rewrite_symbols spec_il = Rewrite.def_symbols spec_il
 
 let validate_config config ~sl_mode =
   Instrumentation.Config.validate_mode config ~sl_mode

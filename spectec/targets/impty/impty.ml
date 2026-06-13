@@ -109,6 +109,29 @@ module Eval = struct
     | vs -> vs |> List.map Lang.Il.Print.string_of_value |> String.concat ", "
 end
 
+(* The impty relation each task starts from. *)
+let relation_of_task = function
+  | "run" -> Ok "Run_prog"
+  | "eval" -> Ok "Eval_prog"
+  | "check" -> Ok "Check_prog"
+  | other ->
+      Error
+        (Spectec.Error.ConfigError
+           ( Common.Source.no_region,
+             Printf.sprintf "unknown task %S (expected run | eval | check)"
+               other ))
+
+(* Parse an impty program and build the Maude start term that runs it under
+   [task]'s relation against the elaborated [spec_il]. The encoding lives in
+   {!Spectec.To_maude}; this binds it to the impty front-end. *)
+let maude_start_term ~(task : string) ~(spec_il : Lang.Il.spec)
+    (filename : string) : (string, Spectec.Error.t) result =
+  let ( let* ) = Result.bind in
+  let* relation = relation_of_task task in
+  let* value = Parse.parse_file ~handler:Target.handler filename in
+  let term = Spectec.To_maude.maude_term_of_value spec_il value in
+  Ok (Spectec.To_maude.start_app spec_il relation [ term ])
+
 let cli_flags =
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in

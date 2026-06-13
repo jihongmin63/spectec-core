@@ -1,0 +1,8 @@
+$lookup        confluence: TIMEOUT  termination(muterm): YES
+Check_expr     confluence: TIMEOUT  termination(muterm): YES
+Check_command  confluence: TIMEOUT  termination(muterm): YES
+Check_prog     confluence: TIMEOUT  termination(muterm): YES
+Eval_expr      confluence: TIMEOUT  termination(muterm): YES
+Eval_command   confluence: TIMEOUT  termination(muterm): MAYBE
+Eval_prog      confluence: TIMEOUT  termination(muterm): MAYBE
+Run_prog       confluence: TIMEOUT  termination(muterm): MAYBE

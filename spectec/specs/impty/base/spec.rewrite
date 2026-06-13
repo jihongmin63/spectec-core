@@ -1,0 +1,60 @@
+(CONDITIONTYPE JOIN)
+(VAR y x K_query K_h V_h pair tenv literal_0 t e e_l e_r c_1 c_2 tenv_1 tenv_2 c command env v b_e i_l i_r b_l b_r env_1 env_2)
+(RULES
+  not(true) -> false
+  not(false) -> true
+  and(true, y) -> y
+  and(false, y) -> false
+  add(zero, y) -> y
+  add(succ(x), y) -> succ(add(x, y))
+  leq(zero, y) -> true
+  leq(succ(x), zero) -> false
+  leq(succ(x), succ(y)) -> leq(x, y)
+  sub_int_nat(zero, zero) -> int_pos(zero)
+  sub_int_nat(succ(x), zero) -> int_pos(succ(x))
+  sub_int_nat(zero, succ(y)) -> int_neg(y)
+  sub_int_nat(succ(x), succ(y)) -> sub_int_nat(x, y)
+  add_int(int_pos(x), int_pos(y)) -> int_pos(add(x, y))
+  add_int(int_neg(x), int_neg(y)) -> int_neg(succ(add(x, y)))
+  add_int(int_pos(x), int_neg(y)) -> sub_int_nat(x, succ(y))
+  add_int(int_neg(x), int_pos(y)) -> sub_int_nat(y, succ(x))
+  leq_int(int_pos(x), int_pos(y)) -> leq(x, y)
+  leq_int(int_neg(x), int_neg(y)) -> leq(y, x)
+  leq_int(int_pos(x), int_neg(y)) -> false
+  leq_int(int_neg(x), int_pos(y)) -> true
+  $lookup(nil, K_query) -> none
+  $lookup(cons(variant_pair_minus_gt_2(K_h, V_h), pair), K_query) -> some(V_h) | K_h == K_query
+  $lookup(cons(variant_pair_minus_gt_2(K_h, V_h), pair), K_query) -> $lookup(pair, K_query)
+  Check_expr(tenv, variant_literal_NUM_1(literal_0)) -> variant_type_INT_0
+  Check_expr(tenv, variant_literal_BOOL_1(literal_0)) -> variant_type_BOOL_0
+  Check_expr(tenv, x) -> t | $lookup(tenv, x) == some(t)
+  Check_expr(tenv, variant_expr_bang_1(e)) -> variant_type_BOOL_0 | Check_expr(tenv, e) == variant_type_BOOL_0
+  Check_expr(tenv, variant_expr_plus_2(e_l, e_r)) -> variant_type_INT_0 | Check_expr(tenv, e_l) == variant_type_INT_0, Check_expr(tenv, e_r) == variant_type_INT_0
+  Check_expr(tenv, variant_expr_lt_eq_2(e_l, e_r)) -> variant_type_BOOL_0 | Check_expr(tenv, e_l) == variant_type_INT_0, Check_expr(tenv, e_r) == variant_type_INT_0
+  Check_expr(tenv, variant_expr_amp_amp_2(e_l, e_r)) -> variant_type_BOOL_0 | Check_expr(tenv, e_l) == variant_type_BOOL_0, Check_expr(tenv, e_r) == variant_type_BOOL_0
+  Check_command(tenv, variant_command_SKIP_0) -> tenv
+  Check_command(tenv, variant_command_eq_3(t, x, e)) -> cons(variant_pair_minus_gt_2(x, t), tenv) | Check_expr(tenv, e) == t
+  Check_command(tenv, variant_command_eq_2(x, e)) -> tenv | Check_expr(tenv, e) == t, $lookup(tenv, x) == some(t)
+  Check_command(tenv, variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2)) -> tenv | Check_expr(tenv, e) == variant_type_BOOL_0, Check_command(tenv, c_1) == tenv_1, Check_command(tenv, c_2) == tenv_2
+  Check_command(tenv, variant_command_WHILE_DO_END_2(e, c)) -> tenv | Check_expr(tenv, e) == variant_type_BOOL_0, Check_command(tenv, c) == tenv_1
+  Check_command(tenv, variant_command_semi_2(c_1, c_2)) -> tenv_2 | Check_command(tenv, c_1) == tenv_1, Check_command(tenv_1, c_2) == tenv_2
+  Check_prog(command) -> true | Check_command(nil, command) == tenv
+  Eval_expr(env, variant_literal_NUM_1(literal_0)) -> variant_literal_NUM_1(literal_0)
+  Eval_expr(env, variant_literal_BOOL_1(literal_0)) -> variant_literal_BOOL_1(literal_0)
+  Eval_expr(env, x) -> v | $lookup(env, x) == some(v)
+  Eval_expr(env, variant_expr_bang_1(e)) -> variant_literal_BOOL_1(not(b_e)) | Eval_expr(env, e) == variant_literal_BOOL_1(b_e)
+  Eval_expr(env, variant_expr_plus_2(e_l, e_r)) -> variant_literal_NUM_1(add_int(i_l, i_r)) | Eval_expr(env, e_l) == variant_literal_NUM_1(i_l), Eval_expr(env, e_r) == variant_literal_NUM_1(i_r)
+  Eval_expr(env, variant_expr_lt_eq_2(e_l, e_r)) -> variant_literal_BOOL_1(leq_int(i_l, i_r)) | Eval_expr(env, e_l) == variant_literal_NUM_1(i_l), Eval_expr(env, e_r) == variant_literal_NUM_1(i_r)
+  Eval_expr(env, variant_expr_amp_amp_2(e_l, e_r)) -> variant_literal_BOOL_1(and(b_l, b_r)) | Eval_expr(env, e_l) == variant_literal_BOOL_1(b_l), Eval_expr(env, e_r) == variant_literal_BOOL_1(b_r)
+  Eval_command(env, variant_command_SKIP_0) -> env
+  Eval_command(env, variant_command_eq_3(t, x, e)) -> cons(variant_pair_minus_gt_2(x, v), env) | Eval_expr(env, e) == v
+  Eval_command(env, variant_command_eq_2(x, e)) -> cons(variant_pair_minus_gt_2(x, v), env) | Eval_expr(env, e) == v
+  Eval_command(env, variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2)) -> env_1 | Eval_expr(env, e) == variant_literal_BOOL_1(true), Eval_command(env, c_1) == env_1
+  Eval_command(env, variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2)) -> env_2 | Eval_expr(env, e) == variant_literal_BOOL_1(false), Eval_command(env, c_2) == env_2
+  Eval_command(env, variant_command_WHILE_DO_END_2(e, c)) -> env | Eval_expr(env, e) == variant_literal_BOOL_1(false)
+  Eval_command(env, variant_command_WHILE_DO_END_2(e, c)) -> env_2 | Eval_expr(env, e) == variant_literal_BOOL_1(true), Eval_command(env, c) == env_1, Eval_command(env_1, variant_command_WHILE_DO_END_2(e, c)) == env_2
+  Eval_command(env, variant_command_semi_2(c_1, c_2)) -> env_2 | Eval_command(env, c_1) == env_1, Eval_command(env_1, c_2) == env_2
+  Eval_prog(command) -> env | Eval_command(nil, command) == env
+  Run_prog(command) -> env | Check_prog(command) == true, Eval_prog(command) == env
+)
+

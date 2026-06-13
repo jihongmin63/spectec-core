@@ -1,0 +1,103 @@
+mod SPEC is
+  protecting INT .
+  protecting STRING .
+  sorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type Val .
+  subsorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type < Val .
+  subsort Id < Expr .
+  subsort List < Text .
+  subsort Literal < Expr .
+
+  op $lookup : List Val -> Opt .
+  op Check-command : List Command -> List .
+  op Check-expr : List Expr -> Type .
+  op Check-prog : Command -> BoolV .
+  op Eval-command : List Command -> List .
+  op Eval-expr : List Expr -> Literal .
+  op Eval-prog : Command -> List .
+  op Run-prog : Command -> List .
+  op add-int : IntV IntV -> IntV .
+  op and : BoolV BoolV -> BoolV .
+  op bool : Bool -> BoolV .
+  op cons : Val List -> List .
+  op int : Int -> IntV .
+  op isStuckHead : Val -> Bool .
+  op leq-int : IntV IntV -> BoolV .
+  op nat : Nat -> NatV .
+  op nil : -> List .
+  op none : -> Opt .
+  op not : BoolV -> BoolV .
+  op some : Val -> Opt .
+  op txt : String -> Text .
+  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
+  op variant-command-SKIP-0 : -> Command .
+  op variant-command-WHILE-DO-END-2 : Expr Command -> Command .
+  op variant-command-eq-2 : Id Expr -> Command .
+  op variant-command-eq-3 : Type Id Expr -> Command .
+  op variant-command-semi-2 : Command Command -> Command .
+  op variant-expr-amp-amp-2 : Expr Expr -> Expr .
+  op variant-expr-bang-1 : Expr -> Expr .
+  op variant-expr-lt-eq-2 : Expr Expr -> Expr .
+  op variant-expr-plus-2 : Expr Expr -> Expr .
+  op variant-id-ID-1 : Text -> Id .
+  op variant-literal-BOOL-1 : BoolV -> Literal .
+  op variant-literal-NUM-1 : IntV -> Literal .
+  op variant-pair-minus-gt-2 : Val Val -> Pair .
+  op variant-type-BOOL-0 : -> Type .
+  op variant-type-INT-0 : -> Type .
+
+  eq $lookup(nil, K:Val) = none .
+  ceq $lookup(cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), pair:List), K:Val) = some(V-h:Val) if K-h:Val = K:Val .
+  eq $lookup(cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), pair:List), K:Val) = $lookup(pair:List, K:Val) [owise] .
+  eq Check-expr(TC:List, variant-literal-NUM-1(literal-0:IntV)) = variant-type-INT-0 .
+  eq Check-expr(TC:List, variant-literal-BOOL-1(literal-0:BoolV)) = variant-type-BOOL-0 .
+  ceq Check-expr(TC:List, x:Id) = type:Type if some(type:Type) := $lookup(TC:List, x:Id) .
+  ceq Check-expr(TC:List, variant-expr-plus-2(e-l:Expr, e-r:Expr)) = variant-type-INT-0 if Check-expr(TC:List, e-l:Expr) = variant-type-INT-0 /\ Check-expr(TC:List, e-r:Expr) = variant-type-INT-0 .
+  ceq Check-expr(TC:List, variant-expr-lt-eq-2(e-l:Expr, e-r:Expr)) = variant-type-BOOL-0 if Check-expr(TC:List, e-l:Expr) = variant-type-INT-0 /\ Check-expr(TC:List, e-r:Expr) = variant-type-INT-0 .
+  ceq Check-expr(TC:List, variant-expr-bang-1(e:Expr)) = variant-type-BOOL-0 if Check-expr(TC:List, e:Expr) = variant-type-BOOL-0 .
+  ceq Check-expr(TC:List, variant-expr-amp-amp-2(e-l:Expr, e-r:Expr)) = variant-type-BOOL-0 if Check-expr(TC:List, e-l:Expr) = variant-type-BOOL-0 /\ Check-expr(TC:List, e-r:Expr) = variant-type-BOOL-0 .
+  eq Check-command(TC:List, variant-command-SKIP-0) = TC:List .
+  ceq Check-command(TC:List, variant-command-eq-3(type:Type, x:Id, e:Expr)) = cons(variant-pair-minus-gt-2(x:Id, type:Type), TC:List) if Check-expr(TC:List, e:Expr) = type:Type .
+  ceq Check-command(TC:List, variant-command-eq-2(x:Id, e:Expr)) = TC:List if type:Type := Check-expr(TC:List, e:Expr) /\ isStuckHead(type:Type) = false /\ $lookup(TC:List, x:Id) = some(type:Type) .
+  ceq Check-command(TC:List, variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command)) = TC:List if Check-expr(TC:List, e:Expr) = variant-type-BOOL-0 /\ TC-1:List := Check-command(TC:List, c-1:Command) /\ isStuckHead(TC-1:List) = false /\ TC-2:List := Check-command(TC:List, c-2:Command) /\ isStuckHead(TC-2:List) = false .
+  ceq Check-command(TC:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) = TC:List if Check-expr(TC:List, e:Expr) = variant-type-BOOL-0 /\ TC-1:List := Check-command(TC:List, c:Command) /\ isStuckHead(TC-1:List) = false .
+  ceq Check-command(TC:List, variant-command-semi-2(c-1:Command, c-2:Command)) = TC-2:List if TC-1:List := Check-command(TC:List, c-1:Command) /\ isStuckHead(TC-1:List) = false /\ TC-2:List := Check-command(TC-1:List, c-2:Command) /\ isStuckHead(TC-2:List) = false .
+  ceq Check-prog(command:Command) = bool(true) if TC:List := Check-command(nil, command:Command) /\ isStuckHead(TC:List) = false .
+  eq Eval-expr(EC:List, variant-literal-NUM-1(literal-0:IntV)) = variant-literal-NUM-1(literal-0:IntV) .
+  eq Eval-expr(EC:List, variant-literal-BOOL-1(literal-0:BoolV)) = variant-literal-BOOL-1(literal-0:BoolV) .
+  ceq Eval-expr(EC:List, x:Id) = v:Literal if some(v:Literal) := $lookup(EC:List, x:Id) .
+  ceq Eval-expr(EC:List, variant-expr-plus-2(e-l:Expr, e-r:Expr)) = variant-literal-NUM-1(add-int(n-l:IntV, n-r:IntV)) if variant-literal-NUM-1(n-l:IntV) := Eval-expr(EC:List, e-l:Expr) /\ variant-literal-NUM-1(n-r:IntV) := Eval-expr(EC:List, e-r:Expr) .
+  ceq Eval-expr(EC:List, variant-expr-lt-eq-2(e-l:Expr, e-r:Expr)) = variant-literal-BOOL-1(leq-int(n-l:IntV, n-r:IntV)) if variant-literal-NUM-1(n-l:IntV) := Eval-expr(EC:List, e-l:Expr) /\ variant-literal-NUM-1(n-r:IntV) := Eval-expr(EC:List, e-r:Expr) .
+  ceq Eval-expr(EC:List, variant-expr-bang-1(e:Expr)) = variant-literal-BOOL-1(not(b-e:BoolV)) if variant-literal-BOOL-1(b-e:BoolV) := Eval-expr(EC:List, e:Expr) .
+  ceq Eval-expr(EC:List, variant-expr-amp-amp-2(e-l:Expr, e-r:Expr)) = variant-literal-BOOL-1(and(b-l:BoolV, b-r:BoolV)) if variant-literal-BOOL-1(b-l:BoolV) := Eval-expr(EC:List, e-l:Expr) /\ variant-literal-BOOL-1(b-r:BoolV) := Eval-expr(EC:List, e-r:Expr) .
+  eq Eval-command(EC:List, variant-command-SKIP-0) = EC:List .
+  ceq Eval-command(EC:List, variant-command-eq-3(type:Type, x:Id, e:Expr)) = cons(variant-pair-minus-gt-2(x:Id, v:Literal), EC:List) if v:Literal := Eval-expr(EC:List, e:Expr) /\ isStuckHead(v:Literal) = false .
+  ceq Eval-command(EC:List, variant-command-eq-2(x:Id, e:Expr)) = cons(variant-pair-minus-gt-2(x:Id, v:Literal), EC:List) if v:Literal := Eval-expr(EC:List, e:Expr) /\ isStuckHead(v:Literal) = false .
+  ceq Eval-command(EC:List, variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command)) = EC-1:List if Eval-expr(EC:List, e:Expr) = variant-literal-BOOL-1(bool(true)) /\ EC-1:List := Eval-command(EC:List, c-1:Command) /\ isStuckHead(EC-1:List) = false .
+  ceq Eval-command(EC:List, variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command)) = EC-2:List if Eval-expr(EC:List, e:Expr) = variant-literal-BOOL-1(bool(false)) /\ EC-2:List := Eval-command(EC:List, c-2:Command) /\ isStuckHead(EC-2:List) = false .
+  ceq Eval-command(EC:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) = EC:List if Eval-expr(EC:List, e:Expr) = variant-literal-BOOL-1(bool(false)) .
+  ceq Eval-command(EC:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) = EC-2:List if Eval-expr(EC:List, e:Expr) = variant-literal-BOOL-1(bool(true)) /\ EC-1:List := Eval-command(EC:List, c:Command) /\ isStuckHead(EC-1:List) = false /\ EC-2:List := Eval-command(EC-1:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) /\ isStuckHead(EC-2:List) = false .
+  ceq Eval-command(EC:List, variant-command-semi-2(c-1:Command, c-2:Command)) = EC-2:List if EC-1:List := Eval-command(EC:List, c-1:Command) /\ isStuckHead(EC-1:List) = false /\ EC-2:List := Eval-command(EC-1:List, c-2:Command) /\ isStuckHead(EC-2:List) = false .
+  ceq Eval-prog(command:Command) = EC:List if EC:List := Eval-command(nil, command:Command) /\ isStuckHead(EC:List) = false .
+  ceq Run-prog(command:Command) = EC:List if Check-prog(command:Command) = bool(true) /\ EC:List := Eval-prog(command:Command) /\ isStuckHead(EC:List) = false .
+
+  eq add-int(int(I:Int), int(J:Int)) = int(I:Int + J:Int) .
+  eq and(bool(true), Y:Val) = Y:Val .
+  eq and(bool(false), Y:Val) = bool(false) .
+  eq leq-int(int(I:Int), int(J:Int)) = bool(I:Int <= J:Int) .
+  eq not(bool(B:Bool)) = bool(not B:Bool) .
+
+  eq isStuckHead($lookup(V0:List, V1:Val)) = true .
+  eq isStuckHead(Check-command(V0:List, V1:Command)) = true .
+  eq isStuckHead(Check-expr(V0:List, V1:Expr)) = true .
+  eq isStuckHead(Check-prog(V0:Command)) = true .
+  eq isStuckHead(Eval-command(V0:List, V1:Command)) = true .
+  eq isStuckHead(Eval-expr(V0:List, V1:Expr)) = true .
+  eq isStuckHead(Eval-prog(V0:Command)) = true .
+  eq isStuckHead(Run-prog(V0:Command)) = true .
+  eq isStuckHead(add-int(V0:IntV, V1:IntV)) = true .
+  eq isStuckHead(and(V0:BoolV, V1:BoolV)) = true .
+  eq isStuckHead(leq-int(V0:IntV, V1:IntV)) = true .
+  eq isStuckHead(not(V0:BoolV)) = true .
+  eq isStuckHead(D:Val) = false [owise] .
+endm
+

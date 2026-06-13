@@ -1,6 +1,12 @@
 (library
  (name cli)
  (public_name spectec.cli)
- (libraries core unix spectec spectec.batch spectec.instrumentation)
+ (libraries
+  core
+  unix
+  threads.posix
+  spectec
+  spectec.batch
+  spectec.instrumentation)
  (preprocess
   (pps ppx_let)))

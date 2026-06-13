@@ -1,12 +1,20 @@
 (** Spectec - Entrypoint API facade.
 
-    Provides the core pipeline (parse, elaborate, structure), a unified
+    Provides the core pipeline (parse, elaborate, structure, rewrite), a unified
     interpreter entry point, and the core type modules (Error, Task, Target). *)
 
 module Error = Error
 module Task = Task
 module Target = Target
 module Diagnostic = Diag
+module Rewrite_system : module type of Rewrite.Rewrite_system
+module Simplify : module type of Rewrite.Simplify
+module To_maude : module type of Rewrite.To_maude
+module Maude_run : module type of Rewrite.Maude_run
+module Cocoweb : module type of Rewrite.Cocoweb
+module Muterm : module type of Rewrite.Muterm
+module Aprove : module type of Rewrite.Aprove
+module Termination : module type of Rewrite.Termination
 
 type 'a result = ('a, Error.t) Stdlib.result
 
@@ -37,6 +45,13 @@ val henv_of_el_spec : Lang.El.spec -> Hints.Henv.t
 val henv_with_il_spec : Hints.Henv.t -> Lang.Il.spec -> Hints.Henv.t
 val annotate : henv:Hints.Henv.t -> Lang.Sl.spec -> Pl.spec
 val shorten : Pl.spec -> Pl.spec
+
+(** Translate an elaborated IL spec into a rewriting system (stub). *)
+val rewrite : Lang.Il.spec -> Rewrite_system.t
+
+(** The function/relation symbols of a spec, usable as slice roots for
+    per-symbol confluence checking (see {!Rewrite_system.slice}). *)
+val rewrite_symbols : Lang.Il.spec -> string list
 
 (** Validate instrumentation config against the current mode. *)
 val validate_config : Instrumentation.Config.t -> sl_mode:bool -> unit result

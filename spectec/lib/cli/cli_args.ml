@@ -83,6 +83,41 @@ module Checkpoint = struct
     { output; resume; save_interval }
 end
 
+(** Selecting which slices of a spec's rewriting system to check. Shared by the
+    confluence and combined (confluence + termination) check commands. *)
+module Slice = struct
+  type t = {
+    timeout : int;
+    symbol : string option;
+    list_symbols : bool;
+    whole : bool;
+    jobs : int;
+  }
+
+  let flags : t Core.Command.Param.t =
+    let open Core.Command.Let_syntax in
+    let open Core.Command.Param in
+    let%map timeout =
+      flag "--timeout"
+        (optional_with_default 30 int)
+        ~doc:"SECONDS per-tool timeout (default 30)"
+    and symbol =
+      flag "--symbol" (optional string)
+        ~doc:"NAME check only this function/relation's dependency slice"
+    and list_symbols =
+      flag "--list-symbols" no_arg
+        ~doc:" list the function/relation slice roots and exit"
+    and whole =
+      flag "--whole" no_arg
+        ~doc:" check the whole system at once (default: per-symbol slices)"
+    and jobs =
+      flag "--jobs"
+        (optional_with_default 4 int)
+        ~doc:"N check up to N symbol slices concurrently (default 4)"
+    in
+    { timeout; symbol; list_symbols; whole; jobs }
+end
+
 (** Interpreter selection and instrumentation. *)
 module Interpreter = struct
   let sl_mode_flag : bool Core.Command.Param.t =

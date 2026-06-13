@@ -1,0 +1,212 @@
+(** COPS conditional term rewriting system (CTRS) representation produced from
+    an elaborated + simplified IL spec.
+
+    The textual form follows the COPS CTRS grammar (§3.2):
+
+    {[
+      ctrs     ::= (CONDITIONTYPE ctype) [(VAR idlist)] (RULES rulelist) [(COMMENT string)]
+      ctype    ::= SEMI-EQUATIONAL | JOIN | ORIENTED
+      rule     ::= term -> term | term -> term | condlist
+      condlist ::= cond | cond, condlist
+      cond     ::= term == term
+      term     ::= id | id() | id(termlist)
+    ]}
+
+    Only the representation and printer live here; the IL -> CTRS translation is
+    in {!To_ctrs}. *)
+
+(* A CTRS term: either a variable, or a function symbol applied to zero or more
+   argument terms. A nullary application prints as a bare [id]. *)
+type term = Var of string | App of string * term list
+
+(* A condition is an equation between two terms ([term == term]). *)
+type cond = term * term
+
+(* A (possibly conditional) rewrite rule [lhs -> rhs | conds]. [owise] marks a
+   clause that applied "otherwise" (SpecTec [ElsePr]): it fires only when no
+   earlier sibling did. The COPS/TPDB surfaces below cannot express this and
+   ignore it (leaving the historical overlap); {!To_maude} renders it as Maude's
+   [owise] equation attribute. *)
+type rule = { lhs : term; rhs : term; conds : cond list; owise : bool }
+
+(* The interpretation of conditions; [Join] for now. *)
+type ctype = SemiEquational | Join | Oriented
+
+type t = {
+  ctype : ctype;
+  vars : string list; (* VAR idlist: every variable used, deduplicated *)
+  rules : rule list;
+  comment : string option;
+}
+
+(* The IL -> CTRS translation lives in {!To_ctrs}; this module is only the data
+   model and printer. *)
+
+let string_of_ctype = function
+  | SemiEquational -> "SEMI-EQUATIONAL"
+  | Join -> "JOIN"
+  | Oriented -> "ORIENTED"
+
+let rec string_of_term = function
+  | Var id -> id
+  | App (id, []) -> id
+  | App (id, terms) ->
+      id ^ "(" ^ String.concat ", " (List.map string_of_term terms) ^ ")"
+
+let string_of_cond (lhs, rhs) = string_of_term lhs ^ " == " ^ string_of_term rhs
+
+let string_of_rule { lhs; rhs; conds; _ } =
+  let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
+  match conds with
+  | [] -> head
+  | _ -> head ^ " | " ^ String.concat ", " (List.map string_of_cond conds)
+
+let string_of_system (t : t) =
+  let buf = Buffer.create 256 in
+  Buffer.add_string buf ("(CONDITIONTYPE " ^ string_of_ctype t.ctype ^ ")\n");
+  (match t.vars with
+  | [] -> ()
+  | _ -> Buffer.add_string buf ("(VAR " ^ String.concat " " t.vars ^ ")\n"));
+  Buffer.add_string buf "(RULES";
+  List.iter
+    (fun rule -> Buffer.add_string buf ("\n  " ^ string_of_rule rule))
+    t.rules;
+  Buffer.add_string buf (if t.rules = [] then ")\n" else "\n)\n");
+  (match t.comment with
+  | None -> ()
+  | Some comment -> Buffer.add_string buf ("(COMMENT " ^ comment ^ ")\n"));
+  Buffer.contents buf
+
+(* TPDB conditional rendering for MuTerm (termination). MuTerm's parser rejects
+   the COPS surface this module's [string_of_system] emits: a leading
+   [(CONDITIONTYPE ...)] header and [s == t] join conditions both make it crash
+   (it prints a Haskell call-stack trace and falls back to MAYBE). It accepts
+   the TPDB conditional form instead -- no CONDITIONTYPE header, conditions
+   written oriented as [s -> t] and separated by [ , ] -- which is also the
+   shape of MuTerm's own bundled examples. For termination the oriented reading
+   of a condition is the intended one. Unconditional systems print as
+   [string_of_system] would, minus the header. *)
+let string_of_cond_oriented (lhs, rhs) =
+  string_of_term lhs ^ " -> " ^ string_of_term rhs
+
+let string_of_rule_oriented { lhs; rhs; conds; _ } =
+  let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
+  match conds with
+  | [] -> head
+  | _ ->
+      head ^ " | "
+      ^ String.concat " , " (List.map string_of_cond_oriented conds)
+
+let string_of_system_tpdb (t : t) =
+  let buf = Buffer.create 256 in
+  (match t.vars with
+  | [] -> ()
+  | _ -> Buffer.add_string buf ("(VAR " ^ String.concat " " t.vars ^ ")\n"));
+  Buffer.add_string buf "(RULES";
+  List.iter
+    (fun rule -> Buffer.add_string buf ("\n  " ^ string_of_rule_oriented rule))
+    t.rules;
+  Buffer.add_string buf (if t.rules = [] then ")\n" else "\n)\n");
+  (match t.comment with
+  | None -> ()
+  | Some comment -> Buffer.add_string buf ("(COMMENT " ^ comment ^ ")\n"));
+  Buffer.contents buf
+
+(* A system is a plain (unconditional) TRS when no rule carries a condition.
+   This is the precondition for routing termination to AProVE's WST path, which
+   handles only unconditional rewriting; conditional systems stay on MuTerm. *)
+let is_unconditional (t : t) = List.for_all (fun r -> r.conds = []) t.rules
+
+(* -------------------------------------------------------------------------- *)
+(* Term/rule queries shared by the translation ({!To_ctrs}) and slicing below. *)
+
+(* Every variable occurring in a term. *)
+let rec vars_of_term = function
+  | Var v -> [ v ]
+  | App (_, ts) -> List.concat_map vars_of_term ts
+
+(* Every variable occurring in a rule (lhs, rhs and conditions). *)
+let vars_of_rule (r : rule) : string list =
+  vars_of_term r.lhs @ vars_of_term r.rhs
+  @ List.concat_map (fun (a, b) -> vars_of_term a @ vars_of_term b) r.conds
+
+(* Drop later duplicates, preserving first-occurrence order. *)
+let dedup_stable (xs : string list) : string list =
+  let seen = Hashtbl.create 64 in
+  List.filter
+    (fun x ->
+      if Hashtbl.mem seen x then false
+      else (
+        Hashtbl.add seen x ();
+        true))
+    xs
+
+(* Every function symbol applied anywhere in a term (the [App] heads). *)
+let rec heads_of_term = function
+  | Var _ -> []
+  | App (head, ts) -> head :: List.concat_map heads_of_term ts
+
+(* Symbols a rule references: every head in its lhs, rhs and conditions. The lhs
+   root (the symbol the rule defines) is included too, harmless for the
+   reachability closure below. *)
+let refs_of_rule (r : rule) : string list =
+  heads_of_term r.lhs @ heads_of_term r.rhs
+  @ List.concat_map (fun (a, b) -> heads_of_term a @ heads_of_term b) r.conds
+
+(* The symbol a rule defines: the root head of its lhs (always an [App] here). *)
+let defined_head (r : rule) : string option =
+  match r.lhs with App (head, _) -> Some head | Var _ -> None
+
+(* Every symbol the system defines (the root of some rule's lhs): functions,
+   relations, and prelude operations -- the symbols that should rewrite away,
+   never a value constructor. A normal form still mentioning one of these is
+   stuck (reduction halted mid-evaluation). *)
+let defined_heads (t : t) : string list =
+  dedup_stable (List.filter_map defined_head t.rules)
+
+(* The function symbols reachable from [roots], following each reached symbol's
+   defining rules in [rules] transitively (downward dependency closure). Used
+   both to prune unreachable definitions and to slice the system to one
+   symbol's dependencies. *)
+let reachable_heads ~(roots : string list) (rules : rule list) :
+    (string, unit) Hashtbl.t =
+  let by_head = Hashtbl.create 256 in
+  List.iter
+    (fun r ->
+      match defined_head r with
+      | Some head ->
+          let prev = try Hashtbl.find by_head head with Not_found -> [] in
+          Hashtbl.replace by_head head (r :: prev)
+      | None -> ())
+    rules;
+  let reachable = Hashtbl.create 256 in
+  let worklist = ref roots in
+  while !worklist <> [] do
+    match !worklist with
+    | [] -> ()
+    | head :: rest ->
+        worklist := rest;
+        if not (Hashtbl.mem reachable head) then (
+          Hashtbl.add reachable head ();
+          match Hashtbl.find_opt by_head head with
+          | Some rules ->
+              worklist := List.concat_map refs_of_rule rules @ !worklist
+          | None -> ())
+  done;
+  reachable
+
+(* Restrict the system to the rules reachable from [roots] (each root's defining
+   rules plus their transitive downward dependencies); variables are recomputed,
+   [ctype]/[comment] preserved. *)
+let slice (t : t) ~(roots : string list) : t =
+  let reachable = reachable_heads ~roots t.rules in
+  let rules =
+    List.filter
+      (fun r ->
+        match defined_head r with
+        | Some head -> Hashtbl.mem reachable head
+        | None -> false)
+      t.rules
+  in
+  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
+  { t with rules; vars }

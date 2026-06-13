@@ -1,0 +1,5 @@
+# The Maude binary and its .maude library are downloaded, not checked in
+# (see README.md). Ignore everything here except this file and the README.
+*
+!.gitignore
+!README.md

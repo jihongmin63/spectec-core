@@ -162,6 +162,258 @@ let splice_command =
     let spec_pl = annotate ~henv spec_sl |> shorten in
     Ok (spec, spec_pl)
 
+let rewrite_command =
+  Core.Command.basic ~summary:"translate a spec to a rewriting system"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and symbol =
+    flag "--symbol" (optional string)
+      ~doc:"NAME emit only this function/relation's dependency slice"
+  and maude =
+    flag "--maude" no_arg
+      ~doc:" emit an executable order-sorted Maude module instead of COPS"
+  and simplified =
+    flag "--simplified" no_arg
+      ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
+  and relations_as_rules =
+    flag "--relations-as-rules" no_arg
+      ~doc:
+        " (with --maude) keep relations as Maude rules (rl/crl) instead of \
+         equations for input-moded ones"
+  in
+  fun () ->
+    Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    if simplified then
+      Ok (Lang.Il.Print.string_of_spec (Simplify.simplify_spec spec_il))
+    else if maude then Ok (To_maude.module_of_spec ~relations_as_rules spec_il)
+    else
+      let spec_rw = rewrite spec_il in
+      let spec_rw =
+        match symbol with
+        | Some name -> Rewrite_system.slice spec_rw ~roots:[ name ]
+        | None -> spec_rw
+      in
+      Ok (Rewrite_system.string_of_system spec_rw)
+
+(* Combined confluence (CoCoWeb) + termination check over the same rewriting
+   system. Confluence always runs on CoCoWeb; termination is dispatched by
+   {!Termination} (AProVE for unconditional systems, MuTerm for conditional
+   ones). Both sides share the serialized system and the per-symbol slicing; each
+   runs independently so one tool's network/parse error never masks the other's
+   verdict. *)
+
+(* A requested side is [Some verdict]; a side not selected by [--only] is [None]
+   and is omitted from the output and the pass/fail decision. The termination
+   side also carries the tool that produced the verdict. *)
+type combined =
+  Cocoweb.verdict option * (Termination.tool * Termination.verdict) option
+
+let pad_right width s = s ^ String.make (max 0 (width - String.length s)) ' '
+
+(* Render a row's verdicts as aligned columns. The confluence verdict is padded
+   to the width of the widest token ("TIMEOUT") so the [termination(...):] label
+   that follows lines up across rows; the last column is never padded, so
+   single-side output carries no trailing space. The termination label names the
+   tool that decided ([aprove] or [muterm]). *)
+let string_of_combined ((conf, term) : combined) =
+  let both = Option.is_some conf && Option.is_some term in
+  String.concat "  "
+    (List.filter_map Fun.id
+       [
+         Option.map
+           (fun v ->
+             let s = Cocoweb.string_of_verdict v in
+             "confluence: " ^ if both then pad_right 7 s else s)
+           conf;
+         Option.map
+           (fun (tool, v) ->
+             Printf.sprintf "termination(%s): %s"
+               (Termination.string_of_tool tool)
+               (Termination.string_of_verdict v))
+           term;
+       ])
+
+let combined_ok ((conf, term) : combined) =
+  (match conf with None -> true | Some v -> v = Cocoweb.Yes)
+  && match term with None -> true | Some (_, v) -> v = Termination.Yes
+
+let verify_command =
+  Core.Command.basic
+    ~summary:
+      "verify confluence (CoCoWeb) and termination (AProVE/MuTerm) of a spec \
+       at once"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and slice = Cli.Cli_args.Slice.flags
+  and client =
+    flag "--client" (optional string) ~doc:"PATH path to cocoweb_client.py"
+  and muterm_client =
+    flag "--muterm-client" (optional string)
+      ~doc:"PATH path to muterm_client.py"
+  and aprove_jar =
+    flag "--aprove-jar" (optional string) ~doc:"PATH path to aprove.jar"
+  and solver =
+    flag "--solver"
+      (optional_with_default 0 int)
+      ~doc:"N MuTerm method: 0 auto, 1 poly, 2 RPO, 3 DP (default 0)"
+  and only =
+    flag "--only"
+      (optional_with_default "both" string)
+      ~doc:"WHICH confluence | termination | both (default both)"
+  in
+  fun () ->
+    let want_conf, want_term =
+      match only with
+      | "both" -> (true, true)
+      | "confluence" -> (true, false)
+      | "termination" -> (false, true)
+      | other ->
+          Format.eprintf
+            "unknown --only value %S (expected confluence|termination|both)@."
+            other;
+          exit 2
+    in
+    let check_system system : combined =
+      ( (if want_conf then
+           Some (Cocoweb.check ~timeout:slice.timeout ?client system)
+         else None),
+        if want_term then
+          Some
+            (Termination.check ~timeout:slice.timeout ~solver ?muterm_client
+               ?aprove_jar system)
+        else None )
+    in
+    Cli.Error_handling.guard ~color
+      ~on_ok:
+        (Cli.Slice_check.handle
+           ~single:(fun result ->
+             Format.printf "%s\n" (string_of_combined result);
+             if not (combined_ok result) then exit 1)
+           ~batch:(fun results ->
+             let width =
+               List.fold_left
+                 (fun w (sym, _) -> max w (String.length sym))
+                 0 results
+             in
+             List.iter
+               (fun (sym, result) ->
+                 Format.printf "%s  %s\n" (pad_right width sym)
+                   (string_of_combined result))
+               results;
+             if not (List.for_all (fun (_, r) -> combined_ok r) results) then
+               exit 1))
+      (fun () -> Cli.Slice_check.run ~check_system ~slice filenames)
+
+(* Emit the spec as an executable Maude module and run a start term through a
+   local Maude binary (see {!Spectec.Maude_run}). [--emit] dumps the module
+   without invoking Maude; otherwise [--start] supplies the term to run, by
+   default with [reduce] (input-moded relations are equations; use [--search]
+   with [--relations-as-rules] to explore non-deterministic rule rewriting). *)
+let run_command =
+  Core.Command.basic
+    ~summary:"run a translated spec in Maude (emit a module and execute a term)"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and start =
+    flag "--start" (optional string)
+      ~doc:
+        "TERM Maude start term to run (required unless --imp, --p4, or --emit)"
+  and imp =
+    flag "--imp" (optional string)
+      ~doc:"FILE parse an impty program and run it (builds the start term)"
+  and p4 =
+    flag "--p4" (optional string)
+      ~doc:
+        "FILE parse a P4 program and run it through Program_ok against the \
+         loaded spec (builds the start term)"
+  and includes =
+    flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
+  and task =
+    flag "--task"
+      (optional_with_default "run" string)
+      ~doc:"WHICH run | eval | check (impty start relation; default run)"
+  and emit =
+    flag "--emit" no_arg ~doc:" print the Maude module and exit (do not run)"
+  and search =
+    flag "--search" no_arg
+      ~doc:" explore rules + equations (search) instead of reduce"
+  and _reduce =
+    flag "--reduce" no_arg
+      ~doc:" evaluate with equations only (reduce); the default mode"
+  and rewrite =
+    flag "--rewrite" no_arg
+      ~doc:
+        " apply rules along one path (rewrite); deterministic semantics \
+         without the search blow-up"
+  and relations_as_rules =
+    flag "--relations-as-rules" no_arg
+      ~doc:
+        " keep relations as Maude rules (rl/crl) instead of equations for \
+         input-moded ones (pair with --search to explore non-determinism)"
+  and bound =
+    flag "--bound" (optional int)
+      ~doc:"N cap the number of search solutions explored"
+  and maude_bin =
+    flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
+  and timeout =
+    flag "--timeout"
+      (optional_with_default 30 int)
+      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
+  in
+  fun () ->
+    (match (start, imp, p4, emit) with
+    | None, None, None, false ->
+        Format.eprintf
+          "run needs --start TERM, --imp FILE, or --p4 FILE (or --emit to just \
+           print the module)@.";
+        exit 2
+    | _ -> ());
+    Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
+        Format.printf "%s\n" out;
+        if failed then exit 1)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    (* Resolve the start term: an impty program (--imp), a P4 program against
+       the loaded P4 spec (--p4), or a raw term (--start). *)
+    let* start =
+      match (imp, p4) with
+      | Some impfile, _ ->
+          Result.map Option.some
+            (Targets_impty.Impty.maude_start_term ~task ~spec_il impfile)
+      | _, Some p4file ->
+          Result.map Option.some
+            (Targets_p4.P4.maude_start_term ~includes ~spec_il p4file)
+      | None, None -> Ok start
+    in
+    let module_text = To_maude.module_of_spec ~relations_as_rules spec_il in
+    if emit then Ok (module_text, false)
+    else
+      let start = Option.get start in
+      let mode =
+        if search then Maude_run.Search bound
+        else if rewrite then Maude_run.Rewrite
+        else Maude_run.Reduce
+      in
+      let defined_heads = To_maude.maude_defined_heads spec_il in
+      let result =
+        Maude_run.run ?maude_bin ~timeout ~defined_heads ~mode ~module_text
+          ~start ()
+      in
+      Ok (Maude_run.string_of_result result, Maude_run.is_failure result)
+
 let command =
   let module P4 = Targets_p4.P4.Cli in
   let module Impty = Targets_impty.Impty.Cli in
@@ -172,6 +424,9 @@ let command =
       ("struct", structure_command);
       ("annotate", annotate_command);
       ("splice", splice_command);
+      ("rewrite", rewrite_command);
+      ("verify", verify_command);
+      ("run", run_command);
       (P4.name, P4.command);
       (Impty.name, Impty.command);
     ]
