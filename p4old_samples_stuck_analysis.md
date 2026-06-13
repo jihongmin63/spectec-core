@@ -58,35 +58,71 @@ spectec/_build/default/bin/main.exe run        --p4 $P -i $INC $SPEC | sed -n 's
 # 3) 모듈 + 안쪽 관계 red 들을 한 파일에 이어붙여 maude 직접 실행
 ```
 
-추적 결과:
+추적 결과 (`Decls_ok/cons`는 재귀 `Decls_ok`를 **조건 안에서** 호출하므로, 리스트의
+어디서 막히든 최외곽 `Decls-ok`가 전체 리스트+빈 TC로 unreduced 상태로 보인다 —
+"step 0에서 막힌 것처럼" 보이지만 실제 원인은 더 깊은 선언이다):
 
-1. `red $flatten-p4program(<value>)` → **36 rewrites, `cons(...)` 정상** ✓
-2. `red Decls-ok(GLOBAL, $empty-typingContext, $flatten-p4program(<value>), txt("FRESH"))`
-   → 503 rewrites인데 **루트에 `Decls-ok(...)`가 그대로 잔존**(stuck).
-   - 잔여 항 분석: 선언 리스트 spine 길이 **7 = 원본 전체**, TC의 set들이 전부
-     `nil`(= `$empty_typingContext`). 즉 **`Decls_ok`가 step 0에서 막힘** — 단 하나의
-     선언도 소비하지 못함.
-3. 그런데 그 첫 선언(`structTypeDeclaration`)에 대해
-   `red Decl-ok(GLOBAL, $empty-typingContext, <decl0>, txt("FRESH"))`
-   → **102 rewrites, `tuple(tuple(struct-typingContext(...), …), …)` 로 깨끗이 reduce** ✓
+1. `red $flatten-p4program(<value>)` → 36 rewrites, `cons(...)` 정상 (7개 선언) ✓
+2. **prefix를 1→7로 늘려 `Decls-ok`을 reduce** → `[d0]`/`[d0,d1]` OK, `[d0,d1,d2]`부터
+   STUCK. 범인 = **d2**.
+   - d0=`struct S { bit<8> x; }`, d1=`const S s = { x = 1024 }`,
+     **d2=`const bit<16> z = (bit<16>)s.x;`**.
+3. `Decl-ok(GLOBAL, TC_{d0,d1}, d2, st)` → 86 rewrites 후 stuck. `Decl_ok/constantDeclaration`
+   조건(`Type_ok`→`Expr_ok`→LCTK 체크→`$coerce_unary`→`Eval_static`) 중 하나가 막힘.
+4. `Expr-ok(…, (bit<16>)s.x, …)` → stuck. 더 안쪽 `Expr-ok(…, s.x, …)`(struct const의
+   멤버 접근) → **stuck**. 그런데 그 base `Expr-ok(…, s, …)`(11 rw, 타입 `namedTypeIR(struct S)`,
+   ctk `LCTK`) ✓, `$canon(namedTypeIR…)`(7 rw → `structTypeIR(S, cons(fieldTypeIR(bit<8>,"x"),nil))`) ✓
+   — 조각은 다 되는데 멤버접근 규칙만 안 fire.
 
-→ **결론(이 케이스):** 개별 `Decl_ok`는 성공하는데 `Decls_ok`가 그 결과를 소비하지
-못해 step 0에서 막힌다. `Decl_ok`은 gensym-threaded라 `tuple(tuple(TC', declIR),
-state')` 형태의 **중첩 tuple**을 돌려주는데, `Decls_ok`의 재귀 ceq 조건이 그 shape를
-패턴으로 받지 못하는 것으로 의심된다(threaded 출력 shape 불일치). **단, 204개
-프로그램이 `Decls_ok`를 통과하므로 보편 버그는 아니다** — 이 선언 특유의 `Decl_ok`
-출력 모양에서만 어긋난다는 뜻이고, 정확한 메커니즘은 한 단계 더 bisection이 필요하다.
+### 확정된 근본 원인 — `$itermap`(정의 함수)이 `:=` 매칭 패턴에 박혀 있음 (lib/rewrite 번역 버그)
+
+emit된 struct 멤버접근 `Expr-ok` 등식(모듈의 `...memberAccessExpression…struct` ceq)의
+조건:
+
+```
+tuple(variant-structTypeIR-STRUCT-lbrace-rbrace-2(
+        -tid:Text,
+        $itermap-typeIR-f-nameIR-f-semi-list-2(nameIR-f:Val, typeIR-f:Val)),  ← 함수가 패턴 안!
+      St2:Val)
+  := $canon(typeIR-base:TypeIR, St1:Val)
+```
+
+`$itermap-typeIR-f-nameIR-f-semi-list-2 : Val Val -> Val` 는 두 스트림(이름들·타입들)에서
+필드 리스트를 **재조립하는 정의 함수**(`eq …(cons(n,ns),cons(t,ts)) = cons(fieldTypeIR(t,n), …)`).
+Maude는 `pattern := term` 의 **좌변을 constructor 패턴으로만** 매칭하는데, 여기엔 정의 함수
+호출이 들어 있다. `$canon`이 내놓는 실제 `cons(fieldTypeIR-semi-2(bit<8>,"x"), nil)` 은 이
+`$itermap-…(nameIR-f, typeIR-f)` 함수항과 **구문적으로 매칭 불가** → 조건 영구 실패 →
+**struct / header / headerunion 의 필드 접근(`.field`) 타이핑이 항상 stuck**.
+
+**대조 — 바로 옆 `tablestruct` 규칙은 올바르다:** 필드 리스트를 fresh `iterbind-0:List` 변수로
+받고 `$unzip-…` 조건으로 스트림을 복원한다 (binder-position iteration의 정상 컴파일).
+즉 struct/header/headerunion 경로만 binder-position 반복(`(typeIR_f nameIR_f ';')*`)을
+`$unzip` 대신 **`$itermap` 재-zip을 패턴 위치에** 내보냈다.
+
+- **버그 위치:** [to_ctrs.ml](spectec/lib/rewrite/to_ctrs.ml) — 등식 전제
+  `if STRUCT _ { (typeIR_f nameIR_f ';')* } = $canon(typeIR_base)` 처럼 **함수 결과를
+  destructure하는 `:=` 조건의 좌변**에 iterated 구조 패턴이 올 때, binder-position 컴파일
+  (fresh 변수 + `$unzip` 조건)이 적용돼야 하는데 value-position 컴파일(`$itermap` 재-zip)이
+  적용된 것. `tablestruct`가 정상 동작하므로 정답 코드 경로는 이미 존재 — 분기 조건만
+  어긋난다.
+- **영향:** struct/header/header-union 멤버 필드 접근은 P4에서 극히 흔하므로(헤더 필드,
+  메타데이터 접근 등) **539 STUCK의 큰 비중**을 이 하나가 설명할 개연성이 높다. 확정엔
+  수정 후 재측정이 필요.
+- **참고:** [todo.md](spectec/lib/rewrite/todo.md)가 적어둔 "binder-position `$unzip`은
+  non-left-linear" 항목과 같은 계열(iteration의 binder vs value 위치 컴파일)의 문제다.
 
 ## STUCK 카테고리 (generic 원인)
 
 1. **아키텍처 의존 (~257 + `#include <v1model.p4>`류 다수).** `arith-bmv2` /
    `bool_to_bit_cast` / `action-two-params` 등은 `V1Switch(...) main` 패키지
    인스턴스, `standard_metadata_t`, 타깃 extern을 쓴다. arch-suffix에서 STUCK 257 :
-   OK 18로 압도적. 인스턴스/extern/아키텍처 plumbing 경로의 어느 inner judgment에서
-   막힌다(미커버 또는 위 threaded-shape류).
+   OK 18로 압도적. 이들은 거의 항상 헤더/메타데이터 **필드 접근**을 하므로 위
+   `$itermap`-in-pattern 버그에도 직접 노출된다(별도로 아키텍처 미커버 가능성도 있음).
 2. **core-language (~282).** 아키텍처 없이 custom package만 쓰는 작은 프로그램
-   (constStruct 18줄, array_field — header stack `H[2]`)도 막힌다. 공통적으로
-   **선언/인스턴스 체인의 threaded 출력 소비**가 의심 지점(위 constStruct 추적).
+   (constStruct 18줄, array_field — header stack `H[2]`)도 막힌다. constStruct는 위에서
+   **`$itermap`-in-`:=`-pattern 번역 버그(struct/header/headerunion 필드 접근)** 로
+   확정 추적됐다. 다른 core-language STUCK도 같은 버그이거나, 같은 방법(prefix/관계별
+   stepwise reduce)으로 개별 추적해야 한다.
 3. **parser / 신규 surface 구문 (forloop\*).** `forloop2/3/4/7` = OTHER:
    Maude `Warning: no parse for term` — P4 `for` 루프가 emit된 모듈 문법으로
    **표현 불가**(인코딩 미지원). `forloop5a` = ERROR: 더 앞선 elaboration 단계 실패.

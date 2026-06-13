@@ -35,6 +35,50 @@ keeps a readable prefix plus a hash, applied in one place via
 `iter_helper_sym`/`subty_helper_sym`); the binder-position `$unzip` for captured
 bodies is non-left-linear, which can weaken confluence analysis.
 
+## P1 — **confirmed bug**: `$itermap` (a defined function) emitted *inside a `:=` match pattern* → struct/header/header-union field access always stuck
+
+The single biggest p4-old execution blocker. Surfaced by the p4-old ×
+`p4_16_samples` survey (see repo-root `p4old_samples_stuck_analysis.md`;
+539/748 STUCK) and bisected end-to-end on `constStruct.p4`
+(`const bit<16> z = (bit<16>)s.x;`).
+
+`Expr_ok` for `expr.field` on a struct/header/header-union value destructures the
+canonicalized type with an equality premise whose LHS carries an iterated field
+pattern:
+
+```
+-- if STRUCT _ { (typeIR_f nameIR_f ';')* } = $canon(typeIR_base)   -- and the
+--    later $assoc(nameIR, (nameIR_f, typeIR_f)*) re-zips the two streams
+```
+
+This is an **unzip→re-zip round-trip** (unzip the field list into `nameIR_f*` /
+`typeIR_f*`, re-zip them in `$assoc`). The emitted Maude condition is **wrong**:
+
+```
+tuple(STRUCT(-tid, $itermap-typeIR-f-nameIR-f-semi-list-2(nameIR-f, typeIR-f)), St2)
+  := $canon(typeIR-base, St1)        -- $itermap-... is a DEFINED FUNCTION, op : Val Val -> Val
+```
+
+A `pattern := term` LHS in Maude must be a **constructor pattern**; a defined
+function (`$itermap-…`, the field-list *rebuild* helper) on the pattern side can
+never match the concrete `cons(fieldTypeIR(..), ..)` `$canon` returns → the
+condition is unsatisfiable → the rule never fires → typing **any** `.field` access
+on struct/header/header-union is stuck. Since field access is ubiquitous in P4,
+this plausibly accounts for a large share of the 539 STUCK (verify by re-running
+the survey after the fix).
+
+The sibling **`tablestruct` rule is correct** for the identical shape: it binds the
+field list to a fresh `iterbind-0:List` and recovers the streams with `$unzip-…`
+conditions (the proper binder-position compilation, "**`IterE` binder position**"
+above). So the correct code path already exists — only struct/header/header-union
+take the wrong branch, emitting the value-position `$itermap` re-zip into pattern
+position. Strongly suspect `Simplify.collapse_rezip_iters` mis-folding the
+unzip→re-zip round-trip here (it is meant to fold exactly this pattern), leaving an
+`$itermap` where a binder-`$unzip` was required. Fix in
+[to_ctrs.ml](to_ctrs.ml)/[simplify.ml](simplify.ml); guard against ever placing a
+`$`-function term on the LHS of an emitted `:=` condition. Both specs likely
+affected (same member-access shape in `specs/p4`).
+
 ## P2 — approximations to revisit
 
 - [ ] **`otherwise` (`ElsePr`) in the CTRS surface still → non-confluence**
