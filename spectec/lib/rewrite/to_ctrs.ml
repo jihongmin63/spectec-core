@@ -489,6 +489,25 @@ let iter_captured (inner : prem) (vars : var list) (bound_ids : string list) :
   in
   base @ rebound
 
+(* The expression analog of [iter_captured]: an [IterE]'s "map" helper
+   ([iter_map_def]) receives as leading captured constants its body's free
+   non-co-iterated variables PLUS any co-iterated [ids] the body still uses at
+   full-stream depth -- one re-bound by a structured nested [IterE], e.g. the
+   serializable-enum member rule, whose per-member varType embeds the WHOLE
+   `(nameIR_field = value_field ;)*` member list (re-iterating `value_field*`)
+   while the outer step consumes `value_field`'s spine. Those survive
+   [rename_step_exp] free, so appending them passes the loop-invariant full
+   stream alongside the consumed spine. The call site ([term_of_exp]) and the
+   definition ([iter_map_def]) share this, so their argument lists agree. *)
+let iter_captured_exp (body : exp) (vars : var list) (ids : string list) :
+    string list =
+  let base = captured_fvs (Free.free_exp body) vars in
+  let stepped_free = Free.free_exp (rename_step_exp ids body) in
+  let rebound =
+    List.filter (fun id -> IdSet.mem (id $ no_region) stepped_free) ids
+  in
+  base @ rebound
+
 (* Argument lists for a helper recursing over co-iterated [cons]/[nil] (or
    [some]/[none]) spines, with the captured variables [fv_terms] leading
    unchanged: [base empty] fills each spine with its base constructor; [step wrap]
@@ -608,8 +627,8 @@ let rec term_of_exp (e : exp) : R.term =
   (* A structured iterated body compiles to a call to its "map" helper, applied
      to the captured variables then the co-iterated lists (see [iter_map_def]). *)
   | IterE (body, (iter, vars)) ->
-      let fvs = captured_fvs (Free.free_exp body) vars in
       let ids = iter_var_ids vars in
+      let fvs = iter_captured_exp body vars ids in
       app_t
         (iter_map_sym body iter (List.length ids))
         (List.map var_t (fvs @ ids))
@@ -668,11 +687,11 @@ let iter_map_def (e : exp) : (string * R.rule list) option =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> None
   | IterE (body, (iter, vars)) ->
-      let fvs = captured_fvs (Free.free_exp body) vars in
       let ids = iter_var_ids vars in
+      let fvs = iter_captured_exp body vars ids in
       let sym = iter_map_sym body iter (List.length ids) in
       let fv_terms = List.map var_t fvs in
-      let body_elem = subst_term (elem_renaming ids) (term_of_exp body) in
+      let body_elem = term_of_exp (rename_step_exp ids body) in
       let base_args, step_args, rec_args = spine_args fv_terms ids in
       let rules =
         match iter with

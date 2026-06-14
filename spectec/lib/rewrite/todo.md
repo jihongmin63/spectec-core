@@ -210,16 +210,29 @@ programs, AND re-run the survey for the net flip count.
 
 ## p4-old STUCK tail is SPEC INCOMPLETENESS, not translation bugs (2026-06-14)
 
+> **PARTLY RETRACTED (2026-06-14, later same day).** The "zero translation bugs
+> left" conclusion below is UNSAFE: it relied on
+> `p4 typecheck --spec-dir specs/p4-old` as the interp oracle, and **that oracle
+> is misconfigured** — `p4 batch`/`typecheck`'s CLI keeps the *new* target's
+> `Builtins`/handler and only swaps the spec *files*, so the old spec runs with
+> the wrong builtins and reports spurious interp-FAILs. Demonstrated: `issue3623-1`
+> and `bool_to_bit_cast` were in the "128 interp-FAIL spec holes" list, yet the
+> correctly-configured **new-spec** interpreter ACCEPTS them, and a
+> translation-only fix (the value-position `$itermap` capture bug — see the
+> serializable-enum item below) flipped both **Maude-STUCK → OK with the impty
+> golden byte-identical.** So they were GENUINE translation bugs the bad oracle
+> masked. An unknown number of the 128 (those touching serializable enums, and
+> possibly others) may be the same. **Re-triage the 128 with the new-spec
+> `p4 typecheck` (default) oracle, not `--spec-dir specs/p4-old`** (pending).
+
 Full re-survey of p4-old × `p4_16_samples` (748): **OK 615 / STUCK 128 / OTHER 4 /
-ERROR 1**, zero regressions. **The decisive result: every one of the 128 STUCK
-programs ALSO fails in the OCaml interpreter** running the same spec
-(`p4 typecheck --spec-dir specs/p4-old`) — verified on all 128 (45 include-free
-directly, 83 via `cpp -P -I includes` inlining): **0 interpreter-PASS, 128
-interpreter-FAIL.** So the Maude/CTRS backend is **faithful** here — it sticks
-exactly where the reference interpreter rejects the program. There are **zero
-genuine translation bugs left in the p4-old survey**; the entire STUCK tail is
-`specs/p4-old` not covering these (p4c-valid) programs. To raise the OK rate, the
-work is in **the spec**, not the rewrite library.
+ERROR 1**, zero regressions. The original claim (now qualified by the retraction
+above): every one of the 128 STUCK programs ALSO fails in the OCaml interpreter
+running the same spec (`p4 typecheck --spec-dir specs/p4-old`) — **but that oracle
+is unreliable**, so "0 interpreter-PASS, 128 interpreter-FAIL" cannot be trusted.
+Some of the STUCK tail is genuine `specs/p4-old` incompleteness (the pinned
+constructor-arg gap below is real and interp-FAILs on the new spec too); some is
+masked translation bugs. Triage each with the new-spec oracle before assigning.
 
 **Methodology (use this to triage any future STUCK).** A stuck `run --p4` is a
 *translation bug* only if the interpreter ACCEPTS the same program:
@@ -263,20 +276,35 @@ package/factory/generic instantiation with positional untyped literals
 (`constructor_cast`, `extern2`, `factory1/2`, `default-*-argument`, `functors*`,
 `generic*`, `action_profile*`/`action_selector*`, …). NOT a rewrite-library change.
 
-### Other confirmed spec gaps (all interp-FAIL too)
+### Serializable-enum / accessor static-eval — MIXED (re-triaged 2026-06-14)
 
-- **`Eval_static` of accessor expressions in a `const`** (`constStruct`,
-  `constant_folding`, `enumCast`, `bool_to_bit_cast`, tuple-index `issue3283`,
-  serenum `switch` label `issue3623-1`). Runtime `s.x` typing works (member-access
-  fix); the *static-eval* path does not.
-  [5.06.1:286](../../specs/p4-old/5.06.1-expression-static-eval.spectec) literally
-  says *"general member accesses are not evaluated statically"* and [5.06.1:297]
-  *"tuple … accesses are not evaluated statically"* — `Eval_static` has rules only
-  for enum/serenum/stack-`.size`, none for struct/header field or tuple index. Even
-  the serenum rule (277-283), which uses `$assoc_<id,value>(nameIR, (id_member,
-  value_member)*)`, fails in the interpreter too — so this is a spec hole, **not** a
-  `$itermap`-in-`:=` translation artifact (an earlier note here mis-attributed it).
-  Spec fix: add the missing `Eval_static` rules upstream.
+The earlier lump ("all interp-FAIL spec holes") was wrong (bad oracle). Split:
+
+- **Serializable enums — TRANSLATION BUG, FIXED 2026-06-14** (`issue3623-1`,
+  `bool_to_bit_cast`, any serializable-enum decl/const). Root cause was NOT the
+  `Eval_static` serenum member rule (277-283) and NOT a spec hole — it was a
+  **value-position `$itermap` capture bug** in the serializable-enum *declaration*
+  typing (`Enum_serializable_fields_ok` → the `$itermap-enum-…` helper → `$add_vars`).
+  The per-member varType embeds the WHOLE `(nameIR_field = value_field ;)*` list
+  (re-iterating `value_field*`), but `iter_map_def`'s binder-unaware
+  `subst_term (elem_renaming …)` rewrote `value_field` → `value_field__hd` *inside*
+  that nested re-zip, so the inner `$itermap` got a bare element instead of the
+  stream and never matched → `$add_vars` stuck → the whole enum decl stuck (before
+  any const ever reached `Eval_static`). Fix = the expression analog of the
+  `$align_parameters` premise-side fix: new `iter_captured_exp` + capture-aware
+  `rename_step_exp` in `iter_map_def` and its `term_of_exp` call site
+  ([to_ctrs.ml](to_ctrs.ml)). Verified: impty COPS golden byte-identical; minimal
+  serenum `const`, `issue3623-1`, `bool_to_bit_cast` all flip Maude-STUCK → OK; a
+  15-file serial sample of the interp-validated suite is 15/15 OK.
+- **Genuine spec gaps (interp-FAIL on the NEW spec too):** `constant_folding`,
+  tuple-index `issue3283`. [5.06.1:286] says *"general member accesses are not
+  evaluated statically"*, [5.06.1:297] *"tuple … accesses are not evaluated
+  statically"* — `Eval_static` has rules only for enum/serenum/stack-`.size`. Add
+  the missing rules upstream in `specs/p4-old`. NOT a rewrite-library change.
+- **interp-PASS but still Maude-STUCK (separate frontiers, NOT spec holes):**
+  `enumCast` (large program: enum `==`, parser, `packet.extract`, `select`),
+  `constStruct`. The new-spec interpreter accepts these; their Maude stick is a
+  distinct translation frontier to bisect, not covered by the serenum fix.
 - **`for` statement** (`forloop*` → ERROR/OTHER/STUCK): a newer P4 feature with no
   front-end/spec coverage. Spec/front-end work, not CTRS.
 
