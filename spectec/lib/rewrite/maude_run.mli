@@ -54,3 +54,22 @@ val run :
   start:string ->
   unit ->
   result
+
+(** [run_batch ?maude_bin ?timeout ?defined_heads ~mode ~module_text ~starts ()]
+    runs every term in [starts] against [module_text] in a {e single} Maude
+    invocation, amortizing the dominant cost (parsing the ~50k-line emitted
+    module) over the whole batch instead of paying it per program. Each start's
+    command is delimited by an internal marker so the results are split back out
+    in order; the returned list has one result per start, positionally.
+    [timeout] bounds the {e whole} batch (not each start): a process-level
+    timeout/crash maps every start to that same failure, since it cannot be
+    attributed to one program. *)
+val run_batch :
+  ?maude_bin:string ->
+  ?timeout:int ->
+  ?defined_heads:string list ->
+  mode:mode ->
+  module_text:string ->
+  starts:string list ->
+  unit ->
+  result list

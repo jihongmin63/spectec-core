@@ -331,13 +331,16 @@ let run_command =
       ~doc:
         "TERM Maude start term to run (required unless --imp, --p4, or --emit)"
   and imp =
-    flag "--imp" (optional string)
-      ~doc:"FILE parse an impty program and run it (builds the start term)"
+    flag "--imp" (listed string)
+      ~doc:
+        "FILE parse an impty program and run it (builds the start term; repeat \
+         to batch several through one Maude invocation)"
   and p4 =
-    flag "--p4" (optional string)
+    flag "--p4" (listed string)
       ~doc:
         "FILE parse a P4 program and run it through Program_ok against the \
-         loaded spec (builds the start term)"
+         loaded spec (builds the start term; repeat to batch several through \
+         one Maude invocation)"
   and includes =
     flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
   and task =
@@ -374,7 +377,7 @@ let run_command =
   in
   fun () ->
     (match (start, imp, p4, emit) with
-    | None, None, None, false ->
+    | None, [], [], false ->
         Format.eprintf
           "run needs --start TERM, --imp FILE, or --p4 FILE (or --emit to just \
            print the module)@.";
@@ -386,33 +389,58 @@ let run_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    (* Resolve the start term: an impty program (--imp), a P4 program against
-       the loaded P4 spec (--p4), or a raw term (--start). *)
-    let* start =
-      match (imp, p4) with
-      | Some impfile, _ ->
-          Result.map Option.some
-            (Targets_impty.Impty.maude_start_term ~task ~spec_il impfile)
-      | _, Some p4file ->
-          Result.map Option.some
-            (Targets_p4.P4.maude_start_term ~includes ~spec_il p4file)
-      | None, None -> Ok start
+    (* Resolve the start terms to run, each labeled by its source: every impty
+       program (--imp), every P4 program (--p4, run through Program_ok against
+       the loaded spec), then a raw --start term. The labels survive into the
+       batched output so each program's result stays identifiable. *)
+    let sources =
+      List.map
+        (fun f ->
+          (f, fun () -> Targets_impty.Impty.maude_start_term ~task ~spec_il f))
+        imp
+      @ List.map
+          (fun f ->
+            (f, fun () -> Targets_p4.P4.maude_start_term ~includes ~spec_il f))
+          p4
+      @
+      match start with Some t -> [ ("--start", fun () -> Ok t) ] | None -> []
     in
+    let rec resolve_starts = function
+      | [] -> Ok []
+      | (label, build) :: rest ->
+          let* term = build () in
+          let* more = resolve_starts rest in
+          Ok ((label, term) :: more)
+    in
+    let* starts = resolve_starts sources in
     let module_text = To_maude.module_of_spec ~relations_as_rules spec_il in
     if emit then Ok (module_text, false)
     else
-      let start = Option.get start in
       let mode =
         if search then Maude_run.Search bound
         else if rewrite then Maude_run.Rewrite
         else Maude_run.Reduce
       in
       let defined_heads = To_maude.maude_defined_heads spec_il in
-      let result =
-        Maude_run.run ?maude_bin ~timeout ~defined_heads ~mode ~module_text
-          ~start ()
+      let results =
+        Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
+          ~module_text ~starts:(List.map snd starts) ()
       in
-      Ok (Maude_run.string_of_result result, Maude_run.is_failure result)
+      (* A single start keeps the bare result line (golden/grep-stable); a batch
+         labels each program's block so the results stay attributable. *)
+      let failed = List.exists Maude_run.is_failure results in
+      let out =
+        match (starts, results) with
+        | [ _ ], [ result ] -> Maude_run.string_of_result result
+        | _ ->
+            List.map2
+              (fun (label, _) result ->
+                Printf.sprintf "=== %s ===\n%s" label
+                  (Maude_run.string_of_result result))
+              starts results
+            |> String.concat "\n"
+      in
+      Ok (out, failed)
 
 let command =
   let module P4 = Targets_p4.P4.Cli in

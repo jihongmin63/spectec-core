@@ -55,7 +55,7 @@ un-simplified form.
 | [gensym.ml](gensym.ml) / [.mli](gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
 | [defunctionalize.ml](defunctionalize.ml) / [.mli](defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
 | [to_maude.ml](to_maude.ml) / [.mli](to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations, start-term encoding). |
-| [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a start term with a local `maude` binary (`reduce`/`rewrite`/`search`), parse the normal form, flag stuck heads. |
+| [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a start term with a local `maude` binary (`reduce`/`rewrite`/`search`), parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the ~50k-line module is parsed once for the whole batch. |
 | [cocoweb.ml](cocoweb.ml) / [.mli](cocoweb.mli) | Confluence bridge: serialize → POST via `tools/cocoweb/cocoweb_client.py` → verdict. |
 | [muterm.ml](muterm.ml) / [.mli](muterm.mli) | Termination bridge (conditional systems): same shape, `tools/muterm/muterm_client.py`. |
 | [aprove.ml](aprove.ml) / [.mli](aprove.mli) | Termination bridge (unconditional systems): runs a **local** `aprove.jar` (`java -ea -jar … -m wst -t N file.trs`) directly — no Python client. See [tools/aprove/README.md](../../tools/aprove/README.md). |
@@ -312,10 +312,19 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    `impty` loop(`i <= 2000`)은 74k rewrites / 24ms cpu vs end-to-end 121ms로
    순수 시간이 분명히 잡힙니다(스크립트 검증). 인터프리터 쪽 baseline은
    `impty parse -p FILE`(스펙 로드+프로그램 파싱만, ~16ms)을 빼면 됩니다.
-2. **배치 실행으로 상각.** 모듈 텍스트는 입력 프로그램과 무관하게 동일하므로,
-   모듈 1개 + `reduce` 명령 N개를 한 파일에 이어붙이면 기동을 1회만 치릅니다
-   (실측: 4건 합계 25ms → 테스트당 ~6ms). 스위트 단위 실행/측정이 목적이면
-   `Maude_run`에 start term 리스트를 받는 배치 모드를 추가하는 것이 정석.
+2. **배치 실행으로 상각 (구현됨).** 모듈 텍스트는 입력 프로그램과 무관하게
+   동일하므로, 모듈 1개 + `reduce` 명령 N개를 한 파일에 이어붙이면 기동(+거대
+   모듈 파싱)을 1회만 치릅니다. `Maude_run.run_batch`가 이 경로입니다: start term
+   리스트를 받아 **maude를 1회** 실행하고, 각 명령 뒤에 센티넬
+   `reduce "$$SPECTEC_BATCH_SEP$$" .`을 끼워 출력을 프로그램별 세그먼트로 잘라
+   순서대로 파싱합니다(결과 리스트는 입력과 위치 대응). CLI에서는 `run`의
+   `--p4`/`--imp`를 **여러 번** 지정하면 됩니다 — 스펙 로드·모듈 emission·maude
+   파싱이 전부 1회로 상각됩니다 (실측: p4-old 3건 33.6s→14.7s). 단일 입력은
+   기존 출력(`result:`/`FAIL (stuck):` 한 줄)을 그대로 유지하고, 다중 입력은
+   `=== <파일> ===` 블록으로 프로그램별 결과를 라벨링합니다. **주의:** `--timeout`은
+   배치 *전체*에 걸리므로(프로그램별 아님), 안 끝나는 한 건이 배치 전체를 물고
+   타임아웃나면 그 배치의 모든 결과를 잃습니다 — 무거운 스위트는 적당히 끊어
+   배치하세요.
 3. **벤치마크를 키우기.** 실행 시간이 기동 비용을 압도하도록 입력 규모를
    키우면 end-to-end 비교도 유효해집니다.
 

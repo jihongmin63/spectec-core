@@ -175,9 +175,26 @@ let run_process (bin : string) (timeout : int) (file : string) =
   let output = In_channel.input_all ic in
   (ic, output)
 
-let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
-    ~(module_text : string) ~(start : string) () : result =
-  let bin = resolve_bin maude_bin in
+(* Map a non-zero Maude process status to the [Error]/[Timeout] that stands in
+   for a result. Shared by the single and batch runners. *)
+let result_of_failed_status bin output = function
+  | Unix.WEXITED 0 -> assert false
+  | Unix.WEXITED 124 -> Timeout
+  | Unix.WEXITED 127 ->
+      Error
+        (Printf.sprintf
+           "maude not found (tried %S); pass --maude-bin or set \
+            SPECTEC_MAUDE_BIN (see tools/maude/README.md)"
+           bin)
+  | Unix.WEXITED n ->
+      Error (Printf.sprintf "maude exited with status %d:\n%s" n output)
+  | Unix.WSIGNALED n | Unix.WSTOPPED n ->
+      Error (Printf.sprintf "maude killed by signal %d" n)
+
+(* Write [module_text] then [commands] (each already terminated) plus [quit] to a
+   fresh temp file, run Maude on it once, and hand the raw stdout+status to [k].
+   Centralizes the temp-file lifecycle for both runners. *)
+let with_maude_run bin timeout module_text commands k =
   let file = Filename.temp_file "spectec_maude" ".maude" in
   Fun.protect
     ~finally:(fun () -> try Sys.remove file with Sys_error _ -> ())
@@ -185,20 +202,84 @@ let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
       let oc = open_out file in
       output_string oc module_text;
       output_char oc '\n';
-      output_string oc (command_of_mode mode start);
-      output_string oc "\nquit\n";
+      List.iter (output_string oc) commands;
+      output_string oc "quit\n";
       close_out oc;
       let ic, output = run_process bin timeout file in
-      match Unix.close_process_in ic with
+      k (Unix.close_process_in ic) output)
+
+let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
+    ~(module_text : string) ~(start : string) () : result =
+  let bin = resolve_bin maude_bin in
+  with_maude_run bin timeout module_text
+    [ command_of_mode mode start; "\n" ]
+    (fun status output ->
+      match status with
       | Unix.WEXITED 0 -> parse_output mode defined_heads output
-      | Unix.WEXITED 124 -> Timeout
-      | Unix.WEXITED 127 ->
-          Error
-            (Printf.sprintf
-               "maude not found (tried %S); pass --maude-bin or set \
-                SPECTEC_MAUDE_BIN (see tools/maude/README.md)"
-               bin)
-      | Unix.WEXITED n ->
-          Error (Printf.sprintf "maude exited with status %d:\n%s" n output)
-      | Unix.WSIGNALED n | Unix.WSTOPPED n ->
-          Error (Printf.sprintf "maude killed by signal %d" n))
+      | status -> result_of_failed_status bin output status)
+
+(* A String literal Maude reduces to itself, emitted between batched commands to
+   delimit each one's output: the resulting [result String: "..."] line is the
+   boundary. Chosen unlikely to collide with any real normal form. *)
+let batch_sep = "$$SPECTEC_BATCH_SEP$$"
+
+(* The boundary is the marker's [result] line, not Maude's [reduce in M : ...]
+   command echo -- both carry [batch_sep], so matching on the substring alone
+   would double-count and shift every result by one. *)
+let is_batch_boundary line =
+  String.starts_with ~prefix:"result " line && index_sub line batch_sep <> None
+
+(* Split [output]'s lines into the segments preceding each boundary line, one per
+   batched command in order; trailing lines after the last boundary (the [quit]
+   echo) are dropped. *)
+let split_batch_segments (output : string) : string list =
+  String.split_on_char '\n' output
+  |> List.fold_left
+       (fun (segments, buf) line ->
+         if is_batch_boundary line then
+           (String.concat "\n" (List.rev buf) :: segments, [])
+         else (segments, line :: buf))
+       ([], [])
+  |> fst |> List.rev
+
+(* Run a whole batch of [starts] against one [module_text] in a single Maude
+   invocation, amortizing the (dominant) cost of parsing the emitted module. Each
+   start's command is followed by a [batch_sep] marker; the output is split on
+   those markers and each segment parsed as in {!run}. Returns one result per
+   start, in order. A process-level failure (timeout/crash) maps every start to
+   that same failure -- it cannot be attributed to one program. *)
+let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
+    ~(module_text : string) ~(starts : string list) () : result list =
+  match starts with
+  | [] -> []
+  | _ ->
+      let bin = resolve_bin maude_bin in
+      let commands =
+        List.concat_map
+          (fun start ->
+            [
+              command_of_mode mode start;
+              "\n";
+              Printf.sprintf "reduce \"%s\" .\n" batch_sep;
+            ])
+          starts
+      in
+      with_maude_run bin timeout module_text commands (fun status output ->
+          match status with
+          | Unix.WEXITED 0 ->
+              let segments = split_batch_segments output in
+              (* Pad a short batch (e.g. Maude aborted early) so every start gets
+                 a result; a missing segment is an unparseable run. *)
+              List.mapi
+                (fun i start ->
+                  match List.nth_opt segments i with
+                  | Some seg -> parse_output mode defined_heads seg
+                  | None ->
+                      Error
+                        (Printf.sprintf
+                           "maude produced no output for start term:\n%s" start))
+                starts
+          | status ->
+              List.map
+                (fun _ -> result_of_failed_status bin output status)
+                starts)
