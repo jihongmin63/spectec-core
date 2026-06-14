@@ -7,3 +7,7 @@ spectecx
 
 # MacOS
 *.DS_Store
+
+# find_maude_diverging.sh outputs
+maude_diverging.tsv
+maude_suite_verdicts.tsv

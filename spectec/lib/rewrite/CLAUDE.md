@@ -237,6 +237,36 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 > 실행/회귀 확인은 `p4-old`로 하세요. `p4`는 번역(`rewrite` 덤프)까지만
 > 신뢰합니다.
 
+## 회귀/divergence 측정 — 인터프리터 오라클 + Maude 백엔드 (repo 루트)
+
+p4-old 실행 커버리지는 **레퍼런스 인터프리터가 받아들이는 valid 프로그램**을
+기준으로 잽니다. 두 산출물이 repo 루트에 있습니다:
+
+- **[`p4_typecheck_suite.txt`](../../../p4_typecheck_suite.txt)** — 인터프리터가
+  통과시키는 1061개 positive `p4_16_samples`. `main.exe p4 batch -v`(새 스펙)로
+  생성: positive 1061/1061 PASS, negative(`p4_16_errors`) 253/253 reject, 197개는
+  인터프리터 exclude. 잘려있던 `p4old_samples_results.tsv`(748) baseline을 대체.
+  재생성: `main.exe p4 batch -v 2>&1 | grep 'p4_16_samples.*\.\.\. pass'`.
+- **[`find_maude_diverging.sh`](../../../find_maude_diverging.sh)** — suite를
+  p4-old Maude(`run --p4`)로 돌려 **OK가 아닌 것(STUCK/TIMEOUT/ERROR)만** 추림 =
+  "Maude가 잘못한" 후보(인터프리터는 받는데 Maude는 못 돌림). resumable
+  (progress TSV에 기록, 재실행 시 done 건너뜀), 출력은 `maude_diverging.tsv`.
+
+> **반드시 serial(JOBS=1, 기본)로 돌리세요.** `run --p4`는 매 실행마다 ~50k줄
+> 모듈을 maude로 파싱하므로 동시 실행이 RAM을 고갈시켜 프로세스가 죽고 출력이
+> 깨집니다(빈 출력→오분류). 실측: 8코어/16GB에서 `-P 3`도 41건 중 39건이 깨졌고,
+> serial은 54/54 정상. 1061개 serial은 오래 걸리니 resume로 나눠 돌리세요.
+
+**Divergence triage — 올바른 오라클을 쓰세요.** divergence(인터프리터 PASS +
+Maude not-OK)가 *번역 버그*인지 *진짜 p4-old 스펙 구멍*인지는 그 파일을 인터프리터로
+다시 돌려 가립니다 — **반드시 새 스펙 기본 경로** `main.exe p4 typecheck -p FILE -i
+INC` 로. **`--spec-dir specs/p4-old`는 쓰지 마세요**: `p4 batch`/`typecheck` CLI가
+새 타깃의 `Builtins`/handler를 유지한 채 스펙 파일만 바꿔서 *가짜 interp-FAIL*을
+냅니다(예: `issue3623-1`·`bool_to_bit_cast`는 `--spec-dir p4-old`에선 `error`지만
+새 스펙 인터프리터는 PASS, Maude도 수정 후 OK — 둘 다 번역 버그였음). 과거
+"128 STUCK 전부 interp-FAIL → 번역 버그 0개" 결론은 이 깨진 오라클 탓에 틀렸습니다
+([todo.md](todo.md) 참조).
+
 ## 성능 측정 시 주의 — 단순 wall-clock은 Maude 기동 비용에 지배된다
 
 `spectecx run`의 end-to-end 시간을 인터프리터(`impty eval`)와 그대로
