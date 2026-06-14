@@ -119,7 +119,9 @@ gets the deep `if`-equality instead.
     (unnamed) untouched. Minimal repro
     `control c() { action a(bit<8> x, bit<8> y) {} apply { a(x=8w1, y=8w2); } }`
     typechecks end-to-end; invalid `a(x=8w1, z=8w2)` (non-param `z`) still
-    `FAIL (stuck)`; neither loops. Regressions: positional overload
+    `FAIL (stuck)`; neither loops. **Sound vs the interpreter:** `named_ok` is
+    `p4 typecheck` PASS (so Maude now AGREES — it was the lone STUCK outlier),
+    `named_bad` is interpreter FAIL too (both reject). Regressions: positional overload
     (cases/apply-cf/def-use), impty loop, p4-old `const`, new-spec tuple3/`|+|`
     all pass; used-before-bound stays 0. Full p4-old × `p4_16_samples` survey
     (748 files) confirms **zero regressions** (no OK→non-OK); OK 204→615 / STUCK
@@ -206,96 +208,84 @@ core changes the impty golden exercises. Verify any fix with the impty golden, t
 minimal repro above (valid resolves, invalid fails, neither loops), the four P1-(c)
 programs, AND re-run the survey for the net flip count.
 
-## P1 — remaining p4-old STUCK frontiers (survey 2026-06-14, post P1-(b))
+## p4-old STUCK tail is SPEC INCOMPLETENESS, not translation bugs (2026-06-14)
 
-Full re-survey of p4-old × `p4_16_samples` (748 files) after the P1-(b) fix:
-**OK 615 / STUCK 128 / OTHER 4 / ERROR 1**, and **zero regressions** (no OK→non-OK
-vs the recorded baseline; the baseline `p4old_samples_results.tsv` predates the
-member-access + IterPr fixes too, so its OK 204→615 / +411 STUCK→OK delta is
-*cumulative*, not P1-(b) alone). Of the 128 STUCK, 91 are feature-diverse `issue*`
-p4c regression cases; spot-checked samples fall into the two buckets below.
-Stuck terms surface as the bare
-`Program-ok(..)` start term (stuck propagation), so each was bisected by reducing
-sub-goals directly — capture the Maude input via a `--maude-bin` wrapper that
-copies the temp file, then `reduce` `$flatten-p4program(P)` and
-`Decls-ok(GLOBAL, $empty-typingContext, .., FRESH)` on the *shared* module (the
-module is program-independent). Two dominant generic causes, both root-caused:
+Full re-survey of p4-old × `p4_16_samples` (748): **OK 615 / STUCK 128 / OTHER 4 /
+ERROR 1**, zero regressions. **The decisive result: every one of the 128 STUCK
+programs ALSO fails in the OCaml interpreter** running the same spec
+(`p4 typecheck --spec-dir specs/p4-old`) — verified on all 128 (45 include-free
+directly, 83 via `cpp -P -I includes` inlining): **0 interpreter-PASS, 128
+interpreter-FAIL.** So the Maude/CTRS backend is **faithful** here — it sticks
+exactly where the reference interpreter rejects the program. There are **zero
+genuine translation bugs left in the p4-old survey**; the entire STUCK tail is
+`specs/p4-old` not covering these (p4c-valid) programs. To raise the OK rate, the
+work is in **the spec**, not the rewrite library.
 
-### (A) Object / extern / constructor / generic-package INSTANTIATION — biggest bucket
+**Methodology (use this to triage any future STUCK).** A stuck `run --p4` is a
+*translation bug* only if the interpreter ACCEPTS the same program:
+`p4 typecheck -p FILE --spec-dir specs/p4-old` (PASS) **and** `run --p4 FILE -i …`
+(STUCK). interp-FAIL + Maude-STUCK = the spec rejects it; the backend is correct
+to stick. (This is exactly how **P1-(b)** was validated as a *real* fix: `named_ok`
+`a(x=8w1,y=8w2)` is interp-PASS and was the lone Maude-STUCK outlier → now OK and
+agreeing; `named_bad` `a(x=,z=)` is interp-FAIL + Maude-STUCK, both reject.)
 
-Sticks in `Decls-ok` while typing an instantiation declaration. **Minimal repro**
-(`constructor_cast.p4`): `extern E { E(bit<32> size); } control c() { E(12) e; }`
-— `$flatten-p4program` reduces, then `Decls-ok` advances past the extern decl and
-**sticks on the control declaration carrying `E(12) e`**. Positional args, so this
-is NOT the just-fixed `$find_overloaded` named path; the stick is deeper in
-constructor/instantiation typing (`Decl_ok` → instantiation / `Call_ok` for the
-constructor; needs one more bisection level to name the exact relation). Members:
-`constructor_cast`, `extern2`, `extern-inst-as-param`, `extern-funcs-bmv2`,
-`factory1/2`, `default-control-argument`, `default-package-argument`,
-`functors6/7/8/9`, `generic`, `generic1`, `action_profile*`/`action_selector*`
-(extern instantiation inside tables), `gauntlet_extern_arguments_2`. (Pure
-type-parameter typing without instantiation — `issue2265`'s `T f<T>(T data)` /
-`control c<T>` — is the adjacent generics sub-theme.)
-- **Fix approach (needs one more bisection level first).** Descend from the stuck
-  `Decls-ok` into the instantiation declaration's `Decl_ok` → the constructor
-  `Call_ok` / instantiation relation (`6.xx-instantiation-*` + `5.15.3-typing-
-  constructor-call`) to name the exact stuck rule, using the same shared-module
-  sub-goal `reduce` recipe (capture via `--maude-bin` wrapper, reduce
-  `Decl-ok(<post-extern-context>, <control-decl>, ..)`). The minimal anchor is
-  `extern E { E(bit<32> size); } control c() { E(12) e; }`. Once the leaf relation
-  is known, expect it to be one of the familiar `Simplify` shapes — an
-  `$itermap`/`$assoc` re-zip in a `:=` pattern (→ `lift_match_eq_to_let` /
-  `$unzip`), a defunctionalization/overload-arg residue, or a constructor-type
-  reconstruction gap. Do NOT guess the fix before this bisection; it is the
-  largest bucket, so the leaf relation is worth pinning precisely.
+The deep bisection below (kept for the spec authors) pins one representative spec
+gap precisely; the others are analogous spec-coverage holes, **not** rewrite-library
+work. Stuck terms surface as the bare `Program-ok(..)` (stuck propagation); descend
+by reducing sub-goals on the *shared* module (program-independent): capture the
+Maude input via a `--maude-bin` wrapper, then `reduce` the relation calls directly,
+feeding each level's outputs into the next.
 
-### (B) Static evaluation (`Eval_static`) of accessor expressions — the const-folding bucket
+### Pinned spec gap: directionless (constructor) argument needs an explicit type
 
-`Expr_ok` field-access *typing* works now (the 2026-06-13 member-access fix), but
-the **compile-time-known static-eval path is separate and still stuck**.
-Bisected with probes (runtime `s.x` in a control body **OK**; the same in a
-`const` **STUCK**). Two distinct sub-causes, both on `Eval_static`:
+**Minimal repro / discrimination.** `extern E { E(bit<32> size); } control c() {
+E(12) e; }` STUCKs (interp + Maude); `E()` (no-arg) and `E(32w12)` (explicitly
+typed arg) both PASS. So it is not "any instantiation" — it is **an untyped int
+literal as a directionless constructor argument**. Bisected term-by-term down the
+chain `Decl_ok/instantiation` → `ConstructorType_ok` (RETURNS the constructor type
+fine) → **`Inst_ok` (sticks)** → its premises: `$filter_default_parameters`,
+`$align_parameters` both reduce fine → **`Call_convention_ok` (sticks)** →
+`Call_convention_expr_ok/empty-not-action`
+([5.15.1:116](../../specs/p4-old/5.15.1-typing-call-convention.spectec)). That rule,
+for a directionless (`_EMPTY`) param under `NOACTION`, **does NOT coerce** ("may not
+insert implicit casts") and requires `Type_alpha: typeIR_param ~~ typeIR_arg`
+exactly. Direct reductions: `Call_convention_expr_ok(param bit<32>, arg 12:INT)`
+sticks; with `arg :bit<32>` it returns; `Type_alpha(bit<32>, INT) = false`,
+`Type_alpha(bit<32>, bit<32>) = true`. So the literal `12` (typed `INT`, never
+narrowed to the param's `bit<32>`) fails the exact match and no rule fires.
 
-1. **A `$assoc`/`$itermap` re-zip in a `:=` match pattern — the same bug
-   family P1-(a) fixed on the *typing* side, now on the *eval* side.** The serenum
-   member rule
-   [5.06.1:277-283](../../specs/p4-old/5.06.1-expression-static-eval.spectec)
-   reads `value = $assoc_<id, value>(nameIR, (id_member, value_member)*)`, whose
-   re-zip over the iterated member stream compiles to an `$itermap` (a defined
-   function) on the LHS of a Maude `:=`, which never matches → stuck. Hits
-   `enumCast`, `bool_to_bit_cast`, serenum `switch` labels (`issue3623-1`:
-   `switch (v) { e.a: ... }` over `enum bit<4>`).
-   - **Fix:** reuse exactly the P1-(a) machinery — route the `if .. = $assoc(..)`
-     destructure through `Simplify.lift_match_eq_to_let` so the iterated pattern
-     unzips in binder position (`pattern_of_exp` → `$unzip`) instead of re-zipping
-     to an unmatchable `$itermap`. `lift_match_eq_to_let` already anchors on an
-     opaque CALL operand; `$assoc_<..>` is a `CallE`, so the existing predicate
-     should fire here too. **Verify first** whether it already triggers on this
-     clause (dump `rewrite --simplified` for `Eval_static`); if not, widen the
-     anchor minimally. Lowest-risk, highest-leverage — closes the enum/serenum
-     const-folding sub-bucket with the proven approach.
-2. **A genuinely missing rule.** [5.06.1:286](../../specs/p4-old/5.06.1-expression-static-eval.spectec)
-   states *"general member accesses are not evaluated statically"*: `Eval_static`
-   has member rules only for `enum` / `serenum` / stack `.size`, and
-   [5.06.1:297] notes *"tuple or stack accesses are not evaluated statically"* —
-   so a plain struct field (`const bit<8> z = s.x`, constStruct/constant_folding)
-   or a tuple index (`const int a = {1w1,1w1}[0]`, issue3283) in a `const` has **no
-   `Eval_static` rule at all** and sticks.
-   - **This is a SPEC gap, not a translation bug** — add the missing `Eval_static`
-     rules for struct/header field projection and tuple indexing on a literal
-     aggregate value (the interpreter folds these; the declarative spec must too).
-     Belongs upstream in `specs/p4-old`, then re-translate. Distinct from the
-     CTRS-translation work above; flag for the spec authors.
+**Spec fix (upstream, `specs/p4-old`):** make the directionless-arg convention
+coerce a compile-time-known argument to the parameter type (mirror the `in`-rule's
+`$coerce_unary`, line 56, and the `empty-action` rule's coercion, line 110), OR
+type the constructor argument against the expected parameter type so `12` is
+`bit<32>` before the convention check. This is the largest bucket: extern/control/
+package/factory/generic instantiation with positional untyped literals
+(`constructor_cast`, `extern2`, `factory1/2`, `default-*-argument`, `functors*`,
+`generic*`, `action_profile*`/`action_selector*`, …). NOT a rewrite-library change.
 
-### Non-STUCK tail (front-end / spec coverage, not a translation bug)
+### Other confirmed spec gaps (all interp-FAIL too)
 
-`forloop*.p4` (the `for` statement, a newer P4 feature) land as ERROR/OTHER
-(parse/elaboration) or STUCK depending on coverage — a spec/front-end gap, not a
-CTRS-translation stick. Track separately from the two buckets above.
+- **`Eval_static` of accessor expressions in a `const`** (`constStruct`,
+  `constant_folding`, `enumCast`, `bool_to_bit_cast`, tuple-index `issue3283`,
+  serenum `switch` label `issue3623-1`). Runtime `s.x` typing works (member-access
+  fix); the *static-eval* path does not.
+  [5.06.1:286](../../specs/p4-old/5.06.1-expression-static-eval.spectec) literally
+  says *"general member accesses are not evaluated statically"* and [5.06.1:297]
+  *"tuple … accesses are not evaluated statically"* — `Eval_static` has rules only
+  for enum/serenum/stack-`.size`, none for struct/header field or tuple index. Even
+  the serenum rule (277-283), which uses `$assoc_<id,value>(nameIR, (id_member,
+  value_member)*)`, fails in the interpreter too — so this is a spec hole, **not** a
+  `$itermap`-in-`:=` translation artifact (an earlier note here mis-attributed it).
+  Spec fix: add the missing `Eval_static` rules upstream.
+- **`for` statement** (`forloop*` → ERROR/OTHER/STUCK): a newer P4 feature with no
+  front-end/spec coverage. Spec/front-end work, not CTRS.
 
-Remaining misc STUCK to bucket once the full survey lands: `action-two-params`,
-`default-initializer`, `bfd_offload`, `calc-ebpf`, `gauntlet_hdr_in_value-bmv2`,
-`gauntlet_optional-bmv2`, `gauntlet_various_ops-bmv2`.
+### Caveat on the survey baseline
+
+The `+411 STUCK→OK` vs `p4old_samples_results.tsv` is *cumulative* (that baseline
+predates the member-access + IterPr fixes), not P1-(b) alone. P1-(b)'s own
+contribution is the named-argument overload programs. The "zero regressions" and
+"128/128 STUCK are interp-FAIL" are the load-bearing facts.
 
 ## P2 — approximations to revisit
 
