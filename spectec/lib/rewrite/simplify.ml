@@ -598,8 +598,23 @@ let rec prem_redundant (spec : spec) (outs : exp list) (bound_head : IdSet.t)
       (* An iterated pure test `(if ...)*{..}` is redundant when its element-level
          body is. The body's subject is an iteration variable, and [env_of_prems]
          lifts the co-iterated bindings to that same element level, so the entailment
-         check applies unchanged. Restricted to [IfPr] (a test binds nothing), so
-         dropping it never strands a binder the way an iterated [let] could. *)
+         check applies unchanged. A test binds nothing, so dropping it never strands
+         a binder. *)
+      prem_redundant spec outs bound_head others inner
+  | IterPr
+      ( ({
+           it = LetPr ({ it = VarE _ | IterE ({ it = VarE _; _ }, _); _ }, _);
+           _;
+         } as inner),
+        _ ) ->
+      (* An iterated single-variable binding `(let x = ..)*{..}` whose element
+         variable is dead (bound here, used nowhere among the outputs or the other
+         premises -- [Free] is binder-blind, so the element name shows through):
+         its only role was to feed a chain that has since been dropped (the
+         orphaned named-argument some-extraction -- see [drop_confined_rebinding]),
+         so it can go. Restricted to a variable LHS, the same dead-binding shapes
+         the block-level [LetPr] cases above already drop, so the element-level
+         recursion strands nothing. *)
       prem_redundant spec outs bound_head others inner
   | _ -> false
 
@@ -1464,6 +1479,71 @@ let lift_match_eq_to_let (prem : prem) : prem =
       else prem
   | _ -> prem
 
+(* Drop an iterated rebinding `(let SOMEPAT = link)*` that head reconstruction
+   left orphaned. The named-argument some-extraction of `$find_overloaded`
+   elaborates to a chain
+     (let id?  = id_arg?)*       -- A: alias the input option to a fresh link
+     (let ?(id_arg') = id?)*      -- C: bind id_arg' to its some-content
+   and reconstruction folds the clause head `(id_arg?)*` to `?(id_arg')*`, so the
+   head already binds [id_arg'] AND already enforces the all-some shape. Chain C
+   then only RE-binds a head-bound variable from a [link] ([id?]) that no live
+   code uses, and chain A only produces that link from a now-phantom source
+   ([id_arg?] is bound nowhere). Both are vacuous residue.
+
+   Drop C when (a) its pattern binds only head-bound variables (the head already
+   provides them), and (b) its right-hand side is a single variable [link] that is
+   CONFINED -- absent from the outputs and from every other premise except the
+   `let`s that produce it. Removing C then leaves the producer A binding a dead
+   variable, which the redundancy pass ([prem_redundant]'s [IterPr (LetPr ..)]
+   arm) cascades away. The confinement gate keeps this off a genuine assertion
+   `let (x, y) = $f(z)` (its right-hand side is a call, not a bare link) and off a
+   `let x = w` whose [w] some live guard still reads (then [w] is not confined). *)
+let drop_confined_rebinding (head_bound : IdSet.t) (prems : prem list)
+    (outs : exp list) : prem list =
+  let rec let_of (p : prem) : (exp * exp) option =
+    match p.it with
+    | LetPr (l, r) -> Some (l, r)
+    | IterPr (inner, _) -> let_of inner
+    | _ -> None
+  in
+  let link_id (e : exp) : id option =
+    match e.it with
+    | VarE id -> Some id
+    | IterE ({ it = VarE id; _ }, _) -> Some id
+    | _ -> None
+  in
+  let confined (link : id) (others : prem list) : bool =
+    List.for_all (fun e -> not (IdSet.mem link (Free.free_exp e))) outs
+    && List.for_all
+         (fun (q : prem) ->
+           (not (IdSet.mem link (Free.free_prem q)))
+           ||
+           (* a producer `let` whose LHS binds [link] is fine -- it goes dead *)
+           match let_of q with
+           | Some (l, _) -> IdSet.mem link (Free.free_exp l)
+           | None -> false)
+         others
+  in
+  let droppable i (p : prem) : bool =
+    match let_of p with
+    | Some (l, r)
+      when is_struct_lit l
+           && IdSet.subset (Free.free_exp l) head_bound
+           && not (IdSet.is_empty (Free.free_exp l)) -> (
+        match link_id r with
+        | Some link when not (IdSet.mem link head_bound) ->
+            confined link (List.filteri (fun k _ -> k <> i) prems)
+        | _ -> false)
+    | _ -> false
+  in
+  let target =
+    List.mapi (fun i p -> (i, p)) prems
+    |> List.find_opt (fun (i, p) -> droppable i p)
+  in
+  match target with
+  | Some (i, _) -> List.filteri (fun k _ -> k <> i) prems
+  | None -> prems
+
 (* Substitute, then prune, iterating to a fixed point. [outs] are the output
    expressions of the conclusion (a relation's arguments, or a clause's return
    expression); binder positions (clause args) are handled by the caller.
@@ -1566,6 +1646,9 @@ let simplify_block (spec : spec) ~(head_bound : exp list -> IdSet.t)
     let prems, outs = fold_iter_match spec prems outs in
     let prems, outs = inline_lets spec (head_bound outs) prems outs in
     let prems, outs = inline_value_lets spec (head_bound outs) prems outs in
+    (* Drop an orphaned named-argument some-extraction rebinding, then let [prune]
+       cascade its now-dead producer `let` away. *)
+    let prems = drop_confined_rebinding (head_bound outs) prems outs in
     let prems = prune outs prems in
     if List.length prems < before then settle prems outs else (prems, outs)
   in
