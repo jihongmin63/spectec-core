@@ -397,7 +397,29 @@ let rec subst_prem (spec : spec) (safe : IdSet.t) (known : IdSet.t)
         IterPr
           ( subst_prem spec safe known elem_bound srcs ipairs pairs' inner,
             iterexp )
-    | IfPr ({ cond = { it = CmpE (`EqOp, _, _, _); _ }; _ } as r) -> IfPr r
+    | IfPr { cond = { it = CmpE (`EqOp, op, a, b); _ } as cond; role } ->
+        (* Leave the equality's own top-level operands intact -- a var=var binder
+           pin (`if K_h = K`) or an all-none guard (`if id_arg? = ?()`) must never
+           be rewritten, or it would conflate/trivialise a pattern binder. But
+           fold structure INTO an opaque-call operand: a call-result equality
+           (`if $f(..) = rhs`) is not a binder pin, and its arguments are value
+           positions, so a reconstructed head (`id_arg? -> ?(id_arg')` from the
+           named-arg some-extraction) must reach them -- otherwise the call stays
+           inconsistent with the head the rest of the clause already folded
+           (`$find_overloaded`'s all-named clause 0, a bare `= eps` guard, missed
+           the rewrite its sibling clause 1 got via a `let v = $f(..)` step). *)
+        let fold_into_call (e : exp) =
+          match e.it with CallE _ -> subst_with bpairs e | _ -> e
+        in
+        IfPr
+          {
+            cond =
+              {
+                cond with
+                it = CmpE (`EqOp, op, fold_into_call a, fold_into_call b);
+              };
+            role;
+          }
     | IfPr { cond; role } -> IfPr { cond = subst_with bpairs cond; role }
     | ElsePr -> ElsePr
   in
