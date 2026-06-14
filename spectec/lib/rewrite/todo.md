@@ -84,7 +84,51 @@ gets the deep `if`-equality instead.
   bmv2/ebpf/ubpf programs that were stuck on header/metadata field access, not on
   architecture coverage.
 
-## P1 — next frontier: a defined function in a `:=` pattern from `$find_overloaded`'s NAMED-argument clauses (root-cause REVISED 2026-06-13)
+## P1 — **FIXED 2026-06-14** (P1-(b)): a defined function in a `:=` pattern from `$find_overloaded`'s NAMED-argument clauses
+
+- **FIXED 2026-06-14, in `Simplify`** (two commits, step1 prereq + step2 fix).
+  All-named overloaded calls (`a(x = .., y = ..)`) no longer stuck/loop.
+  - **Step 1 (commit 523b0152): propagate the head reconstruction into
+    call-result equality guards.** Head reconstruction folds the clause head
+    `(id_arg?)*` to `?(id_arg')*`, but `subst_prem` left every `if .. = ..`
+    guard verbatim (to protect a var=var binder pin), so `$find_overloaded`'s
+    all-named clause 0 — a bare `= eps` guard — kept feeding `$find_matchings`
+    the now-unbound `id_arg?*`, inconsistent with clause 1 (which got
+    `?(id_arg')*` via a `let v = $f(..)` step). The `IfPr` equality case now
+    folds structure INTO an opaque-**call** operand while leaving the equality's
+    own top-level operands intact, so a var=var / all-none guard is still never
+    rewritten. Behaviour-preserving (impty golden byte-identical); a prerequisite.
+  - **Step 2 (commit 7b16e4d3): drop the orphaned some-extraction chain.** After
+    the head binds `id_arg'` directly, the extraction
+    `(let id? = id_arg?)*` (A) + `(let ?(id_arg') = id?)*` (C) is dead residue
+    that `To_ctrs` compiled to the circular `$itercollect … := …` helpers.
+    `Simplify.drop_confined_rebinding` removes C (its pattern binds only
+    head-bound vars; its RHS is a single *confined* link absent from the outputs
+    and from every non-producer premise), and a new `IterPr(LetPr …)` arm in
+    `prem_redundant` cascades the now-dead producer A away. The confinement gate
+    keeps this off a genuine assertion `let (x, y) = $f(z)` (RHS is a call, not a
+    bare link).
+  - **NB the plan's predicted route (ii) — "inject the HEAD pattern's
+    equivalences into the redundancy env" — was unworkable**: with chain C
+    excluded (as `remove_redundant_prems` tests one premise against the others),
+    nothing entails C, so the "equation already holds" path can never fire. The
+    confined-rebinding pass + the `IterPr(LetPr)` dead-binding cascade replace it.
+  - **Verified.** impty COPS+Maude golden byte-identical (each step); p4-old
+    simplified-IL diff is exactly `$find_overloaded` clauses 0/1 (chains A/C gone,
+    `$find_matchings` consistent with the `?(id_arg')*` head); clauses 2/3
+    (unnamed) untouched. Minimal repro
+    `control c() { action a(bit<8> x, bit<8> y) {} apply { a(x=8w1, y=8w2); } }`
+    typechecks end-to-end; invalid `a(x=8w1, z=8w2)` (non-param `z`) still
+    `FAIL (stuck)`; neither loops. Regressions: positional overload
+    (cases/apply-cf/def-use), impty loop, p4-old `const`, new-spec tuple3/`|+|`
+    all pass; used-before-bound stays 0. Full p4-old × `p4_16_samples` survey
+    (748 files) was re-running at commit time as background confirmation — no
+    regressions in the first 38; the named-argument programs are the expected
+    STUCK→OK flips (verify the net count from `p4old_transitions.tsv`).
+
+---
+
+*Historical root-cause analysis (pre-fix), kept for context:*
 
 A `$`-function on the LHS of a Maude `:=` still survives in `$find_overloaded`'s
 "all arguments named" clauses (clauses 0/1, overload resolution,

@@ -331,9 +331,17 @@ Priority-ordered. The big ones:
   an element var bound by ANOTHER iteration — the premise-position analog of
   `Prem_env.subst_exp`'s `binds_from` guard. This fixed the table action-enum
   STREAM-vs-element bug end-to-end (`cases`/`apply-cf`/`default-switch`/`exit5` all
-  flip STUCK→OK; impty goldens byte-identical). The remaining `$find_overloaded`
-  named-argument `:=`-helper frontier (was thought a separate "identity rename") is a
-  deeper hoist/redundancy reconstruction issue — see [todo.md](todo.md).
+  flip STUCK→OK; impty goldens byte-identical).
+- **`$find_overloaded` named-argument `:=`-helper (P1-(b), FIXED 2026-06-14).**
+  All-named overloaded calls (`a(x = .., y = ..)`) no longer stuck/loop. Two
+  `Simplify` steps: (1) `subst_prem`'s `IfPr` equality case folds structure into an
+  opaque-**call** operand (`if $f(..) = rhs`) while protecting the equality's own
+  operands, so the reconstructed head `?(id_arg')*` reaches `$find_matchings`; (2)
+  `drop_confined_rebinding` removes the orphaned some-extraction `(let ?(id_arg') =
+  id?)*` (rebinds a head-bound var from a confined link) and a new `IterPr(LetPr …)`
+  arm in `prem_redundant` cascades the now-dead producer `(let id? = id_arg?)*` away
+  — killing the circular `$itercollect … := …` helpers. impty goldens byte-identical;
+  see [todo.md](todo.md).
 - **P2 `otherwise` (`ElsePr`) is dropped** (`conds_of_prem` → `[]`), so a
   fallthrough clause loses its "no earlier clause applied" guard and overlaps the
   earlier rules → **non-confluent** (e.g. `impty/base` `$lookup` emits two rules
