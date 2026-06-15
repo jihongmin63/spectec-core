@@ -4,6 +4,85 @@ IL → CTRS translation ([to_ctrs.ml](to_ctrs.ml)). The `impty` specs translate
 end-to-end and `specs/p4` now translates in full. This list is ordered by what
 unblocks real-scale specs first.
 
+## P0 (TOP PRIORITY) — make `specs/p4` executable in Maude
+
+**This is the priority.** Today the interpreter runs the new spec (`specs/p4`) but
+Maude runs `specs/p4-old`, so every differential is interp(p4) vs Maude(p4-old): a
+divergence is CONFOUNDED between a real translation bug and a p4-old-vs-new-spec
+difference, and each one has to be bisected by hand to tell them apart (that confound
+is exactly what forced the whole completeness/soundness triage below — 138 + 11 cases,
+all spec differences). Making `specs/p4` reducible in Maude gives the **true same-spec
+interp(p4) vs Maude(p4) oracle**: then ANY divergence is a pure translation bug, no
+triage, directly actionable for the rewrite library. It also retires the p4-old
+baseline and the dual-spec tooling.
+
+The module-encoding blocker is FIXED (the start-term encoder, commit 14c6949b — see
+the Done entry below): a fresh build encodes every start term with **0 "no parse for
+term" / 0 "bad token"** errors. So `specs/p4` now *partially executes* in Maude, but
+most programs stick. Measured 2026-06-15 over the first 40 interp-PASS suite programs:
+**5 OK / 35 STUCK** (all `unreduced: Program-ok`), and bisected to TWO typing/execution
+frontiers (NOT just generic calls — that earlier guess was too narrow):
+- **top-level instantiation** `top(c()) main` (package/constructor-call typing). An
+  empty control with no instantiation reduces (`control c(){apply{b=true;}}` → OK; add
+  the package *type* decl, still OK; add `top(c()) main` → STUCK). This is why ~all
+  real programs (they end in `package(..) main`) stick.
+- **call expressions** — both `id(true)` (generic) AND `g(true)` (plain) STUCK with no
+  instantiation present, so the call/argument-typing path itself sticks, not just
+  generic inference.
+
+Both plausibly share the new spec's call/argument-typing machinery (`Call_ok`/
+`$infer`/argument coercion) that constructor/package instantiation also uses; p4-old's
+`RoutineType_ok` path runs end-to-end. Next: descend from `Program-ok` to the actual
+stuck symbol on each (capture the shared module via `tools/maude/rewrite-time.sh`,
+reduce the `Call_ok`/instantiation sub-goals directly) and find the common root. Until
+it lands, Maude-side tooling stays on p4-old (see [CLAUDE.md](CLAUDE.md) "Maude 실행
+기준 스펙").
+
+**Parallel prerequisite — new-spec `BuiltinDecD` stragglers.** Beyond the two typing
+frontiers, full `specs/p4` execution also needs the missing new-spec builtins (the P3
+"BuiltinDecD stragglers" item): `$split_text` / `$strip_all_whitespace` / `$sort_` have
+no Maude delegation (no one-line built-in equivalent), and `$sum_int` / `$max_int` /
+`$min_int` are declared but have no interpreter implementation either, so there is no
+semantics to mirror yet. Any program that reaches one of these sticks at the builtin
+regardless of the frontier fix, so model them ([builtin.ml](builtin.ml)) as part of the
+same push (for `$sum_int`/`$max_int`/`$min_int`, define the interpreter semantics first).
+
+**Then (once the frontier is fixed): re-point the differential tooling at `specs/p4`
+and re-run.** Flip the Maude spec dir from `specs/p4-old` to `specs/p4` in
+`find_maude_diverging.sh` (default `SPEC_DIR`), `diff_test.sh`, and `diff_review.sh`,
+update the [CLAUDE.md](CLAUDE.md) "Maude 실행 기준 스펙" note, then run
+`./diff_review.sh` for the full same-spec interp(p4) vs Maude(p4) completeness +
+soundness sweep. Under the same spec every remaining divergence is a PURE translation
+bug (no p4-old-vs-new-spec confound, no per-file triage) — that sweep becomes the
+direct work queue for the rewrite library, and the p4-old baseline + dual-spec tooling
+can be retired.
+
+## Done — `specs/p4` start term used stale front-end constructor names (2026-06-15)
+
+`specs/p4` *translated* but its Maude module would not reduce: `run --p4 <prog>` emitted
+`Warning: "spectec_maude…​.maude": no parse for term. variant-methodPrototypeList-anon-2`
+(and similar) and `rewrites: 0`. **Root cause was the START-TERM ENCODER, not module
+emission.** The spec-independent front-end parser tags nodes with its own (petr4-grammar)
+type names — e.g. `methodPrototypeList` — but the new spec RENAMED those productions
+(`externConstructorOrMethodPrototypeList`, etc.). `maude_term_of_value`'s `CaseV` origin
+resolution ([to_maude.ml](to_maude.ml)) tried the value's noted name, then a unique
+spec-wide case-shape match; for list-cons cases the `anon-2` shape is shared by every
+`X*` type, so the match was ambiguous and it fell back to the stale note name — an
+operator the module never declares → "no parse". The interpreter is unaffected because it
+matches by case structure, not by Maude operator name. (p4-old worked only because its
+surface names still match the front-end's.) **Fix:** prefer the EXPECTED type (the parent
+field's spec-declared type, already threaded down via `case_field_typs`) when resolving
+the constructor origin — it is the spec's own truth and outranks the front-end note. With
+it, extern programs encode against `externConstructorOrMethodPrototypeList` and the module
+parses; impty/base golden byte-identical and p4-old start terms unchanged.
+
+NOTE this only fixed the *module/encoding* frontier. `specs/p4` still `FAIL (stuck)`s on
+real programs at the SEPARATE typing/execution frontier (control-body generic call
+`f(8w0)` via `CallableType_ok`→`Call_ok`/`$infer`), so Maude-side tooling stays on
+`p4-old` for now (see [CLAUDE.md](CLAUDE.md) "Maude 실행 기준 스펙"). Making `specs/p4`
+fully executable — and thus a true same-spec interp(p4) vs Maude(p4) oracle — is the
+remaining work; that frontier, not module generation, is now the blocker.
+
 ## Done — iterations (`IterE` / `IterPr`)
 
 Both compile to auxiliary recursive helpers over the `cons`/`nil` (or
@@ -208,19 +287,25 @@ core changes the impty golden exercises. Verify any fix with the impty golden, t
 minimal repro above (valid resolves, invalid fails, neither loops), the four P1-(c)
 programs, AND re-run the survey for the net flip count.
 
-## The interp-PASS suite is an INCOMPLETE divergence oracle — 138 missed (2026-06-14)
+## Done — re-extracted the interp-PASS suite (exclude-independent, 300s); it had hidden 138 divergences (2026-06-14/15)
 
-`p4_typecheck_suite.txt` (1061 programs) is built from `p4 batch`'s PASS list, and
-`p4 batch` pre-filters with p4c's `.exclude` files
+The old `p4_typecheck_suite.txt` (1061 programs) was built from `p4 batch`'s PASS
+list, and `p4 batch` pre-filters with p4c's `.exclude` files
 ([targets/p4/p4.ml](../../targets/p4/p4.ml) `load_excludes`). **The exclude set is
-exactly where the Maude divergences live.** Measured: of 1258 `p4_16_samples`, 210
-are excluded from the suite; re-running the **new-spec** interp (`p4 typecheck -p`)
-on those 210 gives **138 PASS / 72 FAIL**; running the 138 PASS through p4-old Maude
-gives **138/138 divergence — 134 STUCK + 4 ERROR, OK 0.** Meanwhile all 1061 in the
-suite are OK, so the suite alone reports "0 divergences" (an artifact of the oracle,
-not a real result). **The real interp-PASS pool is ≈1199 (1061 + 138); the suite hides
-the 138 that diverge.** Triage them with the correct new-spec oracle (NOT
-`--spec-dir p4-old`); reproduction recipe in [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정".
+exactly where the Maude divergences live**, and the suite was also effectively cut at
+~60s, dropping slow-but-valid programs. Two ways it hid divergences:
+- **excludes:** of 1258 `p4_16_samples`, 210 were excluded; the **new-spec** interp
+  (`p4 typecheck -p`) PASSes **138** of them, and all **138/138 diverge** in p4-old
+  Maude (134 STUCK + 4 ERROR, OK 0). The 1061 in the suite were all OK, so the suite
+  alone reported "0 divergences" — an artifact of the oracle, not a real result.
+- **~60s timeout:** ~150 valid-but-slow programs (e.g. `psa-example-dpdk-*`) interp in
+  60–300s and were spuriously dropped as FAIL.
+
+**Fixed:** `p4_typecheck_suite.txt` re-extracted exclude-independent with a 300s
+per-file interp timeout over all 1258 samples → **1186 PASS / 72 reject** (the honest
+divergence oracle). `diff_review.sh` (repo root) does the full resumable
+completeness + soundness cross-table over this; triage with the new-spec oracle (NOT
+`--spec-dir p4-old`). The 138-divergence triage below still stands.
 
 Bucket character of the 138 (by feature, dominated by KNOWN spec gaps below):
 psa-/pna- 42, issueNNNN 34, ebpf/ubpf 18, extern/factory/ctor/virtual 6, struct/const 5,
@@ -333,7 +418,10 @@ a p4-old-spec-vs-new-spec difference, translated faithfully. **No translation bu
 > golden byte-identical.** So they were GENUINE translation bugs the bad oracle
 > masked. An unknown number of the 128 (those touching serializable enums, and
 > possibly others) may be the same. **Re-triage the 128 with the new-spec
-> `p4 typecheck` (default) oracle, not `--spec-dir specs/p4-old`** (pending).
+> `p4 typecheck` (default) oracle, not `--spec-dir specs/p4-old`** — DONE: see the
+> "138 missed" completeness triage and the soundness round above; with the correct
+> oracle every bisected divergence is a p4-old-vs-new-spec spec difference, no
+> translation bug (the historically-real ones are already fixed).
 
 Full re-survey of p4-old × `p4_16_samples` (748): **OK 615 / STUCK 128 / OTHER 4 /
 ERROR 1**, zero regressions. The original claim (now qualified by the retraction
@@ -344,13 +432,21 @@ Some of the STUCK tail is genuine `specs/p4-old` incompleteness (the pinned
 constructor-arg gap below is real and interp-FAILs on the new spec too); some is
 masked translation bugs. Triage each with the new-spec oracle before assigning.
 
-**Methodology (use this to triage any future STUCK).** A stuck `run --p4` is a
-*translation bug* only if the interpreter ACCEPTS the same program:
-`p4 typecheck -p FILE --spec-dir specs/p4-old` (PASS) **and** `run --p4 FILE -i …`
-(STUCK). interp-FAIL + Maude-STUCK = the spec rejects it; the backend is correct
-to stick. (This is exactly how **P1-(b)** was validated as a *real* fix: `named_ok`
-`a(x=8w1,y=8w2)` is interp-PASS and was the lone Maude-STUCK outlier → now OK and
-agreeing; `named_bad` `a(x=,z=)` is interp-FAIL + Maude-STUCK, both reject.)
+**Methodology (use this to triage any future STUCK).** The clean discriminator —
+same-spec interp(p4-old) vs Maude(p4-old) — is UNAVAILABLE: `p4 typecheck --spec-dir
+specs/p4-old` is the broken oracle (wrong builtins → `$to_int not implemented`), and
+there is no other p4-old interpreter. So a divergence (new-spec interp PASS + Maude
+p4-old STUCK/OK-on-reject) is confounded between a translation bug and a p4-old-vs-
+new-spec difference, and you must **bisect to the stuck symbol and read the p4-old
+rule**: minimize the program to the failing construct, then check whether the p4-old
+spec even HAS the relevant rule. If p4-old's rule is missing/weaker (a loose positive
+rule, or no rejecting premise), the faithful translation correctly diverges = a SPEC
+difference, not a rewrite-library bug. A *translation bug* is only when p4-old's rule
+WOULD accept/reject but Maude does the opposite (e.g. a mistranslated premise, or the
+`owise`/negation totalization firing wrongly — `$distinct_` was checked and is
+correct). This is how the 138 completeness gaps and 11 soundness candidates were all
+attributed to spec differences. (P1-(b) `named_ok` `a(x=8w1,y=8w2)` was validated as a
+real fix the same way: it is interp-PASS and was the lone Maude-STUCK outlier → now OK.)
 
 The deep bisection below (kept for the spec authors) pins one representative spec
 gap precisely; the others are analogous spec-coverage holes, **not** rewrite-library
@@ -657,7 +753,8 @@ contribution is the named-argument overload programs. The "zero regressions" and
   `$strip_all_whitespace`, `$sort_` have no Maude delegations (no one-line
   built-in equivalent); `$sum_int`/`$max_int`/`$min_int` are declared but
   have no interpreter implementation either, so there is no semantics to
-  mirror yet.
+  mirror yet. **Prerequisite for P0** (making `specs/p4` executable) — tracked
+  there as a parallel prerequisite.
 - [ ] **Tests.** Add a `test/` case pinning the `impty/base` CTRS output
   (`.expected`) so regressions in the translation surface in `make test`.
 
