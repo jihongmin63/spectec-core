@@ -1499,16 +1499,25 @@ let encode_value (orig : spec) (v : value) : R.term =
           (List.map (fun (_, fv) -> enc None fv) fields)
     | CaseV vc ->
         let noted = Option.value (typ_name_of v.note.typ) ~default:"anon" in
+        (* The type the PARENT field declares for this position, threaded down
+           via [case_field_typs] as [expected]. This is the spec's own truth, so
+           it outranks the value's note when the two disagree. *)
+        let expected_name = Option.bind expected typ_name_of in
         let mixop = Mixfix.to_mixop vc in
         let args = Mixfix.args vc in
         (* The declared constructor is spelled with the case's DECLARING
            origin ([case_origin_mixop]), which the value's note need not
            name: the note may be a UNION the case is injected into
            (dataExpression for a sequenceOrRecordExpression case), or a stale
-           front-end spelling the loaded spec renamed (`number` vs the new
-           spec's `integerLiteral`). Resolve via the noted type's own cases
-           first; otherwise accept the declaring origin if the whole spec
-           agrees on exactly one for this case shape. *)
+           front-end spelling the loaded spec renamed (the spec-independent
+           front-end keeps `methodPrototypeList`, but the new spec renamed it
+           `externConstructorOrMethodPrototypeList`; `number` vs the new spec's
+           `integerLiteral`; ...). The list-cons case shape is shared by every
+           `X*` type, so resolving by case shape alone is ambiguous and the old
+           fallback emitted the stale note name -- an operator the spec's module
+           never declares (Maude: "no parse for term"). Resolve via the EXPECTED
+           type's cases first, then the noted type's; otherwise accept the
+           declaring origin only if the whole spec agrees on exactly one. *)
         let origins_in typcases =
           List.filter_map
             (fun (tc : typcase) ->
@@ -1521,23 +1530,27 @@ let encode_value (orig : spec) (v : value) : R.term =
               else None)
             typcases
         in
-        let noted_origins, all_origins =
+        let expected_origins, noted_origins, all_origins =
           List.fold_left
-            (fun (noted_os, all_os) def ->
+            (fun (exp_os, noted_os, all_os) def ->
               match def.it with
               | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ }
                 ->
                   let os = origins_in typcases in
-                  ( (if tid.it = noted then noted_os @ os else noted_os),
+                  ( (if Some tid.it = expected_name then exp_os @ os else exp_os),
+                    (if tid.it = noted then noted_os @ os else noted_os),
                     all_os @ os )
-              | _ -> (noted_os, all_os))
-            ([], []) orig
+              | _ -> (exp_os, noted_os, all_os))
+            ([], [], []) orig
         in
         let origin =
-          match (noted_origins, List.sort_uniq compare all_origins) with
-          | o :: _, _ -> o
-          | [], [ o ] -> o
-          | [], _ -> noted
+          match
+            (expected_origins, noted_origins, List.sort_uniq compare all_origins)
+          with
+          | o :: _, _, _ -> o
+          | [], o :: _, _ -> o
+          | [], [], [ o ] -> o
+          | [], [], _ -> noted
         in
         let ftyps =
           match case_field_typs orig origin mixop with
