@@ -208,6 +208,116 @@ core changes the impty golden exercises. Verify any fix with the impty golden, t
 minimal repro above (valid resolves, invalid fails, neither loops), the four P1-(c)
 programs, AND re-run the survey for the net flip count.
 
+## The interp-PASS suite is an INCOMPLETE divergence oracle — 138 missed (2026-06-14)
+
+`p4_typecheck_suite.txt` (1061 programs) is built from `p4 batch`'s PASS list, and
+`p4 batch` pre-filters with p4c's `.exclude` files
+([targets/p4/p4.ml](../../targets/p4/p4.ml) `load_excludes`). **The exclude set is
+exactly where the Maude divergences live.** Measured: of 1258 `p4_16_samples`, 210
+are excluded from the suite; re-running the **new-spec** interp (`p4 typecheck -p`)
+on those 210 gives **138 PASS / 72 FAIL**; running the 138 PASS through p4-old Maude
+gives **138/138 divergence — 134 STUCK + 4 ERROR, OK 0.** Meanwhile all 1061 in the
+suite are OK, so the suite alone reports "0 divergences" (an artifact of the oracle,
+not a real result). **The real interp-PASS pool is ≈1199 (1061 + 138); the suite hides
+the 138 that diverge.** Triage them with the correct new-spec oracle (NOT
+`--spec-dir p4-old`); reproduction recipe in [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정".
+
+Bucket character of the 138 (by feature, dominated by KNOWN spec gaps below):
+psa-/pna- 42, issueNNNN 34, ebpf/ubpf 18, extern/factory/ctor/virtual 6, struct/const 5,
+action profile/selector 4, enum 3, forloop 7 (4 ERROR), other 19. Spot-checked
+`struct.p4`: struct decls + struct const literals reduce to `result:`; adding
+`const int<32> x = t.t1;` (compile-time member access) → STUCK — i.e. the **`Eval_static`
+general-member-access spec gap** (pinned below), not a translation bug. `forloop*` is the
+for-statement frontier (no spec coverage). The architecture-heavy psa/pna/ebpf cluster is
+mostly the constructor untyped-literal `Call_convention` spec gap (pinned below). Still
+worth bisecting for *masked translation bugs* (as serializable-enum was): `enumCast`,
+`tuple3`, `op_bin`, `list7`, `named-arg1` are interp-PASS frontiers.
+
+**Bisected 2026-06-14 — all candidates are SPEC GAPS, zero new translation bugs.**
+The p4-old interp CLI can't be used as a discriminating oracle (it hard-errors
+`builtin $to_int … not implemented` on essentially every program — the broken-oracle
+issue), so each was bisected by minimizing to the failing construct + reading the
+p4-old rule. Results (each: faithful translation of a p4-old rule that is genuinely
+weaker than the new spec, NOT a mistranslation):
+- **`named-arg1`, `list7`, `op_bin`** → the pinned **directionless-constructor untyped
+  literal** gap. Discriminator: `comp(add = 32w6) c0;` Maude-OK vs `comp(add = 6) c0;`
+  Maude-STUCK (apply-method named args alone, `c0.apply(b = b, x = xv)`, are fine).
+- **`struct.p4`/`constStruct`** → the pinned **`Eval_static` general-member-access**
+  gap (p4-old `Eval_static` has member rules only for enum/serenum/stack-`.size`, none
+  for struct `t.t1`). Discriminator: struct decls+literals OK; `const int<32> x = t.t1;`
+  STUCK.
+- **`enumCast`** → NEW pinned gap: **serializable-enum operand + untyped-int literal in
+  arithmetic** (`E1.e1 + 1`). `$reduce_serenum_binary` DOES unwrap serenum operands, and
+  `E1.e1 + 8w1`/`8w1 + E1.e1`/`E1.e1 + E1.e2` all reduce; but `E1.e1 + 1` STUCKs because
+  in `Expr_ok/binaryExpression-plusminusmult` ([5.06.2:149]) `$coerce_binary` runs
+  BEFORE `$reduce_serenum_binary`, and `$coerce_binary(E1, INT)` returns `eps` (clauses
+  at [5.05.2:426]: neither `Cast_impl: E1 -> INT` nor `INT -> E1` holds — no implicit
+  serenum↔arbint cast), so the rule's `if (l_cast, r_cast) = $coerce_binary(..)` match
+  fails. Confirmed: `(bit<8>)E1.e1 + 1` (explicit unwrap before `+`) reduces. **Spec
+  fix:** unwrap serenum to its underlying type before/inside `$coerce_binary` (or have
+  `$coerce_binary` look through serenums), so the untyped int coerces to the underlying
+  width. NOT a rewrite-library change.
+
+Net: the 138 missed divergences are dominated by these three p4-old spec gaps + the
+for-statement frontier; no translation bug found in the rewrite library. The only
+historically-real translation bugs in this area (serializable-enum value-position
+`$itermap` capture; `$itermap`-in-`:=`-pattern; table action-enum stream) are already
+fixed.
+
+## Soundness round — interp-REJECT × Maude (2026-06-15)
+
+The completeness direction (interp-PASS × Maude-STUCK) only finds *missing* coverage.
+The dual SOUNDNESS direction asks the more dangerous question: does Maude **accept** a
+program the interpreter **rejects**? Ran it: of `p4_16_errors` (310), the new-spec
+interp REJECTS 269 (true negatives; 41 it accepts — a new-spec permissiveness issue,
+not ours). Running those 269 through p4-old Maude: **228 STUCK (Maude also rejects, by
+sticking — correct), 30 ERROR (front-end/parse), 11 OK** = 11 candidate soundness bugs
+(translation accepted an invalid program). The 11:
+`init-entries-error3-bmv2`, `issue1944`, `issue2206`, `issue2260-1`, `issue2835-bmv2`,
+`issue3057-1`, `issue3273`, `issue3299`, `issue818`, `shift-int-non-const`,
+`table-entries-lpm-2`.
+
+**Triaged ALL 11 individually (2026-06-15) — every one is p4-old being MORE PERMISSIVE
+than the new spec (a spec divergence, faithful translation), ZERO translation soundness
+bugs.** (Each first re-confirmed individually Maude-OK, not a batch artifact.) They are
+*semantic validity checks the new spec/p4c added but p4-old's `*_ok` relations never had*:
+- **arbitrary-int shift by a non-const amount** — `shift-int-non-const` `(bit<8>)(a>>b)`,
+  `issue2206` `1 << h.h.c`. p4-old `Expr_ok/binaryExpression-shift-fixbit` ([5.06.2:295])
+  accepts any fixed-bit right operand with NO compile-time-known guard on an arbint left,
+  so `int >> bit<n>` type-checks (rule read).
+- **max bit width** — `issue1944` `bit<2147483648>`. p4-old never bounds the width (no
+  rule found).
+- **tuple/record literal `==`** — `issue3057-1` `{1,2}=={1,2}`. p4-old `binaryExpression-eq`
+  ([5.06.2:347]) gates only on `$is_equalable_typeIR`, which accepts the sequence type.
+- **generic inference to arbint then narrowing** — `issue2260-1` `bit<8> y = f(255)` with
+  `T f<T>(T x)`. p4-old `Call_ok` accepts `T = int` and the int→bit<8> narrowing.
+- **abstract method returning infinite-precision int** — `issue3273` `abstract int f();`.
+  p4-old `ExternMethod_ok/abstract` ([5.12:43]) checks the return type only with `Type_ok`
+  (structural well-formedness); `int` passes, so it never rejects (full rule read).
+- **non-exhaustive value `switch`** — `issue3299` `switch (m.m0) { 8w0x0: {} }`. p4-old's
+  switch-general rule has no exhaustiveness check (else it would STUCK, not OK).
+- **lpm const-entry mask must be a prefix** — `table-entries-lpm-2` `0x11 &&& 0x1F0`.
+  p4-old has `TableEntry_keyset_ok` but no prefix/contiguity validity rule.
+- **entry-priority semantics** — `init-entries-error3-bmv2` (`largest_priority_wins`,
+  `priority_delta`, explicit `priority=`). p4-old has no priority-validity check.
+- **extern constructor with a control-typed parameter** — `issue818` `WrapControl(C c)`.
+  p4-old `ExternConstructor_ok` ([5.12:100]) `ConstructorParameters_ok` is looser.
+- **partial table-action application** — `issue2835-bmv2` (`Call_action_partial_ok` in the
+  new spec). p4-old's action-call typing is looser.
+
+**Cross-cutting check that rules out the most plausible translation bug:** the duplicate-
+name / distinctness builtin `$distinct_<id>(id*)` (used as a positive premise across
+[5.03-wellformed.spectec], e.g. lines 73/220/257/…) is **correctly translated** in
+[builtin.ml](builtin.ml): `distinct_(nil) = true`, `distinct_(cons(x,xs)) =
+and(not(mem(x,xs)), distinct_(xs))` — returns `false` on a duplicate, so a duplicate-name
+program is faithfully rejected (it would STUCK, not OK). So the negated-check soundness
+hazard is NOT realized for distinctness. None of the 11 reject-paths depend on a totalized
+`does not hold` / `owise` complement firing wrongly — they all reduce because p4-old's
+loose positive rule genuinely matches.
+
+Net across BOTH directions (completeness 138 + soundness 11): every bisected divergence is
+a p4-old-spec-vs-new-spec difference, translated faithfully. **No translation bug found.**
+
 ## p4-old STUCK tail is SPEC INCOMPLETENESS, not translation bugs (2026-06-14)
 
 > **PARTLY RETRACTED (2026-06-14, later same day).** The "zero translation bugs

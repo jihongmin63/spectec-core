@@ -229,13 +229,18 @@ the end-to-end reference that fully translates today. Both `p4` and `p4-old`
 translate in full (iterations are supported); to dump one pass every file in
 sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort)`.
 
-> **실행은 `p4-old` 스펙에 집중하세요 — `p4`(새 스펙)는 실행 프론티어 이슈가
-> 있습니다.** `specs/p4`는 control apply body의 generic call(`f(8w0)`)이 새
-> 제약-기반 추론 경로(`CallableType_ok`→`Call_ok`/`$infer`)에서 Maude `FAIL
-> (stuck)` 납니다(원인 미확정, [todo.md](todo.md) 참조). **동일 프로그램은
-> `specs/p4-old`에서 end-to-end로 동작**하므로(`RoutineType_ok` 경로), P4
-> 실행/회귀 확인은 `p4-old`로 하세요. `p4`는 번역(`rewrite` 덤프)까지만
-> 신뢰합니다.
+> **Maude 실행 기준 스펙은 `p4-old`입니다 — 모든 differential/회귀 툴링이
+> p4-old로 정렬돼 있습니다** (`find_maude_diverging.sh`, `diff_test.sh`,
+> `maude_suite_verdicts.tsv`, 그리고 아래 perf 예제). `specs/p4`(새 스펙)는
+> 모듈 인코딩 버그(start-term이 stale front-end 생성자 이름 `methodPrototypeList`를
+> 써서 `no parse for term`)는 **수정됐지만**(2026-06-15, [todo.md](todo.md) "Done"
+> 참조), 여전히 **타이핑/실행 프론티어**에서 막힙니다: control apply body의 generic
+> call(`f(8w0)`)이 새 제약-기반 추론(`CallableType_ok`→`Call_ok`/`$infer`)에서
+> Maude `FAIL (stuck)` 납니다. **동일 프로그램이 `specs/p4-old`에선 end-to-end
+> 동작**하므로(`RoutineType_ok` 경로), P4 실행/회귀/divergence는 전부 `p4-old`로
+> 합니다. `p4`를 실행 가능하게 만들어 진짜 same-spec interp(p4) vs Maude(p4) 오라클을
+> 얻는 것(현재의 spec-차이 혼동 제거)이 남은 과제이고, 이제 그 블로커는 모듈 생성이
+> 아니라 generic-call 타이핑 프론티어입니다.
 
 ## 회귀/divergence 측정 — 인터프리터 오라클 + Maude 백엔드 (repo 루트)
 
@@ -251,6 +256,33 @@ p4-old 실행 커버리지는 **레퍼런스 인터프리터가 받아들이는 
   p4-old Maude(`run --p4`)로 돌려 **OK가 아닌 것(STUCK/TIMEOUT/ERROR)만** 추림 =
   "Maude가 잘못한" 후보(인터프리터는 받는데 Maude는 못 돌림). resumable
   (progress TSV에 기록, 재실행 시 done 건너뜀), 출력은 `maude_diverging.tsv`.
+
+> **⚠ 이 스위트는 divergence를 거의 못 잡는 불완전한 오라클입니다 (2026-06-14
+> 실측).** `p4_typecheck_suite.txt`는 `p4 batch`의 **PASS 목록**으로 만들어지는데,
+> `p4 batch`는 p4c upstream의 **`.exclude` 파일**로 먼저 거릅니다
+> ([targets/p4/p4.ml](../../targets/p4/p4.ml) `load_excludes`/`is_excluded`,
+> `exclude-bug`/`exclude-spec-discussion`/`exclude-future`/… 카테고리). 그런데 **이
+> exclude 집합이 바로 Maude divergence가 사는 곳입니다.** p4_16_samples 1258개 중
+> 210개가 exclude로 스위트에서 빠지고, 그 210개를 **새 스펙 인터프리터**(`p4
+> typecheck -p`)로 재확인하면 **138개가 PASS**인데, 이 138개를 Maude로 돌리면
+> **138/138 전부 divergence (134 STUCK + 4 ERROR, OK 0개)** 입니다. 반대로 스위트
+> 안의 1061개는 (수정 누적분 덕에) **전부 OK** 라서, 스위트만 돌리면 "divergence
+> 0개"라는 **착시**가 납니다 — 스크립트가 잘못된 게 아니라 오라클이 잘못된 것.
+> **올바른 divergence 풀 = `p4 typecheck -p`가 PASS하는 *모든* p4_16_samples
+> (스위트 1061 + exclude된 interp-PASS 138 = 약 1199개)**. 스위트만 믿지 말고,
+> exclude된 interp-PASS 138개(아래 재현 절차)를 별도 스위트로 돌려야 실제
+> 프론티어가 보입니다. exclude 138개 재현:
+>
+> ```bash
+> # repo 루트. 스위트에 없는 sample 210개 중 새-스펙 interp-PASS만 추려 별도 스위트로.
+> S=spectec/testdata/interp/p4/p4c/p4_16_samples
+> comm -23 <(ls $S/*.p4 | sort) <(grep p4_16_samples p4_typecheck_suite.txt | sort) > /tmp/excluded.txt
+> EXE=spectec/_build/default/bin/main.exe; INC=$S/../includes
+> : > /tmp/excl_pass.txt
+> while read f; do timeout 60 $EXE p4 typecheck -p "$f" -i $INC 2>&1 \
+>   | grep -q 'Typechecker succeeded' && echo "$f" >> /tmp/excl_pass.txt; done < /tmp/excluded.txt
+> SUITE=/tmp/excl_pass.txt PROGRESS=/tmp/pe.tsv OUT=/tmp/de.tsv CHUNK=35 ./find_maude_diverging.sh
+> ```
 
 > **반드시 serial(JOBS=1, 기본)로 돌리세요.** `run --p4`는 매 실행마다 ~50k줄
 > 모듈을 maude로 파싱하므로 동시 실행이 RAM을 고갈시켜 프로세스가 죽고 출력이
@@ -298,7 +330,7 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    # repo 루트에서. `--` 뒤는 평소 쓰던 run 명령을 그대로 (스크립트가
    # --maude-bin 래퍼와 넉넉한 --timeout만 덧붙임). -n REPS는 캡처한 모듈을
    # N회 재실행해 최소 cpu/real을 보고(순수 비용에 가장 근접).
-   SPEC=$(find spectec/specs/p4 -name '*.spectec' | sort | tr '\n' ' ')
+   SPEC=$(find spectec/specs/p4-old -name '*.spectec' | sort | tr '\n' ' ')
    spectec/tools/maude/rewrite-time.sh -n 3 -- \
      spectec/_build/default/bin/main.exe run \
      --p4 spectec/testdata/interp/p4/p4c/p4_16_samples/tuple3.p4 \

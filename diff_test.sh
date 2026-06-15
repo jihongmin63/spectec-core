@@ -2,6 +2,14 @@
 # Differential test: native interpreter (p4 typecheck) vs Maude rewrite backend
 # (run --p4) on the same P4 programs, both running judgment Program_ok.
 #
+# The Maude side executes the **p4-old** spec (the project's executable baseline).
+# The new `specs/p4` spec now builds a parsable Maude module (the start-term encoder
+# fix), but still `FAIL (stuck)`s on the typing/execution frontier (control-body
+# generic calls), so p4-old is the spec ALL Maude-side tooling uses (matches
+# find_maude_diverging.sh, diff_review.sh, lib/rewrite/CLAUDE.md). The interpreter
+# oracle stays on the new spec (the only working interpreter), so this is an
+# interp(p4) vs Maude(p4-old) comparison.
+#
 # The Maude backend is BATCHED: every sample is run in ONE `run` invocation
 # (repeated --p4), so the ~50k-line module is parsed once for the whole set
 # instead of once per program. The per-program `=== <path> ===` blocks are split
@@ -15,7 +23,7 @@ cd /home/min/spectec-core
 BIN=spectec/_build/default/bin/main.exe
 INC=spectec/testdata/interp/p4/p4c/includes
 SAMPLES=spectec/testdata/interp/p4/p4c/p4_16_samples
-SPEC=$(find spectec/specs/p4 -name '*.spectec' | sort | tr '\n' ' ')
+SPEC=$(find spectec/specs/p4-old -name '*.spectec' | sort | tr '\n' ' ')
 MAUDE_TIMEOUT=${MAUDE_TIMEOUT:-0}   # whole-batch timeout (0 disables)
 OUT=/tmp/difftest_out
 
