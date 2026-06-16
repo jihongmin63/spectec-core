@@ -4,58 +4,110 @@ IL → CTRS translation ([to_ctrs.ml](to_ctrs.ml)). The `impty` specs translate
 end-to-end and `specs/p4` now translates in full. This list is ordered by what
 unblocks real-scale specs first.
 
-## P0 (TOP PRIORITY) — make `specs/p4` executable in Maude
+## P0 (TOP PRIORITY) — make `specs/p4` executable in Maude — **DONE 2026-06-16**
 
-**This is the priority.** Today the interpreter runs the new spec (`specs/p4`) but
-Maude runs `specs/p4-old`, so every differential is interp(p4) vs Maude(p4-old): a
-divergence is CONFOUNDED between a real translation bug and a p4-old-vs-new-spec
-difference, and each one has to be bisected by hand to tell them apart (that confound
-is exactly what forced the whole completeness/soundness triage below — 138 + 11 cases,
-all spec differences). Making `specs/p4` reducible in Maude gives the **true same-spec
-interp(p4) vs Maude(p4) oracle**: then ANY divergence is a pure translation bug, no
-triage, directly actionable for the rewrite library. It also retires the p4-old
-baseline and the dual-spec tooling.
+**`specs/p4` now executes essentially the entire interp-PASS suite in Maude.** A full
+sweep of all 1061 `p4_16_samples` (the interp-PASS oracle) plus direct re-confirmation
+shows the translation-STUCK count fell to **0** (1060/1061 directly verified OK; the
+lone residual is batch-runner noise, not a translation stick). So the **true same-spec
+interp(p4) vs Maude(p4) oracle is now available**: ANY divergence is a pure translation
+bug, no p4-old-vs-new-spec confound.
 
-The module-encoding blocker is FIXED (the start-term encoder, commit 14c6949b — see
-the Done entry below): a fresh build encodes every start term with **0 "no parse for
-term" / 0 "bad token"** errors. So `specs/p4` now *partially executes* in Maude, but
-most programs stick. Measured 2026-06-15 over the first 40 interp-PASS suite programs:
-**5 OK / 35 STUCK** (all `unreduced: Program-ok`), and bisected to TWO typing/execution
-frontiers (NOT just generic calls — that earlier guess was too narrow):
-- **top-level instantiation** `top(c()) main` (package/constructor-call typing). An
-  empty control with no instantiation reduces (`control c(){apply{b=true;}}` → OK; add
-  the package *type* decl, still OK; add `top(c()) main` → STUCK). This is why ~all
-  real programs (they end in `package(..) main`) stick.
-- **call expressions** — both `id(true)` (generic) AND `g(true)` (plain) STUCK with no
-  instantiation present, so the call/argument-typing path itself sticks, not just
-  generic inference.
+It took SIX translation-bug fixes (every one impty/base golden byte-identical):
+1. **module encoding** — start-term encoder used stale front-end constructor names.
+   FIXED 2026-06-15 (start-term encoder; Done entry below).
+2. **positional overload** — `$match_overloaded_unnamed`'s arity premise
+   `|id_param*| = n_arg` folded the head-input var to the defined function `len(..)`
+   on the rule LHS (unmatchable). FIXED 2026-06-15 ([simplify.ml](simplify.ml)
+   `drop_head_nonctor_folds`). Common root of control/function call AND top-level
+   instantiation. Done entry below.
+3. **stale iteration binder** — a relation's second output `# eps` becomes an emptied
+   nested iteration; `Simplify` folds the stream to `[]` but the outer `IterPr` keeps
+   the now-sourceless binder, which `iter_split` mis-classified as a bound (input)
+   spine ("variable used before bound"). This blocked **struct/header/enum
+   declarations themselves** — the dominant blocker. FIXED 2026-06-16
+   ([to_ctrs.ml](to_ctrs.ml) `iter_split` drops binders absent from `inner`).
+4. **table machinery** — (a) `$strip_all_whitespace` had no Maude delegation (every
+   table KEY) and needed a `nil` (empty-text) case (expression keys `a&b`/`h.isValid()`
+   whose `$name_expression` is empty) — [to_maude.ml](to_maude.ml); (b) table
+   `entries`' loop-invariant `TBLC_2 = ..|tableEntry*|..` was inlined into the iterated
+   `TableEntry_ok` (the main loop folded its outside use away, then `inline_value_lets`
+   inlined the single remaining use INTO the iteration), so `rename_step_exp` renamed
+   `|tableEntry*|` to the per-element `len(tableEntry__hd)`. FIXED 2026-06-16
+   ([simplify.ml](simplify.ml) `subst_prem`'s IterPr loop-invariant guard +
+   `uses_under_capturing_iter` in `inline_value_lets`). These flipped the whole
+   table-key / table-entries cluster (key-bmv2, match-on-exprs, isValid/bAnd keys,
+   issue561-*, pna-*/psa-*, bvec-hdr, crc32, checksum, entries-prio, header-union, …).
+5. **itermap helper collision** — two spec types sharing the notation
+   `annotationList typeIR nameIR ';'` (`typeFieldIR` for the struct DECLARATION-IR,
+   `fieldTypeIR` for the struct TYPE-IR) collapsed their `IterE` bodies to ONE
+   `$itermap` helper (descriptor = pretty-printed source, type-blind), emitting one
+   constructor for both, so the other's `subty_<T>` check failed (`typedef struct {..}
+   N`, spec-ex12). FIXED 2026-06-16 ([to_ctrs.ml](to_ctrs.ml) `iter_map_sym` adds the
+   element type to the descriptor; impty golden has no itermaps, so unchanged).
 
-Both plausibly share the new spec's call/argument-typing machinery (`Call_ok`/
-`$infer`/argument coercion) that constructor/package instantiation also uses; p4-old's
-`RoutineType_ok` path runs end-to-end. Next: descend from `Program-ok` to the actual
-stuck symbol on each (capture the shared module via `tools/maude/rewrite-time.sh`,
-reduce the `Call_ok`/instantiation sub-goals directly) and find the common root. Until
-it lands, Maude-side tooling stays on p4-old (see [CLAUDE.md](CLAUDE.md) "Maude 실행
-기준 스펙").
+**BuiltinDecD stragglers status.** `$strip_all_whitespace` is now delegated (item 4).
+`$split_text` / `$sort_` / `$sum_int` / `$max_int` / `$min_int` are still un-delegated
+but **no interp-PASS suite program reaches them** (the sweep is clean), so they are no
+longer P0 blockers — model them ([builtin.ml](builtin.ml)/[to_maude.ml](to_maude.ml))
+if/when a program needs them (for `$sum_int`/`$max_int`/`$min_int`, define interpreter
+semantics first).
 
-**Parallel prerequisite — new-spec `BuiltinDecD` stragglers.** Beyond the two typing
-frontiers, full `specs/p4` execution also needs the missing new-spec builtins (the P3
-"BuiltinDecD stragglers" item): `$split_text` / `$strip_all_whitespace` / `$sort_` have
-no Maude delegation (no one-line built-in equivalent), and `$sum_int` / `$max_int` /
-`$min_int` are declared but have no interpreter implementation either, so there is no
-semantics to mirror yet. Any program that reaches one of these sticks at the builtin
-regardless of the frontier fix, so model them ([builtin.ml](builtin.ml)) as part of the
-same push (for `$sum_int`/`$max_int`/`$min_int`, define the interpreter semantics first).
+**Differential tooling re-pointed at `specs/p4` (DONE).** The three p4-old scripts
+(`find_maude_diverging.sh`, `diff_review.sh`, `diff_test.sh`) were consolidated into one
+self-contained `check_diff_p4.sh` (repo root) that runs the same-spec interp(p4) vs
+Maude(p4) completeness + soundness review over the whole corpus. Its
+`check_diff_p4_completeness.tsv` / `_soundness.tsv` outputs are the direct work queue —
+every entry is a pure translation bug. The p4-old baseline + dual-spec tooling are
+retired. (See [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정".)
 
-**Then (once the frontier is fixed): re-point the differential tooling at `specs/p4`
-and re-run.** Flip the Maude spec dir from `specs/p4-old` to `specs/p4` in
-`find_maude_diverging.sh` (default `SPEC_DIR`), `diff_test.sh`, and `diff_review.sh`,
-update the [CLAUDE.md](CLAUDE.md) "Maude 실행 기준 스펙" note, then run
-`./diff_review.sh` for the full same-spec interp(p4) vs Maude(p4) completeness +
-soundness sweep. Under the same spec every remaining divergence is a PURE translation
-bug (no p4-old-vs-new-spec confound, no per-file triage) — that sweep becomes the
-direct work queue for the rewrite library, and the p4-old baseline + dual-spec tooling
-can be retired.
+## Done — `specs/p4` positional-overload match folded a defined function into the rule LHS (2026-06-15)
+
+**Both P0 typing frontiers (top-level instantiation `top(c()) main` AND plain/generic
+call `g(true)`/`id(true)`) had ONE common root, now fixed in [simplify.ml](simplify.ml).**
+Bisected from `Program-ok` down (capture the shared module via a `--maude-bin` wrapper,
+`reduce` each sub-goal feeding outputs into the next): `Program-ok` → `Decls-ok` →
+`Decl-ok`(control/function) → `Block-ok` → `Expr-ok`(call) → `CallableType-ok` →
+`$find_callableDef_overloaded_t` returned **`none`** → for a POSITIONAL call it routes to
+`$find_overloadeds_unnamed` → `$match_overloaded_unnamed`, which returned **`NOMATCH`**
+for a function that should match.
+
+Root cause: the exact-arity clause's spec premise `-- if |id_param*| = n_arg`
+([4.2-ir-call-overload.spectec:131]) compiled to a **defined function on the rule's LHS
+pattern**:
+```
+$match-overloaded-unnamed-…(pair(callTargetId(nameIR, id-param), V),
+    unnamedCallTargetKey(nameIR-f, len(id-param)))   ← len is op : List -> NatV
+  = MATCH(nil, nil)  if …
+```
+`len(id-param)` can never match the concrete `nat(1)` the caller passes, so the clause
+never fired and the match fell through to the `NOMATCH` owise → overload resolution
+returned `none` → every positional overloaded call (and constructor/package
+instantiation, which goes through the same `$match_overloaded_*` family) stuck. The
+sibling inexact-arity clauses were fine because their premise is `|id_param*| > n_arg`
+(an *inequality* → `n_arg` stayed a head variable + `lt(n_arg, len(id_param))` condition).
+
+Why it happened: `n_arg` is bound by the head's key pattern; `Prem_env` records
+`n_arg ≡ |id_param*|` and `more_specific`/`generality` makes the structural `len(id_param)`
+(generality 0) outrank the variable (generality 3), so `Simplify` substituted
+`n_arg → len(id_param)` INTO the head pattern. `i = $(i_l + i_r)`-style equalities want
+exactly this fold — but into an OUTPUT/result position, not a head input.
+
+Fix ([simplify.ml](simplify.ml) `is_ctor_pattern` + `drop_head_nonctor_folds`, applied to
+`pairs` in `simplify_block`): drop any substitution that would fold a
+non-constructor-pattern term (`len`/`$f(..)`/arithmetic/field-access — anything not a
+genuine constructor LHS) onto a **head-bound input variable**. The head keeps its
+variable, and the equality survives as a guard premise (`len(id-param) == n-arg`) instead
+of being trivialised. OUTPUT-position folds (`i = $(i_l + i_r)`) are untouched, so the
+impty golden is **byte-identical** and the **p4-old CTRS is byte-identical** (0 lines
+changed — zero p4-old regression risk). The p4 CTRS diff is exactly the 6
+`$match_overloaded_unnamed_*` clauses + `$contains_prime` (which had the same `idx(t,n)`
+in-LHS bug — fixed as a bonus). Verified: impty golden byte-identical; first-40 suite
+5 OK→11 OK; `a3`/`b1`/`b2`/`c1` flip STUCK→OK; soundness — wrong-arity `g(y,y)`/`g()`
+stay STUCK and the interpreter rejects them too. **NB: a *relation-premise output* (a
+`:=` pattern LHS) equated to a defined function could hit the same class — those vars are
+not head-bound so this fix does not cover them; none observed, but if a future STUCK
+bisects to a `len(..)`/`$f(..)` on a `:=` LHS, extend the guard to those positions.**
 
 ## Done — `specs/p4` start term used stale front-end constructor names (2026-06-15)
 
@@ -303,9 +355,10 @@ exactly where the Maude divergences live**, and the suite was also effectively c
 
 **Fixed:** `p4_typecheck_suite.txt` re-extracted exclude-independent with a 300s
 per-file interp timeout over all 1258 samples → **1186 PASS / 72 reject** (the honest
-divergence oracle). `diff_review.sh` (repo root) does the full resumable
-completeness + soundness cross-table over this; triage with the new-spec oracle (NOT
-`--spec-dir p4-old`). The 138-divergence triage below still stands.
+divergence oracle). `check_diff_p4.sh` (repo root, formerly `diff_review.sh`) does the
+full resumable completeness + soundness cross-table over this; now same-spec
+interp(p4) vs Maude(p4), so every gap is a pure translation bug. The 138-divergence
+triage below is historical (p4-old era).
 
 Bucket character of the 138 (by feature, dominated by KNOWN spec gaps below):
 psa-/pna- 42, issueNNNN 34, ebpf/ubpf 18, extern/factory/ctor/virtual 6, struct/const 5,
@@ -699,18 +752,18 @@ contribution is the named-argument overload programs. The "zero regressions" and
   type-checks END-TO-END** (was stuck at `Call_ok`); tuple3 / `|+|` /
   serializable enum / p4-old `const` / impty loop all still pass;
   used-before-bound stays 0.
-- [ ] **New-spec (`specs/p4`) `f(8w0)` still `FAIL (stuck)` — a SEPARATE,
-  deeper frontier (NOT `$align_parameters`).** With both the option-equality
-  and `$align_parameters` fixes, p4-old `f(8w0)` runs to a typing context but
-  the NEW spec's same program sticks at the control `Decl_ok` (the apply
-  body's `f(8w0)` call). The new spec's call path is structurally different
+- [x] **New-spec (`specs/p4`) control/function body call `FAIL (stuck)` —
+  FIXED 2026-06-15.** The new spec's call path
   (`$find_callableDef_overloaded_t` → `CallableType_ok` → `Call_ok`, not
-  p4-old's `RoutineType_ok`), so this is its own bisection. Declaration-level
-  typing, tuple3, `|+|`, and serializable enums all run on the new spec; only
-  a control body containing a generic call is unverified. Bisect recipe (as
-  used for `$align_parameters`): emit the module, extract the Program-ok arg,
-  `red Decls-ok`/`Decl-ok`/`Block-ok`/`Stmt-ok`/`CallableType-ok` stepwise
-  with python paren-balanced tuple splitting.
+  p4-old's `RoutineType_ok`) stuck on a control/function body call. Bisected
+  (as recipe'd: emit the module, extract the Program-ok arg, `red
+  Decls-ok`/`Decl-ok`/`Block-ok`/`Expr-ok`/`CallableType-ok`/`$find_…`
+  stepwise) to `$find_callableDef_overloaded_t` → `none` →
+  `$match_overloaded_unnamed` → `NOMATCH`, because the exact-arity premise
+  `|id_param*| = n_arg` had been folded into the rule LHS as the defined
+  function `len(id_param)` (unmatchable). Same root as top-level
+  instantiation. See the P0 "Done" entry above for the
+  [simplify.ml](simplify.ml) fix.
 - [x] **`DefA` arguments** — **implemented 2026-06-13** by call-site
   specialization ([defunctionalize.ml](defunctionalize.ml), run first in
   `Pipeline.ctrs_of_spec`): each call `$f(args, def $g)` targets a generated

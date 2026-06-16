@@ -524,10 +524,17 @@ let spine_args (fv_terms : R.term list) (ids : string list) :
   let rec_args = fv_terms @ List.map (fun id -> var_t (step_tl id)) ids in
   (base, step, rec_args)
 
-(* The auxiliary symbol for an [IterE] (a "map" over the co-iterated lists). *)
+(* The auxiliary symbol for an [IterE] (a "map" over the co-iterated lists). The
+   element TYPE joins the descriptor: two iterations whose bodies print the same
+   but build different element constructors -- two spec types sharing a notation,
+   e.g. `typeFieldIR` (the struct DECLARATION-IR field) and `fieldTypeIR` (the
+   struct TYPE-IR field), both `annotationList typeIR nameIR ';'` -- must not
+   collapse to one helper, which would emit one constructor for both and make the
+   other's `subty_<T>` check fail (`typedef struct {..} Name` stuck). *)
 let iter_map_sym (body : exp) (iter : iter) (n_lists : int) : string =
+  let elem_typ = Option.value (typ_name_of body.note) ~default:"" in
   iter_helper_sym "$itermap" (Print.string_of_exp body) iter
-    [ string_of_int n_lists ]
+    [ string_of_int n_lists; elem_typ ]
 
 (* -------------------------------------------------------------------------- *)
 (* Subtype predicate. [SubE] (`e <: T`) is the runtime structural check
@@ -1189,11 +1196,20 @@ let rec prem_binder_names (orig : spec) (prem : prem) : string list =
   | IfPr _ | RelAssertPr { expect = false; _ } | ElsePr | DebugPr _ -> []
 
 (* Split an iterated premise's variables into the (bound, binding) ids: bound
-   guide the iteration, binding are produced and collected per step. *)
+   guide the iteration, binding are produced and collected per step. A co-iterated
+   binder that no longer occurs anywhere in [inner] is STALE -- [Simplify]
+   substituted it away (e.g. an emptied second relation output `: x_out # eps`
+   whose companion `(if x* matches [])*` folds the stream to `[]`, leaving the
+   outer iteration's `x` binder with no source) -- and is dropped: keeping it
+   would classify it as a bound (input) spine the helper recurses over but the
+   call site never supplies ("variable used before it is bound"). *)
 let iter_split (orig : spec) (inner : prem) (vars : var list) :
     string list * string list =
   let binders = prem_binder_names orig inner in
-  List.partition (fun id -> not (List.mem id binders)) (iter_var_ids vars)
+  let free = Free.free_prem inner in
+  let live id = IdSet.mem (id $ no_region) free in
+  iter_var_ids vars |> List.filter live
+  |> List.partition (fun id -> not (List.mem id binders))
 
 (* Auxiliary symbols for an [IterPr]: a [$iterall] predicate (every step holds)
    when nothing is collected, or one [$itercollect] per binding variable. *)

@@ -963,6 +963,34 @@ let delegation_eqs : (string * (int * string list * string list)) list =
             [ txtp "T:String"; txtp "S:String" ]
             (txtp "substr(T:String, 0, sd(length(T:String), length(S:String)))");
         ] ) );
+    (* [$strip_all_whitespace] removes every space (the interpreter's
+       [String.split_on_char ' ' |> concat], [targets/p4/builtins/texts.ml]):
+       a string with no space is returned as-is, otherwise the first space
+       ([find]) is excised and the result reprocessed. Reached by every table
+       key ([TableKey_ok]'s [$strip_all_whitespace($name_expression(..))]). *)
+    ( "$strip_all_whitespace",
+      ( 1,
+        [],
+        [
+          (* the empty text is the bare [nil] (see {!Maude_theory.chars_value}),
+             not [txt("")], so it needs its own line -- reached when
+             [$name_expression] of a non-name key expression returns empty *)
+          deleg_line "$strip_all_whitespace" [ "nil" ] "nil";
+          Printf.sprintf
+            "  ceq %s(%s) = %s if find(S:String, \" \", 0) == notFound ."
+            (maude_id "$strip_all_whitespace")
+            (txtp "S:String") (txtp "S:String");
+          Printf.sprintf
+            "  ceq %s(%s) = %s if I:Nat := find(S:String, \" \", 0) ."
+            (maude_id "$strip_all_whitespace")
+            (txtp "S:String")
+            (maude_id "$strip_all_whitespace"
+            ^ "("
+            ^ txtp
+                "substr(S:String, 0, I:Nat) + substr(S:String, I:Nat + 1, \
+                 length(S:String))"
+            ^ ")");
+        ] ) );
     (* The numeric builtins ([BuiltinDecD]s the interpreter implements in
        OCaml, [targets/p4/builtins/numerics.ml]/[nats.ml]): pure Bigint
        arithmetic, mirrored directly by GMP -- bitwise operations are

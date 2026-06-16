@@ -229,75 +229,67 @@ the end-to-end reference that fully translates today. Both `p4` and `p4-old`
 translate in full (iterations are supported); to dump one pass every file in
 sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort)`.
 
-> **Maude 실행 기준 스펙은 `p4-old`입니다 — 모든 differential/회귀 툴링이
-> p4-old로 정렬돼 있습니다** (`find_maude_diverging.sh`, `diff_test.sh`,
-> `maude_suite_verdicts.tsv`, 그리고 아래 perf 예제). `specs/p4`(새 스펙)는
-> 모듈 인코딩 버그(start-term이 stale front-end 생성자 이름 `methodPrototypeList`를
-> 써서 `no parse for term`)는 **수정됐지만**(2026-06-15, [todo.md](todo.md) "Done"
-> 참조), 여전히 **타이핑/실행 프론티어**에서 막힙니다: control apply body의 generic
-> call(`f(8w0)`)이 새 제약-기반 추론(`CallableType_ok`→`Call_ok`/`$infer`)에서
-> Maude `FAIL (stuck)` 납니다. **동일 프로그램이 `specs/p4-old`에선 end-to-end
-> 동작**하므로(`RoutineType_ok` 경로), P4 실행/회귀/divergence는 전부 `p4-old`로
-> 합니다. `p4`를 실행 가능하게 만들어 진짜 same-spec interp(p4) vs Maude(p4) 오라클을
-> 얻는 것(현재의 spec-차이 혼동 제거)이 남은 과제이고, 이제 그 블로커는 모듈 생성이
-> 아니라 generic-call 타이핑 프론티어입니다.
-
-## 회귀/divergence 측정 — 인터프리터 오라클 + Maude 백엔드 (repo 루트)
-
-p4-old 실행 커버리지는 **레퍼런스 인터프리터가 받아들이는 valid 프로그램**을
-기준으로 잽니다. 두 산출물이 repo 루트에 있습니다:
-
-- **[`p4_typecheck_suite.txt`](../../../p4_typecheck_suite.txt)** — 인터프리터가
-  통과시키는 1061개 positive `p4_16_samples`. `main.exe p4 batch -v`(새 스펙)로
-  생성: positive 1061/1061 PASS, negative(`p4_16_errors`) 253/253 reject, 197개는
-  인터프리터 exclude. 잘려있던 `p4old_samples_results.tsv`(748) baseline을 대체.
-  재생성: `main.exe p4 batch -v 2>&1 | grep 'p4_16_samples.*\.\.\. pass'`.
-- **[`find_maude_diverging.sh`](../../../find_maude_diverging.sh)** — suite를
-  p4-old Maude(`run --p4`)로 돌려 **OK가 아닌 것(STUCK/TIMEOUT/ERROR)만** 추림 =
-  "Maude가 잘못한" 후보(인터프리터는 받는데 Maude는 못 돌림). resumable
-  (progress TSV에 기록, 재실행 시 done 건너뜀), 출력은 `maude_diverging.tsv`.
-
-> **⚠ 이 스위트는 divergence를 거의 못 잡는 불완전한 오라클입니다 (2026-06-14
-> 실측).** `p4_typecheck_suite.txt`는 `p4 batch`의 **PASS 목록**으로 만들어지는데,
-> `p4 batch`는 p4c upstream의 **`.exclude` 파일**로 먼저 거릅니다
-> ([targets/p4/p4.ml](../../targets/p4/p4.ml) `load_excludes`/`is_excluded`,
-> `exclude-bug`/`exclude-spec-discussion`/`exclude-future`/… 카테고리). 그런데 **이
-> exclude 집합이 바로 Maude divergence가 사는 곳입니다.** p4_16_samples 1258개 중
-> 210개가 exclude로 스위트에서 빠지고, 그 210개를 **새 스펙 인터프리터**(`p4
-> typecheck -p`)로 재확인하면 **138개가 PASS**인데, 이 138개를 Maude로 돌리면
-> **138/138 전부 divergence (134 STUCK + 4 ERROR, OK 0개)** 입니다. 반대로 스위트
-> 안의 1061개는 (수정 누적분 덕에) **전부 OK** 라서, 스위트만 돌리면 "divergence
-> 0개"라는 **착시**가 납니다 — 스크립트가 잘못된 게 아니라 오라클이 잘못된 것.
-> **올바른 divergence 풀 = `p4 typecheck -p`가 PASS하는 *모든* p4_16_samples
-> (스위트 1061 + exclude된 interp-PASS 138 = 약 1199개)**. 스위트만 믿지 말고,
-> exclude된 interp-PASS 138개(아래 재현 절차)를 별도 스위트로 돌려야 실제
-> 프론티어가 보입니다. exclude 138개 재현:
+> **`specs/p4`(새 스펙)는 이제 interp-PASS 스위트(1061개 `p4_16_samples`)를
+> 사실상 전부 Maude에서 실행합니다 (2026-06-16).** 전체 스위트 sweep + 직접 재현으로
+> 이전의 STUCK이 0으로 떨어졌습니다 (1060/1061 직접 확인, 나머지도 배치 노이즈일 뿐
+> 번역 STUCK 아님). 따라서 **이제 진짜 same-spec interp(p4) vs Maude(p4) 오라클이
+> 가능합니다.** differential 툴링은 단일 자립형 스크립트
+> [`check_diff_p4.sh`](../../../check_diff_p4.sh)로 통합되어 `specs/p4`를 돌립니다
+> (구 `find_maude_diverging.sh`/`diff_test.sh`/`diff_review.sh` 대체).
 >
-> ```bash
-> # repo 루트. 스위트에 없는 sample 210개 중 새-스펙 interp-PASS만 추려 별도 스위트로.
-> S=spectec/testdata/interp/p4/p4c/p4_16_samples
-> comm -23 <(ls $S/*.p4 | sort) <(grep p4_16_samples p4_typecheck_suite.txt | sort) > /tmp/excluded.txt
-> EXE=spectec/_build/default/bin/main.exe; INC=$S/../includes
-> : > /tmp/excl_pass.txt
-> while read f; do timeout 60 $EXE p4 typecheck -p "$f" -i $INC 2>&1 \
->   | grep -q 'Typechecker succeeded' && echo "$f" >> /tmp/excl_pass.txt; done < /tmp/excluded.txt
-> SUITE=/tmp/excl_pass.txt PROGRESS=/tmp/pe.tsv OUT=/tmp/de.tsv CHUNK=35 ./find_maude_diverging.sh
-> ```
+> 거기까지 온 다섯 개의 번역 버그 수정 (전부 impty/base 골든 byte-identical):
+> 1. **모듈 인코딩**(start-term의 stale 생성자 이름) — FIXED 2026-06-15.
+> 2. **positional overload**(`$match_overloaded_unnamed`이 arity 전제
+>    `|id_param*| = n_arg`를 defined function `len(..)`로 rule LHS에 fold) —
+>    FIXED 2026-06-15. control/function call + top-level instantiation 공통 근원.
+> 3. **stale iteration binder**(relation의 두 번째 출력 `# eps`가 빈 스트림으로
+>    치환되며 외부 IterPr binder가 stale로 남아 `iter_split`이 입력 스트림으로
+>    오분류) — struct/header/enum **선언 자체**를 막던 지배적 블로커. FIXED 2026-06-16
+>    ([to_ctrs.ml](to_ctrs.ml) `iter_split`).
+> 4. **table 관련**: `$strip_all_whitespace` delegation 누락(키 있는 모든 테이블) +
+>    빈 텍스트 `nil` 케이스(식 키 `a&b`/`h.isValid()`) — [to_maude.ml](to_maude.ml);
+>    그리고 table `entries`의 loop-invariant `TBLC_2 = ..|tableEntry*|..`가 iterated
+>    `TableEntry_ok` 안으로 inline되며 stream을 capture — [simplify.ml](simplify.ml)
+>    `subst_prem`/`inline_value_lets` capture 가드. FIXED 2026-06-16.
+> 5. **itermap 헬퍼 충돌**(같은 notation을 가진 두 타입 `typeFieldIR`/`fieldTypeIR`의
+>    IterE body가 한 `$itermap`으로 collapse) — `typedef struct {..} N`의 subty
+>    체크 실패. FIXED 2026-06-16 ([to_ctrs.ml](to_ctrs.ml) `iter_map_sym`에 element
+>    타입 추가; impty 골든에 itermap 없어 무영향).
 
-> **반드시 serial(JOBS=1, 기본)로 돌리세요.** `run --p4`는 매 실행마다 ~50k줄
-> 모듈을 maude로 파싱하므로 동시 실행이 RAM을 고갈시켜 프로세스가 죽고 출력이
-> 깨집니다(빈 출력→오분류). 실측: 8코어/16GB에서 `-P 3`도 41건 중 39건이 깨졌고,
-> serial은 54/54 정상. 1061개 serial은 오래 걸리니 resume로 나눠 돌리세요.
+## 회귀/divergence 측정 — same-spec interp(p4) vs Maude(p4) (repo 루트)
 
-**Divergence triage — 올바른 오라클을 쓰세요.** divergence(인터프리터 PASS +
-Maude not-OK)가 *번역 버그*인지 *진짜 p4-old 스펙 구멍*인지는 그 파일을 인터프리터로
-다시 돌려 가립니다 — **반드시 새 스펙 기본 경로** `main.exe p4 typecheck -p FILE -i
-INC` 로. **`--spec-dir specs/p4-old`는 쓰지 마세요**: `p4 batch`/`typecheck` CLI가
-새 타깃의 `Builtins`/handler를 유지한 채 스펙 파일만 바꿔서 *가짜 interp-FAIL*을
-냅니다(예: `issue3623-1`·`bool_to_bit_cast`는 `--spec-dir p4-old`에선 `error`지만
-새 스펙 인터프리터는 PASS, Maude도 수정 후 OK — 둘 다 번역 버그였음). 과거
-"128 STUCK 전부 interp-FAIL → 번역 버그 0개" 결론은 이 깨진 오라클 탓에 틀렸습니다
-([todo.md](todo.md) 참조).
+이제 인터프리터와 Maude가 **같은 `specs/p4`**를 돌리므로, 모든 divergence는 **순수
+번역 버그**입니다(p4-old-vs-new-spec 혼동 없음, per-file triage 불필요). 단일
+통합 스크립트로 전체 corpus를 검사합니다:
+
+- **[`check_diff_p4.sh`](../../../check_diff_p4.sh)** — 전체 corpus
+  (`p4_16_samples` positive + `p4_16_errors` negative)에 대해 **completeness +
+  soundness** 교차표를 만드는 자립형(self-contained) 리뷰. 두 phase 모두
+  resumable(progress TSV에 기록, 재실행 시 done 건너뜀), Maude phase는 CHUNK 단위
+  배치(거대 모듈을 chunk당 1회만 파싱). 산출물:
+  - `check_diff_p4_interp.tsv` / `check_diff_p4_maude.tsv` — 각 엔진의 verdict.
+  - `check_diff_p4_completeness.tsv` — **completeness gap** (interp PASS인데 Maude
+    not-OK = Maude under-accept = 번역 버그).
+  - `check_diff_p4_soundness.tsv` — **soundness gap** (interp FAIL인데 Maude OK =
+    Maude over-accept).
+- **[`p4_typecheck_suite.txt`](../../../p4_typecheck_suite.txt)** — 참고용
+  interp-PASS 스위트(1061 positive `p4_16_samples`). `check_diff_p4.sh`는 이
+  스위트가 아니라 **corpus 전체**(`ls SAMPLES` + `ls ERRORS`)를 돌리므로 과거
+  스위트가 가졌던 `.exclude` 누락 문제(아래 옛 경고)에서 자유롭습니다.
+
+> **반드시 serial로, clean 환경에서 돌리세요.** `run --p4`는 매 실행마다 ~50k줄
+> 모듈을 maude로 파싱하므로 동시 실행(다른 Maude job이나 concurrent `dune build`
+> 포함)이 RAM을 고갈시켜 프로세스가 죽고 출력이 깨집니다(빈 출력→오분류). 실측:
+> 8코어/16GB에서 `-P 3`도 41건 중 39건이 깨졌고 serial은 54/54 정상. 전체 corpus는
+> 오래 걸리니 resume로 나눠 돌리세요(Ctrl-C 후 재실행).
+
+**Divergence triage.** same-spec이므로 `check_diff_p4_completeness.tsv` /
+`_soundness.tsv`의 모든 항목은 곧바로 번역 버그입니다 — 바로 bisect하세요
+(`Program-ok`에서 sub-goal을 단계별로 `reduce`, 아래 "divergence triage 오라클"
+절차). 어떤 파일을 인터프리터로 다시 확인할 때도 **새 스펙 기본 경로**
+`main.exe p4 typecheck -p FILE -i INC`를 쓰고, `--spec-dir specs/p4-old`는 쓰지
+마세요(새 타깃의 `Builtins`/handler를 유지한 채 스펙 파일만 바꿔 *가짜 interp-FAIL*을
+냄 — 과거 p4-old 시절의 오분류 원인).
 
 ## 성능 측정 시 주의 — 단순 wall-clock은 Maude 기동 비용에 지배된다
 
@@ -465,9 +457,11 @@ Priority-ordered. The big ones:
   passes that full stream to the helper as a constant alongside the consumed
   spine. **p4-old `f(8w0)` type-checks end-to-end.**
 - **P3 remaining** sanitizer same-atom/same-arity collisions; relation-vs-
-  prelude namespace; unary `term_of_num`; **the execution frontier is now the
-  new spec's control-body generic call** (`specs/p4` `f(8w0)` sticks at the
-  control `Decl_ok`; p4-old's runs) — a distinct call path
-  (`$find_callableDef_overloaded_t`/`CallableType_ok`) needing its own
-  bisection. See [todo.md](todo.md). Still needs a pinned `test/` beyond the
-  `impty/base` golden.
+  prelude namespace; unary `term_of_num`. **The new spec's call/instantiation
+  execution frontier is FIXED** (2026-06-15: `$match_overloaded_unnamed` folded
+  the arity premise `|id_param*| = n_arg` into the rule LHS as `len(..)`, an
+  unmatchable pattern — every positional overloaded call + `top(c()) main`
+  stuck; see [todo.md](todo.md) P0 "Done"). `specs/p4` still sticks on OTHER
+  frontiers (member access/`Eval_static`, BuiltinDecD stragglers, `for`-loops),
+  so Maude tooling stays on p4-old for now. Still needs a pinned `test/` beyond
+  the `impty/base` golden.

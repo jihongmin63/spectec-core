@@ -285,6 +285,46 @@ let subst_notexp (pairs : (exp * exp) list) (ne : notexp) : notexp =
 let structural_pairs (pairs : (exp * exp) list) : (exp * exp) list =
   List.filter (fun (_, (to_e : exp)) -> Prem_env.is_structural to_e) pairs
 
+(* Whether [e] is a genuine CONSTRUCTOR pattern -- something that can serve as
+   the left-hand side of a rewrite rule -- as opposed to a defined-function
+   application (`|x|` -> `len`, `$f(..)`, arithmetic `$(..)`, field access `.f`,
+   index/slice/update), which compiles to a non-constructor term. Such a term
+   must never be folded into a HEAD/clause-arg pattern position: it could never
+   match the concrete value the caller passes, so the rule silently never fires.
+   This is exactly what made every POSITIONAL overloaded call stick -- the
+   `$match_overloaded_unnamed` arity premise `|id_param*| = n_arg` folded the
+   head-input key variable `n_arg` to `len(id_param)`, an unmatchable LHS, so the
+   match fell through to the `NOMATCH` owise and overload resolution returned
+   `none`. (An OUTPUT/result position takes the full structural fold -- e.g.
+   `i = $(i_l + i_r)` rightly rewrites the result to the arithmetic -- so this
+   only guards binder positions.) *)
+let rec is_ctor_pattern (e : exp) : bool =
+  match e.it with
+  | VarE _ | BoolE _ | NumE _ | TextE _ -> true
+  | CaseE ne -> List.for_all is_ctor_pattern (Mixfix.args ne)
+  | TupleE es | ListE es -> List.for_all is_ctor_pattern es
+  | OptE None -> true
+  | OptE (Some e) -> is_ctor_pattern e
+  | ConsE (h, t) -> is_ctor_pattern h && is_ctor_pattern t
+  | StrE fields -> List.for_all (fun (_, e) -> is_ctor_pattern e) fields
+  | IterE (e, _) -> is_ctor_pattern e
+  | _ -> false
+
+(* Drop substitutions that would fold a non-constructor (defined-function) term
+   onto a HEAD-bound input variable, which would corrupt the rule's LHS pattern
+   (see [is_ctor_pattern]). The equality such a pair came from then survives as a
+   guard premise instead -- the head keeps its variable, the constraint stays a
+   condition. Pairs onto non-head variables (relation/output results) are
+   untouched. *)
+let drop_head_nonctor_folds (head_vars : IdSet.t) (pairs : (exp * exp) list) :
+    (exp * exp) list =
+  List.filter
+    (fun ((from_e : exp), to_e) ->
+      match from_e.it with
+      | VarE v when IdSet.mem v head_vars -> is_ctor_pattern to_e
+      | _ -> true)
+    pairs
+
 (* Element variables bound by an iteration ([IterE]/[IterPr]) somewhere in the
    block. A substitution must never carry one of these into a DIFFERENT
    iteration that does not co-bind it: that lifts an element variable from element
@@ -389,9 +429,25 @@ let rec subst_prem (spec : spec) (safe : IdSet.t) (known : IdSet.t)
            binders, which sit on the [IterPr] wrapper that [subst_prem] otherwise
            recurses straight through. *)
         let bound = Prem_env.binder_ids vars in
-        let safe_here (_, (to_e : exp)) =
+        let mentions (b : IdSet.t) (e : exp) =
+          not (IdSet.is_empty (IdSet.inter (Free.free_exp e) b))
+        in
+        (* Don't fold a LOOP-INVARIANT value that references one of THIS
+           iteration's own co-iterated variables into the per-element body. The
+           table `entries` rule binds [TBLC_2 = ..|tableEntry*|..] once outside
+           the iteration and passes it as a CONSTANT input to the iterated
+           [TableEntry_ok]; folding its definition in re-derives it per step, and
+           the per-step element rename ([To_ctrs.rename_step_exp]) turns
+           `|tableEntry*|` into the unmatchable `len(tableEntry__hd)`. The pair's
+           target [to_e] references a [bound] (this iteration's) variable while
+           its source [from_e] does not -- i.e. a loop-invariant binder folding
+           in the stream. A genuine per-element binding (`z <- z*` with `z =
+           C(tableEntry)`) has [from_e] co-iterated too, so it still folds (and
+           renames) normally. *)
+        let safe_here ((from_e : exp), (to_e : exp)) =
           IdSet.is_empty
             (IdSet.inter (Free.free_exp to_e) (IdSet.diff elem_bound bound))
+          && not (mentions bound to_e && not (mentions bound from_e))
         in
         let pairs' = List.filter safe_here pairs in
         IterPr
@@ -1176,6 +1232,22 @@ let count_var_prem (target : id) (prem : prem) : int =
    the variable renames the env leaves in place. [v] must be bound by this `let`
    alone (not the head, not another premise) and must not occur in [rhs] (occurs
    check), so nothing is stranded. *)
+(* Whether some occurrence of [v] sits inside an iteration whose binders meet
+   [rhs]'s free variables -- i.e. inlining [v -> rhs] there would push a stream
+   [rhs] references into the per-element body (the [To_ctrs.rename_step_exp]
+   capture). Walks accumulating the enclosing iterations' binders; at a leaf
+   premise [v]'s presence plus a non-empty binder/[rhs] overlap is the hazard. *)
+let uses_under_capturing_iter (v : id) (rhs : exp) (prems : prem list) : bool =
+  let fv = Free.free_exp rhs in
+  let rec go (binders : IdSet.t) (p : prem) : bool =
+    match p.it with
+    | IterPr (inner, (_, vars)) ->
+        go (IdSet.union binders (Prem_env.binder_ids vars)) inner
+    | _ ->
+        count_var_prem v p > 0 && not (IdSet.is_empty (IdSet.inter binders fv))
+  in
+  List.exists (go IdSet.empty) prems
+
 let inline_value_lets (spec : spec) (head_bound : IdSet.t) (prems : prem list)
     (outs : exp list) : prem list * exp list =
   let rec loop prems outs =
@@ -1191,7 +1263,16 @@ let inline_value_lets (spec : spec) (head_bound : IdSet.t) (prems : prem list)
         match arr.(i).it with
         | LetPr (({ it = VarE v; _ } as lhs), rhs)
           when (not (IdSet.mem v (bound_elsewhere i)))
-               && not (IdSet.mem v (Free.free_exp rhs)) ->
+               && (not (IdSet.mem v (Free.free_exp rhs)))
+               (* Capture avoidance: inlining a loop-invariant binding whose use
+                  sits inside an iteration that co-iterates a variable [rhs]
+                  mentions would push that stream into the per-element body (the
+                  table `entries` `let TBLC_2 = ..|tableEntry*|..`, used only in
+                  the iterated [TableEntry_ok] once the outside use folded away).
+                  [To_ctrs.rename_step_exp] would then rename `|tableEntry*|` to a
+                  single element; keep it a separate binding (a captured constant)
+                  instead. *)
+               && not (uses_under_capturing_iter v rhs prems) ->
             let is_rename = match rhs.it with VarE _ -> true | _ -> false in
             let single_use () =
               let others = List.filteri (fun k _ -> k <> i) prems in
@@ -1582,7 +1663,10 @@ let simplify_block (spec : spec) ~(head_bound : exp list -> IdSet.t)
       let hpairs =
         if hoist then Prem_env.hoist_pairs spec env (head_bound outs) else []
       in
-      let pairs = subst_of_env (match_bound_vars prems) env @ hpairs in
+      let pairs =
+        drop_head_nonctor_folds (head_bound outs)
+          (subst_of_env (match_bound_vars prems) env @ hpairs)
+      in
       let ipairs = injection_pairs spec prems in
       (* outs are head/binder positions: structural folds + subtype injections,
          but no var=var equality renames. *)
