@@ -89,16 +89,68 @@ let resolve_bin = function
           | Some path -> path
           | None -> "maude"))
 
-(* The Maude command line for [mode], searching/reducing [start]. [search] binds
-   a fresh result variable of the universal sort [Val] (every emitted sort is a
-   subsort of it), so any normal form matches. *)
-let command_of_mode mode start =
+(* Reflective (meta-level) execution. The start term is a Maude META-TERM
+   ({!To_maude.meta_term_of_value}), reduced via [metaReduce(upModule('SPEC, ..),
+   <meta>)] rather than parsed through the emitted module's giant mixfix
+   signature -- the dominant per-program cost (~7s for a small P4 program, vs
+   ~0.4s to parse the module once). The result is [downTerm]ed back to the
+   spec's object syntax, so the rest of this file (output format, stuck check)
+   is identical to an object-level [reduce]. *)
+
+(* The Val-kinded default [downTerm] returns when a meta-term denotes no term of
+   that kind; also marks a missing Nth search solution. *)
+let down_err = "$downerr"
+
+(* The emitted spec module's name (matches {!To_maude.module_of_spec}'s default)
+   and the memoized constant the wrapper binds its reflection to, so [upModule]
+   (heavy: it reflects the whole ~50k-line module) is evaluated once per Maude
+   invocation and reused by every program in a batch. *)
+let spec_module = "SPEC"
+let spec_meta = "$specmod"
+
+(* Cap on solutions enumerated for an unbounded [search]: [metaSearch] yields one
+   solution per index, so an unbounded search is approximated by indices
+   [0 .. cap-1]. Search is a debugging affordance (no automation depends on it). *)
+let search_cap = 100
+
+(* The reflection wrapper module, written after the emitted SPEC module: it
+   imports SPEC (so [downTerm] rebuilds object terms in the spec's vocabulary and
+   the stuck check sees the defined heads) and META-LEVEL (the descent
+   functions), declares the [downTerm] default, and binds the reflected SPEC
+   module to a memoized constant. The advisories Maude prints for the SPEC/prelude
+   sort/op overlaps (Type, nil, none) are harmless: only [metaReduce]/[downTerm]
+   are used, never the ambiguous symbols directly. *)
+let meta_wrapper_module =
+  String.concat "\n"
+    [
+      "mod SPECTEC-META-RUN is";
+      "  protecting " ^ spec_module ^ " .";
+      "  protecting META-LEVEL .";
+      "  op " ^ down_err ^ " : -> Val .";
+      "  op " ^ spec_meta ^ " : -> Module [memo] .";
+      "  eq " ^ spec_meta ^ " = upModule('" ^ spec_module ^ ", false) .";
+      "endm";
+      "";
+    ]
+
+(* The [reduce] command(s) for [mode] on the META-TERM [start]: reflect [start]
+   in the spec module, then [downTerm] the result back to object syntax.
+   [Reduce]/[Rewrite] are deterministic (one command); [Search] enumerates
+   solution indices ([metaSearch] returns the Nth normal form). *)
+let meta_commands (mode : mode) (start : string) : string list =
+  let down body =
+    Printf.sprintf "reduce downTerm(getTerm(%s), %s) ." body down_err
+  in
   match mode with
-  | Reduce -> Printf.sprintf "reduce %s ." start
-  | Rewrite -> Printf.sprintf "rewrite %s ." start
-  | Search None -> Printf.sprintf "search %s =>! R:Val ." start
-  | Search (Some bound) ->
-      Printf.sprintf "search [%d] %s =>! R:Val ." bound start
+  | Reduce -> [ down (Printf.sprintf "metaReduce(%s, %s)" spec_meta start) ]
+  | Rewrite ->
+      [ down (Printf.sprintf "metaRewrite(%s, %s, unbounded)" spec_meta start) ]
+  | Search bound ->
+      let cap = Option.value bound ~default:search_cap in
+      List.init cap (fun k ->
+          down
+            (Printf.sprintf "metaSearch(%s, %s, 'R:Val, nil, '!, unbounded, %d)"
+               spec_meta start k))
 
 (* Position of [sub] in [s], if present. *)
 let index_sub (s : string) (sub : string) : int option =
@@ -122,9 +174,11 @@ let gather_term (first : string) (rest : string list) : string =
   |> List.filter (fun s -> s <> "")
   |> String.concat " "
 
-(* Parse Maude's stdout. [reduce] prints [result <Sort>: <term>]; [search]
-   prints [Solution N (state M)] blocks each with a [R:Val --> <term>] binding,
-   or [No solution.] when none. *)
+(* Parse Maude's stdout. Every command is a [downTerm(...)] reduce, so each
+   prints [result <Sort>: <term>] in the spec's object syntax (the meta wrapping
+   is invisible here). [Reduce]/[Rewrite] emit one such line; [Search] emits one
+   per enumerated solution index, the spent ones downing to the [down_err]
+   default. *)
 let parse_output (mode : mode) (defined_heads : string list) (output : string) :
     result =
   let lines = String.split_on_char '\n' output in
@@ -144,20 +198,24 @@ let parse_output (mode : mode) (defined_heads : string list) (output : string) :
       in
       find lines
   | Search _ ->
-      if List.exists (fun l -> String.trim l = "No solution.") lines then
-        NoSolution
-      else
-        let rec scan acc = function
-          | [] -> List.rev acc
-          | l :: rest -> (
-              match index_sub l "--> " with
-              | Some i ->
-                  let first = String.sub l (i + 4) (String.length l - i - 4) in
-                  scan (gather_term first rest :: acc) rest
-              | None -> scan acc rest)
-        in
-        let sols = scan [] lines in
-        if sols = [] then NoSolution else Solutions sols
+      (* One [downTerm] result line per enumerated solution index; an index past
+         the last solution downs to the [down_err] default, which we drop. *)
+      let rec gather acc = function
+        | [] -> List.rev acc
+        | l :: rest when String.starts_with ~prefix:"result " l -> (
+            match String.index_opt l ':' with
+            | Some i ->
+                let term =
+                  gather_term
+                    (String.sub l (i + 1) (String.length l - i - 1))
+                    rest
+                in
+                gather (term :: acc) rest
+            | None -> gather acc rest)
+        | _ :: rest -> gather acc rest
+      in
+      let sols = List.filter (fun t -> t <> down_err) (gather [] lines) in
+      if sols = [] then NoSolution else Solutions sols
 
 let run_process (bin : string) (timeout : int) (file : string) =
   (* stderr folded in: Maude reports a start term it cannot parse only as a
@@ -202,6 +260,7 @@ let with_maude_run bin timeout module_text commands k =
       let oc = open_out file in
       output_string oc module_text;
       output_char oc '\n';
+      output_string oc meta_wrapper_module;
       List.iter (output_string oc) commands;
       output_string oc "quit\n";
       close_out oc;
@@ -212,7 +271,7 @@ let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
     ~(module_text : string) ~(start : string) () : result =
   let bin = resolve_bin maude_bin in
   with_maude_run bin timeout module_text
-    [ command_of_mode mode start; "\n" ]
+    (List.map (fun c -> c ^ "\n") (meta_commands mode start) @ [ "\n" ])
     (fun status output ->
       match status with
       | Unix.WEXITED 0 -> parse_output mode defined_heads output
@@ -257,11 +316,8 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
       let commands =
         List.concat_map
           (fun start ->
-            [
-              command_of_mode mode start;
-              "\n";
-              Printf.sprintf "reduce \"%s\" .\n" batch_sep;
-            ])
+            List.map (fun c -> c ^ "\n") (meta_commands mode start)
+            @ [ "\n"; Printf.sprintf "reduce \"%s\" .\n" batch_sep ])
           starts
       in
       with_maude_run bin timeout module_text commands (fun status output ->

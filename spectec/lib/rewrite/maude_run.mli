@@ -2,6 +2,14 @@
     binary, parsing the normal form ([reduce]) or reachable solutions
     ([search]).
 
+    The start term is a {e META-TERM} ({!To_maude.meta_term_of_value}): it is
+    run reflectively via [metaReduce(upModule('SPEC, false), <meta>)] (and
+    [metaRewrite]/[metaSearch]), then [downTerm]ed back to the spec's object
+    syntax, so the result text and the stuck check are exactly as for an
+    object-level [reduce]. This avoids parsing the start term through the
+    module's giant mixfix signature -- the dominant per-program cost; the module
+    is internalized once per Maude invocation and reused by every program.
+
     Unlike the analysis bridges ({!Cocoweb}/{!Aprove}/{!Muterm}, which return a
     yes/no/maybe verdict), Maude *executes* the rewriting system, so the result
     is the term(s) it rewrites to. The binary is invoked directly via
@@ -40,11 +48,12 @@ val is_failure : result -> bool
 val resolve_bin : string option -> string
 
 (** [run ?maude_bin ?timeout ?defined_heads ~mode ~module_text ~start ()] writes
-    [module_text] plus the [mode] command on [start] to a temp file and runs
-    Maude on it. [timeout] is in seconds (0 disables it); a timed-out run is
-    [Timeout]. [defined_heads] are the module's reducible symbols (in Maude
-    spelling); a [reduce]/[rewrite] normal form still containing one of them is
-    reported as [Stuck] rather than [Reduced]. *)
+    [module_text] plus the reflection wrapper and the [mode] command on the
+    META-TERM [start] to a temp file and runs Maude on it. [timeout] is in
+    seconds (0 disables it); a timed-out run is [Timeout]. [defined_heads] are
+    the module's reducible symbols (in Maude spelling); a [reduce]/[rewrite]
+    normal form still containing one of them is reported as [Stuck] rather than
+    [Reduced]. *)
 val run :
   ?maude_bin:string ->
   ?timeout:int ->
@@ -56,11 +65,12 @@ val run :
   result
 
 (** [run_batch ?maude_bin ?timeout ?defined_heads ~mode ~module_text ~starts ()]
-    runs every term in [starts] against [module_text] in a {e single} Maude
-    invocation, amortizing the dominant cost (parsing the ~50k-line emitted
-    module) over the whole batch instead of paying it per program. Each start's
-    command is delimited by an internal marker so the results are split back out
-    in order; the returned list has one result per start, positionally.
+    runs every META-TERM in [starts] against [module_text] in a {e single} Maude
+    invocation, amortizing the dominant cost (internalizing the reflected
+    ~50k-line module on the first [metaReduce]) over the whole batch instead of
+    paying it per program. Each start's command is delimited by an internal
+    marker so the results are split back out in order; the returned list has one
+    result per start, positionally.
     [timeout] bounds the {e whole} batch (not each start): a process-level
     timeout/crash maps every start to that same failure, since it cannot be
     attributed to one program. *)

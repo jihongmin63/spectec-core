@@ -54,8 +54,8 @@ un-simplified form.
 | [builtin.ml](builtin.ml) / [.mli](builtin.mli) | Backend-local CTRS rules for P4's collection builtins (map/set/list/text) that `BuiltinDecD` declares but `To_ctrs` emits no rules for; fed to `of_spec` as `extra_defs`. |
 | [gensym.ml](gensym.ml) / [.mli](gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
 | [defunctionalize.ml](defunctionalize.ml) / [.mli](defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
-| [to_maude.ml](to_maude.ml) / [.mli](to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations, start-term encoding). |
-| [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a start term with a local `maude` binary (`reduce`/`rewrite`/`search`), parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the ~50k-line module is parsed once for the whole batch. |
+| [to_maude.ml](to_maude.ml) / [.mli](to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations), plus the **META-TERM start-term encoding** (`print_meta_term`/`meta_term_of_value`/`meta_start_app`) the reflective `metaReduce` path runs. |
+| [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a **META-TERM** start term with a local `maude` binary, reflectively (`metaReduce`/`metaRewrite`/`metaSearch` via a `META-LEVEL`-importing wrapper module), `downTerm` the result back to object syntax, parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the reflected module is internalized once for the whole batch — eliminating the per-program start-term parse (the old dominant cost; see the performance section). |
 | [cocoweb.ml](cocoweb.ml) / [.mli](cocoweb.mli) | Confluence bridge: serialize → POST via `tools/cocoweb/cocoweb_client.py` → verdict. |
 | [muterm.ml](muterm.ml) / [.mli](muterm.mli) | Termination bridge (conditional systems): same shape, `tools/muterm/muterm_client.py`. |
 | [aprove.ml](aprove.ml) / [.mli](aprove.mli) | Termination bridge (unconditional systems): runs a **local** `aprove.jar` (`java -ea -jar … -m wst -t N file.trs`) directly — no Python client. See [tools/aprove/README.md](../../tools/aprove/README.md). |
@@ -337,6 +337,36 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    `impty` loop(`i <= 2000`)은 74k rewrites / 24ms cpu로 rewriting이 분명히 잡힌다.
    인터프리터 쪽 baseline은 `impty parse -p FILE`(스펙 로드+프로그램 파싱만, ~16ms)을
    빼면 된다.
+
+   > **start-term 파싱 병목은 meta-level(reflection) 전환으로 제거됨 (2026-06-17).**
+   > 시작항을 거대 mixfix object 문법으로 파싱하는 대신, **고정·소형 META-TERM
+   > 문법**으로 적어 `metaReduce(upModule('SPEC, false), <meta-항>)`로 돌린다
+   > ([to_maude.ml](to_maude.ml) `print_meta_term`/`meta_term_of_value`/
+   > `meta_start_app`가 object `foo(a,b)`를 meta `'foo[a, b]`로, 0-arity 상수를
+   > `'foo.Sort`로 인코딩; 내장 스칼라는 Maude가 reflect하는 형태 그대로 —
+   > nat는 `'nat['s_^N['0.Zero]]` (plain `'N.Nat`는 metaReduce에서 파싱 안 됨),
+   > 음수 int는 `'-_[..]`, bool/txt는 `'true.Bool`/`'"..".String`).
+   > [maude_run.ml](maude_run.ml)은 emit된 `mod SPEC` 뒤에 `META-LEVEL`을 import한
+   > 작은 wrapper 모듈(`SPECTEC-META-RUN`)을 붙이고, 결과를
+   > `downTerm(getTerm(metaReduce(..)), $downerr)`로 **object 항으로 되돌려** 기존
+   > `result <Sort>:`/stuck-head 파싱·출력을 그대로 재사용한다(텍스트 재파싱 없음).
+   > `upModule`은 `op $specmod : -> Module [memo]`에 바인딩해 invocation당 1회만.
+   >
+   > **실측 before/after (tuple3.p4, 같은 p4 코퍼스 모듈 50507줄):**
+   > - **object**: start-term 파싱 **~6.9s/프로그램** (모듈 파싱 ~0.4s, rewriting 0ms).
+   > - **meta**: start-term 파싱 사실상 **0** (META-TERM 문법). 대신 첫 `metaReduce`가
+   >   reflect된 50k줄 모듈을 **내부화하는 1회 비용 ~10.4s**(maude stats상 22844
+   >   rewrites)를 치르고, **이후 같은 invocation의 모든 프로그램은 ~4ms**
+   >   (Maude가 metamodule을 캐시 — 확인: 같은 큰 항 6회 반복 시 1회차 10.4s, 2~6회차
+   >   각 4ms / 358 rewrites). 즉 6.9s/프로그램 → 10.4s/invocation 고정비 + 4ms/프로그램.
+   > - 배치 효과: 80 OK + 80 STUCK = 160건이 단일 invocation 80s(=0.5s/건), verdict는
+   >   object-level 기록(`check_diff_p4_maude.tsv`)과 **160/160 일치**. 무거운 예
+   >   key-bmv2/issue561-bmv2도 OK 동일. impty/base `spec.rewrite` 골든 byte-identical
+   >   (분석 파이프라인 무관). `check_diff_p4.sh`는 출력 형식이 동일해 수정 불필요.
+   >
+   > 주의: `rewrite-time.sh`의 phase 분해는 object 기준이라 meta에서는 "rewriting"
+   > 항목에 metamodule 내부화 1회 비용이 섞여 들어간다(위 첫 `metaReduce` 10.4s).
+   > 캐싱 여부는 같은 항을 여러 번 reduce해 2회차부터의 stats로 본다.
 2. **배치 실행으로 상각 (구현됨).** 모듈 텍스트는 입력 프로그램과 무관하게
    동일하므로, 모듈 1개 + `reduce` 명령 N개를 한 파일에 이어붙이면 기동(+거대
    모듈 파싱)을 1회만 치릅니다. `Maude_run.run_batch`가 이 경로입니다: start term
