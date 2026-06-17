@@ -48,8 +48,12 @@ let is_literal_sym (s : string) : bool =
         || digits s
         || (s.[0] = '-' && digits (String.sub s 1 (String.length s - 1))))
 
-(* A Maude string literal for [s] (C-style escapes; the only bytes the specs
-   and program identifiers use are printable ASCII plus tab/newline). *)
+(* A Maude string literal for [s] (C-style escapes). Printable ASCII passes
+   through; quote/backslash and tab/newline take their named escapes; every
+   other byte (control bytes, and the individual bytes of UTF-8 sequences such
+   as the [\342] of an arrow [⟶] in a P4 [@name] annotation) takes a 3-digit
+   OCTAL escape, which is what Maude's STRING reader expects ([\065] is ['5'],
+   not ['A']). The fixed width keeps a following digit from being absorbed. *)
 let string_literal (s : string) : string =
   let b = Buffer.create (String.length s + 2) in
   Buffer.add_char b '"';
@@ -61,10 +65,7 @@ let string_literal (s : string) : string =
       | '\t' -> Buffer.add_string b "\\t"
       | '\n' -> Buffer.add_string b "\\n"
       | c when c >= ' ' && c <= '~' -> Buffer.add_char b c
-      | c ->
-          failwith
-            (Printf.sprintf "maude_theory: unprintable byte %d in text literal"
-               (Char.code c)))
+      | c -> Buffer.add_string b (Printf.sprintf "\\%03o" (Char.code c)))
     s;
   Buffer.add_char b '"';
   Buffer.contents b
