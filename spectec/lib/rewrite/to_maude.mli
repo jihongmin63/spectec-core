@@ -44,13 +44,18 @@ val module_of_system :
 val maude_sym : string -> string
 
 (** The start application of relation [rel] (an IL relation name, e.g.
-    ["Program_ok"]) on already-encoded argument terms. Appends the gensym seed
-    when the translated system threads [rel] ({!Gensym}); such a run normalizes
-    to [tuple(result, final-state)] instead of the bare result. *)
-val start_app : Lang.Il.spec -> string -> string list -> string
+    ["Program_ok"]) on already-encoded {e META-TERM} argument terms, as a Maude
+    META-TERM (['rel[args]]) for {!Maude_run}'s reflective [metaReduce] path.
+    Appends the gensym seed when the translated system threads [rel]
+    ({!Gensym}); such a run normalizes to [tuple(result, final-state)] instead
+    of the bare result. *)
+val meta_start_app : Lang.Il.spec -> string -> string list -> string
 
 (** Encode an IL [value] (e.g. a program parsed by a language front-end) to a
-    ground Maude term in the module's vocabulary. Scalars encode as wrapped
-    built-in literals ({!Maude_theory}): a text is a [String], a number a
-    numeral -- self-contained, nothing extra to declare. *)
-val maude_term_of_value : Lang.Il.spec -> Lang.Il.value -> string
+    ground Maude {e META-TERM} text in the module's vocabulary, for the
+    reflective [metaReduce] start-term path ({!Maude_run}). Parses through the
+    fixed META-TERM grammar instead of the module's giant mixfix signature (the
+    dominant per-program cost). Scalars encode as the built-in meta literals
+    Maude reflects them to ({!Maude_theory}); self-contained, nothing extra to
+    declare. *)
+val meta_term_of_value : Lang.Il.spec -> Lang.Il.value -> string

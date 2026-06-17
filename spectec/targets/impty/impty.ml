@@ -129,8 +129,8 @@ let maude_start_term ~(task : string) ~(spec_il : Lang.Il.spec)
   let ( let* ) = Result.bind in
   let* relation = relation_of_task task in
   let* value = Parse.parse_file ~handler:Target.handler filename in
-  let term = Spectec.To_maude.maude_term_of_value spec_il value in
-  Ok (Spectec.To_maude.start_app spec_il relation [ term ])
+  let term = Spectec.To_maude.meta_term_of_value spec_il value in
+  Ok (Spectec.To_maude.meta_start_app spec_il relation [ term ])
 
 let cli_flags =
   let open Core.Command.Let_syntax in

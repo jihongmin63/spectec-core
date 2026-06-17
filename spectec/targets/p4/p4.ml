@@ -229,8 +229,8 @@ let maude_start_term ~(includes : string list) ~(spec_il : Lang.Il.spec)
     (filename : string) : (string, Spectec.Error.t) result =
   let ( let* ) = Result.bind in
   let* value = Frontend.parse_file ~handler includes filename in
-  let term = Spectec.To_maude.maude_term_of_value spec_il value in
-  Ok (Spectec.To_maude.start_app spec_il "Program_ok" [ term ])
+  let term = Spectec.To_maude.meta_term_of_value spec_il value in
+  Ok (Spectec.To_maude.meta_start_app spec_il "Program_ok" [ term ])
 
 module Typecheck_cli : Cli.Task_cli.S = struct
   module Task = Typecheck

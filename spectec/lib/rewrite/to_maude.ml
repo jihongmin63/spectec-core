@@ -1468,20 +1468,6 @@ let maude_defined_heads (orig : spec) : string list =
 (* A symbol the way it appears in the emitted module (sanitized + mangled). *)
 let maude_sym (s : string) : string = maude_id (T.sanitize s)
 
-(* The start application of relation [rel] (an IL relation name) on the
-   already-encoded argument terms. When the translated system threads [rel]
-   with the gensym state ({!Gensym}), the seed is appended, and the run
-   normalizes to [tuple(result, final-state)] instead of the bare result. *)
-let start_app (orig : spec) (rel : string) (args : string list) : string =
-  let threaded = Gensym.effectful_syms (Pipeline.maude_system_of_spec orig) in
-  let args =
-    if List.mem (T.sanitize rel) threaded then
-      args
-      @ [ print_term (Hashtbl.create 0) (Maude_theory.text_t Gensym.seed_text) ]
-    else args
-  in
-  Printf.sprintf "%s(%s)" (maude_sym rel) (String.concat ", " args)
-
 (* The declared field types of a variant case [origin]/[mixop], so a numeric leaf
    can be coerced to the [int]/[nat] the case expects. *)
 let case_field_typs (orig : spec) (origin : string) (mixop : Lang.Il.mixop) :
@@ -1592,7 +1578,92 @@ let encode_value (orig : spec) (v : value) : R.term =
   in
   enc None v
 
-(* Encode [value] to its Maude term text (self-contained: literals carry their
-   own bytes, so the module needs nothing extra declared). *)
-let maude_term_of_value (orig : spec) (v : value) : string =
-  print_term (Hashtbl.create 1) (encode_value orig v)
+(* -------------------------------------------------------------------------- *)
+(* Meta-level (reflective) start-term encoding.
+
+   A start term encoded in the spec's own object syntax ([Program-ok(<huge
+   term>)]) is parsed by Maude through the module's giant mixfix signature
+   (thousands of operators under the universal sort [Val]) -- the dominant
+   per-program cost (~7s for a small P4 program, vs ~0.4s to parse the module
+   and 0ms to rewrite). The reflective META-TERM grammar is fixed and tiny, so
+   {!Maude_run} feeds the term to [metaReduce(upModule('SPEC, false), <meta>)]
+   instead: an operator application [f(a..)] becomes the meta-term ['f[a..]], a
+   0-arity constant ['f.Sort], and the heavy module reflection ([upModule]) is
+   paid once for a whole batch. *)
+
+(* One-slot memo (physical equality on the spec, like {!Pipeline.maude_memo}):
+   one [run] encodes every batched start term against the same spec value, so
+   the recovered signature is built once rather than per program. *)
+let meta_sig_memo : (spec * (string -> int -> string list * string)) option ref
+    =
+  ref None
+
+let meta_signature (orig : spec) : string -> int -> string list * string =
+  match !meta_sig_memo with
+  | Some (o, sg) when o == orig -> sg
+  | _ ->
+      (* Same form signature recovery reads in [module_of_system]: the
+         defunctionalized spec, whose specialized copies' declarations the
+         encoder's symbols refer to. *)
+      let orig' = Defunctionalize.defunctionalize orig in
+      let tbl, _ = recover orig' (type_env orig') in
+      let sg sym arity = signature tbl sym arity in
+      meta_sig_memo := Some (orig, sg);
+      sg
+
+(* A non-negative numeral's META-TERM. Maude reflects a built-in [Nat] as the
+   iterated successor ['s_^N['0.Zero]] (the plain constant ['N.Nat] does NOT
+   parse back through [metaReduce]); zero is ['0.Zero]. Verified with [upTerm]. *)
+let meta_nat_lit (n : string) : string =
+  if n = "0" then "'0.Zero" else Printf.sprintf "'s_^%s['0.Zero]" n
+
+(* A signed numeral's META-TERM: a negative magnitude wraps the [Nat] form in
+   the built-in unary minus (['-_[..]]); non-negative is the [Nat] form. *)
+let meta_int_lit (n : string) : string =
+  if String.length n > 0 && n.[0] = '-' then
+    Printf.sprintf "'-_[%s]"
+      (meta_nat_lit (String.sub n 1 (String.length n - 1)))
+  else meta_nat_lit n
+
+(* An [R.term] (a ground encoded value) as a Maude META-TERM. The four built-in
+   scalar wrappers print their reflected built-in literal directly; every other
+   constructor is an ['op[..]] application, or ['op.Sort] at arity 0 (the sort
+   recovered from the signature, as the META-TERM grammar requires it on a
+   constant). *)
+let rec print_meta_term sg (t : R.term) : string =
+  match t with
+  | R.Var v -> "'" ^ maude_var v ^ ":" ^ val_sort
+  | R.App (w, [ R.App (n, []) ]) when w = Maude_theory.nat_wrap_sym ->
+      Printf.sprintf "'%s[%s]" (maude_id w) (meta_nat_lit n)
+  | R.App (w, [ R.App (n, []) ]) when w = Maude_theory.int_wrap_sym ->
+      Printf.sprintf "'%s[%s]" (maude_id w) (meta_int_lit n)
+  | R.App (w, [ R.App (b, []) ]) when w = Maude_theory.bool_wrap_sym ->
+      Printf.sprintf "'%s['%s.Bool]" (maude_id w) b
+  | R.App (w, [ R.App (s, []) ]) when w = Maude_theory.text_wrap_sym ->
+      Printf.sprintf "'%s['%s.String]" (maude_id w) s
+  | R.App (f, []) -> Printf.sprintf "'%s.%s" (maude_id f) (snd (sg f 0))
+  | R.App (f, args) ->
+      Printf.sprintf "'%s[%s]" (maude_id f)
+        (String.concat ", " (List.map (print_meta_term sg) args))
+
+(* Encode [value] to its Maude META-TERM text (self-contained: literals carry
+   their own bytes). *)
+let meta_term_of_value (orig : spec) (v : value) : string =
+  print_meta_term (meta_signature orig) (encode_value orig v)
+
+(* The start application of relation [rel] on already-encoded META-TERM [args],
+   as a META-TERM ['rel[args]]. When the translated system threads [rel] with the
+   gensym state ({!Gensym}), the seed is appended and the run normalizes to
+   [tuple(result, final-state)] instead of the bare result. *)
+let meta_start_app (orig : spec) (rel : string) (args : string list) : string =
+  let threaded = Gensym.effectful_syms (Pipeline.maude_system_of_spec orig) in
+  let args =
+    if List.mem (T.sanitize rel) threaded then
+      args
+      @ [
+          print_meta_term (meta_signature orig)
+            (Maude_theory.text_t Gensym.seed_text);
+        ]
+    else args
+  in
+  Printf.sprintf "'%s[%s]" (maude_sym rel) (String.concat ", " args)
