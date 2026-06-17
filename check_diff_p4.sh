@@ -47,18 +47,25 @@ CORPUS=$(mktemp)
 cat <(ls "$SAMPLES"/*.p4) <(ls "$ERRORS"/*.p4) | sort -u > "$CORPUS"
 total=$(wc -l < "$CORPUS")
 
+# Wall-clock timing: the per-file seconds are STORED alongside each verdict (3rd
+# TSV column), so a resumed run only times the work it actually does and the
+# totals can be re-summed from the TSVs any time. The summary prints per-phase
+# stored sums and this run's wall-clock. [fmt_dur] renders seconds "1h 23m 45s".
+fmt_dur() { local s=$1; printf '%dh %02dm %02ds' $((s/3600)) $((s%3600/60)) $((s%60)); }
+t_run0=$(date +%s)
+
 # --- Phase A: interpreter verdicts (resumable; skip files already recorded) ---
 touch "$IPROG"
+tA0=$(date +%s)
 echo "[A] interpreter verdicts (timeout ${ITIMEOUT}s) over $total programs ..." >&2
 while IFS= read -r f; do
   awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$IPROG" && continue
-  if timeout "$ITIMEOUT" "$EXE" p4 typecheck -p "$f" -i "$INC" 2>&1 | grep -q 'Typechecker succeeded'; then
-    printf 'PASS\t%s\n' "$f" >> "$IPROG"
-  else
-    printf 'FAIL\t%s\n' "$f" >> "$IPROG"
-  fi
+  ts=$(date +%s)
+  if timeout "$ITIMEOUT" "$EXE" p4 typecheck -p "$f" -i "$INC" 2>&1 | grep -q 'Typechecker succeeded'; then v=PASS; else v=FAIL; fi
+  printf '%s\t%s\t%d\n' "$v" "$f" $(( $(date +%s) - ts )) >> "$IPROG"
 done < "$CORPUS"
-echo "[A] done: $(grep -c $'^PASS\t' "$IPROG") PASS / $(grep -c $'^FAIL\t' "$IPROG") FAIL" >&2
+tA1=$(date +%s); dur_A=$((tA1-tA0))
+echo "[A] done: $(grep -c $'^PASS\t' "$IPROG") PASS / $(grep -c $'^FAIL\t' "$IPROG") FAIL [$(fmt_dur $dur_A)]" >&2
 
 # --- Phase B: Maude (specs/p4) verdicts, batched + resumable ---
 # OK = reduced to a typing result (`result:`); STUCK = `FAIL (stuck)`; ERROR =
@@ -104,27 +111,50 @@ mapfile -t todo < <(while IFS= read -r f; do
   awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$MPROG" || echo "$f"
 done < "$CORPUS")
 echo "[B] Maude (specs/p4) verdicts, batched (CHUNK=$CHUNK): $(( total - ${#todo[@]} )) done, ${#todo[@]} to run ..." >&2
+tB0=$(date +%s)
 i=0
 while [ "$i" -lt "${#todo[@]}" ]; do
   chunk=("${todo[@]:i:CHUNK}")
-  classify_chunk "${chunk[@]}" >> "$MPROG"
+  # Maude runs the chunk in ONE invocation, so the wall time is per-chunk; split
+  # it across the chunk's programs (the remainder spread over the first few) so
+  # each gets a per-file figure and the column still sums to the exact wall time.
+  cs=$(date +%s)
+  mapfile -t lines < <(classify_chunk "${chunk[@]}")
+  secs=$(( $(date +%s) - cs )); n=${#lines[@]}
+  if [ "$n" -gt 0 ]; then
+    base=$(( secs / n )); rem=$(( secs % n )); k=0
+    for ln in "${lines[@]}"; do
+      per=$base; [ "$k" -lt "$rem" ] && per=$(( base + 1 ))
+      printf '%s\t%d\n' "$ln" "$per"; k=$(( k + 1 ))
+    done >> "$MPROG"
+  fi
   i=$(( i + CHUNK ))
-  echo "  classified $(( i < ${#todo[@]} ? i : ${#todo[@]} )) / ${#todo[@]}" >&2
+  echo "  classified $(( i < ${#todo[@]} ? i : ${#todo[@]} )) / ${#todo[@]} [+$(fmt_dur $secs)]" >&2
 done
-echo "[B] done: $(wc -l < "$MPROG") / $total classified" >&2
+tB1=$(date +%s); dur_B=$((tB1-tB0))
+echo "[B] done: $(wc -l < "$MPROG") / $total classified [$(fmt_dur $dur_B)]" >&2
 
 # --- Phase C: cross-tabulate ---
+# After the join the columns are: 1 path, 2 interp-verdict, 3 interp-secs,
+# 4 maude-verdict, 5 maude-secs.
 join -t$'\t' -1 2 -2 2 \
   <(sort -t$'\t' -k2 "$IPROG") <(sort -t$'\t' -k2 "$MPROG") \
   > /tmp/check_diff_p4_joined.tsv
-awk -F'\t' '$2=="PASS" && $3!="OK" { print $3 "\t" $1 }' /tmp/check_diff_p4_joined.tsv | sort > "$COMP"
-awk -F'\t' '$2=="FAIL" && $3=="OK" { print $1 }'        /tmp/check_diff_p4_joined.tsv | sort > "$SOUND"
+awk -F'\t' '$2=="PASS" && $4!="OK" { print $4 "\t" $1 }' /tmp/check_diff_p4_joined.tsv | sort > "$COMP"
+awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        /tmp/check_diff_p4_joined.tsv | sort > "$SOUND"
 
+# Totals are summed from the stored per-file seconds (3rd column of each TSV), so
+# they are inspectable any time, e.g.  awk -F'\t' '{s+=$3}END{print s}' TSV
+sum_secs() { awk -F'\t' '{s+=$3} END{print s+0}' "$1"; }
+t_iface=$(sum_secs "$IPROG"); t_mface=$(sum_secs "$MPROG")
+t_run1=$(date +%s)
 {
   echo "=== diff review: interp(p4) vs Maude(p4) over $total programs ==="
   echo "interp:  $(grep -c $'^PASS\t' "$IPROG") PASS / $(grep -c $'^FAIL\t' "$IPROG") FAIL"
   echo "maude:"; cut -f1 "$MPROG" | sort | uniq -c | sort -rn | sed 's/^/   /'
   echo "COMPLETENESS gaps (interp PASS, Maude not OK): $(wc -l < "$COMP")  -> $COMP"
   echo "SOUNDNESS    gaps (interp FAIL, Maude OK):     $(wc -l < "$SOUND") -> $SOUND"
+  echo "time (stored per-file sums): interp $(fmt_dur "$t_iface") | maude $(fmt_dur "$t_mface") | sum $(fmt_dur $((t_iface + t_mface)))"
+  echo "time (this run wall-clock):  total $(fmt_dur $((t_run1 - t_run0)))"
 } >&2
 rm -f "$CORPUS"
