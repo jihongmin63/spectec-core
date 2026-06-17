@@ -1282,7 +1282,19 @@ let inline_value_lets (spec : spec) (head_bound : IdSet.t) (prems : prem list)
               in
               occ <= 1
             in
-            if is_rename || single_use () then result := Some (i, lhs, rhs)
+            (* A function-call binding inlined into the RESULT ([outs]) loses its
+               stuckness checkpoint: a stuck [$f(..)] is still well-sorted, so it
+               binds silently wherever the result flows, and a partiality failure
+               (e.g. [$add_var_t]'s duplicate-name guard going stuck) is never
+               forced -- the whole judgment over-accepts. Keep such a binding as a
+               guarded [:=] premise instead, where [To_ctrs] emits the
+               [isStuckHead(v) = false] guard that propagates the stuckness. *)
+            let drops_stuck_guard =
+              (match rhs.it with CallE _ -> true | _ -> false)
+              && List.fold_left (fun a e -> a + count_var_exp v e) 0 outs > 0
+            in
+            if (is_rename || single_use ()) && not drops_stuck_guard then
+              result := Some (i, lhs, rhs)
         | _ -> ()
     done;
     match !result with
