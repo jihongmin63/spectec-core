@@ -61,6 +61,42 @@ Maude(p4) completeness + soundness review over the whole corpus. Its
 every entry is a pure translation bug. The p4-old baseline + dual-spec tooling are
 retired. (See [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정".)
 
+## P1 — **confirmed bug** (result-VALUE oracle): `ctk` compile-time-known-ness inferred DYN vs LCTK (2026-06-18)
+
+The result-VALUE oracle (Phase D of `check_diff_p4.sh`: `run --p4 --check-p4`,
+[of_maude.ml](of_maude.ml)) compares the typing RESULT value, not just the
+PASS/STUCK verdict. A full corpus run (1227 PASS&OK) found **21 MISMATCH**, in two
+root causes. One is fixed (nat/int, below); this one is open:
+
+- **`ctk` lattice divergence (4 programs: `issue447-2/3/4/5-bmv2.p4`).** A value of
+  `syntax ctk = LCTK | CTK | DYN` ([2.7-compile-time-known.spectec](../../specs/p4/2-static-runtime/2.7-compile-time-known.spectec))
+  is classified **`DYN`** by the interpreter but **`LCTK`** by Maude, on the
+  `.size` of a dynamically-sized value (header stack / varbit size in a table key
+  context). I.e. the translation infers the expression as MORE static
+  (local-compile-time-known) than the reference. This is a **semantic** divergence
+  (not cosmetic): the compile-time-known-ness lattice join/inference diverges.
+  Suspects: `$join_ctk` (`def $join_ctk(ctk_a, ctk_b) = DYN`, a catch-all that may
+  be mistranslated as an `owise`/totalization), or the `Expr_eval_lctk` /
+  ctk-inference rules in [5.06.2-typing-expression-eval.spectec] /
+  [5.14.1-typing-control-table.spectec]. Triage: bisect `Program_ok` on one of the
+  four, `reduce` the sub-goal that builds the table-key `ctk`, and compare against
+  the interpreter's ctk at the same node. The other 17 mismatches (nat/int) are
+  FIXED below.
+
+## Done — result-VALUE oracle: numeric leaves encoded nat instead of int (2026-06-18)
+
+The other 17 of the 21 Phase-D mismatches were a single cause: `To_maude.encode_value`
+defaulted EVERY numeral to the `nat` wrapper unless the surrounding field's expected
+type resolved to `NumT IntT`, **ignoring the value's own `Num` tag**. So an IL value
+that is genuinely `NumV (`Int n)` sitting in a position whose expected type is generic
+(an array index `[0]`, a bit-literal's width/value, a slice bound `[d+13:d+4]`) was
+emitted as `nat(n)`, and Maude reduced the typed result with `nat(n)` where the
+interpreter kept `int(n)` (`Eq.eq_value` distinguishes `Num.eq`'s Nat/Int tags →
+spurious-looking but real MISMATCH: `[+0]` vs `[0]`, `+8w+72` vs `8w72`). Fixed by
+encoding `int` when the value's tag is `Int` OR the expected type is int (the nat→int
+upcast for nat values in int positions is preserved). impty/base golden unaffected
+(no numerals reach the start-term encoder there).
+
 ## Done — `specs/p4` positional-overload match folded a defined function into the rule LHS (2026-06-15)
 
 **Both P0 typing frontiers (top-level instantiation `top(c()) main` AND plain/generic

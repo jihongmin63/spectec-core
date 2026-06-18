@@ -942,7 +942,16 @@ let delegation_eqs : (string * (int * string list * string list)) list =
       ( 1,
         [],
         [
-          deleg_line "$int_to_text" [ intp "I:Int" ] (txtp "string(I:Int, 10)");
+          (* Match the interpreter's [Xl.Num.string_of_num] EXACTLY: a signed
+             [int] prints with an explicit sign ([+0], [+72], [-5]), an unsigned
+             [nat] without one. Maude's [string(I, 10)] already prints [-] for a
+             negative, so only the non-negative [int] case needs the [+] prefix.
+             (Reached by every numeric table-key name via [$name_expression].) *)
+          deleg_line "$int_to_text"
+            [ intp "I:Int" ]
+            (txtp
+               "if I:Int >= 0 then \"+\" + string(I:Int, 10) else \
+                string(I:Int, 10) fi");
           (* a nat argument flows in where the IL used nat <: int subsumption
              without an explicit cast (e.g. the tuple-type `$init` indices) *)
           deleg_line "$int_to_text" [ natp "N:Nat" ] (txtp "string(N:Nat, 10)");
@@ -1498,8 +1507,15 @@ let encode_value (orig : spec) (v : value) : R.term =
     | BoolV b -> Maude_theory.bool_t b
     | NumV num -> (
         let i = Xl.Num.to_int num in
-        match expected with
-        | Some (NumT `IntT) -> Maude_theory.int_t i
+        (* Respect the value's own [Num] tag first: a genuinely-[Int] numeral
+           stays in the [int] wrapper even when the surrounding position's
+           expected type is generic (an array index [a[0]], a bit literal's
+           value, a slice bound) -- otherwise it would reduce to [nat] where the
+           interpreter keeps [int] (the front-end parses bare integer literals as
+           [`Int], see [lexer.mll]). [expected] still upcasts a [Nat] value
+           sitting in an [int] position (nat <: int). *)
+        match (num, expected) with
+        | `Int _, _ | _, Some (NumT `IntT) -> Maude_theory.int_t i
         | _ -> Maude_theory.nat_t i)
     | TextV s -> Maude_theory.text_t s
     | OptV None -> T.none_t
