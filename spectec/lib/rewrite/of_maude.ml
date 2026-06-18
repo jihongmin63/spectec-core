@@ -334,18 +334,60 @@ and list_spine (m : mt) : mt list =
   | _ -> raise (Parse_error "malformed list spine")
 
 (* -------------------------------------------------------------------------- *)
-(* Fresh-name canonicalization.
+(* Comparison canonicalization (applied to BOTH sides before [Eq.eq_values]).
 
-   The interpreter and the Maude translation model the gensym ({!Gensym}) with
-   DIFFERENT spellings of the issued fresh identifiers -- the interpreter's
-   [$fresh_*] counter yields [FRESH__0], [FRESH__1], ..., while the threaded
-   translation appends primes ([FRESH'], [FRESH''], ...). The two results are
-   then equal only up to a consistent renaming of these fresh names. Canonicalize
-   each value's fresh-prefixed text leaves to [FRESH#k] in first-appearance order
-   (a fixed left-to-right traversal), so equal-up-to-fresh-renaming values become
-   [Eq.eq_value]-equal -- without masking a genuine structural difference, which
-   no renaming can repair. *)
-let canonicalize_fresh (vs : value list) : value list =
+   Two semantically-irrelevant representation choices make otherwise-equal
+   results compare unequal; normalizing both sides factors them out without
+   masking a genuine difference.
+
+   1. {b Fresh names.} The interpreter and the Maude translation spell the
+      gensym-issued identifiers ({!Gensym}) differently -- the interpreter's
+      [$fresh_*] counter yields [FRESH__0], [FRESH__1], ..., while the threaded
+      translation appends primes ([FRESH'], [FRESH''], ...). So the two are equal
+      only up to a consistent renaming. Rename each fresh-prefixed text leaf to
+      [FRESH#k] in first-appearance order (a fixed left-to-right traversal); no
+      renaming can repair a genuine structural difference.
+
+   2. {b Map order.} A [map<K,V>] is semantically UNORDERED. The interpreter
+      stores it in a [Map.Make(Value)] and renders it [VMap.bindings]-sorted (by
+      [Value.compare] on the key); the Maude translation keeps an insertion-
+      ordered association list ([Builtin.add_map]). Comparing the two as ordered
+      lists is the WRONG comparison: sort each map's entries by the SAME
+      [Value.compare] key order the interpreter's [VMap] uses, so the maps are
+      compared as the unordered structures they are. (A real key/value content
+      difference survives the sort and still shows.) A map value is the brace
+      constructor [{ pair* }] ({!Targets_p4...maps.ml}'s [value_of_map] /
+      {!Builtin}'s [set]/[pair]); a [pair] is the [key : value] colon case. *)
+
+(* The key of a [pair] case [key : value] (its first argument). *)
+let pair_key (v : value) : value option =
+  match v.it with
+  | CaseV vc -> (
+      match (Mixfix.atoms vc, Mixfix.args vc) with
+      | [ a ], (k :: _ as args)
+        when Xl.Atom.to_string a.it = ":" && List.length args = 2 ->
+          Some k
+      | _ -> None)
+  | _ -> None
+
+(* If [vc] is a brace map constructor [{ pair* }], return its entries sorted by
+   [Value.compare] on the pair key; otherwise [None]. *)
+let sorted_map_entries (vc : valuecase) : value list option =
+  match (Mixfix.atoms vc, Mixfix.args vc) with
+  | atoms, [ { it = ListV entries; _ } ]
+    when List.exists (fun a -> a.it = Xl.Atom.LBrace) atoms
+         && entries <> []
+         && List.for_all (fun e -> pair_key e <> None) entries ->
+      Some
+        (List.stable_sort
+           (fun a b ->
+             Lang.Il.Value.compare
+               (Option.get (pair_key a))
+               (Option.get (pair_key b)))
+           entries)
+  | _ -> None
+
+let canonicalize (vs : value list) : value list =
   let tbl = Hashtbl.create 16 and next = ref 0 in
   let canon s =
     if not (String.starts_with ~prefix:Gensym.seed_text s) then s
@@ -367,7 +409,17 @@ let canonicalize_fresh (vs : value list) : value list =
       | TextV s -> TextV (canon s)
       | (BoolV _ | NumV _ | FuncV _) as it -> it
       | StructV fs -> StructV (List.map (fun (a, x) -> (a, go x)) fs)
-      | CaseV vc -> CaseV (Mixfix.map go vc)
+      | CaseV vc -> (
+          let vc = Mixfix.map go vc in
+          match sorted_map_entries vc with
+          | Some sorted ->
+              CaseV
+                (Mixfix.map
+                   (function
+                     | { it = ListV _; note; _ } -> ListV sorted $$$ note
+                     | x -> x)
+                   vc)
+          | None -> CaseV vc)
       | TupleV xs -> TupleV (List.map go xs)
       | OptV o -> OptV (Option.map go o)
       | ListV xs -> ListV (List.map go xs)

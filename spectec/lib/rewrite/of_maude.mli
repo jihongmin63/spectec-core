@@ -5,12 +5,15 @@
 
 exception Parse_error of string
 
-(** Rename gensym-issued fresh identifiers ({!Gensym}, text leaves spelled
-    [FRESH...]) to a canonical [FRESH#k] in first-appearance order. The
-    interpreter and the Maude translation spell fresh names differently
-    ([FRESH__0] vs [FRESH']), so apply this to BOTH sides before
-    {!Lang.Il.Eq.eq_values} to compare up to consistent fresh renaming. *)
-val canonicalize_fresh : Lang.Il.value list -> Lang.Il.value list
+(** Normalize the two semantically-irrelevant representation choices that make
+    otherwise-equal results compare unequal, so this can be applied to BOTH
+    sides before {!Lang.Il.Eq.eq_values}: (1) rename gensym fresh identifiers
+    ({!Gensym}, [FRESH…] text leaves -- [FRESH__0] vs [FRESH']) to a canonical
+    [FRESH#k] in first-appearance order; (2) sort every [map<K,V>] value's
+    entries by [Value.compare] on the key (a map is unordered -- the interpreter
+    renders it [VMap.bindings]-sorted, the translation insertion-ordered).
+    Neither can repair a genuine content difference. *)
+val canonicalize : Lang.Il.value list -> Lang.Il.value list
 
 (** Decode the [result:] term of running relation [rel] (by name) against [spec]
     back to the relation's IL OUTPUT value(s), stripping the gensym state

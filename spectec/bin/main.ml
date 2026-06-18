@@ -465,9 +465,9 @@ let run_command =
             | Error _ -> ("result: interp FAILED (not compared)", false)
             | Ok interp_vals -> (
                 try
-                  let interp_vals = Of_maude.canonicalize_fresh interp_vals in
+                  let interp_vals = Of_maude.canonicalize interp_vals in
                   let maude_vals =
-                    Of_maude.canonicalize_fresh
+                    Of_maude.canonicalize
                       (Of_maude.values_of_result spec_il ~rel:"Program_ok" term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
