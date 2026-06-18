@@ -55,7 +55,7 @@ un-simplified form.
 | [gensym.ml](gensym.ml) / [.mli](gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
 | [defunctionalize.ml](defunctionalize.ml) / [.mli](defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
 | [to_maude.ml](to_maude.ml) / [.mli](to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations), plus the **META-TERM start-term encoding** (`print_meta_term`/`meta_term_of_value`/`meta_start_app`) the reflective `metaReduce` path runs. |
-| [of_maude.ml](of_maude.ml) / [.mli](of_maude.mli) | **Reverse of the start-term encoder**: parse a Maude object normal form (`To_maude` vocabulary) back into a {!Lang.Il.value} via a forward table read off the spec (the sanitizing `variant_sym`/`struct_sym` spelling is lossy). `values_of_result` strips the gensym `tuple(result, state)` wrapper; `canonicalize_fresh` renames `FRESH…` leaves so the two gensym models compare equal. Powers the result-VALUE oracle (`run --check-p4`, Phase D below). |
+| [of_maude.ml](of_maude.ml) / [.mli](of_maude.mli) | **Reverse of the start-term encoder**: parse a Maude object normal form (`To_maude` vocabulary) back into a {!Lang.Il.value} via a forward table read off the spec (the sanitizing `variant_sym`/`struct_sym` spelling is lossy). `values_of_result` strips the gensym `tuple(result, state)` wrapper; `canonicalize` (applied to BOTH sides) renames `FRESH…` leaves so the two gensym models compare equal AND sorts each `map<K,V>`'s entries by `Value.compare` on the key (a map is unordered: interp renders it `VMap.bindings`-sorted, the translation insertion-ordered). Powers the result-VALUE oracle (`run --check-p4`, Phase D below). |
 | [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a **META-TERM** start term with a local `maude` binary, reflectively (`metaReduce`/`metaRewrite`/`metaSearch` via a `META-LEVEL`-importing wrapper module), `downTerm` the result back to object syntax, parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the reflected module is internalized once for the whole batch — eliminating the per-program start-term parse (the old dominant cost; see the performance section). |
 | [cocoweb.ml](cocoweb.ml) / [.mli](cocoweb.mli) | Confluence bridge: serialize → POST via `tools/cocoweb/cocoweb_client.py` → verdict. |
 | [muterm.ml](muterm.ml) / [.mli](muterm.mli) | Termination bridge (conditional systems): same shape, `tools/muterm/muterm_client.py`. |
@@ -282,9 +282,12 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 > 받아들이는 프로그램에 대해 **타이핑 결과값 자체**를 비교한다. `run --p4 ...
 > --check-p4`가 각 프로그램을 인터프리터로 타입체크해 관계 출력값을 얻고,
 > Maude의 reduce된 normal form을 [of_maude.ml](of_maude.ml)로 **IL value로
-> 역번역**한 뒤 `Eq.eq_values`로 맞춰 본다(gensym fresh 이름은
-> `Of_maude.canonicalize_fresh`로 정규화 — 인터프리터의 `FRESH__0`와 번역의
-> `FRESH'`는 같은 fresh 식별자의 다른 철자일 뿐). 단일 invocation에 여러 `--p4`를
+> 역번역**한 뒤 `Eq.eq_values`로 맞춰 본다. 비교 전 `Of_maude.canonicalize`를
+> **양쪽 모두**에 적용해 의미 없는 표현 차이를 제거한다: (1) gensym fresh 이름
+> (인터프리터 `FRESH__0` vs 번역 `FRESH'` — 같은 fresh 식별자의 다른 철자)을
+> 정규화하고, (2) `map<K,V>`의 엔트리를 키의 `Value.compare`로 정렬한다(맵은
+> unordered — 인터프리터는 `VMap.bindings` 정렬, 번역은 삽입 순서라 그냥 비교하면
+> 헛-MISMATCH; 정렬은 실제 키/값 차이는 그대로 드러냄). 단일 invocation에 여러 `--p4`를
 > 넘기면 거대 모듈 reflection을 한 번만 치르므로 배치로 상각된다. **단,
 > `--check-p4`는 인터프리터를 in-process로 돌리므로**(maude `--timeout`은
 > 인터프리터에 안 걸림) chunk를 작게 잡고 batch 전체를 바깥 `timeout`으로 묶어
