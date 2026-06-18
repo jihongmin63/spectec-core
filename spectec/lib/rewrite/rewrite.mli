@@ -1,6 +1,7 @@
 module Rewrite_system = Rewrite_system
 module Simplify = Simplify
 module To_maude = To_maude
+module Of_maude = Of_maude
 module Maude_run = Maude_run
 module Cocoweb = Cocoweb
 module Muterm = Muterm

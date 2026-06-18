@@ -10,6 +10,7 @@ module Diagnostic = Diag
 module Rewrite_system : module type of Rewrite.Rewrite_system
 module Simplify : module type of Rewrite.Simplify
 module To_maude : module type of Rewrite.To_maude
+module Of_maude : module type of Rewrite.Of_maude
 module Maude_run : module type of Rewrite.Maude_run
 module Cocoweb : module type of Rewrite.Cocoweb
 module Muterm : module type of Rewrite.Muterm

@@ -10,6 +10,7 @@ module Diagnostic = Diag
 module Rewrite_system = Rewrite.Rewrite_system
 module Simplify = Rewrite.Simplify
 module To_maude = Rewrite.To_maude
+module Of_maude = Rewrite.Of_maude
 module Maude_run = Rewrite.Maude_run
 module Cocoweb = Rewrite.Cocoweb
 module Muterm = Rewrite.Muterm
