@@ -374,6 +374,11 @@ let run_command =
     flag "--timeout"
       (optional_with_default 30 int)
       ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
+  and check_p4 =
+    flag "--check-p4" no_arg
+      ~doc:
+        " for each --p4 program also typecheck it with the interpreter and \
+         compare the typing RESULT value with Maude's (result MATCH/MISMATCH)"
   in
   fun () ->
     (match (start, imp, p4, emit) with
@@ -396,21 +401,27 @@ let run_command =
     let sources =
       List.map
         (fun f ->
-          (f, fun () -> Targets_impty.Impty.maude_start_term ~task ~spec_il f))
+          ( f,
+            `Other,
+            fun () -> Targets_impty.Impty.maude_start_term ~task ~spec_il f ))
         imp
       @ List.map
           (fun f ->
-            (f, fun () -> Targets_p4.P4.maude_start_term ~includes ~spec_il f))
+            ( f,
+              `P4 f,
+              fun () -> Targets_p4.P4.maude_start_term ~includes ~spec_il f ))
           p4
       @
-      match start with Some t -> [ ("--start", fun () -> Ok t) ] | None -> []
+      match start with
+      | Some t -> [ ("--start", `Other, fun () -> Ok t) ]
+      | None -> []
     in
     let rec resolve_starts = function
       | [] -> Ok []
-      | (label, build) :: rest ->
+      | (label, kind, build) :: rest ->
           let* term = build () in
           let* more = resolve_starts rest in
-          Ok ((label, term) :: more)
+          Ok ((label, kind, term) :: more)
     in
     let* starts = resolve_starts sources in
     let module_text = To_maude.module_of_spec ~relations_as_rules spec_il in
@@ -424,20 +435,75 @@ let run_command =
       let defined_heads = To_maude.maude_defined_heads spec_il in
       let results =
         Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
-          ~module_text ~starts:(List.map snd starts) ()
+          ~module_text
+          ~starts:(List.map (fun (_, _, t) -> t) starts)
+          ()
+      in
+      (* When [--check-p4], compare Maude's typing RESULT against the
+         interpreter's for the same program: decode Maude's normal form back to
+         an IL value ({!Of_maude}) and [Eq.eq_values] it against the interpreter's
+         relation output. Returns the report line and whether it is a genuine
+         mismatch (so a single-file run can exit non-zero). *)
+      let string_of_values vs =
+        String.concat ", " (List.map Lang.Il.Print.string_of_value vs)
+      in
+      let compare_p4 filename (result : Maude_run.result) : string * bool =
+        match result with
+        | Maude_run.Reduced term -> (
+            let input =
+              {
+                Targets_p4.P4.Typecheck.includes;
+                filename;
+                expect = Spectec.Task.Positive;
+              }
+            in
+            match
+              Spectec.eval_task
+                (module Targets_p4.P4.Typecheck)
+                ~sl_mode:false ~spec_il input
+            with
+            | Error _ -> ("result: interp FAILED (not compared)", false)
+            | Ok interp_vals -> (
+                try
+                  let interp_vals = Of_maude.canonicalize_fresh interp_vals in
+                  let maude_vals =
+                    Of_maude.canonicalize_fresh
+                      (Of_maude.values_of_result spec_il ~rel:"Program_ok" term)
+                  in
+                  if Lang.Il.Eq.eq_values interp_vals maude_vals then
+                    ("result: MATCH", false)
+                  else
+                    ( Printf.sprintf
+                        "result: MISMATCH\n  interp: %s\n  maude:  %s"
+                        (string_of_values interp_vals)
+                        (string_of_values maude_vals),
+                      true )
+                with Of_maude.Parse_error msg ->
+                  (Printf.sprintf "result: decode error: %s" msg, false)))
+        | _ -> ("result: not reduced (not compared)", false)
+      in
+      let render (_, kind, _) result =
+        let base = Maude_run.string_of_result result in
+        match kind with
+        | `P4 filename when check_p4 ->
+            let line, mismatch = compare_p4 filename result in
+            (base ^ "\n" ^ line, mismatch)
+        | _ -> (base, false)
+      in
+      let rendered = List.map2 render starts results in
+      let failed =
+        List.exists Maude_run.is_failure results || List.exists snd rendered
       in
       (* A single start keeps the bare result line (golden/grep-stable); a batch
          labels each program's block so the results stay attributable. *)
-      let failed = List.exists Maude_run.is_failure results in
       let out =
-        match (starts, results) with
-        | [ _ ], [ result ] -> Maude_run.string_of_result result
+        match (starts, rendered) with
+        | [ _ ], [ (body, _) ] -> body
         | _ ->
             List.map2
-              (fun (label, _) result ->
-                Printf.sprintf "=== %s ===\n%s" label
-                  (Maude_run.string_of_result result))
-              starts results
+              (fun (label, _, _) (body, _) ->
+                Printf.sprintf "=== %s ===\n%s" label body)
+              starts rendered
             |> String.concat "\n"
       in
       Ok (out, failed)
