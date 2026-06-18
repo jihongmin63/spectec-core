@@ -8,6 +8,10 @@
 # p4-old-vs-new-spec confound, no per-file triage). The cross-table:
 #   completeness gap = interp PASS  & Maude not OK   (Maude under-accepts)
 #   soundness    gap = interp FAIL  & Maude OK       (Maude over-accepts)
+# Phase D goes one step further on the PASS & OK intersection: it compares the
+# typing RESULT VALUE itself (interp output vs Maude's decoded normal form), so a
+# MISMATCH is a translation bug that the verdict oracle alone misses -- Maude
+# accepts the program but reduces it to the WRONG typed term.
 #
 # Self-contained: the Maude phase batches the corpus through `run --p4` (one
 # ~50k-line module parse per CHUNK, not per program) and classifies each
@@ -37,6 +41,8 @@ IPROG=${IPROG:-check_diff_p4_interp.tsv}        # interp verdicts: PASS/FAIL \t 
 MPROG=${MPROG:-check_diff_p4_maude.tsv}         # maude verdicts: OK/STUCK/... \t path
 COMP=${COMP:-check_diff_p4_completeness.tsv}    # completeness gaps
 SOUND=${SOUND:-check_diff_p4_soundness.tsv}     # soundness gaps
+RESMATCH=${RESMATCH:-check_diff_p4_resultmatch.tsv}  # Phase D result-value match
+RESCHUNK=${RESCHUNK:-20}                         # programs per Phase D batch
 ITIMEOUT=${ITIMEOUT:-300}
 CHUNK=${CHUNK:-30}
 BATCH_TIMEOUT=${BATCH_TIMEOUT:-1800}
@@ -143,6 +149,57 @@ join -t$'\t' -1 2 -2 2 \
 awk -F'\t' '$2=="PASS" && $4!="OK" { print $4 "\t" $1 }' /tmp/check_diff_p4_joined.tsv | sort > "$COMP"
 awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        /tmp/check_diff_p4_joined.tsv | sort > "$SOUND"
 
+# --- Phase D: result-value match (PASS & OK intersection) ---
+# Past the PASS/STUCK verdict: for every program BOTH engines accept, compare the
+# typing RESULT VALUE itself. `run --p4 --check-p4` typechecks each program with
+# the interpreter, decodes Maude's reduced normal form back to an IL value
+# (Of_maude), and reports `result: MATCH/MISMATCH` (gensym fresh names canonical-
+# ized, so only genuine divergences show). A MISMATCH is a translation bug that
+# slips past the verdict oracle: Maude accepts but produces the WRONG typed term.
+# Resumable + batched + SERIAL, exactly like Phase B (one module internalization
+# per chunk; --check-p4 also runs the interpreter in-process, so keep chunks small
+# and let BATCH_TIMEOUT bound the whole chunk -- a single hung interp would
+# otherwise block it).
+resultmatch_chunk() {  # a whole chunk in ONE invocation; split per `=== file ===`
+  local files=("$@") args=() f raw rc
+  for f in "${files[@]}"; do args+=(--p4 "$f"); done
+  raw=$(timeout "$BATCH_TIMEOUT" "$EXE" run "${args[@]}" -i "$INC" --check-p4 --timeout 0 $SPEC 2>/dev/null); rc=$?
+  if [ "$rc" -eq 124 ]; then
+    for f in "${files[@]}"; do printf 'TIMEOUT\n'; done; return
+  fi
+  printf '%s\n' "$raw" | awk '
+    /^=== .* ===$/ { if (seen) print v; seen=1; v=""; next }
+    /^result: MATCH/        { if (v=="") v="MATCH" }
+    /^result: MISMATCH/     { if (v=="") v="MISMATCH" }
+    /^result: decode error/ { if (v=="") v="DECODE_ERR" }
+    /^result: not reduced/  { if (v=="") v="NOCOMP" }
+    /^result: interp FAILED/{ if (v=="") v="INTERP_FAIL" }
+    END { if (seen) print (v=="" ? "NOCOMP" : v) }'
+}
+
+touch "$RESMATCH"
+mapfile -t dtodo < <(awk -F'\t' '$2=="PASS" && $4=="OK" { print $1 }' /tmp/check_diff_p4_joined.tsv | sort | while IFS= read -r f; do
+  awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$RESMATCH" || echo "$f"
+done)
+dtotal=$(awk -F'\t' '$2=="PASS" && $4=="OK"' /tmp/check_diff_p4_joined.tsv | wc -l)
+echo "[D] result-value match over PASS&OK ($dtotal): $(( dtotal - ${#dtodo[@]} )) done, ${#dtodo[@]} to run (RESCHUNK=$RESCHUNK) ..." >&2
+tD0=$(date +%s)
+di=0
+while [ "$di" -lt "${#dtodo[@]}" ]; do
+  dchunk=("${dtodo[@]:di:RESCHUNK}")
+  mapfile -t dverdicts < <(resultmatch_chunk "${dchunk[@]}")
+  if [ "${#dverdicts[@]}" -eq "${#dchunk[@]}" ]; then
+    for k in "${!dchunk[@]}"; do printf '%s\t%s\n' "${dverdicts[$k]}" "${dchunk[$k]}"; done >> "$RESMATCH"
+  else
+    # short/garbled batch: record UNKNOWN so a re-run retries these
+    for f in "${dchunk[@]}"; do printf 'UNKNOWN\t%s\n' "$f"; done >> "$RESMATCH"
+  fi
+  di=$(( di + RESCHUNK ))
+  echo "  result-matched $(( di < ${#dtodo[@]} ? di : ${#dtodo[@]} )) / ${#dtodo[@]}" >&2
+done
+tD1=$(date +%s); dur_D=$((tD1-tD0))
+echo "[D] done [$(fmt_dur $dur_D)]" >&2
+
 # Totals are summed from the stored per-file seconds (3rd column of each TSV), so
 # they are inspectable any time, e.g.  awk -F'\t' '{s+=$3}END{print s}' TSV
 sum_secs() { awk -F'\t' '{s+=$3} END{print s+0}' "$1"; }
@@ -154,6 +211,9 @@ t_run1=$(date +%s)
   echo "maude:"; cut -f1 "$MPROG" | sort | uniq -c | sort -rn | sed 's/^/   /'
   echo "COMPLETENESS gaps (interp PASS, Maude not OK): $(wc -l < "$COMP")  -> $COMP"
   echo "SOUNDNESS    gaps (interp FAIL, Maude OK):     $(wc -l < "$SOUND") -> $SOUND"
+  echo "RESULT-VALUE match (PASS & OK): $(grep -c $'^MATCH\t' "$RESMATCH") MATCH / $(grep -c $'^MISMATCH\t' "$RESMATCH") MISMATCH  -> $RESMATCH"
+  rm_other=$(grep -vcE $'^(MATCH|MISMATCH)\t' "$RESMATCH")
+  [ "$rm_other" -gt 0 ] && echo "  (result-match other: $rm_other — see DECODE_ERR/NOCOMP/INTERP_FAIL/TIMEOUT/UNKNOWN rows)"
   echo "time (stored per-file sums): interp $(fmt_dur "$t_iface") | maude $(fmt_dur "$t_mface") | sum $(fmt_dur $((t_iface + t_mface)))"
   echo "time (this run wall-clock):  total $(fmt_dur $((t_run1 - t_run0)))"
 } >&2
