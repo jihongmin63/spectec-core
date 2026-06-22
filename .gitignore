@@ -11,3 +11,6 @@ spectecx
 # find_maude_diverging.sh outputs
 maude_diverging.tsv
 maude_suite_verdicts.tsv
+
+# check_diff_p4.sh outputs (resumable run artifacts, regenerated each run)
+check_diff_p4_*.tsv

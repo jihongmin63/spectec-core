@@ -416,14 +416,35 @@ let run_command =
       | Some t -> [ ("--start", `Other, fun () -> Ok t) ]
       | None -> []
     in
-    let rec resolve_starts = function
-      | [] -> Ok []
-      | (label, kind, build) :: rest ->
-          let* term = build () in
-          let* more = resolve_starts rest in
-          Ok ((label, kind, term) :: more)
+    (* Resolve each source INDEPENDENTLY: a P4 program that fails to produce a
+       start term must NOT abort the whole invocation -- it becomes its own
+       [Error] verdict so every other program in the batch still runs on the
+       amortized path (the ~50k-line module is reflected/internalized ONCE per
+       invocation, ~20s). The old short-circuit (`let* term = build ()`) aborted
+       the entire batch on the first bad file, forcing the differential harness to
+       fall back to one Maude run per file -- re-paying that ~20s internalization
+       30x per chunk. Both failure shapes are handled: a clean [Error] result
+       (e.g. a surface syntax error, which the [p4_16_errors] negatives are full
+       of) AND a RAISED exception (e.g. [Frontend_p4.Lexer.Error] on a malformed
+       integer literal), which the frontend does not always reflect into the
+       result monad. *)
+    let resolve_error_msg e =
+      Diagnostic.Render.render_bag ~ansi:Diagnostic.Ansi.plain
+        (Error.to_diagnostics e)
     in
-    let* starts = resolve_starts sources in
+    let resolved =
+      List.map
+        (fun (label, kind, build) ->
+          let outcome =
+            try build ()
+            with exn ->
+              Error (Error.UnhandledException (Printexc.to_string exn))
+          in
+          match outcome with
+          | Ok term -> (label, kind, Ok term)
+          | Error e -> (label, kind, Error (resolve_error_msg e)))
+        sources
+    in
     let module_text = To_maude.module_of_spec ~relations_as_rules spec_il in
     if emit then Ok (module_text, false)
     else
@@ -433,12 +454,31 @@ let run_command =
         else Maude_run.Reduce
       in
       let defined_heads = To_maude.maude_defined_heads spec_il in
-      let results =
+      let run_results =
         Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
           ~module_text
-          ~starts:(List.map (fun (_, _, t) -> t) starts)
+          ~starts:
+            (List.filter_map
+               (fun (_, _, r) ->
+                 match r with Ok t -> Some t | Error _ -> None)
+               resolved)
           ()
       in
+      (* Stitch the Maude results back onto the sources in order, dropping the
+         resolution-failure verdict in where a program never produced a start
+         term ([Maude_run.run_batch] returns exactly one result per runnable
+         term, positionally). *)
+      let rec stitch resolved run_results =
+        match resolved with
+        | [] -> []
+        | (label, kind, Ok _) :: rest -> (
+            match run_results with
+            | r :: more -> (label, kind, r) :: stitch rest more
+            | [] -> [])
+        | (label, kind, Error msg) :: rest ->
+            (label, kind, Maude_run.Error msg) :: stitch rest run_results
+      in
+      let outcomes = stitch resolved run_results in
       (* When [--check-p4], compare Maude's typing RESULT against the
          interpreter's for the same program: decode Maude's normal form back to
          an IL value ({!Of_maude}) and [Eq.eq_values] it against the interpreter's
@@ -482,7 +522,7 @@ let run_command =
                   (Printf.sprintf "result: decode error: %s" msg, false)))
         | _ -> ("result: not reduced (not compared)", false)
       in
-      let render (_, kind, _) result =
+      let render (_, kind, result) =
         let base = Maude_run.string_of_result result in
         match kind with
         | `P4 filename when check_p4 ->
@@ -490,20 +530,21 @@ let run_command =
             (base ^ "\n" ^ line, mismatch)
         | _ -> (base, false)
       in
-      let rendered = List.map2 render starts results in
+      let rendered = List.map render outcomes in
       let failed =
-        List.exists Maude_run.is_failure results || List.exists snd rendered
+        List.exists (fun (_, _, r) -> Maude_run.is_failure r) outcomes
+        || List.exists snd rendered
       in
       (* A single start keeps the bare result line (golden/grep-stable); a batch
          labels each program's block so the results stay attributable. *)
       let out =
-        match (starts, rendered) with
+        match (outcomes, rendered) with
         | [ _ ], [ (body, _) ] -> body
         | _ ->
             List.map2
               (fun (label, _, _) (body, _) ->
                 Printf.sprintf "=== %s ===\n%s" label body)
-              starts rendered
+              outcomes rendered
             |> String.concat "\n"
       in
       Ok (out, failed)

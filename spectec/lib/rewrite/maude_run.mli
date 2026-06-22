@@ -70,10 +70,9 @@ val run :
     ~50k-line module on the first [metaReduce]) over the whole batch instead of
     paying it per program. Each start's command is delimited by an internal
     marker so the results are split back out in order; the returned list has one
-    result per start, positionally.
-    [timeout] bounds the {e whole} batch (not each start): a process-level
-    timeout/crash maps every start to that same failure, since it cannot be
-    attributed to one program. *)
+    result per start, positionally. [timeout] bounds the {e whole} batch (not
+    each start): a process-level timeout/crash maps every start to that same
+    failure, since it cannot be attributed to one program. *)
 val run_batch :
   ?maude_bin:string ->
   ?timeout:int ->

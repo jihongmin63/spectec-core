@@ -335,7 +335,16 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
                         (Printf.sprintf
                            "maude produced no output for start term:\n%s" start))
                 starts
-          | status ->
+          | _status ->
+              (* A process-level failure (a crash -- e.g. SIGABRT/OOM -- or a
+                 whole-batch timeout) cannot be attributed to one program: a
+                 single start may have aborted Maude and poisoned the entire
+                 batch's output. Re-run each start in its OWN Maude process so the
+                 failure is isolated to the offending program and every other
+                 start still gets its real verdict. This only fires when a batch
+                 actually crashed; the amortized fast path above is untouched. *)
               List.map
-                (fun _ -> result_of_failed_status bin output status)
+                (fun start ->
+                  run ?maude_bin ~timeout ~defined_heads ~mode ~module_text
+                    ~start ())
                 starts)
