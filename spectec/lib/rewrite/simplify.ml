@@ -590,8 +590,24 @@ let rec prem_redundant (spec : spec) (outs : exp list) (bound_head : IdSet.t)
   (* A subject (a variable, or an iterated variable `pair*{..}`) whose variables,
      after substitution, no longer appear anywhere among the outputs or the other
      premises: its value was inlined away, so any constraint that only mentions it
-     is pure residue and can go. *)
+     is pure residue and can go.
+
+     Restricted to an actual subject -- a bare variable or an iterated bare
+     variable. A composite side (a constructor pattern like `typeIR `[ n_size `]`,
+     a field access, a function call) is NOT a dead subject even when its own
+     variables are unused: an equality `e = K(..)` against such a pattern is a
+     *refutable shape check* (it fails when [e] does not have [K]'s shape), so
+     dropping it would silently widen the rule -- e.g. `hdr.s.size` (a header
+     field read, DYN) would wrongly hit the header-stack `.size` clause (LCTK)
+     because its `typeIR `[ n_size `] = $unroll_typeIR(..)` guard vanished. *)
   let dead_var (e : exp) : bool =
+    let is_subject =
+      match e.it with
+      | VarE _ | IterE ({ it = VarE _; _ }, _) -> true
+      | _ -> false
+    in
+    is_subject
+    &&
     let fv = Free.free_exp e in
     (not (IdSet.is_empty fv))
     && IdSet.is_empty (IdSet.inter fv (free_of outs others))

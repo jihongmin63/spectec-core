@@ -238,7 +238,7 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 > [`check_diff_p4.sh`](../../../check_diff_p4.sh)로 통합되어 `specs/p4`를 돌립니다
 > (구 `find_maude_diverging.sh`/`diff_test.sh`/`diff_review.sh` 대체).
 >
-> 거기까지 온 다섯 개의 번역 버그 수정 (전부 impty/base 골든 byte-identical):
+> 거기까지 온 여섯 개의 번역 버그 수정 (전부 impty/base 골든 byte-identical):
 > 1. **모듈 인코딩**(start-term의 stale 생성자 이름) — FIXED 2026-06-15.
 > 2. **positional overload**(`$match_overloaded_unnamed`이 arity 전제
 >    `|id_param*| = n_arg`를 defined function `len(..)`로 rule LHS에 fold) —
@@ -256,6 +256,17 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 >    IterE body가 한 `$itermap`으로 collapse) — `typedef struct {..} N`의 subty
 >    체크 실패. FIXED 2026-06-16 ([to_ctrs.ml](to_ctrs.ml) `iter_map_sym`에 element
 >    타입 추가; impty 골든에 itermap 없어 무영향).
+> 6. **refutable shape guard 소실 → ctk 오추론**(Phase D issue447-2/3/4/5-bmv2):
+>    `Expr_ok/headerStack-size`의 가드 `typeIR `[ n_size `] = $unroll_typeIR(..)`가
+>    equality 전제 `if ($unroll(..) = typeIR[n_size])`로 들어오는데, 출력이
+>    `BIT<32> LCTK` 고정이라 `typeIR`/`n_size`가 미사용 → [simplify.ml](simplify.ml)
+>    `prem_redundant`의 `dead_var`가 생성자 패턴 `typeIR[n_size]`를 "dead subject"로
+>    오판해 그 *refutable shape check* 전제를 통째로 드롭. 그 결과 멤버 이름이 "size"인
+>    임의의 헤더 필드 읽기(`hdr.s.size`, DYN)가 header-stack `.size` 절(LCTK)로 새어,
+>    번역만 ctk를 LCTK로 과잉정적 추론. FIX: `dead_var`를 실제 subject(bare 변수 /
+>    iterated bare 변수)로 한정 — 합성식(생성자 패턴·필드접근·함수호출)은 dead로 안 봄.
+>    FIXED 2026-06-18 (impty 골든 byte-identical; 69-file Phase D 표본 회귀 0, 4건
+>    MISMATCH→MATCH).
 
 ## 회귀/divergence 측정 — same-spec interp(p4) vs Maude(p4) (repo 루트)
 
