@@ -1486,24 +1486,73 @@ let maude_defined_heads (orig : spec) : string list =
 (* A symbol the way it appears in the emitted module (sanitized + mangled). *)
 let maude_sym (s : string) : string = maude_id (T.sanitize s)
 
-(* The declared field types of a variant case [origin]/[mixop], so a numeric leaf
-   can be coerced to the [int]/[nat] the case expects. *)
-let case_field_typs (orig : spec) (origin : string) (mixop : Lang.Il.mixop) :
-    typ' list option =
-  List.find_map
+(* A region-independent key for a [mixop], equivalent to [Mixfix.eq_mixop]:
+   [compare_mixop] compares atoms by [Xl.Atom.compare] (= [Stdlib.compare] on the
+   region-free [Atom.t]) and orders [Arg] before [Atom], so dropping each atom's
+   region and erasing [Arg]'s payload yields a value whose structural equality
+   matches [eq_mixop]. Lets the encoder resolve a case by hash lookup instead of
+   rescanning the spec. *)
+let mixop_key (mixop : Lang.Il.mixop) : Xl.Atom.t option list =
+  List.map (function Mixfix.Arg () -> None | Mixfix.Atom a -> Some a.it) mixop
+
+(* Per-spec index for [encode_value]'s constructor resolution, built once: a
+   CaseV node would otherwise rescan every variant def in the (large) spec, so
+   the bare per-node cost was O(nodes x cases). Two tables, both keyed by the
+   case's notation [mixop]:
+   - [field_typs]: (declaring origin, mixop) -> the case's declared field types,
+     first declaration winning (mirrors the old [List.find_map] over defs then
+     typcases).
+   - [origins]: mixop -> [(owning type, declaring origin)] in declaration order,
+     from which the encoder picks the declaring origin by expected/noted/
+     unique-all priority. (The old code also matched arity, but mixop equality
+     already implies equal [Arg] count, so the mixop key subsumes it.) *)
+type encode_index = {
+  field_typs : (string * Xl.Atom.t option list, typ' list) Hashtbl.t;
+  origins : (Xl.Atom.t option list, (string * string) list) Hashtbl.t;
+}
+
+let build_encode_index (orig : spec) : encode_index =
+  let field_typs = Hashtbl.create 512 in
+  let origins = Hashtbl.create 512 in
+  List.iter
     (fun def ->
       match def.it with
-      | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ }
-        when tid.it = origin ->
-          List.find_map
+      | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ } ->
+          List.iter
             (fun (tc : typcase) ->
               let nottyp = tc.notation in
-              if Mixfix.eq_mixop (Mixfix.to_mixop nottyp.it) mixop then
-                Some (List.map (fun t -> t.it) (Mixfix.args nottyp.it))
-              else None)
+              let key = mixop_key (Mixfix.to_mixop nottyp.it) in
+              let fkey = (tid.it, key) in
+              if not (Hashtbl.mem field_typs fkey) then
+                Hashtbl.replace field_typs fkey
+                  (List.map (fun t -> t.it) (Mixfix.args nottyp.it));
+              let origin, _ = case_origin_mixop tc in
+              let prev =
+                Option.value (Hashtbl.find_opt origins key) ~default:[]
+              in
+              Hashtbl.replace origins key ((tid.it, origin) :: prev))
             typcases
-      | _ -> None)
-    orig
+      | _ -> ())
+    orig;
+  (* Entries were prepended per key; restore declaration order. Snapshot the
+     keys first -- replacing values while iterating the table is unspecified. *)
+  let keys = Hashtbl.fold (fun k _ acc -> k :: acc) origins [] in
+  List.iter
+    (fun k -> Hashtbl.replace origins k (List.rev (Hashtbl.find origins k)))
+    keys;
+  { field_typs; origins }
+
+(* One-slot memo (physical equality on the spec, like {!meta_sig_memo}): one
+   [run] encodes every batched start term against the same spec value. *)
+let encode_index_memo : (spec * encode_index) option ref = ref None
+
+let encode_index (orig : spec) : encode_index =
+  match !encode_index_memo with
+  | Some (o, idx) when o == orig -> idx
+  | _ ->
+      let idx = build_encode_index orig in
+      encode_index_memo := Some (orig, idx);
+      idx
 
 (* Encode a value to a ground term in the native theory: scalars become
    wrapped built-in literals ({!Maude_theory}), so a program identifier is a
@@ -1511,6 +1560,13 @@ let case_field_typs (orig : spec) (origin : string) (mixop : Lang.Il.mixop) :
    [expected] is the type the surrounding position wants, used only to put a
    numeric leaf in the [int] vs [nat] wrapper. *)
 let encode_value (orig : spec) (v : value) : R.term =
+  let idx = encode_index orig in
+  (* The declared field types of the variant case [origin]/[mixop], so a numeric
+     leaf can be coerced to the [int]/[nat] the case expects. *)
+  let case_field_typs (origin : string) (mixop : Lang.Il.mixop) :
+      typ' list option =
+    Hashtbl.find_opt idx.field_typs (origin, mixop_key mixop)
+  in
   let rec enc (expected : typ' option) (v : value) : R.term =
     match v.it with
     | BoolV b -> Maude_theory.bool_t b
@@ -1557,31 +1613,23 @@ let encode_value (orig : spec) (v : value) : R.term =
            never declares (Maude: "no parse for term"). Resolve via the EXPECTED
            type's cases first, then the noted type's; otherwise accept the
            declaring origin only if the whole spec agrees on exactly one. *)
-        let origins_in typcases =
+        let entries =
+          Option.value
+            (Hashtbl.find_opt idx.origins (mixop_key mixop))
+            ~default:[]
+        in
+        let expected_origins =
           List.filter_map
-            (fun (tc : typcase) ->
-              let nottyp = tc.notation in
-              let o, m = case_origin_mixop tc in
-              if
-                Mixfix.eq_mixop m mixop
-                && List.length (Mixfix.args nottyp.it) = List.length args
-              then Some o
-              else None)
-            typcases
+            (fun (owner, o) ->
+              if Some owner = expected_name then Some o else None)
+            entries
         in
-        let expected_origins, noted_origins, all_origins =
-          List.fold_left
-            (fun (exp_os, noted_os, all_os) def ->
-              match def.it with
-              | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ }
-                ->
-                  let os = origins_in typcases in
-                  ( (if Some tid.it = expected_name then exp_os @ os else exp_os),
-                    (if tid.it = noted then noted_os @ os else noted_os),
-                    all_os @ os )
-              | _ -> (exp_os, noted_os, all_os))
-            ([], [], []) orig
+        let noted_origins =
+          List.filter_map
+            (fun (owner, o) -> if owner = noted then Some o else None)
+            entries
         in
+        let all_origins = List.map snd entries in
         let origin =
           match
             (expected_origins, noted_origins, List.sort_uniq compare all_origins)
@@ -1592,7 +1640,7 @@ let encode_value (orig : spec) (v : value) : R.term =
           | [], [], _ -> noted
         in
         let ftyps =
-          match case_field_typs orig origin mixop with
+          match case_field_typs origin mixop with
           | Some ts when List.length ts = List.length args ->
               List.map Option.some ts
           | _ -> List.map (fun _ -> None) args
