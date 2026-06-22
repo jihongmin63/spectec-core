@@ -785,9 +785,18 @@ let delegation_eqs : (string * (int * string list * string list)) list =
       ( 2,
         [],
         [
-          deleg_line "sub"
-            [ natp "X:Nat"; natp "Y:Nat" ]
-            (natp "if Y:Nat <= X:Nat then sd(X:Nat, Y:Nat) else 0 fi");
+          (* PARTIAL, matching the interpreter's [Xl.Num.bin] (num.ml): nat
+             subtraction is defined only when [Y <= X]; an underflow has no rule
+             and stays STUCK, so the violation propagates to a stuck normal form
+             (a rejection) instead of saturating to 0. A total monus [else 0]
+             would silently accept ill-typed programs that rely on nat underflow
+             being a rejection -- e.g. a table whose [priority_delta] drives an
+             entry priority negative ([$set_priorities_of_tableEntryListIR']'s
+             [$(n_last - n_delta)] in 5.02.2-typing-table-context). No
+             interp-PASS program reaches an underflowing [sub] (the interpreter
+             would have asserted), so this never costs completeness. *)
+          Printf.sprintf "  ceq sub(%s, %s) = %s if Y:Nat <= X:Nat ."
+            (natp "X:Nat") (natp "Y:Nat") (natp "sd(X:Nat, Y:Nat)");
         ] ) );
     ("mul", (2, [], [ n2 "mul" "*" ]));
     ( "div",
