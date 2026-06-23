@@ -1,0 +1,4 @@
+(library
+ (name rewrite)
+ (public_name spectec.rewrite)
+ (libraries spectec.lang spectec.common spectec.lang.xl bignum.bigint unix))
