@@ -186,6 +186,65 @@ int 항에 절대 매치 안 됨. `native_replaced_heads`(골격에 유지)가 M
 prelude/타입유도 규칙 중 body 규칙에서 도달 불가능한 정의 규칙을 제거(추이적:
 `mul`을 남기면 그 rhs의 `add`도 남음). 생성자는 정의 규칙이 없어 절대 안 잘림.
 
+### 3.10 재구현 로드맵 — `of_spec`·`var_type_hints` (남은 스텁 두 개)
+
+골격은 **심볼/빌더 레이어 전체**(`sanitize`·`*_sym`·`*_t`·`rule`/`rule_cond`·
+`single_case_ctor`/`case_ctor` 등)와 **thin 질의**(`def_symbols`·
+`input_moded_rel_syms`·`rule_head_syms`·`split_inputs`·`native_replaced_heads`)가
+이미 온전하다. 채울 것은 *번역 본체* 둘뿐. 권위 있는 참조는 `rewrite` 브랜치:
+`git show rewrite:spectec/lib/rewrite/to_ctrs.ml` (총 1966줄; 아래 줄번호는 그 파일).
+
+**`var_type_hints`** (참조 1850–1886; 쉬움, 먼저) — `scalars`/`Simplify` 무관.
+헬퍼 3개를 함께 포팅: `collect_var_types`(1755)·`collect_prem_var_types`(1804)·
+`resolve_var_types`(1833). `VarE` note에서 변수별 타입을 모으고 occurrence가 충돌하면
+그 변수를 버린다. `To_maude`가 변수의 narrow 타입 복원에 쓴다.
+
+**`of_spec`** (참조 1923–1944) 가 부르는 헬퍼 DAG (전부 `rewrite` 브랜치에 있음):
+
+```
+of_spec
+├─ prelude            (776)   구조적 스칼라 규칙셋 (bool/nat/int/list/opt)
+├─ defs_of_typ        (1053)  TypD → matcher/subtype/eq/accessor 규칙 (§3.3)
+├─ rules_of_def       (1729)  DecD 절·RelD 규칙 → body 규칙 (§3.6)
+│   ├─ rule_of_clause (1704)  ├ pattern_of_arg(1689)/term_of_exp(574)/conds_of_prems(1403)
+│   └─ rule_of_rel_rule(1715) └ split_inputs/output_term(1160)/rel_invocation(1164)
+├─ iter_helper_defs   (1568)  IterE/IterPr 헬퍼 (§3.7)
+├─ sub_helper_defs    (1598)  subty_tup/list/opt 헬퍼 (§3.8)
+├─ char_eq_rules      (1917)  텍스트 바이트 alphabet 위 eq
+└─ prune_unused       (1897)  body 도달 불가능한 정의 규칙 제거 (§3.9)
+```
+
+`term_of_exp`(574, §3.4)와 `conds_of_prem`(1333, §3.5)이 본체의 대부분이다.
+
+**`rewrite` 브랜치 대비 반드시 다른 3가지:**
+
+1. **결과 레코드.** 데이터 모델이 `{ vars; rules }`로 바뀜(§2; `ctype`/`comment`
+   삭제). 마지막 줄: 옛 `{ R.ctype = R.Join; vars; rules; comment = None }` →
+   새 `{ R.vars; rules }`.
+2. **`~scalars` 분기 (옛 `of_spec`엔 없던 인자).** 옛 설계는 항상 Structural을 내고
+   `maude_theory.native_system`이 후처리 fold했지만 그 fold는 삭제됐다(§6.1). 이제
+   `of_spec`가 **딱 두 군데만** 분기한다:
+   - *리터럴 leaf*: `term_of_num`/`text_t`/bool 리터럴이 `Structural`이면 Peano
+     `peano_of_int`/char-list `text_t`/`true_t`, `Native`면 `Maude_theory.nat_t`/
+     `int_t`/`text_t`/`bool_t`(wrapper). **연산자 적용(`add`/`cat`…)은 양쪽 동일**
+     (To_maude가 Native에서 delegation으로 채움).
+   - *prelude·char*: `Native`면 `prelude`에서 `native_replaced_heads`에 속한 head의
+     정의 규칙을 빼고, `char_eq_rules` 닫힘도 생략(Native 텍스트는 `txt("…")`
+     리터럴이라 `chr_` 상수가 없음).
+   구현 팁: `term_of_exp`/`prelude`에 `scalars`를 thread해 분기를 leaf 한 곳에 가둘
+   것 — 나머지 구조 번역은 두 경로가 공유한다(generic 목표).
+3. **`Simplify`가 identity ⇒ `of_spec`가 un-simplified IL을 직접 받음**(§4).
+   `simplified` 인자 == `orig`. 옛 `term_of_exp`/`conds_of_prem`은 Simplify가 이미
+   (변수 전개·`matches`/필드접근 head 패턴 fold·subtype→cast·잉여 전제 제거)를 했다고
+   가정했다. 그 가정이 사라졌으니 generic 번역은 `MatchE`·필드접근 전제·`SubE`를
+   `of_spec` 안에서 직접 다뤄야 한다(§4의 목록 = of_spec가 대신 감당할 정규화
+   체크리스트). **이번 재작성의 진짜 난점.**
+
+**검증 순서:** Structural 먼저 채워 빌드 → `[@@@warning "-32-69"]`(to_ctrs.ml 상단)
+제거 → impty/base 골든(`rewrite --ctrs … | diff - spec.rewrite`; Simplify=identity라
+옛 골든과 다를 수 있음, 의도된 차이면 갱신) → 그 다음 Native 분기 추가(To_maude/
+Maude_run이 이미 대기).
+
 ---
 
 ## 4. `Simplify` — 이 프로젝트에서는 identity (`Prem_env` 미재구현)

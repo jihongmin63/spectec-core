@@ -63,13 +63,18 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 - [x] **`Simplify` = identity** (done) — 이 프로젝트는 단순화를 하지 않음. `Prem_env`도
   재구현하지 않음(그것만 먹이던 엔진이라 불필요).
 - [ ] **`To_ctrs.of_spec`** (심장) — `prelude` + `defs_of_typ` + `term_of_exp` +
-  `conds_of_prem` + `rules_of_def` + 반복/subtype 헬퍼 + `prune_unused`. **`~scalars`**:
-  `Structural`=Peano 등 + prelude / `Native`=ground 스칼라 wrapper(`Maude_theory`의
-  `nat_t`/`int_t`/`bool_t`/`text_t` 철자) + `native_replaced_heads` 생략.
-  ⚠️ `Simplify`가 identity이므로 `of_spec`는 **un-simplified IL**을 직접 받는다 —
-  옛 설계가 simplify에 맡기던 정규화(변수 전개·`matches`/필드접근 fold·subtype→cast
-  등)를 `of_spec`가 스스로 감당하거나, 그 단순화를 전제하지 않는 generic 번역이어야 함.
+  `conds_of_prem` + `rules_of_def` + 반복/subtype 헬퍼 + `prune_unused`.
+  **상세 로드맵·헬퍼 DAG·참조 줄번호는 [CORE_LOGIC.md](CORE_LOGIC.md) §3.10.**
+  참조: `git show rewrite:spectec/lib/rewrite/to_ctrs.ml` (of_spec 1923–1944).
+  `rewrite` 브랜치 대비 반드시 다른 3가지:
+  - **결과 레코드** `{ R.vars; rules }` (ctype/comment 삭제).
+  - **`~scalars` 분기**: 리터럴 leaf만 `Structural`(Peano/char-list) vs
+    `Native`(`Maude_theory.nat_t`/`int_t`/`bool_t`/`text_t` wrapper) + Native는
+    `native_replaced_heads` 정의 규칙·`char_eq_rules` 생략. 연산자 적용은 양쪽 동일.
+  - **`Simplify`=identity** ⇒ un-simplified IL을 직접 번역(§3.10·§4 정규화 체크리스트).
 - [ ] **`To_ctrs.var_type_hints`** — `VarE` note에서 변수 narrow 타입 복원(To_maude용).
+  참조 1850–1886 + 헬퍼 `collect_var_types`(1755)·`collect_prem_var_types`(1804)·
+  `resolve_var_types`(1833). `scalars`/`Simplify` 무관 — 거의 verbatim 포팅.
 - [ ] **검증: impty/base CTRS 골든** byte-identical (`rewrite --ctrs` 덤프 ↔
   `spec.rewrite`). 기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은 `--ctrs` 경로.
   ⚠️ Simplify=identity이므로 옛 골든과 다를 수 있음 — 의도된 변화면 골든 갱신.
