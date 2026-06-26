@@ -6,13 +6,15 @@
 > 설계 기준으로 삼기 위함입니다. 운영/빌드 절차와 더 긴 변경 이력은 [CLAUDE.md]를
 > 보세요; 이 문서는 *무엇을 왜 그렇게 번역하는가*에 집중합니다.
 >
-> 현재 골격에 남은 것: 데이터 모델(`rewrite_system.ml`), `to_ctrs`의 심볼/빌더
-> 레이어 + 번역 스텁, `simplify`/`to_maude` 스텁, 오케스트레이션
-> (`pipeline`/`rewrite`). **지원 패스(§5: `exp_map`/`defunctionalize`/`gensym`/
-> `builtin`)는 `rewrite` 브랜치에서 복구해 다시 배선됐습니다** — `of_spec`/`Simplify`
-> 스텁에 막혀 런타임은 아직 `failwith`지만 컴파일·배선은 완료. 나머지 지운 것
-> (`prem_env`/`maude_theory`/실행·분석 브리지)은 `rewrite` 브랜치에서 언제든
-> `git checkout rewrite -- <file>` 로 복구할 수 있습니다.
+> 현재 상태: 데이터 모델(`rewrite_system.ml`), `to_ctrs`의 심볼/빌더 레이어 +
+> 번역 스텁, 오케스트레이션(`pipeline`/`rewrite`)은 온전. **지원 패스(§5:
+> `exp_map`/`defunctionalize`/`gensym`/`builtin`)와 Maude 백엔드(§6:
+> `to_maude`/`maude_run`/`of_maude`/`maude_theory`)는 `rewrite` 브랜치에서 복구해
+> 컴파일·배선 완료** — `of_spec` 스텁에 막혀 런타임은 아직 `failwith`. **`simplify`는
+> 이 프로젝트에서 의도적으로 identity**(§4), 그래서 `prem_env`는 재구현하지 않습니다.
+> **남은 스텁은 `to_ctrs`의 `of_spec`·`var_type_hints` 둘뿐.** 여전히 지운 것
+> (`cocoweb`/`muterm`/`aprove`/`termination`)은 `git checkout rewrite -- <file>`로
+> 복구 가능.
 
 ---
 
@@ -57,6 +59,8 @@ Maude 시스템은 구조적 시스템을 *다시 fold하는 별도 패스(옛 `
 **`orig`(simplify 이전 spec)를 함께 넘기는 이유:** 타입 정의와 relation 시그니처
 (생성자/matcher/subtype 규칙, relation 인자 입출력 분할에 필요)는 *un-simplified*
 형태에서 읽어야 한다. 그래서 `To_ctrs.of_spec ~orig:spec (Simplify.simplify_spec spec)`.
+**단, 이 프로젝트에서 `Simplify.simplify_spec`은 identity(§4)**라 `orig`와 번역 대상이
+같은 스펙이다 — `of_spec`는 un-simplified IL을 직접 번역한다.
 
 ---
 
@@ -184,21 +188,24 @@ prelude/타입유도 규칙 중 body 규칙에서 도달 불가능한 정의 규
 
 ---
 
-## 4. `Simplify` 전처리 + `Prem_env` (지움 — §3.7과 함께 재구현)
+## 4. `Simplify` — 이 프로젝트에서는 identity (`Prem_env` 미재구현)
 
-`Prem_env.env_of_prems`가 블록 전제로 IL 식 위 **union-find**를 만들어 각 식에 가장
-구체적인 canonical 멤버를 준다. `Simplify`는 그 위에서:
+**`Simplify.simplify_spec`은 이 프로젝트에서 의도적으로 identity다 — 스펙을 그대로
+반환한다.** `To_ctrs`가 유일한 번역 표면이고, 옛 단순화가 하던 정규화를 generic한
+`of_spec`가 직접 감당하게 하려는 설계 결정이다. 그래서 `Simplify`만 먹이던
+`Prem_env`(union-find 엔진)도 **재구현하지 않는다.**
 
-(a) 각 변수를 canonical 구체 구조로 치환,
-(b) `matches`/필드접근 제약을 head 패턴으로 접음(`reconstruct_pattern`/`hoist_pairs`),
-(c) value/let 바인딩 inline,
-(d) subtype 전제를 cast로 낮춤,
-(e) env가 잉여로 만드는 전제 제거.
+> **설계 함의:** `of_spec`는 옛 설계가 단순화에 의존하던 형태를 더 이상 기대할 수
+> 없다. 변수 전개·`matches`/필드접근의 head 패턴 fold·value/let inline·subtype→cast·
+> 잉여 전제 제거 — 이 정규화가 필요하면 `of_spec`가 번역 중에 처리하거나, 그것을
+> 전제하지 않는 번역이어야 한다(generic 목표와 부합).
 
-**의미 보존 IL→IL 재작성**이라, 결과 spec의 절/규칙이 CTRS 규칙으로 더 직접 매핑됨.
-**가장 미묘한 부분은 capture-awareness**(§3.7) — substitution이 다른 binder의 변수를
-포획하면 STREAM/element 혼동·orphan 전제가 생김. 디버그: `of_spec`의 2번째 인자로
-`Simplify.simplify_spec spec` 대신 `spec`을 주면 simplify를 우회해 버그 출처를 가름.
+아래는 옛 `rewrite` 브랜치 `Simplify`/`Prem_env`가 **무엇을** 했는지의 참고
+(재도입은 안 하지만, `of_spec`가 대응해야 할 정규화의 목록):
+`Prem_env.env_of_prems`가 블록 전제로 IL 식 위 union-find를 만들어 각 식에 canonical
+멤버를 주고, `Simplify`가 (a) 변수→canonical 구조 치환, (b) `matches`/필드접근을 head
+패턴으로 fold, (c) value/let inline, (d) subtype→cast, (e) 잉여 전제 제거를 했다.
+가장 미묘한 부분은 capture-awareness(§3.7)였다.
 
 ---
 
@@ -234,7 +241,11 @@ fresh-닿는 호출을 opaque로 둬(`Simplify`가 발급을 중복 안 하게) 
 
 ---
 
-## 6. 실행 (Maude) 백엔드 (지움 — 재구현 시 참고)
+## 6. 실행 (Maude) 백엔드 (복구됨 — `to_maude`/`maude_run`/`of_maude`/`maude_theory`)
+
+> **상태:** 네 모듈 모두 `rewrite` 브랜치에서 복구돼 컴파일·배선 완료. `of_spec` 스텁이
+> 채워지면 즉시 동작한다. `module_of_spec`은 `Pipeline.maude_system_of_spec`
+> (= `of_spec ~scalars:Native`)를 직접 호출한다.
 
 ### 6.1 native 스칼라 이론 — `of_spec ~scalars:Native` (별도 fold 패스 아님)
 **옛 설계**는 분석 시스템을 받아 다시 fold하는 `Maude_theory.native_system` 패스를
@@ -243,6 +254,15 @@ fresh-닿는 호출을 opaque로 둬(`Simplify`가 발급을 중복 안 하게) 
 인코딩하고, 대체될 스칼라 prelude(`native_replaced_heads`)를 *처음부터 안 낸다*
 (To_maude가 delegation으로 채움). 의미·불변식은 동일하고, 중복 패스만 제거. 재구현
 시 `of_spec`의 prelude/스칼라-leaf 방출을 `scalars`로 분기하면 된다.
+
+> **`maude_theory`의 새 역할 (native_system 제거됨).** 복구하면서 죽은
+> `native_system` fold(와 `native_term`/`scalar_pat`/`replaced_rule`/`peano_value`)는
+> **삭제**했다 — 위처럼 Native를 `of_spec`가 직접 내므로 fold 소비자가 없다. 남은
+> `maude_theory`는 **공유 저수준 모듈**: wrapper 철자(`nat_wrap_sym`/`int_wrap_sym`/
+> `bool_wrap_sym`/`text_wrap_sym`)와 리터럴 빌더(`nat_t`/`int_t`/`bool_t`/`text_t`),
+> `is_literal_sym`/`string_literal`/`chars_value`만 보유한다. **def/use 불변식의 만남
+> 지점**이다 — `of_spec ~scalars:Native`(방출)·`To_maude`(delegation eq + start-term
+> 인코더)·`Of_maude`(디코더)가 모두 이 철자/빌더를 써야 한다.
 
 **내장 sort는 `Val` 바깥**에 둠(kind가 병합되면 import된 연산자 attribute가 충돌).
 `TextE ""`는 bare `nil`로 두고 `List < Text` + `eq`/`cat` nil-방정식으로 bridge.

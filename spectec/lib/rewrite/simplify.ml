@@ -1,12 +1,12 @@
-(* Pre-pass over the elaborated IL, run before {!To_ctrs}: expand variables into
-   their concrete canonical structure (via {!Prem_env}) and drop premises the
-   premise environment renders redundant.
+(* Pre-pass over the elaborated IL, run before {!To_ctrs}.
 
-   STUBBED for the new-rewrite skeleton -- reimplement the rewriting steps
-   (variable substitution from the union-find, [matches]/field-access folding
-   into head patterns, value/let inlining, subtype-to-cast lowering, redundant-
-   premise removal). *)
+   In this project {!simplify_spec} is intentionally the IDENTITY: the spec is
+   handed to {!To_ctrs} unchanged. The original [rewrite] branch ran a
+   semantics-preserving IL->IL rewriting here (variable expansion from a
+   {!Prem_env} union-find, [matches]/field-access folding into head patterns,
+   value/let inlining, subtype-to-cast lowering, redundant-premise removal) so
+   that clauses mapped more directly to CTRS rules. We deliberately drop that:
+   [To_ctrs] is the sole translation surface, so the simplification logic (and
+   the [Prem_env] engine that only fed it) is not reintroduced. *)
 
-let simplify_spec (spec : Lang.Il.spec) : Lang.Il.spec =
-  ignore spec;
-  failwith "TODO(new-rewrite): reimplement Simplify.simplify_spec"
+let simplify_spec (spec : Lang.Il.spec) : Lang.Il.spec = spec
