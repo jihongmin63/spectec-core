@@ -4,8 +4,10 @@
 
     - [Structural]: self-contained scalars (Peano nats, sign-magnitude ints,
       char-list texts, own booleans) with their hand-written prelude rules. The
-      COPS/TPDB analysis surfaces ({!Rewrite_system.string_of_system}) need a
-      closed system with no external theories.
+      MFE analysis surface ({!Rewrite_system.string_of_system_maude} feeding the
+      CRC/ChC) needs a closed system with no external theories -- the
+      Church-Rosser check computes critical pairs and cannot reason over Maude's
+      built-in Nat/Int/Bool/String.
     - [Native]: ground scalars fold into built-in wrappers ([nat]/[int]/[bool]/
       [txt]) and the {!native_replaced_heads} prelude rules are OMITTED, so
       {!To_maude} can re-emit them as one-line delegations to Maude's

@@ -22,7 +22,6 @@ Lang.Il.spec (elaborated)
    │                          스칼라 이론이 유일한 분기점 ──┘
    ├─(분석)  of_spec ~scalars:Structural → Rewrite_system.t
    │            → string_of_system_maude → Mfe(CRC confluence + ChC coherence)
-   │            → string_of_system_tpdb  → Termination(AProVE·MuTerm)
    └─(실행)  of_spec ~scalars:Native   → Rewrite_system.t   ← ② 재-fold 없음, 직접 생성
                 → To_maude → Maude_run → Of_maude
 ```
@@ -62,22 +61,18 @@ Maude 시스템은 구조적 시스템을 *다시 fold하는 별도 패스(옛 `
 
 ```ocaml
 type term = Var of string | App of string * term list   (* App(id,[]) 은 bare 출력 *)
-type cond = term * term                                  (* term == term *)
+type cond = term * term
 type rule = { lhs : term; rhs : term; conds : cond list; owise : bool }
-type ctype = SemiEquational | Join | Oriented            (* 우리는 Join 방출 *)
-type t = { ctype; vars : string list; rules : rule list; comment : string option }
+type t = { vars : string list; rules : rule list }
 ```
 
-세 텍스트 표면, **의도적으로 다름**:
-- `string_of_system` — **COPS**: 머리에 `(CONDITIONTYPE JOIN)`, 조건 `s == t`.
-  `rewrite` CLI 덤프용(과거 CoCoWeb 입력 — 게이트가 MFE로 바뀌며 confluence 소비자는
-  `string_of_system_maude`로 이동).
-- `string_of_system_tpdb` — **TPDB**: CONDITIONTYPE 헤더 없음, 조건은 oriented
-  `s -> t` 를 ` , ` 로 구분. MuTerm 파서가 COPS 표면에서 *크래시*하므로 termination은
-  이 형태를 써야 함.
-- `string_of_system_maude ~rule_heads` — **Full Maude 시스템 모듈**(단일 sort `Term`):
-  등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation)는 `rl`/`crl`. MFE의
-  CRC(등식 confluence)/ChC(rl coherence)가 소비(§6.5).
+**텍스트 표면은 하나** — `string_of_system_maude ~rule_heads`(**Full Maude 시스템 모듈**,
+단일 sort `Term`): 등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation)는
+`rl`/`crl`. MFE의 CRC(등식 confluence)/ChC(rl coherence)가 소비(§6.5).
+
+> 옛 COPS(`string_of_system`)·TPDB(`string_of_system_tpdb`) 표면과 `ctype`/`comment`
+> 메타데이터·`is_unconditional`은 **삭제**됐다(소비자였던 CoCoWeb·AProVE·MuTerm 전부
+> 제거). 분석 confluence는 이제 MFE 한 경로뿐.
 
 `slice t ~roots` — `roots`에서 도달 가능한(하향 의존 폐포) 규칙만 남김(심볼별
 confluence/termination 검사용). `reachable_heads`/`refs_of_rule`/`defined_head`가

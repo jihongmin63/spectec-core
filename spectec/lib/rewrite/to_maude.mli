@@ -1,13 +1,13 @@
 (** Emit a translated spec as an executable, order-sorted Maude system module.
 
-    Unlike the COPS ({!Rewrite_system.string_of_system}) and TPDB surfaces —
-    which feed {e analysis} tools (confluence/termination) — this produces a
-    module that Maude can {e run}: functions/prelude become equations,
-    input-moded relations become equations too (so {!Maude_run} can [reduce]
-    them deterministically), other relations become rules, and a start term is
-    reduced/searched via {!Maude_run}. [relations_as_rules] forces every
-    relation back to a rule (the old behaviour, for exploring non-determinism
-    via search).
+    Unlike the analysis surface ({!Rewrite_system.string_of_system_maude} over
+    structural scalars, feeding the MFE confluence/coherence check), this
+    targets Maude's built-in theory so the module can be {e run}:
+    functions/prelude become equations, input-moded relations become equations
+    too (so a [reduce] is deterministic), other relations become rules, and a
+    start term is reduced/searched. [relations_as_rules] forces every relation
+    back to a rule (the old behaviour, for exploring non-determinism via
+    search).
 
     Sorts and operator signatures are recovered from the original
     (un-simplified) spec, so the elaborated spec is the input. See the module

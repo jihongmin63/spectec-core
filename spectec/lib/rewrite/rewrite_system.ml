@@ -1,121 +1,36 @@
-(** COPS conditional term rewriting system (CTRS) representation produced from
-    an elaborated + simplified IL spec.
+(** Conditional term-rewriting system (CTRS) representation produced from an
+    elaborated + simplified IL spec.
 
-    The textual form follows the COPS CTRS grammar (§3.2):
-
-    {[
-      ctrs     ::= (CONDITIONTYPE ctype) [(VAR idlist)] (RULES rulelist) [(COMMENT string)]
-      ctype    ::= SEMI-EQUATIONAL | JOIN | ORIENTED
-      rule     ::= term -> term | term -> term | condlist
-      condlist ::= cond | cond, condlist
-      cond     ::= term == term
-      term     ::= id | id() | id(termlist)
-    ]}
-
-    Only the representation and printer live here; the IL -> CTRS translation is
-    in {!To_ctrs}. *)
+    Only the representation and the term printer live here; the IL -> CTRS
+    translation is in {!To_ctrs}, and the textual surface that feeds the Maude
+    Formal Environment (CRC/ChC) is {!string_of_system_maude} below. *)
 
 (* A CTRS term: either a variable, or a function symbol applied to zero or more
    argument terms. A nullary application prints as a bare [id]. *)
 type term = Var of string | App of string * term list
 
-(* A condition is an equation between two terms ([term == term]). *)
+(* A condition is an equation between two terms. *)
 type cond = term * term
 
 (* A (possibly conditional) rewrite rule [lhs -> rhs | conds]. [owise] marks a
    clause that applied "otherwise" (SpecTec [ElsePr]): it fires only when no
-   earlier sibling did. The COPS/TPDB surfaces below cannot express this and
-   ignore it (leaving the historical overlap); {!To_maude} renders it as Maude's
-   [owise] equation attribute. *)
+   earlier sibling did. {!string_of_system_maude} renders it as Maude's [owise]
+   equation attribute. *)
 type rule = { lhs : term; rhs : term; conds : cond list; owise : bool }
 
-(* The interpretation of conditions; [Join] for now. *)
-type ctype = SemiEquational | Join | Oriented
-
 type t = {
-  ctype : ctype;
-  vars : string list; (* VAR idlist: every variable used, deduplicated *)
+  vars : string list; (* every variable used, deduplicated *)
   rules : rule list;
-  comment : string option;
 }
 
 (* The IL -> CTRS translation lives in {!To_ctrs}; this module is only the data
    model and printer. *)
-
-let string_of_ctype = function
-  | SemiEquational -> "SEMI-EQUATIONAL"
-  | Join -> "JOIN"
-  | Oriented -> "ORIENTED"
 
 let rec string_of_term = function
   | Var id -> id
   | App (id, []) -> id
   | App (id, terms) ->
       id ^ "(" ^ String.concat ", " (List.map string_of_term terms) ^ ")"
-
-let string_of_cond (lhs, rhs) = string_of_term lhs ^ " == " ^ string_of_term rhs
-
-let string_of_rule { lhs; rhs; conds; _ } =
-  let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
-  match conds with
-  | [] -> head
-  | _ -> head ^ " | " ^ String.concat ", " (List.map string_of_cond conds)
-
-let string_of_system (t : t) =
-  let buf = Buffer.create 256 in
-  Buffer.add_string buf ("(CONDITIONTYPE " ^ string_of_ctype t.ctype ^ ")\n");
-  (match t.vars with
-  | [] -> ()
-  | _ -> Buffer.add_string buf ("(VAR " ^ String.concat " " t.vars ^ ")\n"));
-  Buffer.add_string buf "(RULES";
-  List.iter
-    (fun rule -> Buffer.add_string buf ("\n  " ^ string_of_rule rule))
-    t.rules;
-  Buffer.add_string buf (if t.rules = [] then ")\n" else "\n)\n");
-  (match t.comment with
-  | None -> ()
-  | Some comment -> Buffer.add_string buf ("(COMMENT " ^ comment ^ ")\n"));
-  Buffer.contents buf
-
-(* TPDB conditional rendering for MuTerm (termination). MuTerm's parser rejects
-   the COPS surface this module's [string_of_system] emits: a leading
-   [(CONDITIONTYPE ...)] header and [s == t] join conditions both make it crash
-   (it prints a Haskell call-stack trace and falls back to MAYBE). It accepts
-   the TPDB conditional form instead -- no CONDITIONTYPE header, conditions
-   written oriented as [s -> t] and separated by [ , ] -- which is also the
-   shape of MuTerm's own bundled examples. For termination the oriented reading
-   of a condition is the intended one. Unconditional systems print as
-   [string_of_system] would, minus the header. *)
-let string_of_cond_oriented (lhs, rhs) =
-  string_of_term lhs ^ " -> " ^ string_of_term rhs
-
-let string_of_rule_oriented { lhs; rhs; conds; _ } =
-  let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
-  match conds with
-  | [] -> head
-  | _ ->
-      head ^ " | "
-      ^ String.concat " , " (List.map string_of_cond_oriented conds)
-
-let string_of_system_tpdb (t : t) =
-  let buf = Buffer.create 256 in
-  (match t.vars with
-  | [] -> ()
-  | _ -> Buffer.add_string buf ("(VAR " ^ String.concat " " t.vars ^ ")\n"));
-  Buffer.add_string buf "(RULES";
-  List.iter
-    (fun rule -> Buffer.add_string buf ("\n  " ^ string_of_rule_oriented rule))
-    t.rules;
-  Buffer.add_string buf (if t.rules = [] then ")\n" else "\n)\n");
-  (match t.comment with
-  | None -> ()
-  | Some comment -> Buffer.add_string buf ("(COMMENT " ^ comment ^ ")\n"));
-  Buffer.contents buf
-
-(* A system is a plain (unconditional) TRS when no rule carries a condition.
-   This is the precondition for routing termination to AProVE's WST path, which
-   handles only unconditional rewriting; conditional systems stay on MuTerm. *)
-let is_unconditional (t : t) = List.for_all (fun r -> r.conds = []) t.rules
 
 (* -------------------------------------------------------------------------- *)
 (* Term/rule queries shared by the translation ({!To_ctrs}) and slicing below. *)
@@ -196,8 +111,7 @@ let reachable_heads ~(roots : string list) (rules : rule list) :
   reachable
 
 (* Restrict the system to the rules reachable from [roots] (each root's defining
-   rules plus their transitive downward dependencies); variables are recomputed,
-   [ctype]/[comment] preserved. *)
+   rules plus their transitive downward dependencies); variables are recomputed. *)
 let slice (t : t) ~(roots : string list) : t =
   let reachable = reachable_heads ~roots t.rules in
   let rules =
@@ -209,13 +123,12 @@ let slice (t : t) ~(roots : string list) : t =
       t.rules
   in
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
-  { t with rules; vars }
+  { rules; vars }
 
 (* -------------------------------------------------------------------------- *)
 (* Maude system-module surface, for the Maude Formal Environment (CRC + ChC).
 
-   A third textual surface beside COPS ([string_of_system]) and TPDB
-   ([string_of_system_tpdb]): a single-sort Full Maude *system* module. The
+   The textual surface of a CTRS: a single-sort Full Maude *system* module. The
    equational fragment prints as [eq]/[ceq]; the symbols in [rule_heads] (the
    non-input-moded relations -- genuinely non-deterministic, run via search)
    print as [rl]/[crl]. The split lets the Church-Rosser Checker decide the
