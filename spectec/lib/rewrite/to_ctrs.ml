@@ -503,6 +503,13 @@ let input_moded_rel_syms (spec : spec) : string list =
     spec
 
 (* -------------------------------------------------------------------------- *)
+(* Scalar theory -- the one seam at which the analysis (structural) and Maude
+   (native built-in) pipelines diverge. [of_spec] emits scalar leaves and the
+   prelude according to this, so the Maude system is produced DIRECTLY (no
+   separate re-fold pass). *)
+type scalar_theory = Structural | Native
+
+(* -------------------------------------------------------------------------- *)
 (* TRANSLATION -- STUBBED for the new-rewrite skeleton.
 
    These two carry the IL -> CTRS translation that the rewrite branch grew
@@ -511,13 +518,18 @@ let input_moded_rel_syms (spec : spec) : string list =
      - [var_type_hints]: per-symbol variable type recovery from [VarE] notes.
      - [of_spec]: the prelude, the type-derived rules ([defs_of_typ]), and the
        body-rule generation from [DecD]/[RelD] clauses ([rules_of_def],
-       [conds_of_prem], the iteration/subtype helpers), then [prune_unused]. *)
+       [conds_of_prem], the iteration/subtype helpers), then [prune_unused].
+       Branch on [scalars]: [Structural] keeps the Peano/sign-magnitude/char
+       prelude; [Native] wraps ground scalars and omits [native_replaced_heads]
+       (To_maude delegates them). *)
 
 let var_type_hints (_spec : spec) :
     (string, (string * typ') list) Hashtbl.t =
   failwith "TODO(new-rewrite): reimplement To_ctrs.var_type_hints"
 
-let of_spec ?(extra_defs = []) ~(orig : spec) (simplified : spec) : R.t =
+let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
+    (simplified : spec) : R.t =
+  ignore scalars;
   ignore extra_defs;
   ignore orig;
   ignore simplified;

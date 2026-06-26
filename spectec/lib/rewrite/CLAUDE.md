@@ -41,6 +41,14 @@ Lang.Il.spec ──Simplify──▶ Lang.Il.spec ──To_ctrs──┤        
   entry `Rewrite.rewrite_spec`): self-contained structural scalars — Peano nats,
   sign-magnitude ints, char-list texts, own booleans — because a CTRS has no
   external theories. Feeds COPS/TPDB; goldens pin this surface.
+
+> **⚠️ new-rewrite 설계 변경 (② 제거):** 아래 Execution 설명은 *옛* 설계다. 새
+> 골격은 `Maude_theory.native_system`(구조적 시스템을 다시 fold하는 별도 패스)를
+> 삭제하고, `Pipeline.maude_system_of_spec`을 `To_ctrs.of_spec ~scalars:Native`
+> **직접 경로**로 바꿨다 — 스칼라 인코딩/ prelude 생략이 번역 단계에서 일어난다.
+> 권위 있는 현재 설계는 [CORE_LOGIC.md](CORE_LOGIC.md) §1·§6.1. 아래 단락은 fold가
+> *무엇을* 했는지의 참고로만 읽어라.
+
 - **Execution** (`Pipeline.maude_system_of_spec` = `Maude_theory.native_system`
   over the analysis system; consumed only by `To_maude`): ground scalar values
   fold into wrapper constructors over the built-ins (`nat(3) : NatV`,

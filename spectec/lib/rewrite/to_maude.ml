@@ -2,10 +2,11 @@
    system module, plus the META-TERM start-term encoding the reflective
    [metaReduce] path runs.
 
-   STUBBED for the new-rewrite skeleton -- reimplement, over
-   {!Pipeline.maude_system_of_spec}: sort recovery and op declarations, the
-   eq/rl printing, the built-in delegation equations ({!Maude_theory}), and the
-   META-TERM encoders ([meta_term_of_value]/[meta_start_app]). *)
+   STUBBED for the new-rewrite skeleton -- reimplement, over the direct Maude
+   path {!Pipeline.maude_system_of_spec} ([To_ctrs.of_spec ~scalars:Native]):
+   sort recovery and op declarations, the eq/rl printing, the built-in
+   delegation equations (for [To_ctrs.native_replaced_heads]), and the META-TERM
+   encoders ([meta_term_of_value]/[meta_start_app]). *)
 
 let module_of_spec ?(module_name = "SPEC") ?(relations_as_rules = false)
     (spec : Lang.Il.spec) : string =

@@ -13,16 +13,24 @@
 
 ---
 
-## 1. 아키텍처 — 두 파이프라인, 그리고 분기 이유
+## 1. 아키텍처 — 두 파이프라인, 그리고 분기 지점
 
 ```
 Lang.Il.spec (elaborated)
-   │  Defunctionalize  → Simplify → To_ctrs(+Builtin) → Gensym.thread
-   ▼
-Rewrite_system.t  (CTRS)
-   ├─(분석)  string_of_system → Cocoweb(confluence) / Termination(AProVE·MuTerm)
-   └─(실행)  Maude_theory.native_system → To_maude → Maude_run → Of_maude
+   │  Defunctionalize → Simplify → To_ctrs.of_spec ~scalars:?? (+Builtin) → Gensym.thread
+   │                                                      ▲
+   │                          스칼라 이론이 유일한 분기점 ──┘
+   ├─(분석)  of_spec ~scalars:Structural → Rewrite_system.t
+   │            → string_of_system → Cocoweb(confluence) / Termination(AProVE·MuTerm)
+   └─(실행)  of_spec ~scalars:Native   → Rewrite_system.t   ← ② 재-fold 없음, 직접 생성
+                → To_maude → Maude_run → Of_maude
 ```
+
+**핵심: 두 경로는 *같은* 구조적 번역을 공유하고, 스칼라 이론
+(`To_ctrs.scalar_theory = Structural | Native`) 하나에서만 갈라진다.** 그래서
+Maude 시스템은 구조적 시스템을 *다시 fold하는 별도 패스(옛 `Maude_theory`)* 없이
+번역 단계에서 **직접** 만들어진다. variant/struct/relation/함수 규칙은 두 경로에서
+동일하고, 스칼라 leaf와 prelude만 달라진다.
 
 **왜 두 파이프라인인가.** 같은 번역 결과를 두 표면이 소비하는데, 스칼라(수·불리언·
 문자열) 표현이 서로 달라야 한다:
@@ -33,13 +41,15 @@ Rewrite_system.t  (CTRS)
   구조적 재귀 규칙(prelude)으로 정의. 이래야 confluence/termination 도구가 닫힌
   시스템을 본다.
 - **실행(built-in theory)**: Maude에는 GMP 기반 `Bool`/`Nat`/`Int`/`String`이 있다.
-  그래서 ground 스칼라를 내장 이론 위 wrapper 생성자로 fold하고(`nat(3)`,
-  `int(-5)`, `bool(true)`, `txt("E.")`), 손으로 쓴 스칼라 prelude 규칙은 버리고,
-  살아남은 연산자를 한 줄 delegation으로 재방출(`eq add(nat(X),nat(Y)) = nat(X+Y)`).
-  상수시간 산술.
+  그래서 ground 스칼라를 내장 이론 위 wrapper 생성자로 인코딩하고(`nat(3)`,
+  `int(-5)`, `bool(true)`, `txt("E.")`), 손으로 쓴 스칼라 prelude 규칙
+  (`native_replaced_heads`)은 *처음부터 안 내고*, `To_maude`가 한 줄 delegation으로
+  방출(`eq add(nat(X),nat(Y)) = nat(X+Y)`). 상수시간 산술.
 
-두 파이프라인은 `Maude_theory.native_system` 지점에서 의도적으로 갈라진다. 분석
-표면은 구조적 시스템을 그대로 유지한다.
+두 파이프라인은 **`of_spec`의 `~scalars` 인자**에서 갈라진다. `Structural`이면 위
+구조적 인코딩+prelude, `Native`면 wrapper 인코딩+prelude 생략. **별도 fold 패스는
+없다** — 옛 설계의 `Maude_theory.native_system`(구조적 시스템을 받아 다시 fold)은
+이 seam으로 대체돼 삭제됐다. 분석 표면은 구조적 시스템을 그대로 유지한다.
 
 **`orig`(simplify 이전 spec)를 함께 넘기는 이유:** 타입 정의와 relation 시그니처
 (생성자/matcher/subtype 규칙, relation 인자 입출력 분할에 필요)는 *un-simplified*
@@ -210,11 +220,17 @@ fresh-닿는 호출을 opaque로 둬 `Simplify`가 발급을 중복 안 함. gen
 
 ## 6. 실행 (Maude) 백엔드 (지움 — 재구현 시 참고)
 
-### 6.1 native theory fold (`Maude_theory.native_system`)
-분석 시스템 위에서: ground 스칼라를 `nat`/`int`/`bool`/`txt` wrapper로 fold하고,
-대체된 스칼라 prelude 규칙(`native_replaced_heads`)을 버림. **내장 sort는 `Val`
-바깥**에 둠(kind가 병합되면 import된 연산자 attribute가 충돌). `TextE ""`는 bare
-`nil`로 두고 `List < Text` + `eq`/`cat` nil-방정식으로 bridge.
+### 6.1 native 스칼라 이론 — `of_spec ~scalars:Native` (별도 fold 패스 아님)
+**옛 설계**는 분석 시스템을 받아 다시 fold하는 `Maude_theory.native_system` 패스를
+뒀지만(②), **새 설계는 그 패스를 없애고** 번역 단계에서 직접 native 항을 낸다:
+`of_spec`가 `~scalars:Native`면 ground 스칼라를 `nat`/`int`/`bool`/`txt` wrapper로
+인코딩하고, 대체될 스칼라 prelude(`native_replaced_heads`)를 *처음부터 안 낸다*
+(To_maude가 delegation으로 채움). 의미·불변식은 동일하고, 중복 패스만 제거. 재구현
+시 `of_spec`의 prelude/스칼라-leaf 방출을 `scalars`로 분기하면 된다.
+
+**내장 sort는 `Val` 바깥**에 둠(kind가 병합되면 import된 연산자 attribute가 충돌).
+`TextE ""`는 bare `nil`로 두고 `List < Text` + `eq`/`cat` nil-방정식으로 bridge.
+(이 sort 위계 결정은 `Native` 경로에 한정 — `Structural`은 자체 스칼라라 무관.)
 
 ### 6.2 `To_maude` 모듈 방출
 order-sorted Maude 시스템 모듈: sort 복구(원본 spec의 시그니처에서), op 선언, eq/rl
@@ -271,7 +287,7 @@ Maude normal form을 IL value로 역번역(spec에서 읽은 forward 테이블; 
   `defs_of_typ`, `term_of_exp`, `conds_of_prem`, `rules_of_def`, 반복/subtype helper,
   `prune_unused`) 재구축. 검증:
   `main.exe rewrite specs/impty/base/spec.spectec | diff - spec.rewrite`.
-- **M2 — Maude 실행.** `To_ctrs.var_type_hints`, native theory fold(§6.1),
+- **M2 — Maude 실행.** `To_ctrs.var_type_hints`, `of_spec`의 `Native` 스칼라 분기(§6.1),
   `To_maude.*`(§6.2–6.3). `Maude_run`로 impty 실행 확인.
 - **M3 — 결과-VALUE 오라클.** `Of_maude.*`(§6.4). same-spec interp vs Maude 비교.
 

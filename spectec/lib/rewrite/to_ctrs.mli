@@ -1,4 +1,19 @@
-(** Translate an elaborated IL spec into a COPS CTRS ({!Rewrite_system.t}).
+(** Which scalar theory the emitted rules target -- the one seam at which the
+    analysis and the Maude pipelines diverge, so they share the {e same}
+    structural translation and no separate re-fold pass is needed.
+
+    - [Structural]: self-contained scalars (Peano nats, sign-magnitude ints,
+      char-list texts, own booleans) with their hand-written prelude rules. The
+      COPS/TPDB analysis surfaces ({!Rewrite_system.string_of_system}) need a
+      closed system with no external theories.
+    - [Native]: ground scalars fold into built-in wrappers ([nat]/[int]/[bool]/
+      [txt]) and the {!native_replaced_heads} prelude rules are OMITTED, so
+      {!To_maude} can re-emit them as one-line delegations to Maude's
+      Bool/Nat/Int/String. This is the {b direct} IL -> Maude path -- the
+      execution system is produced here, not refolded from the structural one. *)
+type scalar_theory = Structural | Native
+
+(** Translate an elaborated IL spec into a CTRS ({!Rewrite_system.t}).
 
     [orig] is the spec before {!Simplify.simplify_spec}; it supplies the type
     definitions and relation signatures used to derive constructor/matcher/
@@ -6,8 +21,10 @@
     whose function clauses and relation rules become the body rewrite rules.
     [extra_defs] are additional definition rules (e.g. {!Builtin}'s
     collection-builtin rules) added to the prunable pool, kept only where the
-    body actually reaches them. *)
+    body actually reaches them. [scalars] selects the scalar theory (default
+    [Structural]); pass [Native] for the Maude backend. *)
 val of_spec :
+  ?scalars:scalar_theory ->
   ?extra_defs:Rewrite_system.rule list ->
   orig:Lang.Il.spec ->
   Lang.Il.spec ->
@@ -125,9 +142,9 @@ val chr_code_of_sym : string -> int option
     remainder against this. *)
 val char_codes_of_rules : Rewrite_system.rule list -> int list
 
-(** The prelude symbols whose defining rules the Maude backend replaces with
-    delegations to Maude's built-in theories ({!Maude_theory}); the analysis
-    pipeline keeps their hand-written structural rules. *)
+(** The prelude symbols whose defining rules the [Native] scalar theory omits
+    and {!To_maude} replaces with delegations to Maude's built-in theories; the
+    [Structural] theory (analysis) keeps their hand-written structural rules. *)
 val native_replaced_heads : string list
 
 (** [rule lhs rhs] / [rule_cond lhs rhs conds]: an unconditional / conditional

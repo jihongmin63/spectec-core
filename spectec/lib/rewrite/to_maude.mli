@@ -15,11 +15,12 @@
     Maude-surface conventions. *)
 
 (** Translate [orig] (an elaborated IL spec) all the way to Maude module text,
-    over Maude's built-in Bool/Nat/Int/String
-    ({!Pipeline.maude_system_of_spec}): scalar values are wrapped built-in
-    literals and the hand-written scalar prelude is replaced by one-line
-    delegation equations, so arithmetic and text operations run in constant time
-    instead of structural recursion. *)
+    over the direct Maude path ({!Pipeline.maude_system_of_spec}, i.e.
+    {!To_ctrs.of_spec} with [~scalars:Native]): scalar values are wrapped
+    built-in literals and the omitted scalar prelude
+    ({!To_ctrs.native_replaced_heads}) is supplied as one-line delegation
+    equations, so arithmetic and text operations run in constant time instead of
+    structural recursion. *)
 val module_of_spec :
   ?module_name:string -> ?relations_as_rules:bool -> Lang.Il.spec -> string
 
@@ -56,6 +57,6 @@ val meta_start_app : Lang.Il.spec -> string -> string list -> string
     reflective [metaReduce] start-term path ({!Maude_run}). Parses through the
     fixed META-TERM grammar instead of the module's giant mixfix signature (the
     dominant per-program cost). Scalars encode as the built-in meta literals
-    Maude reflects them to ({!Maude_theory}); self-contained, nothing extra to
-    declare. *)
+    Maude reflects them to (the [Native] scalar theory, {!To_ctrs.scalar_theory});
+    self-contained, nothing extra to declare. *)
 val meta_term_of_value : Lang.Il.spec -> Lang.Il.value -> string
