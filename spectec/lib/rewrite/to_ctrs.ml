@@ -62,6 +62,13 @@ open Lang.Il
 
 module R = Rewrite_system
 
+(* SKELETON (new-rewrite): the symbol/builder layer below is retained as the
+   toolkit for reimplementing the translation, but with [of_spec]/[var_type_hints]
+   stubbed many of its helpers are not yet called. Silence unused-value/field
+   here so the skeleton builds; drop this attribute once the translation is
+   reimplemented and the layer is in use again. *)
+[@@@warning "-32-69"]
+
 (* -------------------------------------------------------------------------- *)
 (* Symbol + builder layer. Raw [R.App]/[R.Var] construction is confined to this
    section; everything below builds terms through these helpers. *)

@@ -5,9 +5,12 @@
 > 레이어(`to_ctrs.ml` 상단)·thin 구조 질의는 온전하지만, **번역 로직은 비어
 > 있습니다**: `To_ctrs.of_spec`/`var_type_hints`, `Simplify.simplify_spec`,
 > `To_maude.*`, `Of_maude.*`가 `failwith "TODO(new-rewrite): ..."` 스텁입니다.
-> 베이스가 `main`이라 이 라이브러리가 의존하는 IL 변경(record `typcase`/`var`,
-> `Mode.t` reltyp, `diag`/`hints` 등)은 아직 없어 **그대로는 빌드되지 않습니다** —
-> 인프라를 먼저 다시 들여온 뒤 위 스텁을 채워 재구현하세요. 아래 문서는 재구현의
+> 베이스는 `origin/main`이고 이 라이브러리가 의존하는 IL(record `typcase`/`var`,
+> `Mode.t` reltyp 등)은 **이미 베이스에 들어 있어 골격이 클린 빌드됩니다**
+> (`opam exec --switch=spectecx -- dune build lib/rewrite/rewrite.cma`). 즉
+> *컴파일은 되지만 기능은 비어 있는* 상태이며, 위 스텁을 채우면 동작합니다. (스텁이
+> 미사용으로 남긴 `to_ctrs.ml` 빌더 레이어는 그 파일 상단의 `[@@@warning "-32-69"]`로
+> 막아둠 — 번역 재구현 후 제거.) 아래 문서는 재구현의
 > 설계 기준(원래 의도한 파이프라인)으로 그대로 유지합니다 — **단, 골격은 핵심
 > 척추(데이터 모델·`to_ctrs`/`simplify`/`to_maude`/`pipeline`/`rewrite`)만 남기고
 > 지원 패스·실행 브리지(`defunctionalize`/`gensym`/`prem_env`/`exp_map`/`builtin`/
