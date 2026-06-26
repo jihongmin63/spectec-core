@@ -2,6 +2,7 @@ module Rewrite_system = Rewrite_system
 module To_ctrs = To_ctrs
 module Simplify = Simplify
 module To_maude = To_maude
+module Mfe = Mfe
 
 (** Translate an elaborated IL spec into a rewriting system.
 

@@ -210,3 +210,95 @@ let slice (t : t) ~(roots : string list) : t =
   in
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
   { t with rules; vars }
+
+(* -------------------------------------------------------------------------- *)
+(* Maude system-module surface, for the Maude Formal Environment (CRC + ChC).
+
+   A third textual surface beside COPS ([string_of_system]) and TPDB
+   ([string_of_system_tpdb]): a single-sort Full Maude *system* module. The
+   equational fragment prints as [eq]/[ceq]; the symbols in [rule_heads] (the
+   non-input-moded relations -- genuinely non-deterministic, run via search)
+   print as [rl]/[crl]. The split lets the Church-Rosser Checker decide the
+   equations' confluence and the Coherence Checker the rules' coherence with
+   them. Everything sits in one sort [Term]: the CTRS carries no sorts, so each
+   operator is declared from its arity alone (an over-approximation -- ill-sorted
+   overlaps may surface as spurious critical pairs). The wrapping [(mod ... endm)]
+   parens are Full Maude's module-entry syntax. *)
+
+(* Every (symbol, arity) pair applied in a term. *)
+let rec ops_of_term acc = function
+  | Var _ -> acc
+  | App (sym, ts) ->
+      List.fold_left ops_of_term ((sym, List.length ts) :: acc) ts
+
+(* Every (symbol, arity) the system applies, first occurrence kept. A symbol's
+   arity is fixed (the naming convention folds arity into variant/case symbols),
+   so each symbol appears with a single arity. *)
+let ops_of_system (t : t) : (string * int) list =
+  let acc =
+    List.fold_left
+      (fun acc r ->
+        let acc = ops_of_term (ops_of_term acc r.lhs) r.rhs in
+        List.fold_left
+          (fun acc (a, b) -> ops_of_term (ops_of_term acc a) b)
+          acc r.conds)
+      [] t.rules
+  in
+  let seen = Hashtbl.create 64 in
+  List.filter
+    (fun p ->
+      if Hashtbl.mem seen p then false
+      else (
+        Hashtbl.add seen p ();
+        true))
+    (List.rev acc)
+
+(* A Maude conditional fragment [t1 = t2 /\ t3 = t4] from COPS join conditions
+   ([s == t] becomes the equational condition [s = t]). *)
+let string_of_conds_maude conds =
+  String.concat " /\\ "
+    (List.map (fun (a, b) -> string_of_term a ^ " = " ^ string_of_term b) conds)
+
+let string_of_system_maude ?(module_name = "SPEC") ~(rule_heads : string list)
+    (t : t) : string =
+  let buf = Buffer.create 512 in
+  let add = Buffer.add_string buf in
+  add ("(mod " ^ module_name ^ " is\n");
+  add "  sort Term .\n";
+  List.iter
+    (fun (sym, arity) ->
+      if arity = 0 then add (Printf.sprintf "  op %s : -> Term .\n" sym)
+      else
+        let dom = String.concat " " (List.init arity (fun _ -> "Term")) in
+        add (Printf.sprintf "  op %s : %s -> Term .\n" sym dom))
+    (ops_of_system t);
+  (match t.vars with
+  | [] -> ()
+  | vs -> add (Printf.sprintf "  vars %s : Term .\n" (String.concat " " vs)));
+  let is_rule r =
+    match defined_head r with Some h -> List.mem h rule_heads | None -> false
+  in
+  List.iter
+    (fun r ->
+      let lhs = string_of_term r.lhs and rhs = string_of_term r.rhs in
+      if is_rule r then
+        match r.conds with
+        | [] -> add (Printf.sprintf "  rl %s => %s .\n" lhs rhs)
+        | cs ->
+            add
+              (Printf.sprintf "  crl %s => %s if %s .\n" lhs rhs
+                 (string_of_conds_maude cs))
+      else
+        (* [owise] (SpecTec [ElsePr]) is an equation attribute; rules carry it
+           only spuriously (relations are non-deterministic), so it is ignored
+           on the [rl] branch above. *)
+        let owise = if r.owise then " [owise]" else "" in
+        match r.conds with
+        | [] -> add (Printf.sprintf "  eq %s = %s%s .\n" lhs rhs owise)
+        | cs ->
+            add
+              (Printf.sprintf "  ceq %s = %s if %s%s .\n" lhs rhs
+                 (string_of_conds_maude cs) owise))
+    t.rules;
+  add "endm)\n";
+  Buffer.contents buf

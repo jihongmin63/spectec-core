@@ -21,7 +21,8 @@ Lang.Il.spec (elaborated)
    │                                                      ▲
    │                          스칼라 이론이 유일한 분기점 ──┘
    ├─(분석)  of_spec ~scalars:Structural → Rewrite_system.t
-   │            → string_of_system → Cocoweb(confluence) / Termination(AProVE·MuTerm)
+   │            → string_of_system_maude → Mfe(CRC confluence + ChC coherence)
+   │            → string_of_system_tpdb  → Termination(AProVE·MuTerm)
    └─(실행)  of_spec ~scalars:Native   → Rewrite_system.t   ← ② 재-fold 없음, 직접 생성
                 → To_maude → Maude_run → Of_maude
 ```
@@ -67,12 +68,16 @@ type ctype = SemiEquational | Join | Oriented            (* 우리는 Join 방�
 type t = { ctype; vars : string list; rules : rule list; comment : string option }
 ```
 
-두 텍스트 표면, **의도적으로 다름**:
+세 텍스트 표면, **의도적으로 다름**:
 - `string_of_system` — **COPS**: 머리에 `(CONDITIONTYPE JOIN)`, 조건 `s == t`.
-  CoCoWeb·`rewrite` CLI 덤프용.
+  `rewrite` CLI 덤프용(과거 CoCoWeb 입력 — 게이트가 MFE로 바뀌며 confluence 소비자는
+  `string_of_system_maude`로 이동).
 - `string_of_system_tpdb` — **TPDB**: CONDITIONTYPE 헤더 없음, 조건은 oriented
   `s -> t` 를 ` , ` 로 구분. MuTerm 파서가 COPS 표면에서 *크래시*하므로 termination은
   이 형태를 써야 함.
+- `string_of_system_maude ~rule_heads` — **Full Maude 시스템 모듈**(단일 sort `Term`):
+  등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation)는 `rl`/`crl`. MFE의
+  CRC(등식 confluence)/ChC(rl coherence)가 소비(§6.5).
 
 `slice t ~roots` — `roots`에서 도달 가능한(하향 의존 폐포) 규칙만 남김(심볼별
 confluence/termination 검사용). `reachable_heads`/`refs_of_rule`/`defined_head`가
@@ -257,13 +262,26 @@ Maude normal form을 IL value로 역번역(spec에서 읽은 forward 테이블; 
 `Value.compare`로 정렬(맵은 unordered — interp은 `VMap.bindings` 정렬, 번역은 삽입
 순서). 진짜 내용 차이는 그대로 드러냄.
 
-### 6.5 외부 도구 브리지 (`Cocoweb`/`Muterm`/`Aprove`/`Termination`)
-직렬화→temp 파일→클라이언트 호출→verdict 매핑(`Yes|No|Maybe|Timeout|Error`).
-- `Cocoweb`/`Muterm`: Python 클라이언트가 웹 인터페이스에 POST.
-- `Aprove`: 로컬 `aprove.jar` 직접 실행(`-m wst -t N`).
-- `Termination` **디스패처**: `Rewrite_system.is_unconditional` → 무조건이면 AProVE,
-  조건부면 MuTerm. CoCoWeb=confluence만, MuTerm=termination만 보고. `Timeout`은
-  `Maybe`와 구분 유지.
+### 6.5 confluence/coherence 게이트 — `Mfe` (Maude Formal Environment; 골격에 유지)
+
+confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + ChC, 로컬
+`maude`)로 바뀌었다. `Rewrite_system.string_of_system_maude ~rule_heads`가 분석
+시스템(구조적 스칼라)을 **단일 sort 시스템 모듈**로 내는데, 등식 fragment는 `eq`/`ceq`,
+`rule_heads`(비입력-moded relation = `To_ctrs.input_moded_rel_syms`의 여집합)는 `rl`/`crl`로
+가른다. `Mfe.check`가 MFE를 로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
+`{ church_rosser; coherence }`를 돌려준다(temp 파일→`Unix.open_process_in`, aprove/maude_run
+패턴):
+- **CRC** — 등식 fragment의 Church-Rosser. "`reduce`가 well-defined인가" = 등식이 결정적.
+- **ChC** — `rl`이 등식에 coherent한가. 등식 환원이 규칙 redex를 숨기지 않아 `search`가
+  등식 mod로 완전.
+둘은 직교한 well-formedness 조건이고 Maude가 *실행 중엔 검사 안 하고 가정만* 한다 — 그래서
+오프라인 게이트로 따로 검증한다. MFE는 repo 미체크인(다운로드·경로 해소·미설치 시 깨끗한
+`Error`): [tools/mfe/README.md](../../tools/mfe/README.md). 정확한 load/명령/verdict 토큰은
+실측 보정 필요(거기 "Calibration").
+
+> termination 게이트(`Aprove`/`Muterm`/`Termination` 디스패처: `is_unconditional`이면
+> AProVE WST, 아니면 MuTerm; `string_of_system_tpdb` 소비)는 별개 축이며 이 골격에선
+> **아직 미복원**이다(이번 작업 범위 밖).
 
 ---
 
