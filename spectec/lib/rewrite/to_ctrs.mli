@@ -10,7 +10,8 @@
       [txt]) and the {!native_replaced_heads} prelude rules are OMITTED, so
       {!To_maude} can re-emit them as one-line delegations to Maude's
       Bool/Nat/Int/String. This is the {b direct} IL -> Maude path -- the
-      execution system is produced here, not refolded from the structural one. *)
+      execution system is produced here, not refolded from the structural one.
+*)
 type scalar_theory = Structural | Native
 
 (** Translate an elaborated IL spec into a CTRS ({!Rewrite_system.t}).

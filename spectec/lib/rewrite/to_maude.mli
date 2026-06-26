@@ -57,6 +57,6 @@ val meta_start_app : Lang.Il.spec -> string -> string list -> string
     reflective [metaReduce] start-term path ({!Maude_run}). Parses through the
     fixed META-TERM grammar instead of the module's giant mixfix signature (the
     dominant per-program cost). Scalars encode as the built-in meta literals
-    Maude reflects them to (the [Native] scalar theory, {!To_ctrs.scalar_theory});
-    self-contained, nothing extra to declare. *)
+    Maude reflects them to (the [Native] scalar theory,
+    {!To_ctrs.scalar_theory}); self-contained, nothing extra to declare. *)
 val meta_term_of_value : Lang.Il.spec -> Lang.Il.value -> string

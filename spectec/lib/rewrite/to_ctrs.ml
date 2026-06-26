@@ -523,8 +523,7 @@ type scalar_theory = Structural | Native
        prelude; [Native] wraps ground scalars and omits [native_replaced_heads]
        (To_maude delegates them). *)
 
-let var_type_hints (_spec : spec) :
-    (string, (string * typ') list) Hashtbl.t =
+let var_type_hints (_spec : spec) : (string, (string * typ') list) Hashtbl.t =
   failwith "TODO(new-rewrite): reimplement To_ctrs.var_type_hints"
 
 let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
@@ -533,5 +532,5 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
   ignore extra_defs;
   ignore orig;
   ignore simplified;
-  failwith "TODO(new-rewrite): reimplement To_ctrs.of_spec (IL -> CTRS translation)"
-
+  failwith
+    "TODO(new-rewrite): reimplement To_ctrs.of_spec (IL -> CTRS translation)"
