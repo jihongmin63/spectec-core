@@ -8,7 +8,14 @@
 > 베이스가 `main`이라 이 라이브러리가 의존하는 IL 변경(record `typcase`/`var`,
 > `Mode.t` reltyp, `diag`/`hints` 등)은 아직 없어 **그대로는 빌드되지 않습니다** —
 > 인프라를 먼저 다시 들여온 뒤 위 스텁을 채워 재구현하세요. 아래 문서는 재구현의
-> 설계 기준(원래 의도한 파이프라인)으로 그대로 유지합니다.
+> 설계 기준(원래 의도한 파이프라인)으로 그대로 유지합니다 — **단, 골격은 핵심
+> 척추(데이터 모델·`to_ctrs`/`simplify`/`to_maude`/`pipeline`/`rewrite`)만 남기고
+> 지원 패스·실행 브리지(`defunctionalize`/`gensym`/`prem_env`/`exp_map`/`builtin`/
+> `maude_theory`/`maude_run`/`of_maude`/`cocoweb`/`muterm`/`aprove`/`termination`)는
+> 삭제했습니다.** 그 삭제된 모듈들의 핵심 로직은 [CORE_LOGIC.md](CORE_LOGIC.md)에
+> 보존돼 있으니 재구현의 1차 기준으로 삼고, 필요하면
+> `git checkout rewrite -- <file>` 로 원본을 복구하세요. (아래 "모듈 map"은 삭제분을
+> 포함한 *전체* 설계를 기술합니다.)
 
 > **의사소통은 한글을 선호합니다.** 설명·요약·질문은 한글로 작성하세요 (코드,
 > 식별자, 인용한 에러 메시지는 원문 그대로).

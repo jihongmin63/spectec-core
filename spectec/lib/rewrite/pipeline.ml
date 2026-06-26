@@ -1,39 +1,31 @@
-(* The one composition of the IL -> CTRS translation: the {!Simplify} pre-pass,
-   {!Builtin}'s collection-builtin rules, and the {!To_ctrs} translation. The
-   COPS surface ({!Rewrite.rewrite_spec}) and the Maude backend ({!To_maude}'s
-   module text and stuck-head set) must all reduce the same system, so every
-   consumer goes through this builder instead of re-assembling the stages.
+(* The one composition of the IL -> CTRS translation. Every consumer (the COPS
+   surface {!Rewrite.rewrite_spec} and the Maude backend {!To_maude}) goes
+   through this builder instead of re-assembling the stages, so they all reduce
+   the same system.
 
-   Debug fallback: to bypass simplification (e.g. to tell whether an odd rule
-   comes from [Simplify] or from [To_ctrs]), pass [spec] as the last argument
-   instead of [Simplify.simplify_spec spec]. *)
+   The rewrite-branch pipeline wrapped this core with feature passes that the
+   new-rewrite skeleton deleted -- reintroduce them around the core as you
+   reimplement (see CORE_LOGIC.md §5):
+     - [Defunctionalize.defunctionalize spec] FIRST, so every call is
+       first-order before simplification/translation.
+     - [Builtin.rules_of_builtins spec] as [~extra_defs] (P4 collection
+       builtins).
+     - [Gensym.thread] LAST, threading the [$fresh_typeId] state.
+
+   Debug fallback: to tell whether an odd rule comes from [Simplify] or from
+   [To_ctrs], pass [spec] as the last argument instead of
+   [Simplify.simplify_spec spec]. *)
 let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
-  (* First: specialize away [def]-valued arguments, so every call is
-     first-order before simplification/translation see it. *)
-  let spec = Defunctionalize.defunctionalize spec in
-  To_ctrs.of_spec
-    ~extra_defs:(Builtin.rules_of_builtins spec)
-    ~orig:spec
-    (Simplify.simplify_spec spec)
-  (* Last: thread the gensym state through every $fresh_typeId-reaching
-     symbol, so both the analysis surface and the Maude backend (which
-     restates this system) see the same pure gensym. *)
-  |> Gensym.thread
+  To_ctrs.of_spec ~orig:spec (Simplify.simplify_spec spec)
 
 (* The execution pipeline: the same translation restated over Maude's built-in
-   Bool/Nat/Int/String ({!Maude_theory.native_system}), consumed only by
-   {!To_maude}. The analysis surface (COPS/TPDB) keeps the structural system
-   above -- the two pipelines intentionally diverge at this point.
+   Bool/Nat/Int/String, consumed only by {!To_maude}. The analysis surface
+   (COPS/TPDB) keeps the structural system above -- the two intentionally
+   diverge here (CORE_LOGIC.md §1, §6.1).
 
-   One-slot memo keyed by physical equality: a single `run` invocation builds
-   this system for the module text, the stuck-head set, and the start term,
-   all from the same elaborated spec value. *)
-let maude_memo : (Lang.Il.spec * Rewrite_system.t) option ref = ref None
-
+   STUBBED: the native-theory fold lived in the deleted [Maude_theory]
+   ([native_system]); reintroduce it here. *)
 let maude_system_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
-  match !maude_memo with
-  | Some (s, sys) when s == spec -> sys
-  | _ ->
-      let sys = Maude_theory.native_system (ctrs_of_spec spec) in
-      maude_memo := Some (spec, sys);
-      sys
+  ignore (ctrs_of_spec spec);
+  failwith
+    "TODO(new-rewrite): reimplement the native-theory fold (Maude_theory.native_system)"

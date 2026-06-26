@@ -1,12 +1,7 @@
 module Rewrite_system = Rewrite_system
+module To_ctrs = To_ctrs
 module Simplify = Simplify
 module To_maude = To_maude
-module Of_maude = Of_maude
-module Maude_run = Maude_run
-module Cocoweb = Cocoweb
-module Muterm = Muterm
-module Aprove = Aprove
-module Termination = Termination
 
 (** Translate an elaborated IL spec into a rewriting system.
 
