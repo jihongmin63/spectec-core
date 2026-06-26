@@ -162,6 +162,136 @@ let splice_command =
     let spec_pl = annotate ~henv spec_sl |> shorten in
     Ok (spec, spec_pl)
 
+(* Translate an elaborated IL spec to Maude. The default output is the
+   executable, order-sorted Maude module ([Rewrite.To_maude.module_of_spec]) --
+   the surface [run] executes. [--ctrs] instead dumps the analysis CTRS
+   (single-sort Full Maude system, the same text [verify] sends the MFE), and
+   [--simplified] the IL after the [Simplify] pre-pass; both are debug views of
+   the translation stages. *)
+let rewrite_command =
+  Core.Command.basic ~summary:"translate a spec to an executable Maude module"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and ctrs =
+    flag "--ctrs" no_arg
+      ~doc:
+        " dump the analysis CTRS (single-sort Full Maude system, what verify \
+         checks) instead of the executable module"
+  and simplified =
+    flag "--simplified" no_arg
+      ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
+  and relations_as_rules =
+    flag "--relations-as-rules" no_arg
+      ~doc:
+        " keep relations as Maude rules (rl/crl) instead of equations for \
+         input-moded ones"
+  in
+  fun () ->
+    Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    if simplified then
+      Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
+    else if ctrs then
+      Ok
+        (Rewrite.Rewrite_system.string_of_system_maude
+           ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
+           (Rewrite.rewrite_spec spec_il))
+    else Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
+
+(* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
+   the Maude Formal Environment. [Rewrite.rewrite_spec] builds the structural
+   CTRS, [--symbol] optionally slices it to one definition's dependency closure,
+   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation;
+   non-input-moded relations ([Rewrite.To_ctrs.rule_head_syms]) are the rules,
+   everything else equations. *)
+let verify_command =
+  Core.Command.basic
+    ~summary:
+      "verify confluence (Church-Rosser) and coherence of a spec via the MFE"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and symbol =
+    flag "--symbol" (optional string)
+      ~doc:"NAME check only this function/relation's dependency slice"
+  and list_symbols =
+    flag "--list-symbols" no_arg
+      ~doc:" list the sliceable function/relation symbols and exit"
+  and timeout =
+    flag "--timeout"
+      (optional_with_default 60 int)
+      ~doc:"S kill Maude after S seconds (default 60, 0 disables)"
+  and maude_bin =
+    flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
+  and mfe_dir =
+    flag "--mfe-dir" (optional string)
+      ~doc:"DIR directory holding the MFE (Full Maude + CRC/ChC loader)"
+  in
+  fun () ->
+    Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
+        Format.printf "%s\n" out;
+        if failed then exit 1)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    if list_symbols then
+      Ok (String.concat "\n" (Rewrite.def_symbols spec_il), false)
+    else
+      let system = Rewrite.rewrite_spec spec_il in
+      let system =
+        match symbol with
+        | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
+        | None -> system
+      in
+      let result : Rewrite.Mfe.result =
+        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir
+          ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
+          system
+      in
+      let verdict = Rewrite.Mfe.string_of_verdict in
+      let line =
+        Printf.sprintf "church-rosser: %s  coherence: %s"
+          (verdict result.church_rosser)
+          (verdict result.coherence)
+      in
+      let ok =
+        result.church_rosser = Rewrite.Mfe.Yes
+        && result.coherence = Rewrite.Mfe.Yes
+      in
+      Ok (line, not ok)
+
+(* Run a translated spec in Maude. The execution backend (start-term sourcing
+   for [--imp]/[--p4], [Maude_run] batch execution, the [--check-p4] result
+   oracle) is reintroduced in M2; until then [run] emits the executable module,
+   the same artifact [rewrite] produces by default. *)
+let run_command =
+  Core.Command.basic
+    ~summary:"run a translated spec in Maude (currently: emit the module)"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and relations_as_rules =
+    flag "--relations-as-rules" no_arg
+      ~doc:
+        " keep relations as Maude rules (rl/crl) instead of equations for \
+         input-moded ones"
+  in
+  fun () ->
+    Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
+
 let command =
   let module P4 = Targets_p4.P4.Cli in
   let module Impty = Targets_impty.Impty.Cli in
@@ -172,6 +302,9 @@ let command =
       ("struct", structure_command);
       ("annotate", annotate_command);
       ("splice", splice_command);
+      ("rewrite", rewrite_command);
+      ("verify", verify_command);
+      ("run", run_command);
       (P4.name, P4.command);
       (Impty.name, Impty.command);
     ]

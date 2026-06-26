@@ -509,6 +509,21 @@ let input_moded_rel_syms (spec : spec) : string list =
       | _ -> None)
     spec
 
+(* Relations with an EMPTY input mode: the non-input-moded relations, the
+   complement of [input_moded_rel_syms]. Being genuinely non-deterministic (no
+   inputs to determine outputs), they are emitted as Maude rules (rl/crl) rather
+   than equations -- the [~rule_heads] both the Maude system surface
+   ([Rewrite_system.string_of_system_maude]) and the MFE coherence check
+   ([Mfe.check]) take. *)
+let rule_head_syms (spec : spec) : string list =
+  List.filter_map
+    (fun def ->
+      match def.it with
+      | RelD { relid = id; reltyp; _ } when Mode.inputs reltyp.it = [] ->
+          Some (rel_sym id)
+      | _ -> None)
+    spec
+
 (* -------------------------------------------------------------------------- *)
 (* Scalar theory -- the one seam at which the analysis (structural) and Maude
    (native built-in) pipelines diverge. [of_spec] emits scalar leaves and the

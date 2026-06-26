@@ -67,8 +67,9 @@ type t = { vars : string list; rules : rule list }
 ```
 
 **텍스트 표면은 하나** — `string_of_system_maude ~rule_heads`(**Full Maude 시스템 모듈**,
-단일 sort `Term`): 등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation)는
-`rl`/`crl`. MFE의 CRC(등식 confluence)/ChC(rl coherence)가 소비(§6.5).
+단일 sort `Term`): 등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation,
+`To_ctrs.rule_head_syms`)는 `rl`/`crl`. MFE의 CRC(등식 confluence)/ChC(rl coherence)가
+소비(§6.5).
 
 > 옛 COPS(`string_of_system`)·TPDB(`string_of_system_tpdb`) 표면과 `ctype`/`comment`
 > 메타데이터·`is_unconditional`은 **삭제**됐다(소비자였던 CoCoWeb·AProVE·MuTerm 전부
@@ -262,8 +263,8 @@ Maude normal form을 IL value로 역번역(spec에서 읽은 forward 테이블; 
 confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + ChC, 로컬
 `maude`)로 바뀌었다. `Rewrite_system.string_of_system_maude ~rule_heads`가 분석
 시스템(구조적 스칼라)을 **단일 sort 시스템 모듈**로 내는데, 등식 fragment는 `eq`/`ceq`,
-`rule_heads`(비입력-moded relation = `To_ctrs.input_moded_rel_syms`의 여집합)는 `rl`/`crl`로
-가른다. `Mfe.check`가 MFE를 로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
+`rule_heads`(비입력-moded relation = `To_ctrs.rule_head_syms` = `input_moded_rel_syms`의
+여집합)는 `rl`/`crl`로 가른다. `Mfe.check`가 MFE를 로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
 `{ church_rosser; coherence }`를 돌려준다(temp 파일→`Unix.open_process_in`, aprove/maude_run
 패턴):
 - **CRC** — 등식 fragment의 Church-Rosser. "`reduce`가 well-defined인가" = 등식이 결정적.
@@ -299,7 +300,8 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 - **M1 — 분석 골든.** `Simplify.simplify_spec` + `To_ctrs.of_spec`(prelude,
   `defs_of_typ`, `term_of_exp`, `conds_of_prem`, `rules_of_def`, 반복/subtype helper,
   `prune_unused`) 재구축. 검증:
-  `main.exe rewrite specs/impty/base/spec.spectec | diff - spec.rewrite`.
+  `main.exe rewrite --ctrs specs/impty/base/spec.spectec | diff - spec.rewrite`
+  (기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은 `--ctrs` 경로).
 - **M2 — Maude 실행.** `To_ctrs.var_type_hints`, `of_spec`의 `Native` 스칼라 분기(§6.1),
   `To_maude.*`(§6.2–6.3). `Maude_run`로 impty 실행 확인.
 - **M3 — 결과-VALUE 오라클.** `Of_maude.*`(§6.4). same-spec interp vs Maude 비교.

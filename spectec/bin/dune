@@ -6,6 +6,7 @@
  (modules main)
  (libraries
   spectec
+  spectec.rewrite
   spectec.cli
   spectec.backend.splice
   spectec.targets.p4

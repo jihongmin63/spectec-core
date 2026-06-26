@@ -43,6 +43,13 @@ val def_symbols : Lang.Il.spec -> string list
     outputs), so {!To_maude} may emit them as equations instead of rules. *)
 val input_moded_rel_syms : Lang.Il.spec -> string list
 
+(** The CTRS symbols of relations with an {e empty} input mode: the
+    non-input-moded relations, the complement of {!input_moded_rel_syms}. Being
+    non-deterministic, they are emitted as rules rather than equations -- the
+    [~rule_heads] argument that {!Rewrite_system.string_of_system_maude} and
+    {!Mfe.check} take. *)
+val rule_head_syms : Lang.Il.spec -> string list
+
 (** {1 Symbol naming}
 
     The CTRS symbol-naming convention. Exposed so other backends (e.g.
