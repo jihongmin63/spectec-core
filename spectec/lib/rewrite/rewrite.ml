@@ -3,6 +3,9 @@ module To_ctrs = To_ctrs
 module Simplify = Simplify
 module To_maude = To_maude
 module Mfe = Mfe
+module Defunctionalize = Defunctionalize
+module Gensym = Gensym
+module Builtin = Builtin
 
 (* Simplify each rule and clause via the premise environment (structural
    substitution + redundant-premise removal), then translate the result into the

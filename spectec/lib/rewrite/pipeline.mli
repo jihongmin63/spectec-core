@@ -1,6 +1,7 @@
-(** The analysis pipeline: the IL -> CTRS translation ({!Simplify} pre-pass then
-    {!To_ctrs.of_spec}) with self-contained structural scalars
-    ([~scalars:Structural]), for the COPS/TPDB analysis surfaces. *)
+(** The analysis pipeline: the IL -> CTRS translation ({!Defunctionalize}, the
+    {!Simplify} pre-pass, {!To_ctrs.of_spec} with {!Builtin}'s collection rules,
+    then {!Gensym.thread}) with self-contained structural scalars
+    ([~scalars:Structural]), for the MFE (CRC/ChC) analysis surface. *)
 val ctrs_of_spec : Lang.Il.spec -> Rewrite_system.t
 
 (** The execution pipeline: the {b direct} IL -> Maude path. The same structural

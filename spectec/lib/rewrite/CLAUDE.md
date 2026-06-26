@@ -11,12 +11,14 @@
 > *컴파일은 되지만 기능은 비어 있는* 상태이며, 위 스텁을 채우면 동작합니다. (스텁이
 > 미사용으로 남긴 `to_ctrs.ml` 빌더 레이어는 그 파일 상단의 `[@@@warning "-32-69"]`로
 > 막아둠 — 번역 재구현 후 제거.) 아래 문서는 재구현의
-> 설계 기준(원래 의도한 파이프라인)으로 그대로 유지합니다 — **단, 골격은 핵심
-> 척추(데이터 모델·`to_ctrs`/`simplify`/`to_maude`/`pipeline`/`rewrite`)만 남기고
-> 지원 패스·실행 브리지(`defunctionalize`/`gensym`/`prem_env`/`exp_map`/`builtin`/
-> `maude_theory`/`maude_run`/`of_maude`/`cocoweb`/`muterm`/`aprove`/`termination`)는
-> 삭제했습니다.** 그 삭제된 모듈들의 핵심 로직은 [CORE_LOGIC.md](CORE_LOGIC.md)에
-> 보존돼 있으니 재구현의 1차 기준으로 삼고, 필요하면
+> 설계 기준(원래 의도한 파이프라인)으로 그대로 유지합니다 — **골격은 핵심
+> 척추(데이터 모델·`to_ctrs`/`simplify`/`to_maude`/`pipeline`/`rewrite`)에 더해
+> 지원 패스(`exp_map`/`defunctionalize`/`gensym`/`builtin`)를 `rewrite` 브랜치에서
+> 복구해 `pipeline.ml`에 다시 배선했고**(자세히 [CORE_LOGIC.md](CORE_LOGIC.md) §5;
+> `of_spec`/`Simplify` 스텁에 막혀 런타임은 아직 `failwith`), **나머지
+> (`prem_env`/`maude_theory`/`maude_run`/`of_maude`/`cocoweb`/`muterm`/`aprove`/
+> `termination`)는 삭제 상태입니다.** 삭제된 모듈들의 핵심 로직은
+> [CORE_LOGIC.md](CORE_LOGIC.md)에 보존돼 있으니 재구현의 1차 기준으로 삼고, 필요하면
 > `git checkout rewrite -- <file>` 로 원본을 복구하세요. (아래 "모듈 map"은 삭제분을
 > 포함한 *전체* 설계를 기술합니다.)
 

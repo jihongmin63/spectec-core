@@ -8,7 +8,10 @@
 >
 > 현재 골격에 남은 것: 데이터 모델(`rewrite_system.ml`), `to_ctrs`의 심볼/빌더
 > 레이어 + 번역 스텁, `simplify`/`to_maude` 스텁, 오케스트레이션
-> (`pipeline`/`rewrite`). 지운 것은 `rewrite` 브랜치에서 언제든
+> (`pipeline`/`rewrite`). **지원 패스(§5: `exp_map`/`defunctionalize`/`gensym`/
+> `builtin`)는 `rewrite` 브랜치에서 복구해 다시 배선됐습니다** — `of_spec`/`Simplify`
+> 스텁에 막혀 런타임은 아직 `failwith`지만 컴파일·배선은 완료. 나머지 지운 것
+> (`prem_env`/`maude_theory`/실행·분석 브리지)은 `rewrite` 브랜치에서 언제든
 > `git checkout rewrite -- <file>` 로 복구할 수 있습니다.
 
 ---
@@ -199,18 +202,30 @@ prelude/타입유도 규칙 중 body 규칙에서 도달 불가능한 정의 규
 
 ---
 
-## 5. 지원 패스 (지움 — 재구현 시 참고)
+## 5. 지원 패스 (복구됨 — `pipeline.ml`의 공통 `build`에 배선)
+
+세 패스 모두 `rewrite` 브랜치에서 복구돼 분석·실행 두 경로 공통으로 wrap된다
+(`Pipeline.build scalars spec`: Defunctionalize FIRST → `To_ctrs.of_spec
+~extra_defs:(Builtin.rules_of_builtins spec)` → `Gensym.thread` LAST). 각 패스는
+대응 기능이 없는 spec(impty: def-파라미터·컬렉션 builtin·gensym 모두 없음)에
+identity라 골든에 무영향. `of_spec`/`Simplify`가 스텁인 동안은 런타임이 거기서
+멈추지만, 채워지면 즉시 효과가 난다. `Defunctionalize`는 복구된 `Exp_map`(IL 얕은
+traversal: `map_subexps`/`subexps`/`exps_of_prem`)을 쓴다.
 
 ### 5.1 `Defunctionalize` — def-값 인자 specialization
 `$f(args, def $g)` → 생성된 1차 복사본 `$f_$g`(`$check := $g`를 템플릿 절들에 치환).
 재귀/연쇄 템플릿에 대한 worklist 폐포, 템플릿 제거, 남은 `DefA`는 hard error.
-`ctrs_of_spec` **첫 패스**(simplify/translate가 1차만 보게). `DefP` 없으면 identity.
+`build` **첫 패스**(simplify/translate가 1차만 보게). `DefP` 없으면 identity(물리적
+동등성 1-slot memo).
 
 ### 5.2 `Gensym` — `$fresh_typeId` 상태 스레딩
 상태=마지막 발급 이름, 발급=프라임 덧붙임(seed `"FRESH"`→`FRESH'`→`FRESH''`…, P4
 식별자와 충돌 없음). fresh에 닿는 모든 심볼이 후행 상태 인자를 얻고 결과는
-`tuple(result, state')`. `ctrs_of_spec` **마지막**(`Gensym.thread`). `Prem_env`가
-fresh-닿는 호출을 opaque로 둬 `Simplify`가 발급을 중복 안 함. gensym-free면 identity.
+`tuple(result, state')`. `build` **마지막**(`Gensym.thread`). gensym 루트 목록은
+`Gensym.gensym_ids`가 자체 보유(Prem_env 미복구) — `Prem_env`/`Simplify` 복구 시
+fresh-닿는 호출을 opaque로 둬(`Simplify`가 발급을 중복 안 하게) 이 목록을 그대로
+재사용해야 한다. gensym-free면 identity. 디버그용 `Rewrite_system.string_of_rule`
+(COPS 풍 `lhs -> rhs | s == t` 렌더)을 에러 메시지에 사용.
 
 ### 5.3 `Builtin` — P4 컬렉션 builtin CTRS 규칙
 `BuiltinDecD`가 선언만 하고 `To_ctrs`가 규칙을 안 내는 map/set/list/text builtin에

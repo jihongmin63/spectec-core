@@ -32,6 +32,20 @@ let rec string_of_term = function
   | App (id, terms) ->
       id ^ "(" ^ String.concat ", " (List.map string_of_term terms) ^ ")"
 
+(* A single rule for debug/error messages: [lhs -> rhs], any conditions appended
+   as [ | s == t, ...]. Not a surface a tool parses -- the executable surface is
+   {!string_of_system_maude}; this is only for human-readable diagnostics. *)
+let string_of_rule { lhs; rhs; conds; _ } =
+  let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
+  match conds with
+  | [] -> head
+  | _ ->
+      head ^ " | "
+      ^ String.concat ", "
+          (List.map
+             (fun (l, r) -> string_of_term l ^ " == " ^ string_of_term r)
+             conds)
+
 (* -------------------------------------------------------------------------- *)
 (* Term/rule queries shared by the translation ({!To_ctrs}) and slicing below. *)
 
