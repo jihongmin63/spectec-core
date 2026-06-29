@@ -200,6 +200,46 @@ directly to CTRS rules. To debug whether an odd output comes from here or from
   [lib/cli/slice_check.ml](../cli/slice_check.ml); flags:
   [lib/cli/cli_args.ml](../cli/cli_args.ml) `Slice`.
 
+## MFE (Maude Formal Environment) — confluence + coherence gate [installed]
+
+The live confluence/coherence gate is `Mfe.check` ([mfe.ml](mfe.ml)): it renders
+the structural system as a Full Maude `(mod SPEC … endm)`, loads the MFE into a
+local Maude, and runs the **Church-Rosser Checker (CRC)** and **Coherence Checker
+(ChC)**. (The COCOWEB/MuTerm/AProVE bridges below are the *deleted* legacy
+surface, kept here only for the full design.)
+
+**Installed in this environment** (gitignored; see [.gitignore](../../../.gitignore)
+and [tools/mfe/README.md](../../tools/mfe/README.md)):
+- Maude 3.5.1 (stock) at `spectec/tools/maude/maude`.
+- MFE (`maude-team/MFE`) at `spectec/tools/mfe/`, entry **`src/mfe.maude`**. Loads
+  under stock Maude 3.5.1 (CRC 3t / ChC 3t / SCC 2b) — Maude++ is not needed just
+  to load + run CRC/ChC.
+
+**MTT (Maude Termination Tool)** is **bundled** in the MFE (`src/MTT/`), not a
+separate download (the old `lcc.uma.es/~duran/MTT` page is dead). It is **not
+runnable here**: it needs Maude++ (`writeToFile`/`termCheck` hooks, absent in stock
+Maude) AND an external WST-format termination prover named in an `mfe.config`
+(absent). So the **CRC yields local confluence + sort-decreasingness**, not full
+Church-Rosser (which needs the termination proof MTT would discharge); for the
+gate, local confluence is the practical positive verdict (the CTRS is assumed
+terminating).
+
+**Calibration (observed; the `mfe.ml` constants were best-effort guesses):**
+- entry `src/mfe.maude` (not `full-maude.maude`);
+- the MFE is a Full Maude **loop reading STDIN** — feed `set include BOOL off .`,
+  the `(mod SPEC …)`, the tool commands, and `quit` via stdin (you cannot append
+  them to a file that `load`s mfe.maude — the loop blocks/hangs);
+- select the tool then check: CRC `(select tool CRC .)` + `(ccr SPEC .)`;
+  ChC `(select tool ChC .)` + `(cch SPEC .)` (a bare `(check … .)` with no tool
+  selected is a parse error);
+- verdict tokens: CRC confluent `The specification is locally-confluent.` /
+  `All critical pairs have been joined.`; CRC pending `The following critical pairs
+  must be proved joinable:`; ChC coherent `All critical pairs have been rewritten
+  and no rewrite with rules can happen at non-overlapping positions …`.
+
+`mfe.ml` still needs to be updated to this observed reality (entry, stdin feeding,
+select+ccr/cch commands, tokens) — see [tools/mfe/README.md](../../tools/mfe/README.md).
+
 ## External tool bridges
 
 `Cocoweb.check` and `Muterm.check` write the serialized system to a temp file

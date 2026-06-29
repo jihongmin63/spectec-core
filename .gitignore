@@ -7,3 +7,12 @@ spectecx
 
 # MacOS
 *.DS_Store
+
+# Downloaded tools (not checked in -- own licenses, sizable):
+# the Maude binary + prelude, and the Maude Formal Environment (CRC/ChC/MTT).
+# See spectec/tools/mfe/README.md for how to obtain them.
+spectec/tools/maude/
+spectec/tools/mfe/src/
+spectec/tools/mfe/examples/
+spectec/tools/mfe/license.txt
+spectec/tools/mfe/readme.md
