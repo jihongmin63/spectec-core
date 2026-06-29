@@ -141,6 +141,104 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 3. `builtin.ml`·`gensym.ml`: scalar leaf를 mode-aware 빌더로 교체.
 4. 검증: impty 실행(native 모듈 eyeball) + 가능하면 p4 일부로 회귀 확인.
 
+## subtype의 struct 처리 — width(+depth) subtyping 미구현
+
+**의도된 의미론:** struct(record)는 **필드가 많을수록 더 좁은(refined) 타입**이다 —
+필드가 더 많은 struct가 필드가 더 적은 struct의 **subtype**(record **width**
+subtyping). 공통 필드에 대해서는 필드 타입끼리 다시 subtype 관계여야 한다(**depth**).
+즉 `struct { a:T1; b:T2; c:T3 } <: struct { a:U1; b:U2 }` ⟺ `T1<:U1 ∧ T2<:U2`
+(추가 필드 `c`는 허용). **이 width 관계가 현재 번역에 구현돼 있지 않다.**
+
+**현재 구현:** `defs_of_typ`의 StructT는 `subty_<T>(struct_<T>(x...)) -> true` 한
+줄만 낸다([translate/to_ctrs.ml:519](translate/to_ctrs.ml)).
+- LHS가 **정확히 같은 타입의 생성자 `struct_<T>`(정확한 arity)** 에만 매칭 →
+  **width 미구현**: 더 넓은 struct 값(다른 타입 `struct_<S>`, S의 필드 ⊇ T)은
+  `subty_<T>`에 **매칭 자체가 안 돼 irreducible/stuck**.
+- 매칭돼도 필드 타입을 재귀 검사하지 않고 **무조건 true** → **depth 미구현**
+  (variant/tuple/list/opt는 재귀하는데 struct만 빠짐: `subty_<T>(variant_...(x...))
+  -> and(sub_pred field_typ_k x_k)`, `subty_tup`/`subty_list`/`subty_opt`는
+  `sub_helper_defs`에서 성분·원소 타입으로 재귀). `sub_helper_defs`의 `require`도
+  struct 필드 타입은 seed하지 않는다.
+
+**인코딩 장애물(왜 단순치 않나):** struct는 **타입명으로 keyed된 고정 arity
+위치(positional) 생성자** `struct_<T>(f1..fn)` 로 인코딩되고, 필드 접근은
+(타입, 필드명) 쌍별 접근자 `field_<T>_<a>` 다. 서로 다른 struct 타입 = 서로 다른
+생성자라, width가 요구하는 **이름 기반 필드 투영**(서로 다른 struct 생성자에서 같은
+이름 필드 꺼내 비교)을 위치 인코딩이 직접 표현하지 못한다. (variant는 "T의 케이스
+열거 + injected origin 포함"으로 width를 표현하지만, struct엔 케이스가 없고 필드
+집합 자체가 타입이라 그 트릭이 안 통한다.)
+
+**결정 절차 / 접근안:**
+1. `interp.subtyp`의 struct 케이스를 먼저 확인 — 런타임에 width/depth를 실제로
+   검사하는가, 아니면 elaborator가 항상 정확한 struct 타입으로 좁혀 두어 런타임
+   검사가 trivially-true여도 되는가. (이 답이 width 구현 필요 여부를 가른다.)
+2. **depth만(같은 타입 내) 필요하면**: variant처럼 필드별 conjunction으로 교체
+   `subty_<T>(struct_<T>(x...)) -> and(sub_pred field_typ_k x_k)`, 그리고
+   `sub_helper_defs`의 `require`에 **StructT 가지 추가**(필드 타입 seed; 없으면 필드의
+   `subty_*` 헬퍼가 없어 stuck).
+3. **width까지 필요하면**: 위치 인코딩으로는 부족하므로 설계 논의 필요 — 후보:
+   (a) struct를 **이름 키 페어 리스트/맵**으로 재인코딩해 필드 투영을 이름 기반으로
+       (레코드 표현 재설계, 큰 변경; `field_*`/`upd_field_*`/`eq`/생성자 전부 영향),
+   (b) 각 super-struct 타입 S마다 `subty_<T>(struct_<S>(...)) -> and(...)` 규칙을
+       생성(S 조합마다 규칙 폭증 — 비현실적, 기록만),
+   (c) elaborator가 width 좁힘을 이미 처리해 런타임 width가 안 들어온다는 불변식이
+       성립하면 trivially-true 유지(근거 주석 명시).
+4. width/depth 어느 쪽이든 **soundness 방향**(현재는 stuck=거부라 width를 *under*-
+   accept; depth는 무조건 true라 *over*-accept)을 명시해 회귀 시 방향을 못 박을 것.
+
+검증: impty/base 골든 고정 후 diff(struct subty 규칙 변경 시 골든도 바뀜). impty엔
+struct가 있으니 이 규칙 변화가 골든에 바로 드러난다.
+
+## subtype의 depth 처리 — 재귀 경계와 근사 (struct 외)
+
+`sub_pred`([translate/to_ctrs.ml:191](translate/to_ctrs.ml))가 타입 구조를 따라 depth로
+내려가며 멤버십 검사를 생성한다. 어디서 재귀하고 어디서 trivially-true로 멈추는지,
+그리고 멈추는 지점의 근사를 정리한다(struct 구멍은 위 섹션; 아래 (1)이 그걸 복합
+타입으로 전파시킨다).
+
+**depth 재귀가 실제로 되는 곳:**
+- VariantT 케이스 payload(필드 타입별 `sub_pred`), TupleT 성분, IterT list/opt 원소
+  — `defs_of_typ`/`sub_helper_defs`가 `and(sub_pred ..)` / 구조 재귀로 내려감.
+- PlainT alias `T = U`: `subty_<T>(x) -> sub_pred U x`로 위임(체인 OK).
+
+**trivially-true로 멈추는(근사) 곳 — 점검 대상:**
+1. **struct를 품은 복합타입**: struct subty가 무조건 true(위 섹션)이므로
+   `(structT)*` / `(structT, ..)` / `structT?` 등 **struct를 포함한 list/tuple/opt의
+   depth 검사가 struct 부분에서 통과**돼 버린다 — struct 구멍이 격리되지 않고 복합
+   타입으로 전파됨(struct 수정 시 자동 해소).
+2. **타입 파라미터(generic VarT, TypD 없음)**: `sub_helper_defs`의 `require`가
+   `subty_<param>(x) -> true`로 근사(추상 타입엔 구조가 없어 내려갈 수 없음). 제네릭
+   컨테이너(`pair<K,V>`의 K/V 등)의 원소는 depth 검사가 사실상 생략 — positive 근사라
+   실제 멤버십 위반을 못 잡을 수 있음(over-accept 가능). `interp.subtyp`의 generic
+   처리와 대조 필요.
+3. **스칼라 leaf**: `NumT IntT | BoolT | TextT | FuncT -> true_t`(`sub_pred`). NatT만
+   실제 검사(`sub_nat`: int_pos/bare nat→true, int_neg→false). int은 가장 넓은 수,
+   bool/text/func는 자기 sort라 positive 검사에선 무해하지만 **"정적 타입이 멤버십을
+   보장한다"는 가정**을 주석으로 명시할 것.
+
+**depth + 음성(negation) 전파 — 모드 의존(중요):**
+- subty 규칙은 **positive-only**(멤버→true; 비멤버→규칙 없음→irreducible). 중첩 비멤버의
+  false 전파는 `conj_t`의 `and`에 달려 있는데,
+  - **Structural(분석/MFE)**: 비멤버가 false가 아니라 **stuck**이라 `and`도 stuck. 즉
+    분석 표면에서 depth 비멤버는 false로 닫히지 않는다(positive-only).
+  - **Native(실행)**: `To_maude`가 사용된 `subty_*`에 guarded **owise → bool(false)**
+    complement를 붙여(닫힌세계) 중첩 비멤버가 false로 전파됨. 단 인자 head보다 깊은
+    stuck은 여전히 흡수(근사).
+- ⇒ depth 비멤버 판정은 **실행에서만 결정적, 분석에선 근사**. `~(e <: T)`류를 쓰는 분석
+  규칙의 confluence/coherence에 영향 가능 — MFE calibration 때 함께 점검.
+
+**termination(생성·재기록):**
+- 재귀/상호재귀 타입: 헬퍼 생성은 `Helper_defs.mem`/`require` 메모이즈로 타입당 1회 →
+  생성 종료. 재기록은 구조적으로 더 작은 항으로 내려가 종료. (확인만; 상호재귀 타입
+  표본으로 헬퍼 누락/중복 없는지 점검.)
+
+**할 일:**
+- [ ] (2) 타입 파라미터 trivially-true 근사의 over-accept 실제 케이스를 `interp.subtyp`
+  generic 처리와 대조.
+- [ ] (3) 스칼라 trivially-true 가정 `sub_pred`에 주석화.
+- [ ] depth 음성 전파의 분석/실행 비대칭을 MFE calibration 항목과 연결.
+- [ ] 상호재귀 타입 표본으로 생성·재기록 종료 확인.
+
 ## 권장 순서
 
 (이미 복구·완료: CLI 배선, `Exp_map`, `Defunctionalize`/`Gensym`/`Builtin` + 파이프라인,
@@ -152,6 +250,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 ```
   → Native 직접 생성 리팩토링 (B)                                   [위 섹션, 다음 작업]
   → impty/base 골든 고정 (현재 골든 파일 없음)
+  → subtype의 struct width(+depth) subtyping 구현                  [위 섹션; interp.subtyp 확인 후]
+  → subtype depth 근사 점검(타입파라미터/스칼라/음성 전파)         [위 섹션; MFE calibration과 연계]
   → Mfe calibration                                                [분석 confluence]
   → CLI run 실행 배선 + targets maude_start_term                    [M2/M3: 오라클]
   → differential (same-spec interp vs Maude)                       [M3]
