@@ -22,7 +22,7 @@
    classes (see {!gensym_ids}) so one instance is never duplicated into many. *)
 
 module R = Rewrite_system
-module T = To_ctrs
+module T = Ctrs_term
 module SS = Set.Make (String)
 
 (* The gensym builtins the interpreter implements as a global counter

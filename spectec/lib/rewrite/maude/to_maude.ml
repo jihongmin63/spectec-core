@@ -1,7 +1,7 @@
 open Common.Source
 open Lang.Il
 module R = Rewrite_system
-module T = To_ctrs
+module T = Ctrs_term
 
 (** Emit a {!Rewrite_system.t} (produced by {!To_ctrs}) as an executable,
     order-sorted Maude {b system module} so the translated spec can actually be
@@ -598,7 +598,7 @@ let rule_relation_syms ~(relations_as_rules : bool) (orig : spec) (sys : R.t) :
   in
   if relations_as_rules then all_rels
   else
-    let candidates = T.input_moded_rel_syms orig in
+    let candidates = To_ctrs.input_moded_rel_syms orig in
     (* Per candidate, the relations it invokes in a condition's lhs (the only
        place that would render as a [=>] rewrite condition). *)
     let invokes = Hashtbl.create 16 in
@@ -991,7 +991,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
       ( 1,
         [],
         [
-          (* the empty text is the bare [nil] (see {!Maude_theory.chars_value}),
+          (* the empty text is the bare [nil] (see the empty-text-as-[nil] convention),
              not [txt("")], so it needs its own line -- reached when
              [$name_expression] of a non-name key expression returns empty *)
           deleg_line "$strip_all_whitespace" [ "nil" ] "nil";
@@ -1123,7 +1123,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
    rules over options/lists/user types are kept as CTRS rules). Different
    wrappers never compare -- the elaborator casts both sides to one type. The
    [nil] lines bridge the empty text: a spec [TextE ""] compiles to the bare
-   empty LIST, indistinguishable from one (see {!Maude_theory.chars_value}). *)
+   empty LIST, indistinguishable from one (see the empty-text-as-[nil] convention). *)
 let scalar_eq_eqs () : string list =
   [
     deleg_line "eq" [ natp "X:Nat"; natp "Y:Nat" ] (boolp "X:Nat == Y:Nat");
@@ -1180,9 +1180,9 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   let tenv = type_env orig in
   let tbl, inj_subsorts = recover orig tenv in
   (* Declared IL types of body-rule variables, keyed by defined symbol, used to
-     restore narrow variable sorts (see {!To_ctrs.var_type_hints}). Recomputed
+     restore narrow variable sorts (see {!Var_hints.of_spec}). Recomputed
      from the same idempotent simplification [sys] was built from. *)
-  let var_hints = T.var_type_hints (Simplify.simplify_spec orig) in
+  let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
   let rels = rule_relation_syms ~relations_as_rules orig sys in
   let sg sym arity = signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, the delegated
@@ -1237,7 +1237,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       @ [ (stuck_head_sym, ([ val_sort ], "Bool")) ])
   in
   (* An empty text is the bare empty LIST ([TextE ""] has no [chr] to mark it,
-     see {!Maude_theory.chars_value}), but a [text]-typed position takes sort
+     see the empty-text-as-[nil] convention), but a [text]-typed position takes sort
      [Text]. [List < Text] lets it (and any char list) inhabit those positions;
      the [eq]/[cat] bridge equations above give it text semantics. Only when
      [Text] is actually used as a signature sort. *)

@@ -62,19 +62,15 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   `exps_of_prem`). `Defunctionalize`가 사용.
 - [x] **`Simplify` = identity** (done) — 이 프로젝트는 단순화를 하지 않음. `Prem_env`도
   재구현하지 않음(그것만 먹이던 엔진이라 불필요).
-- [ ] **`To_ctrs.of_spec`** (심장) — `prelude` + `defs_of_typ` + `term_of_exp` +
-  `conds_of_prem` + `rules_of_def` + 반복/subtype 헬퍼 + `prune_unused`.
-  **상세 로드맵·헬퍼 DAG·참조 줄번호는 [CORE_LOGIC.md](CORE_LOGIC.md) §3.10.**
-  참조: `git show rewrite:spectec/lib/rewrite/to_ctrs.ml` (of_spec 1923–1944).
-  `rewrite` 브랜치 대비 반드시 다른 3가지:
-  - **결과 레코드** `{ R.vars; rules }` (ctype/comment 삭제).
-  - **`~scalars` 분기**: 리터럴 leaf만 `Structural`(Peano/char-list) vs
-    `Native`(`Maude_theory.nat_t`/`int_t`/`bool_t`/`text_t` wrapper) + Native는
-    `native_replaced_heads` 정의 규칙·`char_eq_rules` 생략. 연산자 적용은 양쪽 동일.
-  - **`Simplify`=identity** ⇒ un-simplified IL을 직접 번역(§3.10·§4 정규화 체크리스트).
-- [ ] **`To_ctrs.var_type_hints`** — `VarE` note에서 변수 narrow 타입 복원(To_maude용).
-  참조 1850–1886 + 헬퍼 `collect_var_types`(1755)·`collect_prem_var_types`(1804)·
-  `resolve_var_types`(1833). `scalars`/`Simplify` 무관 — 거의 verbatim 포팅.
+- [x] **`To_ctrs.of_spec`** (심장; `rewrite` 브랜치에서 포팅, done) —
+  `prelude` + `defs_of_typ` + `term_of_exp` + `conds_of_prem` + `rules_of_def` +
+  반복/subtype 헬퍼 + `prune_unused`. 결과 레코드 `{ R.vars; rules }`. `Prem_env`
+  의존(`find_rel_in_spec`)은 로컬 인라인. impty/base에서 분석/실행 둘 다 실행됨.
+  ⚠️ **현재 `~scalars:Native`는 post-fold 방식**(of_spec 끝에서 `native_scalars`가
+  구조적 시스템을 fold) — 아래 "Native 직접 생성 리팩토링 (B)"로 교체 예정.
+- [x] **`To_ctrs.var_type_hints`** (포팅, done) — `VarE` note에서 변수 narrow 타입
+  복원(To_maude용). 헬퍼 `collect_var_types`/`collect_prem_var_types`/
+  `resolve_var_types`도 함께 포팅.
 - [ ] **검증: impty/base CTRS 골든** byte-identical (`rewrite --ctrs` 덤프 ↔
   `spec.rewrite`). 기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은 `--ctrs` 경로.
   ⚠️ Simplify=identity이므로 옛 골든과 다를 수 있음 — 의도된 변화면 골든 갱신.
@@ -105,16 +101,58 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 - [ ] **differential** — same-spec interp(p4) vs Maude(p4) 결과값 비교(CLI `run`
   실행 배선 후).
 
+## Native 직접 생성 리팩토링 (B) — 진행 예정
+
+**목표:** `~scalars:Native`를 post-fold(`native_scalars`/`native_term`이 조립된
+구조적 시스템을 다시 fold)에서 **생성 시점 직접 방출**로 바꾼다 — scalar leaf를
+처음부터 native wrapper로 내고, 대체될 규칙은 아예 생성하지 않는다. CORE_LOGIC §6.1의
+"별도 fold 없음" 설계를 실현. **큰 변경이고 Maude 실측 검증이 필요해 단계적으로 진행,
+각 단계마다 impty 빌드·실행 확인.**
+
+조사로 드러난 blocker(왜 단순 leaf 교체로 안 되나):
+
+- [ ] **bool leaf가 `to_ctrs` 밖에서도 생성됨.** `builtin.ml`(30+곳)·`gensym.ml`(5곳)이
+  `T.true_t`/`T.false_t`/`T.text_t`/`T.peano_of_int`/`T.int_pos_t`로 규칙을 직접
+  만든다. 이 규칙들도 시스템에 들어가므로 native에선 wrapper여야 한다 → **3개 모듈
+  모두 mode-aware**로 만들어야 함(post-fold는 조립 시스템 전체를 균일 fold해 자동 처리).
+- [ ] **유지되는 prelude 규칙도 bool leaf 보유.** native에서 살아남는
+  `mem(x,nil)→false`, `match_some/none/cons/nil`, 옵션/리스트 `eq(...)→true/false/and`은
+  native bool이 필요. 드롭되는 scalar 규칙과 한 리스트에 섞여 있어 **prelude를
+  scalar(드롭)/struct(유지) 둘로 분리** 필요.
+- [ ] **`int_pos` 막다른 길.** `term_of_unop` 단항 마이너스 = `negate_int(int_pos(x))`.
+  post-fold는 ground `int_pos(peano)`→`int(n)`으로 접지만, direct-gen은 operand가
+  `nat(5)`라 `int_pos(nat(5))`가 되고 `int_pos`는 `native_replaced_heads`에 없어
+  **delegation도 fold도 없어 stuck**. → `To_maude`에 `int_pos`/`int_neg` delegation
+  추가 또는 `term_of_unop` mode-aware화.
+- [ ] **드롭 필터 충돌.** scalar 규칙 드롭하는 `scalar_pat`은 bare `true`/`false`/`zero`를
+  본다. leaf를 `bool(true)`로 바꾸면 `eq(bool(true),bool(true))`를 못 알아봐 안 드롭됨
+  → To_maude의 scalar `eq` delegation과 충돌. **필터를 head-기반(scalar/struct 분리)으로
+  재설계** 필요.
+- [ ] **OCaml 제약:** `true_t`/`false_t`는 값(value)이라 모듈 로드 시 1회 평가됨 →
+  ref로 mode-aware 못 만듦. mode-aware는 함수(`bool_t`/`term_of_num`/`text_t`)로 두고
+  `true_t`/`false_t` 사용처를 `bool_t true`/`bool_t false`로 교체하거나, prelude는
+  thunk로 만들어 of_spec에서 mode 설정 후 평가.
+
+작업 순서(안):
+1. `to_ctrs`: `scalars_mode` 결정 방식 확정(ref vs 인자 thread), `bool_t`/`term_of_num`/
+   `text_t` mode-aware화, prelude scalar/struct 분리, 살아남는 규칙의 `true_t`/`false_t`
+   교체, 드롭 필터 head-기반 재설계, `native_scalars`/`native_term` 제거.
+2. `To_maude`: `int_pos`/`int_neg` delegation 추가(또는 `term_of_unop` 대응).
+3. `builtin.ml`·`gensym.ml`: scalar leaf를 mode-aware 빌더로 교체.
+4. 검증: impty 실행(native 모듈 eyeball) + 가능하면 p4 일부로 회귀 확인.
+
 ## 권장 순서
 
 (이미 복구·완료: CLI 배선, `Exp_map`, `Defunctionalize`/`Gensym`/`Builtin` + 파이프라인,
-`Simplify`=identity, Maude 백엔드 `To_maude`/`Maude_run`/`Of_maude`.)
+`Simplify`=identity, Maude 백엔드 `To_maude`/`Maude_run`/`Of_maude`,
+`To_ctrs.of_spec`/`var_type_hints` 포팅(Native는 아직 post-fold).)
 
-남은 핵심은 `To_ctrs` 둘뿐:
+남은 작업:
 
 ```
-  → To_ctrs.of_spec(Structural) + var_type_hints                   [M1: impty/base 골든]
-  → Mfe calibration
-  → of_spec(Native) 검증(이미 To_maude/Maude_run 대기 중)          [M2: 실행]
+  → Native 직접 생성 리팩토링 (B)                                   [위 섹션, 다음 작업]
+  → impty/base 골든 고정 (현재 골든 파일 없음)
+  → Mfe calibration                                                [분석 confluence]
   → CLI run 실행 배선 + targets maude_start_term                    [M2/M3: 오라클]
+  → differential (same-spec interp vs Maude)                       [M3]
 ```

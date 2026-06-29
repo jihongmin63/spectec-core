@@ -18,7 +18,7 @@
     over the direct Maude path ({!Pipeline.maude_system_of_spec}, i.e.
     {!To_ctrs.of_spec} with [~scalars:Native]): scalar values are wrapped
     built-in literals and the omitted scalar prelude
-    ({!To_ctrs.native_replaced_heads}) is supplied as one-line delegation
+    ({!Prelude.native_replaced_heads}) is supplied as one-line delegation
     equations, so arithmetic and text operations run in constant time instead of
     structural recursion. *)
 val module_of_spec :

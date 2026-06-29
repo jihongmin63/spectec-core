@@ -1,6 +1,6 @@
 open Common.Source
 open Lang.Il
-module T = To_ctrs
+module T = Ctrs_term
 
 (** Back-translate a Maude object term (the normal form {!Maude_run} prints as
     [result: <term>]) into a SpecTec IL {!Lang.Il.value}, the inverse of
@@ -17,7 +17,7 @@ module T = To_ctrs
     Scalars are unambiguous from their wrapper ([nat]/[int]/[bool]/[txt]), so
     the nat-vs-int and (non-empty) text-vs-list distinctions need no type
     context. The one ambiguity is the bare [nil]: an empty text [TextE ""] and
-    an empty list both encode to it ({!Maude_theory.chars_value}), so the
+    an empty list both encode to it (the empty-text-as-[nil] convention), so the
     decoder threads the EXPECTED type (the same [expected]
     {!To_maude.encode_value} threads) to put a [nil] in a text position back as
     [TextV ""]. *)

@@ -75,18 +75,22 @@ un-simplified form.
 |------|------|
 | [rewrite.ml](rewrite.ml) / [.mli](rewrite.mli) | Top-level facade: `rewrite_spec`, `def_symbols`; re-exports the public submodules. |
 | [pipeline.ml](pipeline.ml) / [.mli](pipeline.mli) | The two pipeline entries: `ctrs_of_spec` (analysis, structural) and `maude_system_of_spec` (execution, built-in theory). |
-| [maude_theory.ml](maude_theory.ml) / [.mli](maude_theory.mli) | The native-theory pass: fold ground scalars into `nat`/`int`/`bool`/`txt` wrappers, drop the replaced scalar prelude rules. Also owns the wrapper symbol spelling and the literal builders the encoder uses. |
+| [maude_theory.ml](maude/maude_theory.ml) / [.mli](maude/maude_theory.mli) | The native (built-in) scalar **vocabulary**: the wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) and the literal builders (`nat_t`/…/`string_literal`) that `To_ctrs` (Native emission), `To_maude` and `Of_maude` must agree on. (The *fold* that produces the wrappers now lives in `native_scalars.ml`.) |
 | [rewrite_system.ml](rewrite_system.ml) | **Data model + printer** for a CTRS (`type t`, `term`, `rule`, `cond`). One printer: `string_of_system_maude ~rule_heads` (single-sort Full Maude system module for the MFE — eq/ceq for the equational fragment, rl/crl for `rule_heads`). `slice`/`reachable_heads`. No translation logic here. **(new-rewrite: the old COPS `string_of_system` / TPDB `string_of_system_tpdb` printers, the `ctype`/`comment` metadata, and `is_unconditional` were removed with their consumers CoCoWeb/AProVE/MuTerm.)** |
-| [to_ctrs.ml](to_ctrs.ml) / [.mli](to_ctrs.mli) | **The translation.** IL → CTRS terms/rules: the symbol-naming conventions, the fixed `prelude`, type-derived rules, and rule/clause bodies. The heart of the library. |
-| [simplify.ml](simplify.ml) / [.mli](simplify.mli) | Pre-pass over IL: expand variables into concrete structure (via `Prem_env`) and drop redundant premises. Runs **before** `to_ctrs`. |
+| [ctrs_term.ml](translate/ctrs_term.ml) | **Structural CTRS vocabulary** (no `.mli`, like `rewrite_system.ml`): the symbol-naming conventions (`sanitize`, `variant_sym`/`func_sym`/`rel_sym`/…) and the smart term/rule builders (`app_t`, `cons_t`, `int_pos_t`, `rule`/`rule_cond`, `term_of_num`, operator dispatch, `char_codes_of_rules`). The one place raw `R.App`/`R.Var` is built; the structural-scalar counterpart to `maude_theory.ml`. Shared by `To_ctrs`, `Builtin`, `To_maude`, `Of_maude`, `Gensym` (each aliases it `module T = Ctrs_term`). |
+| [prelude.ml](translate/prelude.ml) / [.mli](translate/prelude.mli) | **The fixed prelude** (`Prelude.rules`): booleans, Peano-nat / sign-magnitude-int arithmetic, list/option operations and matchers, structural equality — giving `Ctrs_term`'s symbols their rewriting semantics. Also `native_replaced_heads` (the prelude heads the Native theory drops). Appended + pruned by `of_spec`. |
+| [to_ctrs.ml](translate/to_ctrs.ml) / [.mli](translate/to_ctrs.mli) | **The translation heart**, built on `Ctrs_term`'s vocabulary: `term_of_exp`/`pattern_of_exp`, the iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`/…), the subtype predicate (`sub_pred`), `defs_of_typ`, premise→condition lowering (`conds_of_prem`), `rules_of_def`, and the top-level `of_spec` (+ `def_symbols`/`input_moded_rel_syms`/`rule_head_syms`, `single_case_ctor`/`case_ctor`). |
+| [var_hints.ml](translate/var_hints.ml) / [.mli](translate/var_hints.mli) | `Var_hints.of_spec`: per defined symbol, the IL type of each variable in its clauses/rules (read off the simplified spec's `VarE` notes), so the typed `To_maude` backend can restore a variable's narrow declared type instead of the widened argument type. Consumed by `To_maude` only. |
+| [native_scalars.ml](maude/native_scalars.ml) / [.mli](maude/native_scalars.mli) | `Native_scalars.fold`: the **post-fold** Native scalar pass — fold ground structural scalars into `Maude_theory` wrappers and drop the replaced prelude rules. Applied by `of_spec ~scalars:Native`. **Slated for removal** (refactor B replaces it with direct emission at the scalar leaves; see [todo.md](todo.md)). |
+| [simplify.ml](translate/simplify.ml) / [.mli](translate/simplify.mli) | Pre-pass over IL: expand variables into concrete structure (via `Prem_env`) and drop redundant premises. Runs **before** `to_ctrs`. |
 | [prem_env.ml](prem_env.ml) / [.mli](prem_env.mli) | Union-find over IL expressions built from a rule/clause's premises; gives each expression its canonical (most specific) member. Consumed by `Simplify`. |
-| [exp_map.ml](exp_map.ml) / [.mli](exp_map.mli) | Shallow one-level traversal helpers over IL: `map_subexps` / `subexps` / `map_path_exps` over expressions, `exps_of_prem` for the expressions a premise embeds (caller controls descent). |
-| [builtin.ml](builtin.ml) / [.mli](builtin.mli) | Backend-local CTRS rules for P4's collection builtins (map/set/list/text) that `BuiltinDecD` declares but `To_ctrs` emits no rules for; fed to `of_spec` as `extra_defs`. |
-| [gensym.ml](gensym.ml) / [.mli](gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
-| [defunctionalize.ml](defunctionalize.ml) / [.mli](defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
-| [to_maude.ml](to_maude.ml) / [.mli](to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations), plus the **META-TERM start-term encoding** (`print_meta_term`/`meta_term_of_value`/`meta_start_app`) the reflective `metaReduce` path runs. |
-| [of_maude.ml](of_maude.ml) / [.mli](of_maude.mli) | **Reverse of the start-term encoder**: parse a Maude object normal form (`To_maude` vocabulary) back into a {!Lang.Il.value} via a forward table read off the spec (the sanitizing `variant_sym`/`struct_sym` spelling is lossy). `values_of_result` strips the gensym `tuple(result, state)` wrapper; `canonicalize` (applied to BOTH sides) renames `FRESH…` leaves so the two gensym models compare equal AND sorts each `map<K,V>`'s entries by `Value.compare` on the key (a map is unordered: interp renders it `VMap.bindings`-sorted, the translation insertion-ordered). Powers the result-VALUE oracle (`run --check-p4`, Phase D below). |
-| [maude_run.ml](maude_run.ml) / [.mli](maude_run.mli) | Execution bridge: run an emitted module on a **META-TERM** start term with a local `maude` binary, reflectively (`metaReduce`/`metaRewrite`/`metaSearch` via a `META-LEVEL`-importing wrapper module), `downTerm` the result back to object syntax, parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the reflected module is internalized once for the whole batch — eliminating the per-program start-term parse (the old dominant cost; see the performance section). |
+| [exp_map.ml](translate/exp_map.ml) / [.mli](translate/exp_map.mli) | Shallow one-level traversal helpers over IL: `map_subexps` / `subexps` / `map_path_exps` over expressions, `exps_of_prem` for the expressions a premise embeds (caller controls descent). |
+| [builtin.ml](translate/builtin.ml) / [.mli](translate/builtin.mli) | Backend-local CTRS rules for P4's collection builtins (map/set/list/text) that `BuiltinDecD` declares but `To_ctrs` emits no rules for; fed to `of_spec` as `extra_defs`. |
+| [gensym.ml](translate/gensym.ml) / [.mli](translate/gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
+| [defunctionalize.ml](translate/defunctionalize.ml) / [.mli](translate/defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
+| [to_maude.ml](maude/to_maude.ml) / [.mli](maude/to_maude.mli) | **Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery, op declarations, eq/rl printing, the built-in delegation equations), plus the **META-TERM start-term encoding** (`print_meta_term`/`meta_term_of_value`/`meta_start_app`) the reflective `metaReduce` path runs. |
+| [of_maude.ml](maude/of_maude.ml) / [.mli](maude/of_maude.mli) | **Reverse of the start-term encoder**: parse a Maude object normal form (`To_maude` vocabulary) back into a {!Lang.Il.value} via a forward table read off the spec (the sanitizing `variant_sym`/`struct_sym` spelling is lossy). `values_of_result` strips the gensym `tuple(result, state)` wrapper; `canonicalize` (applied to BOTH sides) renames `FRESH…` leaves so the two gensym models compare equal AND sorts each `map<K,V>`'s entries by `Value.compare` on the key (a map is unordered: interp renders it `VMap.bindings`-sorted, the translation insertion-ordered). Powers the result-VALUE oracle (`run --check-p4`, Phase D below). |
+| [maude_run.ml](maude/maude_run.ml) / [.mli](maude/maude_run.mli) | Execution bridge: run an emitted module on a **META-TERM** start term with a local `maude` binary, reflectively (`metaReduce`/`metaRewrite`/`metaSearch` via a `META-LEVEL`-importing wrapper module), `downTerm` the result back to object syntax, parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the reflected module is internalized once for the whole batch — eliminating the per-program start-term parse (the old dominant cost; see the performance section). |
 | [cocoweb.ml](cocoweb.ml) / [.mli](cocoweb.mli) | Confluence bridge: serialize → POST via `tools/cocoweb/cocoweb_client.py` → verdict. |
 | [muterm.ml](muterm.ml) / [.mli](muterm.mli) | Termination bridge (conditional systems): same shape, `tools/muterm/muterm_client.py`. |
 | [aprove.ml](aprove.ml) / [.mli](aprove.mli) | Termination bridge (unconditional systems): runs a **local** `aprove.jar` (`java -ea -jar … -m wst -t N file.trs`) directly — no Python client. See [tools/aprove/README.md](../../tools/aprove/README.md). |
@@ -115,7 +119,7 @@ where intended:
 dependency closure) from `roots` — used for per-symbol confluence/termination
 checking. `def_symbols` gives the slice roots in declaration order.
 
-## Symbol-naming conventions ([to_ctrs.ml](to_ctrs.ml), "Symbol + builder layer")
+## Symbol-naming conventions ([ctrs_term.ml](translate/ctrs_term.ml))
 
 These **must agree** between the rule that *defines* a symbol and every rule
 that *uses* it. All raw `R.App`/`R.Var` construction is confined to this layer.
@@ -132,7 +136,7 @@ that *uses* it. All raw `R.App`/`R.Var` construction is confined to this layer.
   nat magnitudes for ints. Lists: `nil`/`cons`. Options: `none`/`some`. Text
   chars: nullary `chr_<code>`.
 
-## The prelude ([to_ctrs.ml](to_ctrs.ml) `prelude`)
+## The prelude ([prelude.ml](translate/prelude.ml) `Prelude.rules`)
 
 A fixed rule set defining booleans, Peano nat arithmetic, sign-magnitude int
 arithmetic, lists/options and their operations (`add`, `leq`, `sub_int_nat`,
@@ -276,20 +280,20 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 > 3. **stale iteration binder**(relation의 두 번째 출력 `# eps`가 빈 스트림으로
 >    치환되며 외부 IterPr binder가 stale로 남아 `iter_split`이 입력 스트림으로
 >    오분류) — struct/header/enum **선언 자체**를 막던 지배적 블로커. FIXED 2026-06-16
->    ([to_ctrs.ml](to_ctrs.ml) `iter_split`).
+>    ([to_ctrs.ml](translate/to_ctrs.ml) `iter_split`).
 > 4. **table 관련**: `$strip_all_whitespace` delegation 누락(키 있는 모든 테이블) +
->    빈 텍스트 `nil` 케이스(식 키 `a&b`/`h.isValid()`) — [to_maude.ml](to_maude.ml);
+>    빈 텍스트 `nil` 케이스(식 키 `a&b`/`h.isValid()`) — [to_maude.ml](maude/to_maude.ml);
 >    그리고 table `entries`의 loop-invariant `TBLC_2 = ..|tableEntry*|..`가 iterated
->    `TableEntry_ok` 안으로 inline되며 stream을 capture — [simplify.ml](simplify.ml)
+>    `TableEntry_ok` 안으로 inline되며 stream을 capture — [simplify.ml](translate/simplify.ml)
 >    `subst_prem`/`inline_value_lets` capture 가드. FIXED 2026-06-16.
 > 5. **itermap 헬퍼 충돌**(같은 notation을 가진 두 타입 `typeFieldIR`/`fieldTypeIR`의
 >    IterE body가 한 `$itermap`으로 collapse) — `typedef struct {..} N`의 subty
->    체크 실패. FIXED 2026-06-16 ([to_ctrs.ml](to_ctrs.ml) `iter_map_sym`에 element
+>    체크 실패. FIXED 2026-06-16 ([to_ctrs.ml](translate/to_ctrs.ml) `iter_map_sym`에 element
 >    타입 추가; impty 골든에 itermap 없어 무영향).
 > 6. **refutable shape guard 소실 → ctk 오추론**(Phase D issue447-2/3/4/5-bmv2):
 >    `Expr_ok/headerStack-size`의 가드 `typeIR `[ n_size `] = $unroll_typeIR(..)`가
 >    equality 전제 `if ($unroll(..) = typeIR[n_size])`로 들어오는데, 출력이
->    `BIT<32> LCTK` 고정이라 `typeIR`/`n_size`가 미사용 → [simplify.ml](simplify.ml)
+>    `BIT<32> LCTK` 고정이라 `typeIR`/`n_size`가 미사용 → [simplify.ml](translate/simplify.ml)
 >    `prem_redundant`의 `dead_var`가 생성자 패턴 `typeIR[n_size]`를 "dead subject"로
 >    오판해 그 *refutable shape check* 전제를 통째로 드롭. 그 결과 멤버 이름이 "size"인
 >    임의의 헤더 필드 읽기(`hdr.s.size`, DYN)가 header-stack `.size` 절(LCTK)로 새어,
@@ -322,7 +326,7 @@ sorted order, e.g. `rewrite $(find spectec/specs/p4-old -name '*.spectec' | sort
 > **결과-VALUE 오라클 (Phase D).** PASS/STUCK 판정 일치를 넘어, 두 엔진이 모두
 > 받아들이는 프로그램에 대해 **타이핑 결과값 자체**를 비교한다. `run --p4 ...
 > --check-p4`가 각 프로그램을 인터프리터로 타입체크해 관계 출력값을 얻고,
-> Maude의 reduce된 normal form을 [of_maude.ml](of_maude.ml)로 **IL value로
+> Maude의 reduce된 normal form을 [of_maude.ml](maude/of_maude.ml)로 **IL value로
 > 역번역**한 뒤 `Eq.eq_values`로 맞춰 본다. 비교 전 `Of_maude.canonicalize`를
 > **양쪽 모두**에 적용해 의미 없는 표현 차이를 제거한다: (1) gensym fresh 이름
 > (인터프리터 `FRESH__0` vs 번역 `FRESH'` — 같은 fresh 식별자의 다른 철자)을
@@ -403,12 +407,12 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    > **start-term 파싱 병목은 meta-level(reflection) 전환으로 제거됨 (2026-06-17).**
    > 시작항을 거대 mixfix object 문법으로 파싱하는 대신, **고정·소형 META-TERM
    > 문법**으로 적어 `metaReduce(upModule('SPEC, false), <meta-항>)`로 돌린다
-   > ([to_maude.ml](to_maude.ml) `print_meta_term`/`meta_term_of_value`/
+   > ([to_maude.ml](maude/to_maude.ml) `print_meta_term`/`meta_term_of_value`/
    > `meta_start_app`가 object `foo(a,b)`를 meta `'foo[a, b]`로, 0-arity 상수를
    > `'foo.Sort`로 인코딩; 내장 스칼라는 Maude가 reflect하는 형태 그대로 —
    > nat는 `'nat['s_^N['0.Zero]]` (plain `'N.Nat`는 metaReduce에서 파싱 안 됨),
    > 음수 int는 `'-_[..]`, bool/txt는 `'true.Bool`/`'"..".String`).
-   > [maude_run.ml](maude_run.ml)은 emit된 `mod SPEC` 뒤에 `META-LEVEL`을 import한
+   > [maude_run.ml](maude/maude_run.ml)은 emit된 `mod SPEC` 뒤에 `META-LEVEL`을 import한
    > 작은 wrapper 모듈(`SPECTEC-META-RUN`)을 붙이고, 결과를
    > `downTerm(getTerm(metaReduce(..)), $downerr)`로 **object 항으로 되돌려** 기존
    > `result <Sort>:`/stuck-head 파싱·출력을 그대로 재사용한다(텍스트 재파싱 없음).
@@ -519,14 +523,14 @@ Priority-ordered. The big ones:
   recursing into payloads); positive-use only — `-> false` totality for
   non-member cases is deferred to the negation story above.
 - **Gensym done.** `$fresh_typeId`/`$fresh_tid` is modeled by automatic state
-  threading ([gensym.ml](gensym.ml)): state = last issued name, issuing
+  threading ([gensym.ml](translate/gensym.ml)): state = last issued name, issuing
   appends a prime (`FRESH'`, `FRESH''`, … — no collision with P4 identifiers
   or each other); every fresh-reaching symbol gains a trailing state argument,
   `To_maude.start_app` appends the `txt("FRESH")` seed at the start term, and
   the run normalizes to `tuple(result, final-state)`. `Prem_env` keeps
   fresh-reaching calls opaque so `Simplify` never duplicates an issuance.
 - **`DefA` args done.** Defunctionalized by call-site specialization
-  ([defunctionalize.ml](defunctionalize.ml), first pass in
+  ([defunctionalize.ml](translate/defunctionalize.ml), first pass in
   `Pipeline.ctrs_of_spec`): `$f(args, def $g)` → a generated first-order copy
   `$f_$g` with `$check := $g` substituted through the clauses (worklist
   closure, templates removed, leftover `DefA` is a hard error). This + the

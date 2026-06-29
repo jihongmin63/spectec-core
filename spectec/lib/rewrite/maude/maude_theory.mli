@@ -7,7 +7,7 @@
     external theories. The execution pipeline instead targets Maude's built-in
     Bool/Nat/Int/String: ground scalar values live in wrapper constructors over
     those sorts ([nat(3)], [int(-5)], [bool(true)], [txt("E.")]), and the scalar
-    prelude rules ({!To_ctrs.native_replaced_heads}) are re-emitted by
+    prelude rules ({!Prelude.native_replaced_heads}) are re-emitted by
     {!To_maude} as one-line delegations to the built-in operations.
 
     In the new-rewrite design those wrappers are produced DIRECTLY by
@@ -41,10 +41,3 @@ val is_literal_sym : string -> bool
     non-printable/UTF-8 bytes as 3-digit octal). The forward encoding
     {!Of_maude} inverts. *)
 val string_literal : string -> string
-
-(** The string of a ground char-list chain [cons(chr_a, ... nil)], or [None]
-    when an element is not a [chr] or the spine is symbolic. A bare [nil] does
-    NOT qualify (it is indistinguishable from an empty list), so the empty text
-    stays [nil] and {!To_maude} bridges it into [Text] positions. The canonical
-    statement of what counts as a ground char-list text. *)
-val chars_value : Rewrite_system.term -> string option

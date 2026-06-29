@@ -1,77 +1,21 @@
 open Common.Source
 open Lang.Il
-
-(** Translation from elaborated + simplified IL into the COPS CTRS
-    representation ({!Rewrite_system}).
-
-    Two families of rules are produced:
-
-    - {b prelude + type-derived definitions} ([defs_of_typ], [prelude]): Peano
-      naturals ([zero]/[succ]) with [add]/[sub]/[mul]/[leq]/[lt], booleans with
-      [not]/[and]/[or], list/option constructors with [len]/[cat], and -- from
-      each [TypD] -- variant constructors, their matchers, struct field
-      accessors, and subtype predicates. These give the symbols used below an
-      actual rewriting semantics rather than leaving them opaque.
-
-    - {b spec body rules} (from [DecD]/[RelD] of the simplified spec): function
-      clauses and relation rules become (conditional) rewrite rules.
-
-    The prelude/type-derived family is then pruned ([prune_unused]) down to the
-    symbols reachable from the body rules, so a spec that never touches, say,
-    multiplication or struct accessors does not carry their rules.
-
-    Numeric operators dispatch on their [optyp]: the natural family ([add]/...)
-    keeps the simple Peano rules over [zero]/[succ], while the integer family
-    ([add_int]/...) works over a sign-magnitude form ([int_pos n] = [+n],
-    [int_neg n] = [-(n+1)]) whose constructors are disjoint from nat's, so the
-    two never collide (nat [eq]/[succ] never match an integer term). The nat/int
-    casts the elaborator inserts are bridged with [int_pos]/[nat_of_int] (only
-    for the built-in [nat]/[int], not named aliases; see todo). Equality ([eq])
-    is structural, derived per type.
-
-    Design notes / known approximations:
-    - Value casts ([UpCastE]/[DownCastE]) are transparent for non-numeric types
-      (a [literal] injected into [expr] keeps its origin-keyed
-      [variant_literal_NUM], matching [interp.upcast]'s identity on variants);
-      [Simplify] keeps only the nat<->int casts, which become [int_pos]/
-      [nat_of_int] here (alias- and tuple-aware, see [Simplify.is_num_cast]).
-    - [SubE] (`e <: T`) is the structural predicate [sub_pred]: scalars decide
-      directly ([sub_nat] etc.), named types defer to a [subty_<T>] helper that
-      recurses into the payload, tuples/iterations to [subty_tup]/[subty_list]/
-      [subty_opt] helpers. Positive (`== true`) use only; non-members are left
-      irreducible (a [-> false] totality awaits the negation story below).
-    - [NeOp] and [IfNotHoldPr] are encoded as boolean equations
-      ([... == false]), which Join semantics only approximates.
-    - Iterations compile to auxiliary recursive helpers over the [cons]/[nil]
-      (or [some]/[none]) spine (see the "Iteration helpers" section): [IterE] to
-      a "map" helper in value position and to a bound variable plus [unzip]
-      conditions in binder position; [IterPr] to an [$iterall] predicate when it
-      binds nothing. When it iterates a single relation call (the "iterpr of a
-      call" shape) it is an [$iterapply] map carrying the call result as the
-      element -- one output binds the stream directly, several are split out
-      with an [$iterproj] per output; any other binding premise falls back to a
-      per-output conditional [$itercollect]. [Simplify] first collapses re-zip
-      iterations to a single iterated variable, so many reduce to a plain list.
-    - Division by zero diverges (the [div]/[mod] rules are partial), and the
-      generated systems are not checked for termination or confluence.
-    - [Mem]/[Idx]/[Slice]/[Upd] have list/text semantics over the [cons]/[nil]
-      encoding (texts are byte lists); out-of-bounds access is left irreducible,
-      like division by zero. [Upd]'s path is compiled statically into nested
-      [idx]/[upd_idx]/[upd_field]/[upd_slice] applications, mirroring the
-      evaluator. *)
-
 module R = Rewrite_system
 
-(* SKELETON (new-rewrite): the symbol/builder layer below is retained as the
-   toolkit for reimplementing the translation, but with [of_spec]/[var_type_hints]
-   stubbed many of its helpers are not yet called. Silence unused-value/field
-   here so the skeleton builds; drop this attribute once the translation is
-   reimplemented and the layer is in use again. *)
-[@@@warning "-32-69"]
+(** The structural CTRS vocabulary: the symbol-naming conventions and the smart
+    term/rule constructors every rule is built through.
+
+    This is the structural-scalar counterpart to {!Maude_theory} (the native
+    built-in vocabulary): the one place raw {!Rewrite_system.App}/
+    {!Rewrite_system.Var} construction is confined, so the prelude symbols a
+    built rule references ([cons], [eq], [mem], …) match their definitions by
+    name and a symbol's definition site and every use site agree. The
+    translation ({!To_ctrs}) and the backends ({!Builtin}, {!To_maude},
+    {!Of_maude}) all build over it. *)
 
 (* -------------------------------------------------------------------------- *)
 (* Symbol + builder layer. Raw [R.App]/[R.Var] construction is confined to this
-   section; everything below builds terms through these helpers. *)
+   module; everything above builds terms through these helpers. *)
 
 (* A readable token for a non-alphanumeric character so symbolic notations keep
    distinct, legible names (e.g. [`+`] -> "plus", not the empty string). A prime
@@ -371,188 +315,22 @@ let rec subst_term (pairs : (string * R.term) list) (t : R.term) : R.term =
   | R.Var v -> ( match List.assoc_opt v pairs with Some t' -> t' | None -> t)
   | R.App (sym, ts) -> R.App (sym, List.map (subst_term pairs) ts)
 
+(* The byte alphabet of a rule set's text literals, read back from the
+   [chr_<n>] constants the rules contain (texts translate to char lists, so
+   every byte in play appears as such a constant). *)
+let char_codes_of_rules (rules : R.rule list) : int list =
+  List.concat_map R.refs_of_rule rules
+  |> List.filter_map chr_code_of_sym
+  |> List.sort_uniq compare
+
 (* -------------------------------------------------------------------------- *)
 (* Rule builders. *)
 
 let rule lhs rhs : R.rule = { R.lhs; rhs; conds = []; owise = false }
 let rule_cond lhs rhs conds : R.rule = { R.lhs; rhs; conds; owise = false }
 
-(* -------------------------------------------------------------------------- *)
-(* Type-derived constructors -- thin lookups over the symbol layer (no rule
-   generation, so kept). *)
-
-(* A variant case as seen from a containing type: its origin (the type that
-   actually defines it), its mixop, and its arity. *)
-type case_info = { origin : string; mixop : mixop; arity : int }
-
-let case_info_of_typcase (tc : typcase) : case_info =
-  let { synid = origin_id; _ } = tc.origin.it in
-  {
-    origin = origin_id.it;
-    mixop = Mixfix.to_mixop tc.notation.it;
-    arity = Mixfix.arity tc.notation.it;
-  }
-
-(* The constructor of a one-case variant type [name] in [spec]. *)
-let single_case_ctor (spec : spec) (name : string) :
-    (R.term list -> R.term) option =
-  List.find_map
-    (fun (def : def) ->
-      match def.it with
-      | TypD { synid = tid; deftyp = { it = VariantT [ typcase ]; _ }; _ }
-        when tid.it = name ->
-          let ci = case_info_of_typcase typcase in
-          Some (fun args -> variant_t ci.origin ci.mixop args)
-      | _ -> None)
-    spec
-
-(* The constructor of the case of (multi-case) variant type [name] whose
-   generated symbol ([variant_sym]) is [case_sym]. *)
-let case_ctor (spec : spec) (name : string) (case_sym : string) :
-    (R.term list -> R.term) option =
-  List.find_map
-    (fun (def : def) ->
-      match def.it with
-      | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ }
-        when tid.it = name ->
-          List.find_map
-            (fun typcase ->
-              let ci = case_info_of_typcase typcase in
-              if variant_sym ci.origin ci.mixop = case_sym then
-                Some (fun args -> variant_t ci.origin ci.mixop args)
-              else None)
-            typcases
-      | _ -> None)
-    spec
-
-(* -------------------------------------------------------------------------- *)
-(* Prelude heads the Maude backend delegates to built-in theories. *)
-
-let native_replaced_heads : string list =
-  [
-    (* booleans *)
-    "not";
-    "and";
-    "or";
-    "impl";
-    "equiv";
-    (* Peano nat arithmetic *)
-    "add";
-    "sub";
-    "mul";
-    "div";
-    "mod";
-    "pow";
-    "leq";
-    "lt";
-    (* sign-magnitude int helpers and arithmetic *)
-    "negate_int";
-    "abs_nat";
-    "nonneg_int";
-    "nat_of_int";
-    "sub_int_nat";
-    "add_int";
-    "sub_int";
-    "mul_int";
-    "div_int";
-    "mod_int";
-    "pow_int";
-    "leq_int";
-    "lt_int";
-    (* nat-membership predicate over both representations *)
-    "sub_nat";
-    (* list operations recursing over Peano indices *)
-    "len";
-    "idx";
-    "take";
-    "drop";
-    "slice";
-    "upd_idx";
-    "upd_slice";
-  ]
-
-(* -------------------------------------------------------------------------- *)
-(* Spec -> symbol queries (symbol-layer only, so kept). *)
-
-(* Split a relation's notation arguments into input and output positions. *)
-let split_inputs (inputs : int list) (args : 'a list) : 'a list * 'a list =
-  let ins, outs =
-    List.mapi (fun i a -> (i, a)) args
-    |> List.partition (fun (i, _) -> List.mem i inputs)
-  in
-  (List.map snd ins, List.map snd outs)
-
-(* The byte alphabet of a rule set's text literals, read back from its [chr_<n>]
-   constants. *)
-let char_codes_of_rules (rules : R.rule list) : int list =
-  List.concat_map R.refs_of_rule rules
-  |> List.filter_map chr_code_of_sym
-  |> List.sort_uniq compare
-
-(* The slice roots: the symbol each top-level function/relation defines. *)
-let def_symbols (spec : spec) : string list =
-  List.filter_map
-    (fun def ->
-      match def.it with
-      | DecD { defid = id; _ } -> Some (func_sym id)
-      | RelD { relid = id; _ } -> Some (rel_sym id)
-      | TypD _ | BuiltinDecD _ -> None)
-    spec
-
-(* Relations that declare a non-empty input mode (`hint(input ...)`). *)
-let input_moded_rel_syms (spec : spec) : string list =
-  List.filter_map
-    (fun def ->
-      match def.it with
-      | RelD { relid = id; reltyp; _ } when Mode.inputs reltyp.it <> [] ->
-          Some (rel_sym id)
-      | _ -> None)
-    spec
-
-(* Relations with an EMPTY input mode: the non-input-moded relations, the
-   complement of [input_moded_rel_syms]. Being genuinely non-deterministic (no
-   inputs to determine outputs), they are emitted as Maude rules (rl/crl) rather
-   than equations -- the [~rule_heads] both the Maude system surface
-   ([Rewrite_system.string_of_system_maude]) and the MFE coherence check
-   ([Mfe.check]) take. *)
-let rule_head_syms (spec : spec) : string list =
-  List.filter_map
-    (fun def ->
-      match def.it with
-      | RelD { relid = id; reltyp; _ } when Mode.inputs reltyp.it = [] ->
-          Some (rel_sym id)
-      | _ -> None)
-    spec
-
-(* -------------------------------------------------------------------------- *)
-(* Scalar theory -- the one seam at which the analysis (structural) and Maude
-   (native built-in) pipelines diverge. [of_spec] emits scalar leaves and the
-   prelude according to this, so the Maude system is produced DIRECTLY (no
-   separate re-fold pass). *)
-type scalar_theory = Structural | Native
-
-(* -------------------------------------------------------------------------- *)
-(* TRANSLATION -- STUBBED for the new-rewrite skeleton.
-
-   These two carry the IL -> CTRS translation that the rewrite branch grew
-   organically; they are intentionally emptied here so the rewrite can restart
-   from the symbol/builder layer above. Reintroduce, in this order:
-     - [var_type_hints]: per-symbol variable type recovery from [VarE] notes.
-     - [of_spec]: the prelude, the type-derived rules ([defs_of_typ]), and the
-       body-rule generation from [DecD]/[RelD] clauses ([rules_of_def],
-       [conds_of_prem], the iteration/subtype helpers), then [prune_unused].
-       Branch on [scalars]: [Structural] keeps the Peano/sign-magnitude/char
-       prelude; [Native] wraps ground scalars and omits [native_replaced_heads]
-       (To_maude delegates them). *)
-
-let var_type_hints (_spec : spec) : (string, (string * typ') list) Hashtbl.t =
-  failwith "TODO(new-rewrite): reimplement To_ctrs.var_type_hints"
-
-let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
-    (simplified : spec) : R.t =
-  ignore scalars;
-  ignore extra_defs;
-  ignore orig;
-  ignore simplified;
-  failwith
-    "TODO(new-rewrite): reimplement To_ctrs.of_spec (IL -> CTRS translation)"
+(* Conjoin boolean terms with [and]; the empty conjunction is [true]. *)
+let conj_t (terms : R.term list) : R.term =
+  match terms with
+  | [] -> true_t
+  | first :: rest -> List.fold_left and_t first rest

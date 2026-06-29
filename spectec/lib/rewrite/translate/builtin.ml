@@ -1,5 +1,5 @@
 module R = Rewrite_system
-module T = To_ctrs
+module T = Ctrs_term
 open Lang.Il
 
 (* Shared list helpers used by more than one set builtin, named for what they
@@ -54,8 +54,8 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
   (* the symbol of a sibling builtin this one delegates to (e.g. [adds_map] folds
      through [add_map]); built with the same [func_sym] so the names agree. *)
   let builtin name = T.func_sym { id with it = name } in
-  let set_ctor = T.single_case_ctor orig "set" in
-  let pair_ctor = T.single_case_ctor orig "pair" in
+  let set_ctor = To_ctrs.single_case_ctor orig "set" in
+  let pair_ctor = To_ctrs.single_case_ctor orig "pair" in
   let k = T.var_t "k" and v = T.var_t "v" in
   let k2 = T.var_t "k2" and v2 = T.var_t "v2" in
   let m = T.var_t "m" and ps = T.var_t "ps" and rest = T.var_t "rest" in
@@ -256,8 +256,8 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
          operand has no width to saturate at and a width mismatch is
          meaningless: both stay stuck, where the interpreter would raise. *)
       match
-        ( T.case_ctor orig "number" "variant_number_W_2",
-          T.case_ctor orig "number" "variant_number_S_2" )
+        ( To_ctrs.case_ctor orig "number" "variant_number_W_2",
+          To_ctrs.case_ctor orig "number" "variant_number_S_2" )
       with
       | Some unsigned, Some signed ->
           let comb =
