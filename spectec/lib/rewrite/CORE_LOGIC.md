@@ -241,7 +241,7 @@ of_spec
    체크리스트). **이번 재작성의 진짜 난점.**
 
 **검증 순서:** Structural 먼저 채워 빌드 → `[@@@warning "-32-69"]`(to_ctrs.ml 상단)
-제거 → impty/base 골든(`rewrite --ctrs … | diff - spec.rewrite`; Simplify=identity라
+제거 → impty/base 골든(`rewrite --ctrs … | diff - spec.ctrs`; Simplify=identity라
 옛 골든과 다를 수 있음, 의도된 차이면 갱신) → 그 다음 Native 분기 추가(To_maude/
 Maude_run이 이미 대기).
 
@@ -394,7 +394,7 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 - **M1 — 분석 골든.** `Simplify.simplify_spec` + `To_ctrs.of_spec`(prelude,
   `defs_of_typ`, `term_of_exp`, `conds_of_prem`, `rules_of_def`, 반복/subtype helper,
   `prune_unused`) 재구축. 검증:
-  `main.exe rewrite --ctrs specs/impty/base/spec.spectec | diff - spec.rewrite`
+  `main.exe rewrite --ctrs specs/impty/base/spec.spectec | diff - spec.ctrs`
   (기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은 `--ctrs` 경로).
 - **M2 — Maude 실행.** `To_ctrs.var_type_hints`, `of_spec`의 `Native` 스칼라 분기(§6.1),
   `To_maude.*`(§6.2–6.3). `Maude_run`로 impty 실행 확인.

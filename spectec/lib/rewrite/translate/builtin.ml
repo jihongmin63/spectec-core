@@ -14,28 +14,28 @@ let list_submem_sym = "$builtin_list_submem"
    keeps those present; [list_submem] decides whether every element of [xs] is in
    [ys]. The membership branches mirror the prelude's conditional [div]/[mod]
    shape (complementary [mem == true]/[mem == false] guards). *)
-let shared_list_defs : R.rule list =
+let shared_list_defs ~scalars : R.rule list =
   let x = T.var_t "x" and xs = T.var_t "xs" and ys = T.var_t "ys" in
   [
     T.rule (T.app_t list_diff_sym [ T.nil_t; ys ]) T.nil_t;
     T.rule_cond
       (T.app_t list_diff_sym [ T.cons_t x xs; ys ])
       (T.app_t list_diff_sym [ xs; ys ])
-      [ (T.mem_t x ys, T.true_t) ];
+      [ (T.mem_t x ys, T.bool_t ~scalars true) ];
     T.rule_cond
       (T.app_t list_diff_sym [ T.cons_t x xs; ys ])
       (T.cons_t x (T.app_t list_diff_sym [ xs; ys ]))
-      [ (T.mem_t x ys, T.false_t) ];
+      [ (T.mem_t x ys, T.bool_t ~scalars false) ];
     T.rule (T.app_t list_inter_sym [ T.nil_t; ys ]) T.nil_t;
     T.rule_cond
       (T.app_t list_inter_sym [ T.cons_t x xs; ys ])
       (T.cons_t x (T.app_t list_inter_sym [ xs; ys ]))
-      [ (T.mem_t x ys, T.true_t) ];
+      [ (T.mem_t x ys, T.bool_t ~scalars true) ];
     T.rule_cond
       (T.app_t list_inter_sym [ T.cons_t x xs; ys ])
       (T.app_t list_inter_sym [ xs; ys ])
-      [ (T.mem_t x ys, T.false_t) ];
-    T.rule (T.app_t list_submem_sym [ T.nil_t; ys ]) T.true_t;
+      [ (T.mem_t x ys, T.bool_t ~scalars false) ];
+    T.rule (T.app_t list_submem_sym [ T.nil_t; ys ]) (T.bool_t ~scalars true);
     T.rule
       (T.app_t list_submem_sym [ T.cons_t x xs; ys ])
       (T.and_t (T.mem_t x ys) (T.app_t list_submem_sym [ xs; ys ]));
@@ -48,7 +48,7 @@ let shared_list_defs : R.rule list =
    either is absent ([orig] has no such type), the builtin emits no rule -- the
    spec cannot have built a value to reduce anyway. An [id] outside this table
    (numeric/naming builtins, still unsupported) emits no rule. *)
-let rules_of_builtin (orig : spec) (id : id) : R.rule list =
+let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
   let sym = T.func_sym id in
   let helper suffix = sym ^ "_" ^ suffix in
   (* the symbol of a sibling builtin this one delegates to (e.g. [adds_map] folds
@@ -73,11 +73,11 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t walk [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.some_t v2)
-          [ (T.eq_t k k2, T.true_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t walk [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.app_t walk [ k; rest ])
-          [ (T.eq_t k k2, T.false_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
       ]
   | "find_maps", Some _, _ ->
       (* the first map (in list order) that has the key *)
@@ -102,11 +102,11 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t drop [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.app_t drop [ k; rest ])
-          [ (T.eq_t k k2, T.true_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t drop [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.cons_t (pair [ k2; v2 ]) (T.app_t drop [ k; rest ]))
-          [ (T.eq_t k k2, T.false_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
       ]
   | "update_map", Some _, _ ->
       (* [update_map] is [add_map] (interp's [let update_map = add_map]). *)
@@ -183,7 +183,7 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
       ]
   | "distinct_", _, _ ->
       [
-        T.rule (T.app_t sym [ T.nil_t ]) T.true_t;
+        T.rule (T.app_t sym [ T.nil_t ]) (T.bool_t ~scalars true);
         T.rule
           (T.app_t sym [ T.cons_t x xs ])
           (T.and_t (T.not_t (T.mem_t x xs)) (T.app_t sym [ xs ]));
@@ -202,11 +202,11 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t sym [ k; T.cons_t (T.tuple_t [ k2; v2 ]) rest ])
           (T.some_t v2)
-          [ (T.eq_t k k2, T.true_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t sym [ k; T.cons_t (T.tuple_t [ k2; v2 ]) rest ])
           (T.app_t sym [ k; rest ])
-          [ (T.eq_t k k2, T.false_t) ];
+          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
       ]
   (* ----- text (a byte [cons]/[nil] list) ----- *)
   | "int_to_text", _, _ ->
@@ -215,10 +215,10 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
          each remainder mapped to its ASCII byte ([chr_48]..[chr_57]). [int_neg x]
          is -(x+1), so its magnitude is [succ x]; '-' is [chr_45]. *)
       let to_nat = helper "nat" and digit = helper "digit" in
-      let ten = T.peano_of_int 10 in
+      let ten = T.nat_lit ~scalars 10 in
       let digit_rules =
         List.init 10 (fun d ->
-            T.rule (T.app_t digit [ T.peano_of_int d ]) (T.chr_t (48 + d)))
+            T.rule (T.app_t digit [ T.nat_lit ~scalars d ]) (T.chr_t (48 + d)))
       in
       [
         T.rule (T.app_t sym [ T.int_pos_t n ]) (T.app_t to_nat [ n ]);
@@ -227,12 +227,12 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
           (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.succ_t x ]));
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cons_t (T.app_t digit [ n ]) T.nil_t)
-          [ (T.lt_t n ten, T.true_t) ];
+          [ (T.lt_t n ten, T.bool_t ~scalars true) ];
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cat_t
              (T.app_t to_nat [ T.div_t n ten ])
              (T.cons_t (T.app_t digit [ T.mod_t n ten ]) T.nil_t))
-          [ (T.lt_t n ten, T.false_t) ];
+          [ (T.lt_t n ten, T.bool_t ~scalars false) ];
       ]
       @ digit_rules
   | "strip_prefix", _, _ ->
@@ -268,8 +268,8 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
           let i = T.var_t "i" in
           let i_ls = T.var_t "i_ls" and i_rs = T.var_t "i_rs" in
           let i_max = T.var_t "i_max" and i_min = T.var_t "i_min" in
-          let zero_i = T.int_pos_t T.zero_t in
-          let one_i = T.int_pos_t (T.peano_of_int 1) in
+          let zero_i = T.int_lit ~scalars 0 in
+          let one_i = T.int_lit ~scalars 1 in
           let to_int x = T.app_t (builtin "to_int") [ T.int_pos_t w; x ] in
           let to_bitstr x =
             T.app_t (builtin "to_bitstr") [ T.int_pos_t w; x ]
@@ -286,19 +286,20 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
               [
                 T.rule_cond u_lhs
                   (unsigned [ w; i ])
-                  (u_conds @ [ (T.lt_int_t i (pow2 w), T.true_t) ]);
+                  (u_conds @ [ (T.lt_int_t i (pow2 w), T.bool_t ~scalars true) ]);
                 T.rule_cond u_lhs
                   (unsigned [ w; T.sub_int_t (pow2 w) one_i ])
-                  (u_conds @ [ (T.lt_int_t i (pow2 w), T.false_t) ]);
+                  (u_conds
+                  @ [ (T.lt_int_t i (pow2 w), T.bool_t ~scalars false) ]);
               ]
             else
               [
                 T.rule_cond u_lhs
                   (unsigned [ w; i ])
-                  (u_conds @ [ (T.lt_int_t i zero_i, T.false_t) ]);
+                  (u_conds @ [ (T.lt_int_t i zero_i, T.bool_t ~scalars false) ]);
                 T.rule_cond u_lhs
                   (unsigned [ w; zero_i ])
-                  (u_conds @ [ (T.lt_int_t i zero_i, T.true_t) ]);
+                  (u_conds @ [ (T.lt_int_t i zero_i, T.bool_t ~scalars true) ]);
               ]
           in
           (* signed [w S i]: reinterpret the bits as two's-complement, combine,
@@ -315,48 +316,55 @@ let rules_of_builtin (orig : spec) (id : id) : R.rule list =
           let pos_conds =
             s_conds
             @ [
-                (T.lt_int_t zero_i i, T.true_t);
-                (pow2 (T.sub_t w (T.peano_of_int 1)), i_max);
+                (T.lt_int_t zero_i i, T.bool_t ~scalars true);
+                (pow2 (T.sub_t w (T.nat_lit ~scalars 1)), i_max);
               ]
           in
           let neg_conds =
             s_conds
             @ [
-                (T.lt_int_t zero_i i, T.false_t);
-                (T.negate_int_t (pow2 (T.sub_t w (T.peano_of_int 1))), i_min);
+                (T.lt_int_t zero_i i, T.bool_t ~scalars false);
+                (T.negate_int_t (pow2 (T.sub_t w (T.nat_lit ~scalars 1))), i_min);
               ]
           in
           let s_rules =
             [
               T.rule_cond s_lhs
                 (signed [ w; to_bitstr i ])
-                (pos_conds @ [ (T.lt_int_t i i_max, T.true_t) ]);
+                (pos_conds @ [ (T.lt_int_t i i_max, T.bool_t ~scalars true) ]);
               T.rule_cond s_lhs
                 (signed [ w; to_bitstr (T.sub_int_t i_max one_i) ])
-                (pos_conds @ [ (T.lt_int_t i i_max, T.false_t) ]);
+                (pos_conds @ [ (T.lt_int_t i i_max, T.bool_t ~scalars false) ]);
               T.rule_cond s_lhs
                 (signed [ w; to_bitstr i ])
-                (neg_conds @ [ (T.lt_int_t i i_min, T.false_t) ]);
+                (neg_conds @ [ (T.lt_int_t i i_min, T.bool_t ~scalars false) ]);
               T.rule_cond s_lhs
                 (signed [ w; to_bitstr i_min ])
-                (neg_conds @ [ (T.lt_int_t i i_min, T.true_t) ]);
+                (neg_conds @ [ (T.lt_int_t i i_min, T.bool_t ~scalars true) ]);
             ]
           in
           u_rules @ s_rules
       | _ -> [])
   | _ -> []
 
+(* The text builtins the Maude backend re-emits as built-in-String delegations
+   ({!To_maude}); emitting their structural recursion too would clash, so the
+   [Native] theory omits them (the [Structural] analysis keeps them). *)
+let delegated_in_native = [ "int_to_text"; "strip_prefix"; "strip_suffix" ]
+
 (* Every collection-builtin rule the spec's [BuiltinDecD]s call for, plus the
    shared list helpers, as definition rules for {!To_ctrs.of_spec}'s prunable
    pool. [] when the spec declares no collection builtin, so a spec without them
    (e.g. impty) is untouched. *)
-let rules_of_builtins (orig : spec) : R.rule list =
+let rules_of_builtins ~scalars (orig : spec) : R.rule list =
+  let omitted id = scalars = T.Native && List.mem id delegated_in_native in
   let per_builtin =
     List.concat_map
       (fun (def : def) ->
         match def.it with
-        | BuiltinDecD { defid; _ } -> rules_of_builtin orig defid
+        | BuiltinDecD { defid; _ } when not (omitted defid.it) ->
+            rules_of_builtin ~scalars orig defid
         | _ -> [])
       orig
   in
-  if per_builtin = [] then [] else shared_list_defs @ per_builtin
+  if per_builtin = [] then [] else shared_list_defs ~scalars @ per_builtin

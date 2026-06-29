@@ -2,6 +2,14 @@ open Common.Source
 open Lang.Il
 module R = Rewrite_system
 
+(* Which scalar theory a scalar leaf is emitted in -- the one seam at which the
+   analysis and Maude pipelines diverge. [Structural] keeps the self-contained
+   Peano/sign-magnitude/char-list/own-bool scalars; [Native] emits Maude's
+   built-in wrappers ([nat]/[int]/[bool]/[txt], see {!Maude_theory}) directly at
+   the leaf, so the analysis and execution systems are produced by the {e same}
+   translation with no separate fold pass. *)
+type scalar_theory = Structural | Native
+
 (** The structural CTRS vocabulary: the symbol-naming conventions and the smart
     term/rule constructors every rule is built through.
 
@@ -138,7 +146,14 @@ let var_t (name : string) : R.term = R.Var name
 let app_t (sym : string) (args : R.term list) : R.term = R.App (sym, args)
 let true_t = app_t "true" []
 let false_t = app_t "false" []
-let bool_t b = if b then true_t else false_t
+
+(* A boolean leaf in the current scalar theory: the structural [true]/[false]
+   constructors, or the native [bool(..)] wrapper. *)
+let bool_t ~scalars b =
+  match scalars with
+  | Structural -> if b then true_t else false_t
+  | Native -> Maude_theory.bool_t b
+
 let not_t a = app_t "not" [ a ]
 let and_t a b = app_t "and" [ a; b ]
 let or_t a b = app_t "or" [ a; b ]
@@ -206,16 +221,23 @@ let chr_code_of_sym (sym : string) : int option =
     int_of_string_opt (String.sub sym 4 (String.length sym - 4))
   else None
 
-(* A text value is a [cons]/[nil] list of its bytes, so the list rules ([len],
-   [cat], [idx], [slice], [mem], [upd]) apply to strings unchanged; byte
-   indexing matches the evaluator's [String.get]. The one builder every text --
-   a spec literal or a backend's program value -- encodes through, so the two
-   can never diverge in shape. *)
-let text_t (s : string) : R.term =
+(* The structural char-list encoding of a text: a [cons]/[nil] list of its
+   bytes, so the list rules ([len], [cat], [idx], [slice], [mem], [upd]) apply to
+   strings unchanged and byte indexing matches the evaluator's [String.get]. *)
+let chars_t (s : string) : R.term =
   List.fold_right
     (fun c acc -> cons_t (chr_t (Char.code c)) acc)
     (List.init (String.length s) (String.get s))
     nil_t
+
+(* A text leaf in the current scalar theory. [Structural] is the char list; for
+   [Native] a non-empty text is the [txt(..)] wrapper, but the EMPTY text stays
+   the bare [nil] (the empty-text-as-[nil] convention {!To_maude}'s [eq]/[cat]
+   nil-bridges depend on -- both modes agree the empty text is [nil]). *)
+let text_t ~scalars (s : string) : R.term =
+  match scalars with
+  | Structural -> chars_t s
+  | Native -> if s = "" then nil_t else Maude_theory.text_t s
 
 let none_t = app_t "none" []
 let some_t a = app_t "some" [ a ]
@@ -227,13 +249,38 @@ let struct_t typ_name fields = app_t (struct_sym typ_name) fields
 let rec peano_of_int (n : int) : R.term =
   if n <= 0 then zero_t else succ_t (peano_of_int (n - 1))
 
-(* A numeric literal: a non-negative value is a nat magnitude ([peano]); a
-   negative value is intrinsically an integer ([int_neg k] is [-(k+1)], so
-   [-i] is [int_neg (i-1)]). A non-negative literal in an integer position is
-   injected into [int_pos] at its surrounding cast (see [term_of_exp]). *)
-let term_of_num (n : Xl.Num.t) : R.term =
-  let i = Bigint.to_int_exn (Xl.Num.to_int n) in
-  if i >= 0 then peano_of_int i else int_neg_t (peano_of_int (-i - 1))
+(* A nat literal in the current scalar theory: structural Peano, or the native
+   [nat(..)] wrapper. (The [peano_of_int]/[succ] literal uses in the generators
+   go through this so they pick the right representation per mode.) *)
+let nat_lit ~scalars (i : int) : R.term =
+  match scalars with
+  | Structural -> peano_of_int i
+  | Native -> Maude_theory.nat_t (Bigint.of_int i)
+
+(* An int literal in the current scalar theory: structural sign-magnitude over a
+   Peano magnitude, or the native [int(..)] wrapper. *)
+let int_lit ~scalars (i : int) : R.term =
+  match scalars with
+  | Structural ->
+      if i >= 0 then int_pos_t (peano_of_int i)
+      else int_neg_t (peano_of_int (-i - 1))
+  | Native -> Maude_theory.int_t (Bigint.of_int i)
+
+(* A numeric literal. [Structural]: a non-negative value is a nat magnitude
+   ([peano]); a negative value is intrinsically an integer ([int_neg k] is
+   [-(k+1)], so [-i] is [int_neg (i-1)]); a non-negative literal in an integer
+   position is injected into [int_pos] at its surrounding cast (see
+   [term_of_exp]). [Native]: the ground value goes straight into the [nat]/[int]
+   wrapper (no Peano tower, so no [Bigint] overflow). *)
+let term_of_num ~scalars (n : Xl.Num.t) : R.term =
+  let i = Xl.Num.to_int n in
+  match scalars with
+  | Structural ->
+      let i = Bigint.to_int_exn i in
+      if i >= 0 then peano_of_int i else int_neg_t (peano_of_int (-i - 1))
+  | Native ->
+      if Bigint.compare i Bigint.zero >= 0 then Maude_theory.nat_t i
+      else Maude_theory.int_t i
 
 (* Operator dispatch onto the prelude-defined symbols. The [optyp] selects the
    natural-number family ([add]/...) or the integer family ([add_int]/..., over
@@ -329,8 +376,9 @@ let char_codes_of_rules (rules : R.rule list) : int list =
 let rule lhs rhs : R.rule = { R.lhs; rhs; conds = []; owise = false }
 let rule_cond lhs rhs conds : R.rule = { R.lhs; rhs; conds; owise = false }
 
-(* Conjoin boolean terms with [and]; the empty conjunction is [true]. *)
-let conj_t (terms : R.term list) : R.term =
+(* Conjoin boolean terms with [and]; the empty conjunction is [true] (in the
+   current scalar theory, since it can stand as a rule's whole boolean rhs). *)
+let conj_t ~scalars (terms : R.term list) : R.term =
   match terms with
-  | [] -> true_t
+  | [] -> bool_t ~scalars true
   | first :: rest -> List.fold_left and_t first rest

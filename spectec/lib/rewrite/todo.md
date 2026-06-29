@@ -66,14 +66,15 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   `prelude` + `defs_of_typ` + `term_of_exp` + `conds_of_prem` + `rules_of_def` +
   반복/subtype 헬퍼 + `prune_unused`. 결과 레코드 `{ R.vars; rules }`. `Prem_env`
   의존(`find_rel_in_spec`)은 로컬 인라인. impty/base에서 분석/실행 둘 다 실행됨.
-  ⚠️ **현재 `~scalars:Native`는 post-fold 방식**(of_spec 끝에서 `native_scalars`가
-  구조적 시스템을 fold) — 아래 "Native 직접 생성 리팩토링 (B)"로 교체 예정.
+  ✅ **`~scalars:Native`는 이제 생성 시점 직접 방출**(`Ctrs_term`의 mode-aware
+  leaf 빌더 + `~scalars` threading; post-fold 제거) — 아래 "Native 직접 생성
+  리팩토링 (B)" 완료.
 - [x] **`To_ctrs.var_type_hints`** (포팅, done) — `VarE` note에서 변수 narrow 타입
   복원(To_maude용). 헬퍼 `collect_var_types`/`collect_prem_var_types`/
   `resolve_var_types`도 함께 포팅.
-- [ ] **검증: impty/base CTRS 골든** byte-identical (`rewrite --ctrs` 덤프 ↔
-  `spec.rewrite`). 기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은 `--ctrs` 경로.
-  ⚠️ Simplify=identity이므로 옛 골든과 다를 수 있음 — 의도된 변화면 골든 갱신.
+- [x] **검증: impty/base CTRS 골든** byte-identical (done) — `specs/impty/base/spec.ctrs`
+  고정(`rewrite --ctrs` 덤프). 기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은
+  `--ctrs` 경로. 실행(Native) 모듈 골든은 아직 미고정(원하면 `spec.maude`로 별도 핀).
 - [ ] **`Mfe` calibration** — 실제 MFE로 load 파일명·`(check ...)` 문법·verdict 토큰 보정
   (`mfe.ml` 상수/파서). impty/base structural 시스템에 CRC+ChC 적용.
 - [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
@@ -101,13 +102,20 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 - [ ] **differential** — same-spec interp(p4) vs Maude(p4) 결과값 비교(CLI `run`
   실행 배선 후).
 
-## Native 직접 생성 리팩토링 (B) — 진행 예정
+## Native 직접 생성 리팩토링 (B) — ✅ 완료
 
-**목표:** `~scalars:Native`를 post-fold(`native_scalars`/`native_term`이 조립된
-구조적 시스템을 다시 fold)에서 **생성 시점 직접 방출**로 바꾼다 — scalar leaf를
-처음부터 native wrapper로 내고, 대체될 규칙은 아예 생성하지 않는다. CORE_LOGIC §6.1의
-"별도 fold 없음" 설계를 실현. **큰 변경이고 Maude 실측 검증이 필요해 단계적으로 진행,
-각 단계마다 impty 빌드·실행 확인.**
+**한 일:** `~scalars:Native`를 post-fold(`native_scalars.fold`)에서 **생성 시점 직접
+방출**로 바꿨다. `Ctrs_term`에 `scalar_theory`와 mode-aware leaf 빌더
+(`bool_t`/`term_of_num`/`text_t`/`nat_lit`/`int_lit`/`conj_t`가 `~scalars`)를 두고,
+`to_ctrs`/`prelude`/`builtin`/`gensym`에 `~scalars`를 thread했다. `prelude`는 한 개의
+정렬된 리스트(`rules ~scalars`) + Native head-filter(`kept_in_native`), `builtin`은
+delegated text builtin을 Native에서 생략, `gensym`은 native txt/`cat`로 fresh 이름을
+짓고 prime `chr` eq를 Native에서 생략. `maude/native_scalars.ml`은 삭제. CORE_LOGIC
+§6.1 "별도 fold 없음" 실현. **검증:** impty/base 분석 골든(`spec.ctrs`)·실행
+모듈 모두 **byte-identical**(Structural 경로 무변, Native 경로 post-fold와 동일),
+p4(79 파일) native 모듈 emit 시 구조적 스칼라 leaf 누출 0·delegation 정상.
+
+다음 줄들은 조사 당시 기록이며, 위 완료 시점에 해소되었다:
 
 조사로 드러난 blocker(왜 단순 leaf 교체로 안 되나):
 
@@ -243,13 +251,12 @@ struct가 있으니 이 규칙 변화가 골든에 바로 드러난다.
 
 (이미 복구·완료: CLI 배선, `Exp_map`, `Defunctionalize`/`Gensym`/`Builtin` + 파이프라인,
 `Simplify`=identity, Maude 백엔드 `To_maude`/`Maude_run`/`Of_maude`,
-`To_ctrs.of_spec`/`var_type_hints` 포팅(Native는 아직 post-fold).)
+`To_ctrs.of_spec`/`var_type_hints` 포팅, **Native 직접 생성 리팩토링 (B)**,
+**impty/base 분석 골든 고정**(`specs/impty/base/spec.ctrs`).)
 
 남은 작업:
 
 ```
-  → Native 직접 생성 리팩토링 (B)                                   [위 섹션, 다음 작업]
-  → impty/base 골든 고정 (현재 골든 파일 없음)
   → subtype의 struct width(+depth) subtyping 구현                  [위 섹션; interp.subtyp 확인 후]
   → subtype depth 근사 점검(타입파라미터/스칼라/음성 전파)         [위 섹션; MFE calibration과 연계]
   → Mfe calibration                                                [분석 confluence]

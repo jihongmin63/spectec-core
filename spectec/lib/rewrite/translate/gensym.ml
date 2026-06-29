@@ -68,11 +68,13 @@ let effectful_syms (sys : R.t) : string list = SS.elements (effectful_set sys)
 (* The start-of-run state. Issued names extend it by primes, so the first
    issued name is FRESH' -- already impossible as a source identifier. *)
 let seed_text = "FRESH"
-let issued (st : R.term) : R.term = T.cat_t st (T.text_t "'")
+let issued ~scalars (st : R.term) : R.term = T.cat_t st (T.text_t ~scalars "'")
 
-let issue_rule (sym : string) : R.rule =
+let issue_rule ~scalars (sym : string) : R.rule =
   let st = R.Var "St0" in
-  T.rule (R.App (sym, [ st ])) (T.tuple_t [ issued st; issued st ])
+  T.rule
+    (R.App (sym, [ st ]))
+    (T.tuple_t [ issued ~scalars st; issued ~scalars st ])
 
 (* Thread one rule of an effectful symbol: [St<i>] are the state variables
    ([St0] the incoming state), [Sh<i>] the hoisted call results; a clash with
@@ -147,20 +149,25 @@ let prime_code = Char.code '\''
 
 (* The issuing rule introduces the prime byte; close the structural char
    equality over it (the analysis pipeline decides text equality bytewise, and
-   {!To_ctrs.of_spec} only closed [eq] over the spec's own alphabet). *)
-let prime_eq_rules (codes : int list) : R.rule list =
-  if List.mem prime_code codes then []
-  else
-    T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t prime_code)) T.true_t
-    :: List.concat_map
-         (fun c ->
-           [
-             T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t c)) T.false_t;
-             T.rule (T.eq_t (T.chr_t c) (T.chr_t prime_code)) T.false_t;
-           ])
-         codes
+   {!To_ctrs.of_spec} only closed [eq] over the spec's own alphabet). On the
+   [Native] path texts are [txt(..)]-wrapped Strings compared by the built-in
+   [eq], so the per-byte [chr] equality never applies -- emit nothing. *)
+let prime_eq_rules ~scalars (codes : int list) : R.rule list =
+  match scalars with
+  | T.Native -> []
+  | T.Structural ->
+      if List.mem prime_code codes then []
+      else
+        T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t prime_code)) T.true_t
+        :: List.concat_map
+             (fun c ->
+               [
+                 T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t c)) T.false_t;
+                 T.rule (T.eq_t (T.chr_t c) (T.chr_t prime_code)) T.false_t;
+               ])
+             codes
 
-let thread (sys : R.t) : R.t =
+let thread ~scalars (sys : R.t) : R.t =
   let used_roots =
     List.filter
       (fun root -> List.exists (rule_mentions (SS.singleton root)) sys.R.rules)
@@ -171,8 +178,8 @@ let thread (sys : R.t) : R.t =
     let eff = effectful_set sys in
     let rules =
       List.map (thread_rule eff) sys.R.rules
-      @ List.map issue_rule used_roots
-      @ prime_eq_rules (T.char_codes_of_rules sys.R.rules)
+      @ List.map (issue_rule ~scalars) used_roots
+      @ prime_eq_rules ~scalars (T.char_codes_of_rules sys.R.rules)
     in
     let vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) in
     { R.vars; rules }

@@ -23,11 +23,11 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
   (* First: specialize away [def]-valued arguments. *)
   let spec = Defunctionalize.defunctionalize spec in
   To_ctrs.of_spec ~scalars
-    ~extra_defs:(Builtin.rules_of_builtins spec)
+    ~extra_defs:(Builtin.rules_of_builtins ~scalars spec)
     ~orig:spec
     (Simplify.simplify_spec spec)
   (* Last: thread the gensym state, so both surfaces see the same pure gensym. *)
-  |> Gensym.thread
+  |> Gensym.thread ~scalars
 
 (* Analysis pipeline: self-contained structural scalars, for the MFE
    (CRC/ChC) confluence/coherence surface. *)

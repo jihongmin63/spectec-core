@@ -75,13 +75,12 @@ un-simplified form.
 |------|------|
 | [rewrite.ml](rewrite.ml) / [.mli](rewrite.mli) | Top-level facade: `rewrite_spec`, `def_symbols`; re-exports the public submodules. |
 | [pipeline.ml](pipeline.ml) / [.mli](pipeline.mli) | The two pipeline entries: `ctrs_of_spec` (analysis, structural) and `maude_system_of_spec` (execution, built-in theory). |
-| [maude_theory.ml](maude/maude_theory.ml) / [.mli](maude/maude_theory.mli) | The native (built-in) scalar **vocabulary**: the wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) and the literal builders (`nat_t`/…/`string_literal`) that `To_ctrs` (Native emission), `To_maude` and `Of_maude` must agree on. (The *fold* that produces the wrappers now lives in `native_scalars.ml`.) |
+| [maude_theory.ml](maude/maude_theory.ml) / [.mli](maude/maude_theory.mli) | The native (built-in) scalar **vocabulary**: the wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) and the literal builders (`nat_t`/…/`string_literal`) that `Ctrs_term` (Native leaf emission), `To_maude` and `Of_maude` must agree on. No fold pass — `Ctrs_term`'s mode-aware leaf builders emit these wrappers directly at translation time. |
 | [rewrite_system.ml](rewrite_system.ml) | **Data model + printer** for a CTRS (`type t`, `term`, `rule`, `cond`). One printer: `string_of_system_maude ~rule_heads` (single-sort Full Maude system module for the MFE — eq/ceq for the equational fragment, rl/crl for `rule_heads`). `slice`/`reachable_heads`. No translation logic here. **(new-rewrite: the old COPS `string_of_system` / TPDB `string_of_system_tpdb` printers, the `ctype`/`comment` metadata, and `is_unconditional` were removed with their consumers CoCoWeb/AProVE/MuTerm.)** |
-| [ctrs_term.ml](translate/ctrs_term.ml) | **Structural CTRS vocabulary** (no `.mli`, like `rewrite_system.ml`): the symbol-naming conventions (`sanitize`, `variant_sym`/`func_sym`/`rel_sym`/…) and the smart term/rule builders (`app_t`, `cons_t`, `int_pos_t`, `rule`/`rule_cond`, `term_of_num`, operator dispatch, `char_codes_of_rules`). The one place raw `R.App`/`R.Var` is built; the structural-scalar counterpart to `maude_theory.ml`. Shared by `To_ctrs`, `Builtin`, `To_maude`, `Of_maude`, `Gensym` (each aliases it `module T = Ctrs_term`). |
-| [prelude.ml](translate/prelude.ml) / [.mli](translate/prelude.mli) | **The fixed prelude** (`Prelude.rules`): booleans, Peano-nat / sign-magnitude-int arithmetic, list/option operations and matchers, structural equality — giving `Ctrs_term`'s symbols their rewriting semantics. Also `native_replaced_heads` (the prelude heads the Native theory drops). Appended + pruned by `of_spec`. |
-| [to_ctrs.ml](translate/to_ctrs.ml) / [.mli](translate/to_ctrs.mli) | **The translation heart**, built on `Ctrs_term`'s vocabulary: `term_of_exp`/`pattern_of_exp`, the iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`/…), the subtype predicate (`sub_pred`), `defs_of_typ`, premise→condition lowering (`conds_of_prem`), `rules_of_def`, and the top-level `of_spec` (+ `def_symbols`/`input_moded_rel_syms`/`rule_head_syms`, `single_case_ctor`/`case_ctor`). |
+| [ctrs_term.ml](translate/ctrs_term.ml) | **Structural CTRS vocabulary** (no `.mli`, like `rewrite_system.ml`): the `scalar_theory` (`Structural`/`Native`) type, the symbol-naming conventions (`sanitize`, `variant_sym`/`func_sym`/`rel_sym`/…), the smart term/rule builders (`app_t`, `cons_t`, `int_pos_t`, `rule`/`rule_cond`, operator dispatch, `char_codes_of_rules`), and the **mode-aware scalar leaf builders** (`bool_t`/`term_of_num`/`text_t`/`nat_lit`/`int_lit`/`conj_t` taking `~scalars`): `Structural` emits the self-contained Peano/sign-magnitude/char-list/own-bool scalars, `Native` emits `Maude_theory`'s `nat`/`int`/`bool`/`txt` wrappers directly (empty text stays bare `nil` in both). The one place raw `R.App`/`R.Var` is built; the structural-scalar counterpart to `maude_theory.ml`. Shared by `To_ctrs`, `Builtin`, `To_maude`, `Of_maude`, `Gensym` (each aliases it `module T = Ctrs_term`). |
+| [prelude.ml](translate/prelude.ml) / [.mli](translate/prelude.mli) | **The fixed prelude** (`Prelude.rules ~scalars`): booleans, Peano-nat / sign-magnitude-int arithmetic, list/option operations and matchers, structural equality — giving `Ctrs_term`'s symbols their rewriting semantics, with mode-aware boolean leaves. One ordered list (so `Structural` is byte-stable); on `Native` the `native_replaced_heads` rules + scalar `eq` are dropped (`kept_in_native` filter) because `To_maude` delegates them to Maude's built-ins. Appended + pruned by `of_spec`. |
+| [to_ctrs.ml](translate/to_ctrs.ml) / [.mli](translate/to_ctrs.mli) | **The translation heart**, built on `Ctrs_term`'s vocabulary, threading `~scalars` so every scalar leaf is emitted in the right theory at translation time (no fold pass): `term_of_exp`/`pattern_of_exp`, the iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`/…), the subtype predicate (`sub_pred`), `defs_of_typ`, premise→condition lowering (`conds_of_prem`), `rules_of_def`, and the top-level `of_spec` (+ `def_symbols`/`input_moded_rel_syms`/`rule_head_syms`, `single_case_ctor`/`case_ctor`). `scalar_theory` is re-exported from `Ctrs_term`. |
 | [var_hints.ml](translate/var_hints.ml) / [.mli](translate/var_hints.mli) | `Var_hints.of_spec`: per defined symbol, the IL type of each variable in its clauses/rules (read off the simplified spec's `VarE` notes), so the typed `To_maude` backend can restore a variable's narrow declared type instead of the widened argument type. Consumed by `To_maude` only. |
-| [native_scalars.ml](maude/native_scalars.ml) / [.mli](maude/native_scalars.mli) | `Native_scalars.fold`: the **post-fold** Native scalar pass — fold ground structural scalars into `Maude_theory` wrappers and drop the replaced prelude rules. Applied by `of_spec ~scalars:Native`. **Slated for removal** (refactor B replaces it with direct emission at the scalar leaves; see [todo.md](todo.md)). |
 | [simplify.ml](translate/simplify.ml) / [.mli](translate/simplify.mli) | Pre-pass over IL: expand variables into concrete structure (via `Prem_env`) and drop redundant premises. Runs **before** `to_ctrs`. |
 | [prem_env.ml](prem_env.ml) / [.mli](prem_env.mli) | Union-find over IL expressions built from a rule/clause's premises; gives each expression its canonical (most specific) member. Consumed by `Simplify`. |
 | [exp_map.ml](translate/exp_map.ml) / [.mli](translate/exp_map.mli) | Shallow one-level traversal helpers over IL: `map_subexps` / `subexps` / `map_path_exps` over expressions, `exps_of_prem` for the expressions a premise embeds (caller controls descent). |
@@ -251,12 +250,13 @@ opam exec --switch=spectecx -- dune build bin/main.exe   # 항상 main만 빌드
 `make exe`(저장소 루트)는 이를 `./spectecx`로 하드링크합니다. 체크인된
 바이너리는 소스보다 뒤처지므로(stale) 테스트 전 반드시 재빌드하세요.
 
-Golden test — the `impty/base` CTRS is pinned:
+Golden test — the `impty/base` analysis CTRS is pinned (the `--ctrs` surface;
+the default `rewrite` emits the execution Maude module, not this):
 
 ```bash
 # from repo root /home/min/spectec-core
-spectec/_build/default/bin/main.exe rewrite spectec/specs/impty/base/spec.spectec \
-  | diff - spectec/specs/impty/base/spec.rewrite   # must match
+spectec/_build/default/bin/main.exe rewrite --ctrs spectec/specs/impty/base/spec.spectec \
+  | diff - spectec/specs/impty/base/spec.ctrs   # must match
 ```
 
 Specs live in `spectec/specs/{impty/{base,closure},p4-old,p4}`; `impty/base` is
@@ -427,7 +427,7 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    >   각 4ms / 358 rewrites). 즉 6.9s/프로그램 → 10.4s/invocation 고정비 + 4ms/프로그램.
    > - 배치 효과: 80 OK + 80 STUCK = 160건이 단일 invocation 80s(=0.5s/건), verdict는
    >   object-level 기록(`check_diff_p4_maude.tsv`)과 **160/160 일치**. 무거운 예
-   >   key-bmv2/issue561-bmv2도 OK 동일. impty/base `spec.rewrite` 골든 byte-identical
+   >   key-bmv2/issue561-bmv2도 OK 동일. impty/base `spec.ctrs` 골든 byte-identical
    >   (분석 파이프라인 무관). `check_diff_p4.sh`는 출력 형식이 동일해 수정 불필요.
    >
    > 주의: `rewrite-time.sh`의 phase 분해는 object 기준이라 meta에서는 "rewriting"
@@ -474,7 +474,7 @@ maude 프로세스를 새로 띄우는데, 빈 입력 기준 기동(prelude 파�
    - `with_*`는 setup/teardown 콜백 래퍼에만; 누산기성 헬퍼는 `fold_left`식
      인자 순서로. `@@`는 단일 콜백 들여쓰기를 줄일 때만.
    - 리팩토링 커밋은 fix/feature와 **분리**합니다 (bisectability).
-3. 변환 출력이 바뀌었다면 golden(`impty/base/spec.rewrite`)을 갱신하고
+3. 변환 출력이 바뀌었다면 golden(`impty/base/spec.ctrs`)을 갱신하고
    (위 diff 명령으로 의도된 변화인지 확인), 필요하면 `make promote`로 `.expected`
    재생성.
 

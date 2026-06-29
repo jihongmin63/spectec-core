@@ -8,9 +8,13 @@
     trailing state argument and returns [tuple(result, state')]; its rule
     conditions thread the state in premise order. *)
 
-(** Thread the gensym state through [sys]. The identity when no rule mentions a
-    gensym root (e.g. the impty specs), so the pinned goldens are unaffected. *)
-val thread : Rewrite_system.t -> Rewrite_system.t
+(** Thread the gensym state through [sys]. The issued-name texts and the
+    prime-byte equality closure are emitted in [~scalars] (on the [Native] path
+    the fresh names are [txt(..)] Strings, so the per-byte [chr] equality is
+    omitted). The identity when no rule mentions a gensym root (e.g. the impty
+    specs), so the pinned goldens are unaffected. *)
+val thread :
+  scalars:Ctrs_term.scalar_theory -> Rewrite_system.t -> Rewrite_system.t
 
 (** The symbols carrying the extra state argument after {!thread}: the gensym
     roots plus everything transitively reaching them. The same answer on the

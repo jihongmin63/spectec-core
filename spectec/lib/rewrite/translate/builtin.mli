@@ -12,6 +12,10 @@
 
 (** The collection-builtin rules the spec's [BuiltinDecD]s call for, plus the
     shared list helpers, as definition rules for {!To_ctrs.of_spec}'s
-    [extra_defs] pool (pruned where unreached). [[]] when the spec declares no
-    collection builtin, leaving such a spec (e.g. impty) untouched. *)
-val rules_of_builtins : Lang.Il.spec -> Rewrite_system.rule list
+    [extra_defs] pool (pruned where unreached), with scalar leaves emitted in
+    [~scalars]. The [Native] theory omits the text builtins the Maude backend
+    delegates ([int_to_text]/[strip_prefix]/[strip_suffix]). [[]] when the spec
+    declares no collection builtin, leaving such a spec (e.g. impty) untouched.
+*)
+val rules_of_builtins :
+  scalars:Ctrs_term.scalar_theory -> Lang.Il.spec -> Rewrite_system.rule list

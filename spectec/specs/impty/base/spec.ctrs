@@ -1,0 +1,210 @@
+(mod SPEC is
+  sort Term .
+  op not : Term -> Term .
+  op true : -> Term .
+  op false : -> Term .
+  op and : Term Term -> Term .
+  op add : Term Term -> Term .
+  op zero : -> Term .
+  op succ : Term -> Term .
+  op leq : Term Term -> Term .
+  op sub_int_nat : Term Term -> Term .
+  op int_pos : Term -> Term .
+  op int_neg : Term -> Term .
+  op add_int : Term Term -> Term .
+  op leq_int : Term Term -> Term .
+  op match_some : Term -> Term .
+  op some : Term -> Term .
+  op none : -> Term .
+  op match_cons : Term -> Term .
+  op cons : Term Term -> Term .
+  op nil : -> Term .
+  op match_nil : Term -> Term .
+  op match_type_INT_0 : Term -> Term .
+  op variant_type_INT_0 : -> Term .
+  op variant_type_BOOL_0 : -> Term .
+  op match_type_BOOL_0 : Term -> Term .
+  op match_literal_NUM_1 : Term -> Term .
+  op variant_literal_NUM_1 : Term -> Term .
+  op variant_literal_BOOL_1 : Term -> Term .
+  op match_literal_BOOL_1 : Term -> Term .
+  op subty_literal : Term -> Term .
+  op subty_id : Term -> Term .
+  op variant_id_ID_1 : Term -> Term .
+  op match_expr_bang_1 : Term -> Term .
+  op variant_expr_bang_1 : Term -> Term .
+  op variant_expr_plus_2 : Term Term -> Term .
+  op variant_expr_lt_eq_2 : Term Term -> Term .
+  op variant_expr_amp_amp_2 : Term Term -> Term .
+  op match_expr_plus_2 : Term -> Term .
+  op match_expr_lt_eq_2 : Term -> Term .
+  op match_expr_amp_amp_2 : Term -> Term .
+  op match_command_SKIP_0 : Term -> Term .
+  op variant_command_SKIP_0 : -> Term .
+  op variant_command_eq_3 : Term Term Term -> Term .
+  op variant_command_eq_2 : Term Term -> Term .
+  op variant_command_IF_THEN_ELSE_END_3 : Term Term Term -> Term .
+  op variant_command_WHILE_DO_END_2 : Term Term -> Term .
+  op variant_command_semi_2 : Term Term -> Term .
+  op match_command_eq_3 : Term -> Term .
+  op match_command_eq_2 : Term -> Term .
+  op match_command_IF_THEN_ELSE_END_3 : Term -> Term .
+  op match_command_WHILE_DO_END_2 : Term -> Term .
+  op match_command_semi_2 : Term -> Term .
+  op $itermap_K_t_minus_gt_V_t_list_2_pair : Term Term -> Term .
+  op variant_pair_minus_gt_2 : Term Term -> Term .
+  op $unzip_K_t_minus_gt_V_t_list_V_t : Term -> Term .
+  op $unzip_K_t_minus_gt_V_t_list_K_t : Term -> Term .
+  op $lookup : Term Term -> Term .
+  op Check_expr : Term Term -> Term .
+  op Check_command : Term Term -> Term .
+  op Check_prog : Term -> Term .
+  op Eval_expr : Term Term -> Term .
+  op Eval_command : Term Term -> Term .
+  op Eval_prog : Term -> Term .
+  op Run_prog : Term -> Term .
+  vars y x xs x0 x1 x2 K_t__hd K_t__tl V_t__hd V_t__tl __rest pair<K, V> K_query V_h K_h iterbind_0 K_t V_t tenv expr literal i b t type e e_l e_r type' command c_1 c_2 tenv_1 tenv_2 c env v value b_e i_l literal' i_r b_l b_r env_1 env_2 : Term .
+  eq not(true) = false .
+  eq not(false) = true .
+  eq and(true, y) = y .
+  eq and(false, y) = false .
+  eq add(zero, y) = y .
+  eq add(succ(x), y) = succ(add(x, y)) .
+  eq leq(zero, y) = true .
+  eq leq(succ(x), zero) = false .
+  eq leq(succ(x), succ(y)) = leq(x, y) .
+  eq sub_int_nat(zero, zero) = int_pos(zero) .
+  eq sub_int_nat(succ(x), zero) = int_pos(succ(x)) .
+  eq sub_int_nat(zero, succ(y)) = int_neg(y) .
+  eq sub_int_nat(succ(x), succ(y)) = sub_int_nat(x, y) .
+  eq add_int(int_pos(x), int_pos(y)) = int_pos(add(x, y)) .
+  eq add_int(int_neg(x), int_neg(y)) = int_neg(succ(add(x, y))) .
+  eq add_int(int_pos(x), int_neg(y)) = sub_int_nat(x, succ(y)) .
+  eq add_int(int_neg(x), int_pos(y)) = sub_int_nat(y, succ(x)) .
+  eq leq_int(int_pos(x), int_pos(y)) = leq(x, y) .
+  eq leq_int(int_neg(x), int_neg(y)) = leq(y, x) .
+  eq leq_int(int_pos(x), int_neg(y)) = false .
+  eq leq_int(int_neg(x), int_pos(y)) = true .
+  eq match_some(some(x)) = true .
+  eq match_some(none) = false .
+  eq match_cons(cons(x, xs)) = true .
+  eq match_cons(nil) = false .
+  eq match_nil(nil) = true .
+  eq match_nil(cons(x, xs)) = false .
+  eq match_type_INT_0(variant_type_INT_0) = true .
+  eq match_type_INT_0(variant_type_BOOL_0) = false .
+  eq match_type_BOOL_0(variant_type_INT_0) = false .
+  eq match_type_BOOL_0(variant_type_BOOL_0) = true .
+  eq match_literal_NUM_1(variant_literal_NUM_1(x0)) = true .
+  eq match_literal_NUM_1(variant_literal_BOOL_1(x0)) = false .
+  eq match_literal_BOOL_1(variant_literal_NUM_1(x0)) = false .
+  eq match_literal_BOOL_1(variant_literal_BOOL_1(x0)) = true .
+  eq subty_literal(variant_literal_NUM_1(x0)) = true .
+  eq subty_literal(variant_literal_BOOL_1(x0)) = true .
+  eq subty_id(variant_id_ID_1(x0)) = true .
+  eq match_expr_bang_1(variant_literal_NUM_1(x0)) = false .
+  eq match_expr_bang_1(variant_literal_BOOL_1(x0)) = false .
+  eq match_expr_bang_1(variant_id_ID_1(x0)) = false .
+  eq match_expr_bang_1(variant_expr_bang_1(x0)) = true .
+  eq match_expr_bang_1(variant_expr_plus_2(x0, x1)) = false .
+  eq match_expr_bang_1(variant_expr_lt_eq_2(x0, x1)) = false .
+  eq match_expr_bang_1(variant_expr_amp_amp_2(x0, x1)) = false .
+  eq match_expr_plus_2(variant_literal_NUM_1(x0)) = false .
+  eq match_expr_plus_2(variant_literal_BOOL_1(x0)) = false .
+  eq match_expr_plus_2(variant_id_ID_1(x0)) = false .
+  eq match_expr_plus_2(variant_expr_bang_1(x0)) = false .
+  eq match_expr_plus_2(variant_expr_plus_2(x0, x1)) = true .
+  eq match_expr_plus_2(variant_expr_lt_eq_2(x0, x1)) = false .
+  eq match_expr_plus_2(variant_expr_amp_amp_2(x0, x1)) = false .
+  eq match_expr_lt_eq_2(variant_literal_NUM_1(x0)) = false .
+  eq match_expr_lt_eq_2(variant_literal_BOOL_1(x0)) = false .
+  eq match_expr_lt_eq_2(variant_id_ID_1(x0)) = false .
+  eq match_expr_lt_eq_2(variant_expr_bang_1(x0)) = false .
+  eq match_expr_lt_eq_2(variant_expr_plus_2(x0, x1)) = false .
+  eq match_expr_lt_eq_2(variant_expr_lt_eq_2(x0, x1)) = true .
+  eq match_expr_lt_eq_2(variant_expr_amp_amp_2(x0, x1)) = false .
+  eq match_expr_amp_amp_2(variant_literal_NUM_1(x0)) = false .
+  eq match_expr_amp_amp_2(variant_literal_BOOL_1(x0)) = false .
+  eq match_expr_amp_amp_2(variant_id_ID_1(x0)) = false .
+  eq match_expr_amp_amp_2(variant_expr_bang_1(x0)) = false .
+  eq match_expr_amp_amp_2(variant_expr_plus_2(x0, x1)) = false .
+  eq match_expr_amp_amp_2(variant_expr_lt_eq_2(x0, x1)) = false .
+  eq match_expr_amp_amp_2(variant_expr_amp_amp_2(x0, x1)) = true .
+  eq match_command_SKIP_0(variant_command_SKIP_0) = true .
+  eq match_command_SKIP_0(variant_command_eq_3(x0, x1, x2)) = false .
+  eq match_command_SKIP_0(variant_command_eq_2(x0, x1)) = false .
+  eq match_command_SKIP_0(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
+  eq match_command_SKIP_0(variant_command_WHILE_DO_END_2(x0, x1)) = false .
+  eq match_command_SKIP_0(variant_command_semi_2(x0, x1)) = false .
+  eq match_command_eq_3(variant_command_SKIP_0) = false .
+  eq match_command_eq_3(variant_command_eq_3(x0, x1, x2)) = true .
+  eq match_command_eq_3(variant_command_eq_2(x0, x1)) = false .
+  eq match_command_eq_3(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
+  eq match_command_eq_3(variant_command_WHILE_DO_END_2(x0, x1)) = false .
+  eq match_command_eq_3(variant_command_semi_2(x0, x1)) = false .
+  eq match_command_eq_2(variant_command_SKIP_0) = false .
+  eq match_command_eq_2(variant_command_eq_3(x0, x1, x2)) = false .
+  eq match_command_eq_2(variant_command_eq_2(x0, x1)) = true .
+  eq match_command_eq_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
+  eq match_command_eq_2(variant_command_WHILE_DO_END_2(x0, x1)) = false .
+  eq match_command_eq_2(variant_command_semi_2(x0, x1)) = false .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_SKIP_0) = false .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_eq_3(x0, x1, x2)) = false .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_eq_2(x0, x1)) = false .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = true .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_WHILE_DO_END_2(x0, x1)) = false .
+  eq match_command_IF_THEN_ELSE_END_3(variant_command_semi_2(x0, x1)) = false .
+  eq match_command_WHILE_DO_END_2(variant_command_SKIP_0) = false .
+  eq match_command_WHILE_DO_END_2(variant_command_eq_3(x0, x1, x2)) = false .
+  eq match_command_WHILE_DO_END_2(variant_command_eq_2(x0, x1)) = false .
+  eq match_command_WHILE_DO_END_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
+  eq match_command_WHILE_DO_END_2(variant_command_WHILE_DO_END_2(x0, x1)) = true .
+  eq match_command_WHILE_DO_END_2(variant_command_semi_2(x0, x1)) = false .
+  eq match_command_semi_2(variant_command_SKIP_0) = false .
+  eq match_command_semi_2(variant_command_eq_3(x0, x1, x2)) = false .
+  eq match_command_semi_2(variant_command_eq_2(x0, x1)) = false .
+  eq match_command_semi_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
+  eq match_command_semi_2(variant_command_WHILE_DO_END_2(x0, x1)) = false .
+  eq match_command_semi_2(variant_command_semi_2(x0, x1)) = true .
+  eq $itermap_K_t_minus_gt_V_t_list_2_pair(nil, nil) = nil .
+  eq $itermap_K_t_minus_gt_V_t_list_2_pair(cons(K_t__hd, K_t__tl), cons(V_t__hd, V_t__tl)) = cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), $itermap_K_t_minus_gt_V_t_list_2_pair(K_t__tl, V_t__tl)) .
+  eq $unzip_K_t_minus_gt_V_t_list_V_t(nil) = nil .
+  eq $unzip_K_t_minus_gt_V_t_list_V_t(cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), __rest)) = cons(V_t__hd, $unzip_K_t_minus_gt_V_t_list_V_t(__rest)) .
+  eq $unzip_K_t_minus_gt_V_t_list_K_t(nil) = nil .
+  eq $unzip_K_t_minus_gt_V_t_list_K_t(cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), __rest)) = cons(K_t__hd, $unzip_K_t_minus_gt_V_t_list_K_t(__rest)) .
+  ceq $lookup(pair<K, V>, K_query) = none if match_nil(pair<K, V>) = true .
+  ceq $lookup(pair<K, V>, K_query) = some(V_h) if match_cons(pair<K, V>) = true /\ pair<K, V> = cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0) /\ $unzip_K_t_minus_gt_V_t_list_K_t(iterbind_0) = K_t /\ $unzip_K_t_minus_gt_V_t_list_V_t(iterbind_0) = V_t /\ K_h = K_query .
+  ceq $lookup(pair<K, V>, K_query) = $lookup($itermap_K_t_minus_gt_V_t_list_2_pair(K_t, V_t), K_query) if match_cons(pair<K, V>) = true /\ pair<K, V> = cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0) /\ $unzip_K_t_minus_gt_V_t_list_K_t(iterbind_0) = K_t /\ $unzip_K_t_minus_gt_V_t_list_V_t(iterbind_0) = V_t [owise] .
+  ceq Check_expr(tenv, expr) = variant_type_INT_0 if subty_literal(expr) = true /\ expr = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i) .
+  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if subty_literal(expr) = true /\ expr = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b) .
+  ceq Check_expr(tenv, expr) = t if subty_id(expr) = true /\ expr = x /\ $lookup(tenv, x) = type /\ match_some(type) = true /\ type = some(t) .
+  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_bang_1(expr) = true /\ expr = variant_expr_bang_1(e) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true .
+  ceq Check_expr(tenv, expr) = variant_type_INT_0 if match_expr_plus_2(expr) = true /\ expr = variant_expr_plus_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_INT_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_INT_0(type') = true .
+  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_lt_eq_2(expr) = true /\ expr = variant_expr_lt_eq_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_INT_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_INT_0(type') = true .
+  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_amp_amp_2(expr) = true /\ expr = variant_expr_amp_amp_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_BOOL_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_BOOL_0(type') = true .
+  ceq Check_command(tenv, command) = tenv if match_command_SKIP_0(command) = true .
+  ceq Check_command(tenv, command) = cons(variant_pair_minus_gt_2(x, t), tenv) if match_command_eq_3(command) = true /\ command = variant_command_eq_3(t, x, e) /\ Check_expr(tenv, e) = type /\ type = t .
+  ceq Check_command(tenv, command) = tenv if match_command_eq_2(command) = true /\ command = variant_command_eq_2(x, e) /\ Check_expr(tenv, e) = t /\ $lookup(tenv, x) = some(t) .
+  ceq Check_command(tenv, command) = tenv if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true /\ Check_command(tenv, c_1) = tenv_1 /\ Check_command(tenv, c_2) = tenv_2 .
+  ceq Check_command(tenv, command) = tenv if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true /\ Check_command(tenv, c) = tenv_1 .
+  ceq Check_command(tenv, command) = tenv_2 if match_command_semi_2(command) = true /\ command = variant_command_semi_2(c_1, c_2) /\ Check_command(tenv, c_1) = tenv_1 /\ Check_command(tenv_1, c_2) = tenv_2 .
+  ceq Check_prog(command) = true if Check_command(nil, command) = tenv .
+  ceq Eval_expr(env, expr) = variant_literal_NUM_1(i) if subty_literal(expr) = true /\ expr = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i) .
+  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if subty_literal(expr) = true /\ expr = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b) .
+  ceq Eval_expr(env, expr) = v if subty_id(expr) = true /\ expr = x /\ $lookup(env, x) = value /\ match_some(value) = true /\ value = some(v) .
+  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_bang_1(expr) = true /\ expr = variant_expr_bang_1(e) /\ Eval_expr(env, e) = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b_e) /\ not(b_e) = b .
+  ceq Eval_expr(env, expr) = variant_literal_NUM_1(i) if match_expr_plus_2(expr) = true /\ expr = variant_expr_plus_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_NUM_1(literal') = true /\ literal' = variant_literal_NUM_1(i_r) /\ add_int(i_l, i_r) = i .
+  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_lt_eq_2(expr) = true /\ expr = variant_expr_lt_eq_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_NUM_1(literal') = true /\ literal' = variant_literal_NUM_1(i_r) /\ leq_int(i_l, i_r) = b .
+  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_amp_amp_2(expr) = true /\ expr = variant_expr_amp_amp_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_BOOL_1(literal') = true /\ literal' = variant_literal_BOOL_1(b_r) /\ and(b_l, b_r) = b .
+  ceq Eval_command(env, command) = env if match_command_SKIP_0(command) = true .
+  ceq Eval_command(env, command) = cons(variant_pair_minus_gt_2(x, v), env) if match_command_eq_3(command) = true /\ command = variant_command_eq_3(t, x, e) /\ Eval_expr(env, e) = v .
+  ceq Eval_command(env, command) = cons(variant_pair_minus_gt_2(x, v), env) if match_command_eq_2(command) = true /\ command = variant_command_eq_2(x, e) /\ Eval_expr(env, e) = v .
+  ceq Eval_command(env, command) = env_1 if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(true) /\ Eval_command(env, c_1) = env_1 .
+  ceq Eval_command(env, command) = env_2 if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(false) /\ Eval_command(env, c_2) = env_2 .
+  ceq Eval_command(env, command) = env if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(false) .
+  ceq Eval_command(env, command) = env_2 if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(true) /\ Eval_command(env, c) = env_1 /\ Eval_command(env_1, variant_command_WHILE_DO_END_2(e, c)) = env_2 .
+  ceq Eval_command(env, command) = env_2 if match_command_semi_2(command) = true /\ command = variant_command_semi_2(c_1, c_2) /\ Eval_command(env, c_1) = env_1 /\ Eval_command(env_1, c_2) = env_2 .
+  ceq Eval_prog(command) = env if Eval_command(nil, command) = env .
+  ceq Run_prog(command) = env if Check_prog(command) = true /\ Eval_prog(command) = env .
+endm)
+

@@ -20,11 +20,14 @@ open Lang.Il
 module R = Rewrite_system
 
 (* The structural CTRS vocabulary (symbol naming + smart term/rule builders)
-   this translation builds every rule through. *)
+   this translation builds every rule through. [scalar_theory]/[Structural]/
+   [Native] and the mode-aware scalar leaf builders ([bool_t]/[term_of_num]/
+   [text_t]/[nat_lit]/[conj_t]) come from here; the mode is threaded as
+   [~scalars] so each scalar leaf is emitted in the right theory at translation
+   time (no separate fold). *)
 open Ctrs_term
 
-(* Which scalar theory the emitted rules target (see the .mli). *)
-type scalar_theory = Structural | Native
+type scalar_theory = Ctrs_term.scalar_theory = Structural | Native
 
 (* -------------------------------------------------------------------------- *)
 (* Iteration helpers ([IterE]/[IterPr]). An iteration recurses over one or more
@@ -188,11 +191,11 @@ let subty_tup_sym (ts : typ list) : string = subty_helper_sym "tup" (TupleT ts)
 let subty_list_sym (elem : typ') : string = subty_helper_sym "list" elem
 let subty_opt_sym (elem : typ') : string = subty_helper_sym "opt" elem
 
-let sub_pred (t : typ') (x : R.term) : R.term =
+let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
   match t with
   | NumT `NatT -> app_t "sub_nat" [ x ]
   (* int, bool, text, func: the static type already guarantees membership. *)
-  | NumT _ | BoolT | TextT | FuncT -> true_t
+  | NumT _ | BoolT | TextT | FuncT -> bool_t ~scalars true
   | VarT { synid; _ } -> app_t (subty_sym synid.it) [ x ]
   | TupleT ts -> app_t (subty_tup_sym ts) [ x ]
   | IterT { typ = elem; iter = List } -> app_t (subty_list_sym elem.it) [ x ]
@@ -202,60 +205,58 @@ let sub_pred (t : typ') (x : R.term) : R.term =
 (* Expressions -> terms. Placed ahead of the type pass, which reuses it; it has
    no dependency on the type pass itself. *)
 
-let rec term_of_exp (e : exp) : R.term =
+let rec term_of_exp ~scalars (e : exp) : R.term =
+  let recur = term_of_exp ~scalars in
   match e.it with
   | VarE id -> var_t id.it
-  | BoolE b -> bool_t b
-  | NumE n -> term_of_num n
-  | TextE s -> text_t s
+  | BoolE b -> bool_t ~scalars b
+  | NumE n -> term_of_num ~scalars n
+  | TextE s -> text_t ~scalars s
   | UnE (op, ty, e1) ->
-      term_of_unop op ty ~operand_is_int:(yields_int e1) (term_of_exp e1)
-  | BinE (op, ty, e1, e2) ->
-      term_of_binop op ty (term_of_exp e1) (term_of_exp e2)
-  | CmpE (op, ty, e1, e2) ->
-      term_of_cmpop op ty (term_of_exp e1) (term_of_exp e2)
+      term_of_unop op ty ~operand_is_int:(yields_int e1) (recur e1)
+  | BinE (op, ty, e1, e2) -> term_of_binop op ty (recur e1) (recur e2)
+  | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
      projected with [nat_of_int]. *)
   | UpCastE (t, e1)
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
-      int_pos_t (term_of_exp e1)
+      int_pos_t (recur e1)
   | DownCastE (t, e1) when is_nat_typ t.it && is_int_typ e1.note ->
-      nat_of_int_t (term_of_exp e1)
-  | UpCastE (_, e1) | DownCastE (_, e1) -> term_of_exp e1
+      nat_of_int_t (recur e1)
+  | UpCastE (_, e1) | DownCastE (_, e1) -> recur e1
   (* A `<:` in value position is the boolean test itself, unlike the top-level
      premise form that [conds_of_prem] turns into a [== true] guard. *)
-  | SubE (e1, t) -> sub_pred t.it (term_of_exp e1)
-  | MatchE (e1, _) -> term_of_exp e1
-  | TupleE es -> tuple_t (List.map term_of_exp es)
+  | SubE (e1, t) -> sub_pred ~scalars t.it (recur e1)
+  | MatchE (e1, _) -> recur e1
+  | TupleE es -> tuple_t (List.map recur es)
   | CaseE ne ->
-      let args = List.map term_of_exp (Mixfix.args ne) in
+      let args = List.map recur (Mixfix.args ne) in
       let mixop = Mixfix.to_mixop ne in
       let origin = Option.value (typ_name_of e.note) ~default:"anon" in
       variant_t origin mixop args
   | StrE fields ->
-      let terms = List.map (fun (_, ef) -> term_of_exp ef) fields in
+      let terms = List.map (fun (_, ef) -> recur ef) fields in
       let typ_name = Option.value (typ_name_of e.note) ~default:"anon" in
       struct_t typ_name terms
   | OptE None -> none_t
-  | OptE (Some e1) -> some_t (term_of_exp e1)
-  | ListE es ->
-      List.fold_right (fun e acc -> cons_t (term_of_exp e) acc) es nil_t
-  | ConsE (h, t) -> cons_t (term_of_exp h) (term_of_exp t)
-  | CatE (a, b) -> cat_t (term_of_exp a) (term_of_exp b)
-  | LenE e1 -> len_t (term_of_exp e1)
+  | OptE (Some e1) -> some_t (recur e1)
+  | ListE es -> List.fold_right (fun e acc -> cons_t (recur e) acc) es nil_t
+  | ConsE (h, t) -> cons_t (recur h) (recur t)
+  | CatE (a, b) -> cat_t (recur a) (recur b)
+  | LenE e1 -> len_t (recur e1)
   | DotE (e1, a) ->
       let typ_name = Option.value (typ_name_of e1.note) ~default:"anon" in
-      app_t (field_sym typ_name a) [ term_of_exp e1 ]
+      app_t (field_sym typ_name a) [ recur e1 ]
   | CallE (id, _, args) ->
-      app_t (func_sym id) (List.filter_map term_of_arg args)
+      app_t (func_sym id) (List.filter_map (term_of_arg ~scalars) args)
   (* List/text operations over the [cons]/[nil] encoding, backed by the prelude
      rules and, for [Upd], the statically compiled path ([upd_of_path]).
      Out-of-bounds access is left irreducible. *)
-  | MemE (a, b) -> mem_t (term_of_exp a) (term_of_exp b)
-  | IdxE (a, b) -> idx_t (term_of_exp a) (term_of_exp b)
-  | SliceE (a, b, c) -> slice_t (term_of_exp a) (term_of_exp b) (term_of_exp c)
-  | UpdE (a, path, b) -> upd_of_path (term_of_exp a) path (term_of_exp b)
+  | MemE (a, b) -> mem_t (recur a) (recur b)
+  | IdxE (a, b) -> idx_t (recur a) (recur b)
+  | SliceE (a, b, c) -> slice_t (recur a) (recur b) (recur c)
+  | UpdE (a, path, b) -> upd_of_path ~scalars (recur a) path (recur b)
   (* A bare iterated variable [x*]/[x?] is the list/option [x] itself. *)
   | IterE ({ it = VarE id; _ }, _) -> var_t id.it
   (* A structured iterated body compiles to a call to its "map" helper, applied
@@ -267,34 +268,38 @@ let rec term_of_exp (e : exp) : R.term =
         (iter_map_sym body iter (List.length ids))
         (List.map var_t (fvs @ ids))
 
-and term_of_arg (a : arg) : R.term option =
-  match a.it with ExpA e -> Some (term_of_exp e) | DefA _ -> None
+and term_of_arg ~scalars (a : arg) : R.term option =
+  match a.it with ExpA e -> Some (term_of_exp ~scalars e) | DefA _ -> None
 
 (* [Upd]'s path is compiled statically: [access_of_path] reads the sub-term
    reached by a path, [upd_of_path] rebuilds the term with the leaf replaced by
    [v], from the inside out. *)
-and access_of_path (base : R.term) (path : path) : R.term =
+and access_of_path ~scalars (base : R.term) (path : path) : R.term =
+  let recur = access_of_path ~scalars base in
   match path.it with
   | RootP -> base
-  | IdxP (p, i) -> idx_t (access_of_path base p) (term_of_exp i)
+  | IdxP (p, i) -> idx_t (recur p) (term_of_exp ~scalars i)
   | SliceP (p, i, n) ->
-      slice_t (access_of_path base p) (term_of_exp i) (term_of_exp n)
+      slice_t (recur p) (term_of_exp ~scalars i) (term_of_exp ~scalars n)
   | DotP (p, a) ->
       let typ_name = Option.value (typ_name_of p.note) ~default:"anon" in
-      app_t (field_sym typ_name a) [ access_of_path base p ]
+      app_t (field_sym typ_name a) [ recur p ]
 
-and upd_of_path (base : R.term) (path : path) (v : R.term) : R.term =
+and upd_of_path ~scalars (base : R.term) (path : path) (v : R.term) : R.term =
+  let access = access_of_path ~scalars base in
   match path.it with
   | RootP -> v
   | IdxP (p, i) ->
-      upd_of_path base p (upd_idx_t (access_of_path base p) (term_of_exp i) v)
+      upd_of_path ~scalars base p
+        (upd_idx_t (access p) (term_of_exp ~scalars i) v)
   | SliceP (p, i, n) ->
-      upd_of_path base p
-        (upd_slice_t (access_of_path base p) (term_of_exp i) (term_of_exp n) v)
+      upd_of_path ~scalars base p
+        (upd_slice_t (access p) (term_of_exp ~scalars i)
+           (term_of_exp ~scalars n) v)
   | DotP (p, a) ->
       let typ_name = Option.value (typ_name_of p.note) ~default:"anon" in
-      upd_of_path base p
-        (app_t (upd_field_sym typ_name a) [ access_of_path base p; v ])
+      upd_of_path ~scalars base p
+        (app_t (upd_field_sym typ_name a) [ access p; v ])
 
 (* -------------------------------------------------------------------------- *)
 (* Prelude + type-derived definition rules. *)
@@ -303,7 +308,7 @@ and upd_of_path (base : R.term) (path : path) (v : R.term) : R.term =
    spines in lock-step, rebuilding the collection from the body evaluated at each
    element. [List] folds with [cons]/[nil], [Opt] with [some]/[none]. Returns the
    helper symbol with its rules, or [None] for a bare iterated variable. *)
-let iter_map_def (e : exp) : (string * R.rule list) option =
+let iter_map_def ~scalars (e : exp) : (string * R.rule list) option =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> None
   | IterE (body, (iter, vars)) ->
@@ -311,7 +316,7 @@ let iter_map_def (e : exp) : (string * R.rule list) option =
       let fvs = iter_captured_exp body vars ids in
       let sym = iter_map_sym body iter (List.length ids) in
       let fv_terms = List.map var_t fvs in
-      let body_elem = term_of_exp (rename_step_exp ids body) in
+      let body_elem = term_of_exp ~scalars (rename_step_exp ids body) in
       let base_args, step_args, rec_args = spine_args fv_terms ids in
       let rules =
         match iter with
@@ -346,13 +351,15 @@ let unzip_sym (body : exp) (iter : iter) (v : string) : string =
    [pattern_of_exp]) and these helpers recover the element streams the body would
    have bound. The captured variables are carried as leading parameters and
    matched in each element (a non-left-linear pattern). *)
-let iter_unzip_defs (e : exp) : (string * R.rule list) list =
+let iter_unzip_defs ~scalars (e : exp) : (string * R.rule list) list =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> []
   | IterE (body, (iter, vars)) ->
       let fv_terms = List.map var_t (captured_fvs (Free.free_exp body) vars) in
       let ids = iter_var_ids vars in
-      let elem_pat = subst_term (elem_renaming ids) (term_of_exp body) in
+      let elem_pat =
+        subst_term (elem_renaming ids) (term_of_exp ~scalars body)
+      in
       let rest = var_t "__rest" in
       List.map
         (fun v ->
@@ -436,7 +443,7 @@ let case_ctor (spec : spec) (name : string) (case_sym : string) :
    For a struct type [T]: a field accessor per field, structural [eq], and a
    trivially-true [subty_<T>] (structs are invariant in SpecTec). For a plain
    alias [T = U]: [subty_<T>] delegates to [U]'s check. *)
-let defs_of_typ (def : def) : R.rule list =
+let defs_of_typ ~scalars (def : def) : R.rule list =
   match def.it with
   | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ } ->
       let t = tid.it in
@@ -456,7 +463,9 @@ let defs_of_typ (def : def) : R.rule list =
          and [false] on every sibling -- total and overlap-free over [t]'s cases. *)
       let matcher_rules =
         per_pair (fun i ci j cj ->
-            rule (app_t (match_sym t ci.mixop) [ con cj ]) (bool_t (i = j)))
+            rule
+              (app_t (match_sym t ci.mixop) [ con cj ])
+              (bool_t ~scalars (i = j)))
       in
       (* subtype: recurse into each case's payload (its declared field types). *)
       let subty_rules =
@@ -468,7 +477,10 @@ let defs_of_typ (def : def) : R.rule list =
             let field_typs = Mixfix.args nottyp.it in
             rule
               (app_t (subty_sym t) [ variant_t ci.origin ci.mixop xs ])
-              (conj_t (List.map2 (fun ft x -> sub_pred ft.it x) field_typs xs)))
+              (conj_t ~scalars
+                 (List.map2
+                    (fun ft x -> sub_pred ~scalars ft.it x)
+                    field_typs xs)))
           typcases
       in
       let eq_rules =
@@ -480,8 +492,9 @@ let defs_of_typ (def : def) : R.rule list =
                 (eq_t
                    (variant_t ci.origin ci.mixop xs)
                    (variant_t ci.origin ci.mixop ys))
-                (conj_t (List.map2 eq_t xs ys))
-            else rule (eq_t (con ci) (con ~prefix:"y" cj)) false_t)
+                (conj_t ~scalars (List.map2 eq_t xs ys))
+            else
+              rule (eq_t (con ci) (con ~prefix:"y" cj)) (bool_t ~scalars false))
       in
       matcher_rules @ subty_rules @ eq_rules
   | TypD { synid = tid; deftyp = { it = StructT fields; _ }; _ } ->
@@ -514,13 +527,13 @@ let defs_of_typ (def : def) : R.rule list =
       let eq_rule =
         rule
           (eq_t (app_t (struct_sym t) xs) (app_t (struct_sym t) ys))
-          (conj_t (List.map2 eq_t xs ys))
+          (conj_t ~scalars (List.map2 eq_t xs ys))
       in
       (* structs are invariant: any value of the type is trivially a subtype. *)
       let subty_rule =
         rule
           (app_t (subty_sym t) [ app_t (struct_sym t) (fresh_vars n) ])
-          true_t
+          (bool_t ~scalars true)
       in
       accessor_rules @ updater_rules @ [ eq_rule; subty_rule ]
   (* A plain alias [syntax T = U]: its subtype check is [U]'s. *)
@@ -528,7 +541,7 @@ let defs_of_typ (def : def) : R.rule list =
       [
         rule
           (app_t (subty_sym tid.it) [ var_t "x" ])
-          (sub_pred u.it (var_t "x"));
+          (sub_pred ~scalars u.it (var_t "x"));
       ]
   | _ -> []
 
@@ -543,8 +556,8 @@ let split_inputs (inputs : int list) (args : 'a list) : 'a list * 'a list =
   in
   (List.map snd ins, List.map snd outs)
 
-let output_term (outs : R.term list) : R.term =
-  match outs with [] -> true_t | [ t ] -> t | ts -> tuple_t ts
+let output_term ~scalars (outs : R.term list) : R.term =
+  match outs with [] -> bool_t ~scalars true | [ t ] -> t | ts -> tuple_t ts
 
 (* A relation's notation type and input-position indices, by name. Used to split
    a relation's arguments into inputs and outputs. *)
@@ -562,16 +575,16 @@ let find_rel_in_spec (spec : spec) (rel_name : string) :
     spec
 
 (* [Rel: id : notexp] as an invocation condition [Rel(inputs) == output]. *)
-let rel_invocation (orig : spec) (id : id) (ne : notexp) : R.cond =
+let rel_invocation ~scalars (orig : spec) (id : id) (ne : notexp) : R.cond =
   let args = Mixfix.args ne in
   let in_args, out_args =
     match find_rel_in_spec orig id.it with
     | Some (_, inputs) -> split_inputs inputs args
     | None -> (args, [])
   in
-  let in_terms = List.map term_of_exp in_args in
-  let out_terms = List.map term_of_exp out_args in
-  (app_t (rel_sym id) in_terms, output_term out_terms)
+  let in_terms = List.map (term_of_exp ~scalars) in_args in
+  let out_terms = List.map (term_of_exp ~scalars) out_args in
+  (app_t (rel_sym id) in_terms, output_term ~scalars out_terms)
 
 (* The iteration variables a premise binds (its output positions): a relation's
    non-input arguments, or a [let]'s left-hand side. A bound iteration variable
@@ -645,12 +658,12 @@ let iter_proj_sym (inner : prem) (iter : iter) (n_bound : int) (b : string) :
    positions are exactly the collected [binding_ids] as bare variables.
    [out_vars] is the output variable order (one for a single output, the tuple
    component order for several). [None] for any other premise. *)
-let iter_call_map (orig : spec) (inner : prem) (binding_ids : string list) :
-    (R.term * string list) option =
+let iter_call_map ~scalars (orig : spec) (inner : prem)
+    (binding_ids : string list) : (R.term * string list) option =
   match inner.it with
   | RelPr { relid = id; notexp = ne }
   | RelAssertPr { call = { relid = id; notexp = ne }; expect = true } ->
-      let call, out_pat = rel_invocation orig id ne in
+      let call, out_pat = rel_invocation ~scalars orig id ne in
       let components =
         match out_pat with R.App ("tuple", ts) -> ts | t -> [ t ]
       in
@@ -681,10 +694,10 @@ let fresh_binder () : unit -> string =
    iterated body cannot stand as a pattern (a CTRS LHS is constructor-only), so
    it binds a fresh list variable and yields [unzip] conditions recovering the
    element streams (see [iter_unzip_defs]). [fresh] supplies rule-unique names. *)
-let rec pattern_of_exp (fresh : unit -> string) (e : exp) : R.term * R.cond list
-    =
+let rec pattern_of_exp ~scalars (fresh : unit -> string) (e : exp) :
+    R.term * R.cond list =
   let many es =
-    let pairs = List.map (pattern_of_exp fresh) es in
+    let pairs = List.map (pattern_of_exp ~scalars fresh) es in
     (List.map fst pairs, List.concat_map snd pairs)
   in
   match e.it with
@@ -706,8 +719,8 @@ let rec pattern_of_exp (fresh : unit -> string) (e : exp) : R.term * R.cond list
       let ts, cs = many es in
       (List.fold_right cons_t ts nil_t, cs)
   | ConsE (h, t) ->
-      let th, ch = pattern_of_exp fresh h in
-      let tt, ct = pattern_of_exp fresh t in
+      let th, ch = pattern_of_exp ~scalars fresh h in
+      let tt, ct = pattern_of_exp ~scalars fresh t in
       (cons_t th tt, ch @ ct)
   | CaseE ne ->
       let ts, cs = many (Mixfix.args ne) in
@@ -718,35 +731,35 @@ let rec pattern_of_exp (fresh : unit -> string) (e : exp) : R.term * R.cond list
       let typ_name = Option.value (typ_name_of e.note) ~default:"anon" in
       (struct_t typ_name ts, cs)
   | OptE (Some e1) ->
-      let t, c = pattern_of_exp fresh e1 in
+      let t, c = pattern_of_exp ~scalars fresh e1 in
       (some_t t, c)
   (* Non-structural (or capture-carrying iterated) heads stay as plain terms. *)
-  | _ -> (term_of_exp e, [])
+  | _ -> (term_of_exp ~scalars e, [])
 
-let rec conds_of_prem (orig : spec) (fresh : unit -> string) (prem : prem) :
-    R.cond list =
+let rec conds_of_prem ~scalars (orig : spec) (fresh : unit -> string)
+    (prem : prem) : R.cond list =
+  let term = term_of_exp ~scalars in
   match prem.it with
   (* The let's pattern is a binder position: compile it as a pattern so an
      iterated destructuring unzips into the element streams, rather than
      re-zipping them with [$itermap] (a function Maude cannot run backwards). *)
   | LetPr (lhs, rhs) ->
-      let pat, conds = pattern_of_exp fresh lhs in
-      (term_of_exp rhs, pat) :: conds
-  | IfPr { cond = { it = CmpE (`EqOp, _, a, b); _ }; _ } ->
-      [ (term_of_exp a, term_of_exp b) ]
+      let pat, conds = pattern_of_exp ~scalars fresh lhs in
+      (term rhs, pat) :: conds
+  | IfPr { cond = { it = CmpE (`EqOp, _, a, b); _ }; _ } -> [ (term a, term b) ]
   | IfPr { cond = { it = CmpE (`NeOp, _, a, b); _ }; _ } ->
-      [ (eq_t (term_of_exp a) (term_of_exp b), false_t) ]
+      [ (eq_t (term a) (term b), bool_t ~scalars false) ]
   | IfPr { cond = { it = MatchE (e, pattern); _ }; _ } ->
-      [ cond_of_match e pattern ]
+      [ cond_of_match ~scalars e pattern ]
   | IfPr { cond = { it = SubE (e, t); _ }; _ } ->
-      [ (sub_pred t.it (term_of_exp e), true_t) ]
-  | IfPr { cond; _ } -> [ (term_of_exp cond, true_t) ]
+      [ (sub_pred ~scalars t.it (term e), bool_t ~scalars true) ]
+  | IfPr { cond; _ } -> [ (term cond, bool_t ~scalars true) ]
   | RelPr { relid = id; notexp = ne }
   | RelAssertPr { call = { relid = id; notexp = ne }; expect = true } ->
-      [ rel_invocation orig id ne ]
+      [ rel_invocation ~scalars orig id ne ]
   | RelAssertPr { call = { relid = id; notexp = ne }; expect = false } ->
-      let lhs, _ = rel_invocation orig id ne in
-      [ (lhs, false_t) ]
+      let lhs, _ = rel_invocation ~scalars orig id ne in
+      [ (lhs, bool_t ~scalars false) ]
   (* An iterated premise becomes a call to its auxiliary helper (see
      [iterpr_defs]): a [$iterall] check when it collects nothing; an [$iterapply]
      map (or [$iterproj_b] per output) when it iterates a single relation call;
@@ -757,9 +770,9 @@ let rec conds_of_prem (orig : spec) (fresh : unit -> string) (prem : prem) :
       let args = List.map var_t (fvs @ bound_ids) in
       let n = List.length bound_ids in
       if binding_ids = [] then
-        [ (app_t (iter_all_sym inner iter n) args, true_t) ]
+        [ (app_t (iter_all_sym inner iter n) args, bool_t ~scalars true) ]
       else
-        match iter_call_map orig inner binding_ids with
+        match iter_call_map ~scalars orig inner binding_ids with
         (* A single relation call: [$iterapply] returns the output stream
            directly (a single output binds it; several are projected out). *)
         | Some (_, [ b ]) ->
@@ -777,58 +790,61 @@ let rec conds_of_prem (orig : spec) (fresh : unit -> string) (prem : prem) :
               binding_ids)
   | ElsePr | DebugPr _ -> []
 
-and cond_of_match (e : exp) (pattern : pattern) : R.cond =
-  let subj = term_of_exp e in
+and cond_of_match ~scalars (e : exp) (pattern : pattern) : R.cond =
+  let subj = term_of_exp ~scalars e in
+  let yes = bool_t ~scalars true in
   match pattern with
   | CaseP mixop ->
       let name = Option.value (typ_name_of e.note) ~default:"anon" in
-      (app_t (match_sym name mixop) [ subj ], true_t)
-  | OptP `Some -> (app_t "match_some" [ subj ], true_t)
-  | OptP `None -> (app_t "match_none" [ subj ], true_t)
-  | ListP `Cons -> (app_t "match_cons" [ subj ], true_t)
-  | ListP `Nil -> (app_t "match_nil" [ subj ], true_t)
-  | ListP (`Fixed n) -> (len_t subj, peano_of_int n)
+      (app_t (match_sym name mixop) [ subj ], yes)
+  | OptP `Some -> (app_t "match_some" [ subj ], yes)
+  | OptP `None -> (app_t "match_none" [ subj ], yes)
+  | ListP `Cons -> (app_t "match_cons" [ subj ], yes)
+  | ListP `Nil -> (app_t "match_nil" [ subj ], yes)
+  | ListP (`Fixed n) -> (len_t subj, nat_lit ~scalars n)
 
-let conds_of_prems (orig : spec) (fresh : unit -> string) (prems : prem list) :
-    R.cond list =
-  List.concat_map (conds_of_prem orig fresh) prems
+let conds_of_prems ~scalars (orig : spec) (fresh : unit -> string)
+    (prems : prem list) : R.cond list =
+  List.concat_map (conds_of_prem ~scalars orig fresh) prems
 
 (* Defining rules for an [IterPr]'s helper(s), the premise counterpart of
    [iter_map_def]: recurse over the bound (iteration-guiding) spines, requiring
    the inner premise's conditions at each step. A pure check ([$iterall]) reduces
    to [true] only when every step holds; a collecting helper ([$itercollect_b])
    rebuilds the list of each step's bound value [b]. *)
-let iterpr_defs (orig : spec) (prem : prem) : (string * R.rule list) list =
+let iterpr_defs ~scalars (orig : spec) (prem : prem) :
+    (string * R.rule list) list =
   match prem.it with
   | IterPr (inner, (iter, vars)) -> (
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fv_terms = List.map var_t (iter_captured inner vars bound_ids) in
       let inner_stepped = rename_step_prem (bound_ids @ binding_ids) inner in
-      let conds = conds_of_prem orig (fresh_binder ()) inner_stepped in
+      let conds = conds_of_prem ~scalars orig (fresh_binder ()) inner_stepped in
       let base_args, step_args, rec_args = spine_args fv_terms bound_ids in
       let n = List.length bound_ids in
       let cons_step h t = cons_t (var_t h) (var_t t) in
       let some_step h _ = some_t (var_t h) in
       if binding_ids = [] then
         let sym = iter_all_sym inner iter n in
+        let yes = bool_t ~scalars true in
         let rules =
           match iter with
           | List ->
               [
-                rule (app_t sym (base_args nil_t)) true_t;
+                rule (app_t sym (base_args nil_t)) yes;
                 rule_cond
                   (app_t sym (step_args cons_step))
                   (app_t sym rec_args) conds;
               ]
           | Opt ->
               [
-                rule (app_t sym (base_args none_t)) true_t;
-                rule_cond (app_t sym (step_args some_step)) true_t conds;
+                rule (app_t sym (base_args none_t)) yes;
+                rule_cond (app_t sym (step_args some_step)) yes conds;
               ]
         in
         [ (sym, rules) ]
       else
-        match iter_call_map orig inner binding_ids with
+        match iter_call_map ~scalars orig inner binding_ids with
         (* A single relation call: an unconditional "map" carrying the call
            result as the element, plus a projection helper per output when the
            call has several (the stream is then a stream of tuples). *)
@@ -953,18 +969,18 @@ let blocks_of_def (def : def) : (exp list * prem list) list =
    deduplicated by symbol (structurally identical iterations share one helper).
    Descends into clause/rule heads, results, and premises, including nested
    iterations. *)
-let iter_helper_defs (orig : spec) (spec : spec) : R.rule list =
+let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
   let defs = Helper_defs.create 32 in
   let add (sym, rules) = Helper_defs.add defs sym rules in
   let rec visit_exp (e : exp) =
-    (match iter_map_def e with Some d -> add d | None -> ());
-    List.iter add (iter_unzip_defs e);
+    (match iter_map_def ~scalars e with Some d -> add d | None -> ());
+    List.iter add (iter_unzip_defs ~scalars e);
     List.iter visit_exp (Exp_map.subexps e.it)
   in
   let rec visit_prem (p : prem) =
     match p.it with
     | IterPr (inner, _) ->
-        List.iter add (iterpr_defs orig p);
+        List.iter add (iterpr_defs ~scalars orig p);
         visit_prem inner
     | _ -> List.iter visit_exp (Exp_map.exps_of_prem p)
   in
@@ -980,7 +996,7 @@ let iter_helper_defs (orig : spec) (spec : spec) : R.rule list =
    target and every type a [subty_<T>] definition recurses into (a variant case's
    field types and a plain alias's underlying type). The named [subty_<T>]
    helpers themselves come from [defs_of_typ]; scalars from the prelude. *)
-let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
+let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
   let defs = Helper_defs.create 64 in
   let has_typdef name =
     List.exists
@@ -998,7 +1014,8 @@ let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
     | VarT { synid = tid; _ } ->
         let sym = subty_sym tid.it in
         if (not (Helper_defs.mem defs sym)) && not (has_typdef tid.it) then
-          Helper_defs.add defs sym [ rule (app_t sym [ var_t "x" ]) true_t ]
+          Helper_defs.add defs sym
+            [ rule (app_t sym [ var_t "x" ]) (bool_t ~scalars true) ]
     | TupleT ts ->
         let sym = subty_tup_sym ts in
         if not (Helper_defs.mem defs sym) then (
@@ -1007,7 +1024,8 @@ let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
             [
               rule
                 (app_t sym [ tuple_t xs ])
-                (conj_t (List.map2 (fun ft x -> sub_pred ft.it x) ts xs));
+                (conj_t ~scalars
+                   (List.map2 (fun ft x -> sub_pred ~scalars ft.it x) ts xs));
             ];
           List.iter (fun ft -> require ft.it) ts)
     | IterT { typ = elem; iter = List } ->
@@ -1016,10 +1034,10 @@ let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
           let h = var_t "h" and t = var_t "t" in
           Helper_defs.add defs sym
             [
-              rule (app_t sym [ nil_t ]) true_t;
+              rule (app_t sym [ nil_t ]) (bool_t ~scalars true);
               rule
                 (app_t sym [ cons_t h t ])
-                (and_t (sub_pred elem.it h) (app_t sym [ t ]));
+                (and_t (sub_pred ~scalars elem.it h) (app_t sym [ t ]));
             ];
           require elem.it)
     | IterT { typ = elem; iter = Opt } ->
@@ -1028,8 +1046,8 @@ let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
           let v = var_t "v" in
           Helper_defs.add defs sym
             [
-              rule (app_t sym [ none_t ]) true_t;
-              rule (app_t sym [ some_t v ]) (sub_pred elem.it v);
+              rule (app_t sym [ none_t ]) (bool_t ~scalars true);
+              rule (app_t sym [ some_t v ]) (sub_pred ~scalars elem.it v);
             ];
           require elem.it)
     | _ -> ()
@@ -1069,11 +1087,11 @@ let sub_helper_defs (orig : spec) (simplified : spec) : R.rule list =
 (* -------------------------------------------------------------------------- *)
 (* Spec body rules. *)
 
-let pattern_of_arg (fresh : unit -> string) (a : arg) :
+let pattern_of_arg ~scalars (fresh : unit -> string) (a : arg) :
     R.term option * R.cond list =
   match a.it with
   | ExpA e ->
-      let t, c = pattern_of_exp fresh e in
+      let t, c = pattern_of_exp ~scalars fresh e in
       (Some t, c)
   | DefA _ -> (None, [])
 
@@ -1084,38 +1102,41 @@ let pattern_of_arg (fresh : unit -> string) (a : arg) :
 let has_otherwise (prems : prem list) : bool =
   List.exists (fun p -> match p.it with ElsePr -> true | _ -> false) prems
 
-let rule_of_clause (orig : spec) (id : id) (clause : clause) : R.rule =
+let rule_of_clause ~scalars (orig : spec) (id : id) (clause : clause) : R.rule =
   let { args; body = exp; prems } = clause.it in
   let fresh = fresh_binder () in
-  let arg_pairs = List.map (pattern_of_arg fresh) args in
+  let arg_pairs = List.map (pattern_of_arg ~scalars fresh) args in
   {
     R.lhs = app_t (func_sym id) (List.filter_map fst arg_pairs);
-    rhs = term_of_exp exp;
-    conds = List.concat_map snd arg_pairs @ conds_of_prems orig fresh prems;
+    rhs = term_of_exp ~scalars exp;
+    conds =
+      List.concat_map snd arg_pairs @ conds_of_prems ~scalars orig fresh prems;
     owise = has_otherwise prems;
   }
 
-let rule_of_rel_rule (orig : spec) (id : id) (inputs : int list) (rl : rule) :
-    R.rule =
+let rule_of_rel_rule ~scalars (orig : spec) (id : id) (inputs : int list)
+    (rl : rule) : R.rule =
   let { concl = ne; prems; _ } = rl.it in
   let args = Mixfix.args ne in
   let in_args, out_args = split_inputs inputs args in
   let fresh = fresh_binder () in
-  let in_pairs = List.map (pattern_of_exp fresh) in_args in
+  let in_pairs = List.map (pattern_of_exp ~scalars fresh) in_args in
   {
     R.lhs = app_t (rel_sym id) (List.map fst in_pairs);
-    rhs = output_term (List.map term_of_exp out_args);
-    conds = List.concat_map snd in_pairs @ conds_of_prems orig fresh prems;
+    rhs = output_term ~scalars (List.map (term_of_exp ~scalars) out_args);
+    conds =
+      List.concat_map snd in_pairs @ conds_of_prems ~scalars orig fresh prems;
     owise = has_otherwise prems;
   }
 
-let rules_of_def (orig : spec) (def : def) : R.rule list =
+let rules_of_def ~scalars (orig : spec) (def : def) : R.rule list =
   match def.it with
-  | DecD { defid = id; clauses; _ } -> List.map (rule_of_clause orig id) clauses
+  | DecD { defid = id; clauses; _ } ->
+      List.map (rule_of_clause ~scalars orig id) clauses
   | RelD { relid = id; reltyp; rules } ->
       let n = List.length (Mixfix.args (Mode.notation reltyp.it)) in
       let inputs, _ = Mode.partition reltyp.it (List.init n Fun.id) in
-      List.map (rule_of_rel_rule orig id inputs) rules
+      List.map (rule_of_rel_rule ~scalars orig id inputs) rules
   | TypD _ | BuiltinDecD _ -> []
 
 (* -------------------------------------------------------------------------- *)
@@ -1138,22 +1159,27 @@ let prune_unused (defs : R.rule list) (body : R.rule list) : R.rule list =
 
 (* Structural equality over text bytes: [eq] decides every pair drawn from the
    spec's alphabet (true on the diagonal, false off it). *)
-let char_eq_rules (codes : int list) : R.rule list =
+let char_eq_rules ~scalars (codes : int list) : R.rule list =
   List.concat_map
     (fun c ->
-      List.map (fun d -> rule (eq_t (chr_t c) (chr_t d)) (bool_t (c = d))) codes)
+      List.map
+        (fun d -> rule (eq_t (chr_t c) (chr_t d)) (bool_t ~scalars (c = d)))
+        codes)
     codes
 
 let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
     (simplified : spec) : R.t =
-  let type_rules = Prelude.rules @ List.concat_map defs_of_typ orig in
-  let body_rules = List.concat_map (rules_of_def orig) simplified in
-  let iter_rules = iter_helper_defs orig simplified in
-  let sub_rules = sub_helper_defs orig simplified in
+  let type_rules =
+    Prelude.rules ~scalars @ List.concat_map (defs_of_typ ~scalars) orig
+  in
+  let body_rules = List.concat_map (rules_of_def ~scalars orig) simplified in
+  let iter_rules = iter_helper_defs ~scalars orig simplified in
+  let sub_rules = sub_helper_defs ~scalars orig simplified in
   (* [extra_defs] (builtin rules) can introduce text bytes of their own, so scan
      them too, or a produced text could meet a [chr] with no equality rule. *)
   let char_rules =
-    char_eq_rules (char_codes_of_rules (type_rules @ body_rules @ extra_defs))
+    char_eq_rules ~scalars
+      (char_codes_of_rules (type_rules @ body_rules @ extra_defs))
   in
   let type_rules =
     prune_unused
@@ -1162,8 +1188,7 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
   in
   let rules = type_rules @ body_rules in
   let vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) in
-  let sys = { R.vars; rules } in
-  match scalars with Structural -> sys | Native -> Native_scalars.fold sys
+  { R.vars; rules }
 
 (* The slice roots: the symbol each top-level function/relation defines, in spec
    order. *)

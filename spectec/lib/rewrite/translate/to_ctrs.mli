@@ -1,12 +1,13 @@
-(** Which scalar theory the emitted rules target.
+(** Which scalar theory the emitted rules target (defined in {!Ctrs_term}, where
+    the mode-aware scalar leaf builders live).
 
     - [Structural]: self-contained scalars (Peano nats, sign-magnitude ints,
       char-list texts, own booleans) with their hand-written prelude rules, for
       the analysis pipeline.
-    - [Native]: ground scalars fold into built-in wrappers ([nat]/[int]/[bool]/
-      [txt]) and the {!Prelude.native_replaced_heads} prelude rules are omitted,
-      for the Maude execution backend. *)
-type scalar_theory = Structural | Native
+    - [Native]: scalar leaves are emitted directly as Maude's built-in wrappers
+      ([nat]/[int]/[bool]/[txt]) and the structural scalar prelude rules
+      ({!Prelude.scalar_rules}) are omitted, for the Maude execution backend. *)
+type scalar_theory = Ctrs_term.scalar_theory = Structural | Native
 
 (** Translate an elaborated IL spec into a CTRS ({!Rewrite_system.t}).
 
