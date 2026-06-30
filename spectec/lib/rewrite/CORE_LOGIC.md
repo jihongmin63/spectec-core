@@ -407,6 +407,14 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 > ccp SPEC1 `false=true if text="lpm"` — Maude CRC가 owise를 임계쌍 생성에서 무시;
 > todo.md P2 `otherwise` 예측의 실제 발현, `$lookup`은 가드가 `match_*`라 회피). 자세한
 > 표는 [todo.md](todo.md) "Mfe calibration".
+>
+> **원인 (1)은 `Rewrite_system.fold_premise_binders`로 해소(done).** `ctrs_of_spec`
+> 마지막에 전제로만 묶이는 변수를 규칙에 도로 접는다 — 출력 바인더 `(prod,v)`는 rhs로
+> 인라인, 순수 접근자 구조분해 `(v,K(..))`는 head 패턴으로 폴드(iteration helper 재귀
+> 바인더 포함). 분석 표면 전용(실행 모듈 byte-identical). **수술적**으로 제한: 가드 절
+> 폴드는 CRC의 disjointness 가드를 없애 owise 중첩을 노출(YES→MAYBE 역행)하므로 안 함.
+> 효과: 무역행, p4의 33 MAYBE 중 **19개 → YES**(출력+접근자, iteration 포함). 남은 14는
+> 원인 (2) owise + 일부 multi-clause.
 
 > termination 게이트(`Aprove`/`Muterm`/`Termination` 디스패처: `is_unconditional`이면
 > AProVE WST, 아니면 MuTerm; `string_of_system_tpdb` 소비)는 별개 축이며 이 골격에선

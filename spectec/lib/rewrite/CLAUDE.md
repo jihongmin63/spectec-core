@@ -269,6 +269,17 @@ executable surface handles them with `:=`/`=>` and owise complements):
 `g(x)`); (2) **owise overlap** (`$is_lpm_key_prime`: `= true if x = "lpm"` vs
 `= false [owise]` → CRC ignores owise → `true = false`).
 
+Cause (1) is fixed by `Rewrite_system.fold_premise_binders`, a final
+`ctrs_of_spec` pass that folds each premise-bound variable back into the rule —
+an output binder `(prod, v)` inlined into the rhs, a pure-accessor destructuring
+`(v, K(..))` folded into the head pattern (iteration-helper binders too).
+Analysis-only (execution module byte-identical). It is **surgical** (pure
+accessors only): folding a guarded clause would strip the `match_*` disjointness
+guard the CRC uses and expose the clause's owise overlap (an aggressive variant
+regressed 6 impty symbols YES→MAYBE). Result: no regression; **19 of the 33 p4
+MAYBEs flip to YES** (the output + accessor classes, incl. iteration). The
+remaining 14 are cause (2) owise + a few multi-clause symbols.
+
 ## External tool bridges
 
 `Cocoweb.check` and `Muterm.check` write the serialized system to a temp file
