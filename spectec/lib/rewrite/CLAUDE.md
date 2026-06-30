@@ -192,16 +192,21 @@ directly to CTRS rules. To debug whether an odd output comes from here or from
 
 ## CLI entry points (defined in [bin/main.ml](../../bin/main.ml))
 
-- `rewrite [--symbol NAME] FILES…` — dump the CTRS (`string_of_system`); with
-  `--symbol`, only that symbol's dependency slice.
-- `verify [--only confluence|termination|both] [--whole] [--symbol NAME]
-  [--list-symbols] [--timeout S] [--solver N] [--jobs N] [--client P]
-  [--muterm-client P] [--aprove-jar P] FILES…` — run CoCoWeb and/or
-  termination (AProVE/MuTerm dispatched per slice). **Default is
-  per-symbol slices** (batch over every root, `--jobs` concurrent, default 4);
-  `--whole` checks the whole system at once. Shared driver:
-  [lib/cli/slice_check.ml](../cli/slice_check.ml); flags:
-  [lib/cli/cli_args.ml](../cli/cli_args.ml) `Slice`.
+- `rewrite [--ctrs] [--simplified] [--symbol NAME] [--relations-as-rules] FILES…`
+  — default emits the executable Maude module (`To_maude.module_of_spec`).
+  `--ctrs` instead dumps the analysis CTRS (`string_of_system_maude`, the text
+  `verify` sends the MFE); with `--symbol NAME` only that symbol's dependency
+  slice (`Rewrite_system.slice`) — handy to inspect/pin one slice's module.
+  `--simplified` dumps the IL after the `Simplify` pre-pass.
+- `verify [--symbol NAME] [--list-symbols] [--timeout S] [--maude-bin P]
+  [--mfe-dir D] FILES…` — run the MFE CRC+ChC (`Mfe.check`) on the structural
+  system; whole-system by default, `--symbol NAME` for one slice,
+  `--list-symbols` to list the sliceable roots (`def_symbols`). Exit 0 iff both
+  verdicts are `YES`. **Whole-system CRC explodes on critical pairs**, so the
+  **per-symbol slice is the practical path** (no batch/`--jobs` driver in this
+  skeleton — loop over `--list-symbols` yourself). (The old `--only`/`--whole`/
+  `--jobs`/`--client`/`slice_check.ml` and the CoCoWeb/termination axes are the
+  *deleted* legacy design.)
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate [installed]
 
@@ -249,6 +254,15 @@ wrong guesses):**
 Whole-system CRC explodes on critical pairs; **`verify --symbol NAME` per-symbol
 slices are the practical path** (`$lookup` → YES/YES ~1.4s). See
 [tools/mfe/README.md](../../tools/mfe/README.md).
+
+**impty/base per-symbol verdicts** (recorded; [todo.md](todo.md) "Mfe
+calibration" has the table): `$lookup`/`Check_*`/`Eval_expr`/`Eval_command` =
+CRC YES + ChC YES; **`Eval_prog` = CRC MAYBE** (`ccp SPEC226`: result `env` is a
+free RHS variable bound only by the premise `Eval-command(nil, command) = env`,
+which CRC can't join — the analysis surface's join-condition `=` approximation,
+not a bug; the executable surface uses `:=`/`=>`); `Run_prog` = TIMEOUT
+(whole-reachable). ChC is YES throughout because impty/base has no `rl`/`crl`
+(every relation is input-moded → equations), so coherence is vacuous.
 
 ## External tool bridges
 

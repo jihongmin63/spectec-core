@@ -75,8 +75,31 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 - [x] **검증: impty/base CTRS 골든** byte-identical (done) — `specs/impty/base/spec.ctrs`
   고정(`rewrite --ctrs` 덤프). 기본 `rewrite`는 실행 모듈을 내므로 분석-CTRS 골든은
   `--ctrs` 경로. 실행(Native) 모듈 골든은 아직 미고정(원하면 `spec.maude`로 별도 핀).
-- [ ] **`Mfe` calibration** — 실제 MFE로 load 파일명·`(check ...)` 문법·verdict 토큰 보정
-  (`mfe.ml` 상수/파서). impty/base structural 시스템에 CRC+ChC 적용.
+- [x] **`Mfe` calibration** (done) — `mfe.ml`을 실측 프로토콜로 재작성(entry `src/mfe.maude`,
+  `MAUDE_LIB`, stdin 파이프, `(select tool …)`+`(check …)`, EOF flood→streaming
+  SIGKILL, verdict 토큰; [tools/mfe/README.md](../../tools/mfe/README.md) Calibration).
+  impty/base에 **per-symbol slice**(`verify --symbol`, `rewrite --ctrs --symbol`)로
+  CRC+ChC 적용한 결과:
+
+  | symbol | CRC | ChC | 비고 |
+  |---|---|---|---|
+  | `$lookup` | YES | YES | owise + 서로소 `match_*` 가드로 합류 |
+  | `Check_expr`/`Check_command`/`Check_prog` | YES | YES | |
+  | `Eval_expr`/`Eval_command` | YES | YES | |
+  | `Eval_prog` | **MAYBE** | YES | `ccp SPEC226` 미합류(아래) |
+  | `Run_prog` | TIMEOUT | TIMEOUT | 전체-reachable, critical pair 폭증(>150s) |
+
+  - **ChC가 전부 YES**인 이유: impty/base는 `rl`/`crl`이 0개(모든 relation이
+    input-moded → 등식)라 coherence가 vacuous.
+  - **`Eval_prog` 비합류는 진짜이며 알려진 한계의 발현**: 규칙
+    `Eval-prog(command) = env if Eval-command(nil, command) = env`의 결과 `env`가
+    **전제로만 묶이는 RHS 자유변수**라, CRC가 같은 불투명 `Eval-command(nil,command)`의
+    두 증인 `env`/`#env#`를 합류시키지 못함(ccp SPEC226). 상수 RHS인 `Check-prog`
+    (`= true if … = tenv`)는 자유변수가 안 생겨 YES. 실행 표면(`to_maude`)은 이
+    전제를 `:=`/`=>` 조건으로 내보내 문제없음 — 분석 표면의 join-condition `=` 근사가
+    원인(같은 뿌리: "variable used before bound" 경고). **번역 버그 아님.**
+  - **참고**: todo.md가 적던 `$lookup` 중복-LHS/`otherwise` 비합류는 분석 Maude 표면이
+    owise를 **유지**해(옛 COPS 표면은 드롭) 실제로는 합류(YES)로 나온다.
 - [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
 
 ## M2 — 실행 (Maude)

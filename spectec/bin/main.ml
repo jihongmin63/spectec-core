@@ -183,6 +183,11 @@ let rewrite_command =
   and simplified =
     flag "--simplified" no_arg
       ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
+  and symbol =
+    flag "--symbol" (optional string)
+      ~doc:
+        "NAME with --ctrs, dump only this function/relation's dependency slice \
+         (the unit verify checks per-symbol)"
   and relations_as_rules =
     flag "--relations-as-rules" no_arg
       ~doc:
@@ -197,10 +202,16 @@ let rewrite_command =
     if simplified then
       Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
+      let system = Rewrite.rewrite_spec spec_il in
+      let system =
+        match symbol with
+        | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
+        | None -> system
+      in
       Ok
         (Rewrite.Rewrite_system.string_of_system_maude
            ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-           (Rewrite.rewrite_spec spec_il))
+           system)
     else Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
 
 (* Confluence (Church-Rosser) and coherence of the spec's rewriting system via

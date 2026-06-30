@@ -386,6 +386,18 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 > `Run_prog`처럼 전체에 닿는 root는 `TIMEOUT`). 자세히 [tools/mfe/README.md](../../tools/mfe/README.md)
 > "Calibration"/"Performance".
 
+> **impty/base end-to-end 결과 (per-symbol).** `$lookup`/`Check_*`/`Eval_expr`/
+> `Eval_command` = **CRC YES, ChC YES**; `Eval_prog` = **CRC MAYBE, ChC YES**;
+> `Run_prog`(전체-reachable) = **TIMEOUT**. ChC가 전부 YES인 건 impty/base에 `rl`/`crl`이
+> 0개(모든 relation input-moded → 등식)라 coherence가 vacuous하기 때문. `Eval_prog`
+> 비합류는 진짜다: `Eval-prog(command) = env if Eval-command(nil, command) = env`의
+> 결과 `env`가 **전제로만 묶이는 RHS 자유변수**라 CRC가 같은 불투명
+> `Eval-command(nil,command)`의 두 증인 `env`/`#env#`를 합류 못 시킨다(ccp SPEC226).
+> 상수 RHS인 `Check-prog`(`= true if … = tenv`)는 자유변수가 없어 YES. 실행 표면은 같은
+> 전제를 `:=`/`=>` 조건으로 내보내므로 무관 — 분석 표면 join-condition `=` 근사의 발현이지
+> 번역 버그가 아니다. (옛 COPS 표면이 드롭하던 `$lookup` owise는 분석 Maude 표면이
+> **유지**해 실제로는 YES다.) 슬라이스 모듈은 `rewrite --ctrs --symbol NAME`으로 덤프.
+
 > termination 게이트(`Aprove`/`Muterm`/`Termination` 디스패처: `is_unconditional`이면
 > AProVE WST, 아니면 MuTerm; `string_of_system_tpdb` 소비)는 별개 축이며 이 골격에선
 > **아직 미복원**이다(이번 작업 범위 밖).
