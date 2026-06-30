@@ -359,15 +359,32 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 시스템(구조적 스칼라)을 **단일 sort 시스템 모듈**로 내는데, 등식 fragment는 `eq`/`ceq`,
 `rule_heads`(비입력-moded relation = `To_ctrs.rule_head_syms` = `input_moded_rel_syms`의
 여집합)는 `rl`/`crl`로 가른다. `Mfe.check`가 MFE를 로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
-`{ church_rosser; coherence }`를 돌려준다(temp 파일→`Unix.open_process_in`, aprove/maude_run
-패턴):
+`{ church_rosser; coherence }`를 돌려준다:
 - **CRC** — 등식 fragment의 Church-Rosser. "`reduce`가 well-defined인가" = 등식이 결정적.
 - **ChC** — `rl`이 등식에 coherent한가. 등식 환원이 규칙 redex를 숨기지 않아 `search`가
   등식 mod로 완전.
 둘은 직교한 well-formedness 조건이고 Maude가 *실행 중엔 검사 안 하고 가정만* 한다 — 그래서
 오프라인 게이트로 따로 검증한다. MFE는 repo 미체크인(다운로드·경로 해소·미설치 시 깨끗한
-`Error`): [tools/mfe/README.md](../../tools/mfe/README.md). 정확한 load/명령/verdict 토큰은
-실측 보정 필요(거기 "Calibration").
+`Error`): [tools/mfe/README.md](../../tools/mfe/README.md).
+
+> **실측 프로토콜 (2026-06, MFE-master + Maude 3.5.1).** 옛 `mfe.ml` 상수는
+> 추측이라 틀렸고(아래로 교체). MFE는 `maude FILE`이 아니라 **stdin을 읽는 Full Maude
+> 객체 루프**다: entry는 `src/mfe.maude`(`full-maude.maude` 아님), `sload`가 라이브러리를
+> 찾도록 maude 바이너리 디렉터리를 **`MAUDE_LIB`로 export**, 그리고 `load mfe.maude` +
+> 모듈(첫 줄 `set include BOOL off .`) + 명령을 **stdin으로 파이프**한다. **도구 선택
+> 필수**: `(select tool CRC .)`→`(check Church-Rosser SPEC .)`,
+> `(select tool ChC .)`→`(check coherence SPEC .)` (선택 없는 bare `(check …)`는 parse
+> error). 루프는 **clean quit이 없어** EOF에서 incomplete-input 프롬프트 `> `를 무한
+> flood하므로, 브리지는 `--timeout` 데드라인 하에 출력을 읽다가 ChC 출력 뒤 flood가
+> 보이면 프로세스를 **kill**하고(정상 종료가 아니라 SIGKILL) 이미 찍힌 verdict를 파싱한다.
+> verdict 토큰(공백 정규화 후 substring; MFE가 줄을 터미널 폭에서 wrap): CRC 합류
+> `The specification is locally-confluent.`; CRC 미확정 `The following critical pairs
+> must be proved joinable:`; ChC coherent `… no rewrite with rules can happen at
+> non-overlapping positions of equations left-hand sides.`; verdict 없이 데드라인만
+> 지나면 `Timeout`. **전체 시스템 CRC는 critical-pair 폭증으로 안 끝나니
+> `verify --symbol NAME`의 per-symbol slice가 실사용 경로** (예: `$lookup` → YES/YES ~1.4s;
+> `Run_prog`처럼 전체에 닿는 root는 `TIMEOUT`). 자세히 [tools/mfe/README.md](../../tools/mfe/README.md)
+> "Calibration"/"Performance".
 
 > termination 게이트(`Aprove`/`Muterm`/`Termination` 디스패처: `is_unconditional`이면
 > AProVE WST, 아니면 MuTerm; `string_of_system_tpdb` 소비)는 별개 축이며 이 골격에선

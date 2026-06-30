@@ -6,12 +6,19 @@ and **Coherence Checker (ChC)** — instead of CoCoWeb. The bridge
 ([../../lib/rewrite/mfe.ml](../../lib/rewrite/mfe.ml)) renders the system as a
 single-sort Full Maude *system* module
 ([`Rewrite_system.string_of_system_maude`](../../lib/rewrite/rewrite_system.ml))
-and runs both checks in one local `maude` invocation — no Python, no network:
+and runs both checks in one local `maude` invocation — no Python, no network.
+The MFE is an interactive Full Maude **loop reading stdin**, a tool must be
+**selected before each check**, and the loop has no clean `quit` (it floods an
+incomplete-input prompt at EOF), so the bridge pipes everything to stdin and
+kills the process once both checks have printed:
 
 ```
-load <mfe>/full-maude.maude
+load <mfe>/src/mfe.maude          # piped on stdin, NOT `maude FILE`
+set include BOOL off .            # (already the first line of the module text)
 (mod SPEC is ... endm)
+(select tool CRC .)
 (check Church-Rosser SPEC .)
+(select tool ChC .)
 (check coherence SPEC .)
 ```
 
@@ -32,7 +39,7 @@ The MFE is not checked into this repo (it carries its own license and is sizable
    `SPECTEC_MAUDE_BIN`, or `maude` on `PATH`).
 2. Download the Maude Formal Environment from
    <https://maude.cs.illinois.edu/> (the MFE / Full Maude distribution).
-3. Place its files in a directory whose **entry file is `full-maude.maude`** and
+3. Place its files in a directory whose **entry file is `src/mfe.maude`** and
    which loads the CRC and ChC tools, then point the bridge at it by either:
    - placing it at `spectec/tools/mfe/` (the default lookup path), or
    - setting `SPECTEC_MFE_DIR=/path/to/mfe`, or
@@ -73,24 +80,62 @@ practical positive verdict (the CTRS is assumed terminating).
 ## Calibration (observed against the real MFE)
 
 The earlier best-effort constants in [mfe.ml](../../lib/rewrite/mfe.ml) were
-confirmed/corrected against a real run. Observed truth:
+**wrong** (they assumed a `maude FILE` invocation, an `is Church-Rosser` token,
+no tool selection); the bridge now encodes the real protocol below, verified
+against MFE-master + Maude 3.5.1.
 
 - **Entry**: `src/mfe.maude` (was `full-maude.maude`).
-- **The MFE is a Full Maude LOOP that reads commands from STDIN.** You cannot
-  `load mfe.maude` and then append the module + check commands to the same file —
-  the loop blocks on stdin and hangs. Feed `set include BOOL off .`, the
-  `(mod SPEC … endm)` (Full Maude, parenthesized — what `string_of_system_maude`
-  emits), the tool commands, and `quit` via **stdin** to
-  `maude -no-banner tools/mfe/src/mfe.maude`.
-- **`set include BOOL off .`** is required first — the tools cannot handle Maude's
-  built-in `BOOL`; our structural `SPEC` defines its own `true`/`false`, so this is
-  safe.
+- **`MAUDE_LIB`**: `mfe.maude` does `sload file`/`process`/`time`, which resolve
+  from the Maude library directory. The bridge exports `MAUDE_LIB` = the Maude
+  binary's own directory when it holds `prelude.maude` (the bundled
+  `tools/maude`), so the load succeeds regardless of the working directory.
+- **The MFE is a Full Maude LOOP that reads commands from STDIN.** You cannot put
+  the module + checks in a file and run `maude FILE` — after `load mfe.maude` the
+  loop reads the terminal/stdin, so the file's trailing lines are never seen.
+  Pipe to stdin instead: `load <abs>/src/mfe.maude`, then the module text (which
+  already begins with `set include BOOL off .`), then the tool commands. The
+  bridge feeds stdin from a temp file (so a module larger than the OS pipe buffer
+  cannot deadlock against the unread stdout) and reads the merged stdout+stderr.
+- **`set include BOOL off .`** must come first — the tools cannot handle Maude's
+  built-in `BOOL`; our structural `SPEC` defines its own `true`/`false`, so this
+  is safe. (`string_of_system_maude` emits it as the module's first line.)
 - **Commands**: select the tool, THEN check (a bare `(check … .)` with no tool
   selected is a parse error):
-  - CRC: `(select tool CRC .)` then `(ccr SPEC .)` (alias `(check Church-Rosser SPEC .)`)
-  - ChC: `(select tool ChC .)` then `(cch SPEC .)` (alias `(check coherence SPEC .)`)
-- **Verdict tokens** (substring match):
-  - CRC confluent -> `The specification is locally-confluent.` / `All critical pairs have been joined.`
+  - CRC: `(select tool CRC .)` then `(check Church-Rosser SPEC .)`
+  - ChC: `(select tool ChC .)` then `(check coherence SPEC .)`
+- **No clean quit / EOF flood.** At end of input the loop floods the
+  incomplete-input prompt `> ` forever (no `quit` is honored). The bridge reads
+  under the `--timeout` deadline and **kills the process** once it sees the
+  coherence-check header followed by a long run of that prompt (the run is done),
+  parsing whatever verdicts were printed. So a normal run exits via SIGKILL, not
+  status 0 — a verdict already in the output is still authoritative. Only a
+  deadline reached with no verdict yields `Timeout`.
+- **Verdict tokens** (substring match; the MFE wraps result lines at the terminal
+  width, so the bridge collapses whitespace before matching):
+  - CRC confluent -> `The specification is locally-confluent.` (with
+    `All critical pairs have been joined.` / `The module is sort-decreasing.`)
   - CRC pending   -> `The following critical pairs must be proved joinable:`
-  - ChC coherent  -> `All critical pairs have been rewritten and no rewrite with rules can happen at non-overlapping positions`
-  - ChC pending   -> pending critical pairs are listed (as for CRC).
+  - ChC coherent  -> `… no rewrite with rules can happen at non-overlapping
+    positions of equations left-hand sides.`
+  - ChC pending   -> the coherence header printed but not the coherent token
+    (proof obligations remain) -> `Maybe`.
+
+## Performance — use per-symbol slices
+
+One CRC call is dominated by critical-pair generation, which **explodes on the
+whole system** (every `match_*`/`subty_*` equation pairs against the others). On
+`impty/base` the whole-system CRC does not finish in tens of seconds, but a
+single definition's dependency slice is fast:
+
+```
+# from repo root; per-symbol slice is the practical path
+spectec/_build/default/bin/main.exe verify --list-symbols \
+  spectec/specs/impty/base/spec.spectec
+spectec/_build/default/bin/main.exe verify --symbol '$lookup' \
+  spectec/specs/impty/base/spec.spectec
+#   church-rosser: YES  coherence: YES        (~1.4s)
+```
+
+`verify --symbol NAME` slices to `NAME`'s downward dependency closure
+(`Rewrite_system.slice`); the explosive roots (e.g. `Run_prog`, whose slice is
+the whole reachable system) report `TIMEOUT` rather than a false `Error`.

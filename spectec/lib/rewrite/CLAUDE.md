@@ -227,21 +227,28 @@ Church-Rosser (which needs the termination proof MTT would discharge); for the
 gate, local confluence is the practical positive verdict (the CTRS is assumed
 terminating).
 
-**Calibration (observed; the `mfe.ml` constants were best-effort guesses):**
-- entry `src/mfe.maude` (not `full-maude.maude`);
-- the MFE is a Full Maude **loop reading STDIN** — feed `set include BOOL off .`,
-  the `(mod SPEC …)`, the tool commands, and `quit` via stdin (you cannot append
-  them to a file that `load`s mfe.maude — the loop blocks/hangs);
-- select the tool then check: CRC `(select tool CRC .)` + `(ccr SPEC .)`;
-  ChC `(select tool ChC .)` + `(cch SPEC .)` (a bare `(check … .)` with no tool
-  selected is a parse error);
-- verdict tokens: CRC confluent `The specification is locally-confluent.` /
-  `All critical pairs have been joined.`; CRC pending `The following critical pairs
-  must be proved joinable:`; ChC coherent `All critical pairs have been rewritten
-  and no rewrite with rules can happen at non-overlapping positions …`.
+**Protocol (calibrated; `mfe.ml` now encodes this — the old constants were
+wrong guesses):**
+- entry `src/mfe.maude` (not `full-maude.maude`); export `MAUDE_LIB` = the maude
+  binary's dir so `mfe.maude`'s `sload file/process/time` resolve;
+- the MFE is a Full Maude **loop reading STDIN** — pipe `load mfe.maude`, the
+  module (first line `set include BOOL off .`), and the tool commands to stdin
+  (a `maude FILE` invocation never feeds the loop the file's trailing lines);
+- select the tool then check: CRC `(select tool CRC .)` + `(check Church-Rosser
+  SPEC .)`; ChC `(select tool ChC .)` + `(check coherence SPEC .)` (a bare
+  `(check … .)` with no tool selected is a parse error);
+- **no clean quit**: the loop floods `> ` at EOF, so the bridge reads under the
+  timeout and SIGKILLs once the ChC output is followed by that flood, parsing the
+  printed verdicts (a killed process with a verdict is still authoritative; only
+  no-verdict-at-deadline is `Timeout`);
+- verdict tokens (whitespace-normalized substring): CRC confluent `The
+  specification is locally-confluent.`; CRC pending `The following critical pairs
+  must be proved joinable:`; ChC coherent `… no rewrite with rules can happen at
+  non-overlapping positions of equations left-hand sides.`.
 
-`mfe.ml` still needs to be updated to this observed reality (entry, stdin feeding,
-select+ccr/cch commands, tokens) — see [tools/mfe/README.md](../../tools/mfe/README.md).
+Whole-system CRC explodes on critical pairs; **`verify --symbol NAME` per-symbol
+slices are the practical path** (`$lookup` → YES/YES ~1.4s). See
+[tools/mfe/README.md](../../tools/mfe/README.md).
 
 ## External tool bridges
 
