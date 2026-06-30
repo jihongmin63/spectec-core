@@ -395,8 +395,18 @@ confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + Ch
 > `Eval-command(nil,command)`의 두 증인 `env`/`#env#`를 합류 못 시킨다(ccp SPEC226).
 > 상수 RHS인 `Check-prog`(`= true if … = tenv`)는 자유변수가 없어 YES. 실행 표면은 같은
 > 전제를 `:=`/`=>` 조건으로 내보내므로 무관 — 분석 표면 join-condition `=` 근사의 발현이지
-> 번역 버그가 아니다. (옛 COPS 표면이 드롭하던 `$lookup` owise는 분석 Maude 표면이
-> **유지**해 실제로는 YES다.) 슬라이스 모듈은 `rewrite --ctrs --symbol NAME`으로 덤프.
+> 번역 버그가 아니다. 슬라이스 모듈은 `rewrite --ctrs --symbol NAME`으로 덤프.
+
+> **p4 spec도 per-symbol으로 돈다 (sweep).** `verify --list-symbols --sizes`로 슬라이스
+> 크기를 한 번에 구해 tractable한 159개(≤200규칙)를 돌린 결과 104 YES / 33 MAYBE / 13
+> TIMEOUT / 9 degenerate(규칙 0개), >200규칙 415개는 전체-시스템급이라 미실행. 비합류
+> 33건은 **두 분석-표면 원인**으로 갈리며 둘 다 번역 버그가 아니다(실행 표면은
+> `:=`/`=>` + owise 보완으로 처리): (1) **전제로만 묶이는 RHS 자유변수**(impty
+> `Eval_prog`과 동류 — `$dom_map`의 ccp SPEC4 `set{#K#}=set{K} if $unzip_K(it)=K/=#K#`,
+> `$empty_store`, `$ctk_of_typedExpressionIR`), (2) **owise 중첩**(`$is_lpm_key_prime`의
+> ccp SPEC1 `false=true if text="lpm"` — Maude CRC가 owise를 임계쌍 생성에서 무시;
+> todo.md P2 `otherwise` 예측의 실제 발현, `$lookup`은 가드가 `match_*`라 회피). 자세한
+> 표는 [todo.md](todo.md) "Mfe calibration".
 
 > termination 게이트(`Aprove`/`Muterm`/`Termination` 디스패처: `is_unconditional`이면
 > AProVE WST, 아니면 MuTerm; `string_of_system_tpdb` 소비)는 별개 축이며 이 골격에선

@@ -255,14 +255,19 @@ Whole-system CRC explodes on critical pairs; **`verify --symbol NAME` per-symbol
 slices are the practical path** (`$lookup` → YES/YES ~1.4s). See
 [tools/mfe/README.md](../../tools/mfe/README.md).
 
-**impty/base per-symbol verdicts** (recorded; [todo.md](todo.md) "Mfe
-calibration" has the table): `$lookup`/`Check_*`/`Eval_expr`/`Eval_command` =
-CRC YES + ChC YES; **`Eval_prog` = CRC MAYBE** (`ccp SPEC226`: result `env` is a
-free RHS variable bound only by the premise `Eval-command(nil, command) = env`,
-which CRC can't join — the analysis surface's join-condition `=` approximation,
-not a bug; the executable surface uses `:=`/`=>`); `Run_prog` = TIMEOUT
-(whole-reachable). ChC is YES throughout because impty/base has no `rl`/`crl`
-(every relation is input-moded → equations), so coherence is vacuous.
+**Per-symbol verdicts recorded** (full table + analysis in [todo.md](todo.md)
+"Mfe calibration"; use `verify --list-symbols --sizes` to find tractable
+slices). impty/base: `$lookup`/`Check_*`/`Eval_*` = YES/YES, `Eval_prog` = CRC
+MAYBE, `Run_prog` = TIMEOUT. p4 (159 slices ≤200 rules): 104 YES, **33 MAYBE**,
+13 TIMEOUT, 9 degenerate (no rules); the 415 >200-rule symbols are
+whole-system-ish → TIMEOUT. ChC is YES throughout (no `rl`/`crl`: every relation
+is input-moded → equations, so coherence is vacuous). The MAYBE non-confluence
+has two analysis-surface causes (both approximations, not translation bugs — the
+executable surface handles them with `:=`/`=>` and owise complements):
+(1) a **free RHS variable bound only by a premise** (`$dom_map`, `$empty_store`,
+`Eval_prog`: `f(x) = v if g(x) = v`, CRC can't join the two witnesses of opaque
+`g(x)`); (2) **owise overlap** (`$is_lpm_key_prime`: `= true if x = "lpm"` vs
+`= false [owise]` → CRC ignores owise → `true = false`).
 
 ## External tool bridges
 

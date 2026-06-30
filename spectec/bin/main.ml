@@ -235,6 +235,11 @@ let verify_command =
   and list_symbols =
     flag "--list-symbols" no_arg
       ~doc:" list the sliceable function/relation symbols and exit"
+  and sizes =
+    flag "--sizes" no_arg
+      ~doc:
+        " with --list-symbols, also print each symbol's slice rule count \
+         (ascending) -- the cheap CRC tractability proxy"
   and timeout =
     flag "--timeout"
       (optional_with_default 60 int)
@@ -253,7 +258,28 @@ let verify_command =
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     if list_symbols then
-      Ok (String.concat "\n" (Rewrite.def_symbols spec_il), false)
+      let syms = Rewrite.def_symbols spec_il in
+      if not sizes then Ok (String.concat "\n" syms, false)
+      else
+        (* Slice rule counts in one elaboration -- the cheap proxy for which
+           symbols' CRC is tractable (a small closure) vs which pull in the whole
+           system (the typing relations -> critical-pair blowup -> TIMEOUT). *)
+        let system = Rewrite.rewrite_spec spec_il in
+        let rows =
+          List.map
+            (fun s ->
+              let n =
+                List.length
+                  (Rewrite.Rewrite_system.slice system ~roots:[ s ]).rules
+              in
+              (n, s))
+            syms
+        in
+        let rows = List.sort compare rows in
+        Ok
+          ( String.concat "\n"
+              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows),
+            false )
     else
       let system = Rewrite.rewrite_spec spec_il in
       let system =

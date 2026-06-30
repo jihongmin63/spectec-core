@@ -98,8 +98,33 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     (`= true if … = tenv`)는 자유변수가 안 생겨 YES. 실행 표면(`to_maude`)은 이
     전제를 `:=`/`=>` 조건으로 내보내 문제없음 — 분석 표면의 join-condition `=` 근사가
     원인(같은 뿌리: "variable used before bound" 경고). **번역 버그 아님.**
-  - **참고**: todo.md가 적던 `$lookup` 중복-LHS/`otherwise` 비합류는 분석 Maude 표면이
-    owise를 **유지**해(옛 COPS 표면은 드롭) 실제로는 합류(YES)로 나온다.
+  - **참고**: `$lookup`(owise 보유)이 YES인 건 owise 형제 절들이 서로소 `match_*`
+    가드를 써 CRC가 임계쌍을 infeasible로 처리하기 때문. owise 자체가 안전한 건
+    아니다(아래 p4 sweep의 2번째 원인 참조).
+
+  **p4 spec sweep (per-symbol, slice ≤200 규칙 159개; >200규칙 415개는 전체-시스템급
+  → TIMEOUT 예상이라 미실행).** `verify --list-symbols --sizes`로 슬라이스 크기를
+  한 번에 구해 tractable한 것만 MFE에 돌림:
+
+  | CRC verdict | n | 비고 |
+  |---|---|---|
+  | YES | 104 | |
+  | **MAYBE** (비합류) | 33 | 두 원인 — 아래 |
+  | TIMEOUT | 13 | 규칙 ≤200인데도 임계쌍 폭증(`$write_*_from_bits`, `$assignop_as_binop` …) |
+  | (규칙 0개 degenerate) | 9 | `$find_overloaded*`/`$match_overloaded_*` 등 — 정의 규칙 없음, N/A |
+
+  ChC는 (출력이 나온 모든 경우) YES — p4 분석 모듈도 `rl`/`crl` 0개라 vacuous.
+  **비합류(MAYBE) 33건은 두 원인으로 갈린다(둘 다 분석 표면 근사, 번역 버그 아님 —
+  실행 표면은 `:=`/`=>` + owise 보완으로 처리):**
+  1. **전제로만 묶이는 RHS 자유변수** (impty `Eval_prog`과 동류; 지배적):
+     `$dom_map`/`$codom_map`(`= set{K} if $unzip_K(it)=K`, ccp SPEC4),
+     `$empty_store`(`= store if $empty_map=store`), `$ctk_of_typedExpressionIR`/
+     `$type_of_*`(`= ctk if it = variant(..ctk..)` 구조분해 바인딩) 등.
+  2. **owise 중첩** (todo.md P2 `otherwise` 예측대로 발현):
+     `$is_lpm_key_prime` = `ccp SPEC1: false = true if text = "lpm"` — 절1
+     `= true if text="lpm"` vs 절2 `= false [owise]`인데 **Maude CRC가 owise를
+     임계쌍 생성에서 무시**해 두 절이 충돌. 가드가 raw 등식/구조라 CRC가 owise 보집합을
+     disjoint로 못 봄(`$lookup`은 가드가 `match_*`라 회피).
 - [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
 
 ## M2 — 실행 (Maude)
