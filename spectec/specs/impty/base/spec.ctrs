@@ -1,3 +1,5 @@
+set include BOOL off .
+
 (mod SPEC is
   sort Term .
   op not : Term -> Term .
@@ -8,62 +10,62 @@
   op zero : -> Term .
   op succ : Term -> Term .
   op leq : Term Term -> Term .
-  op sub_int_nat : Term Term -> Term .
-  op int_pos : Term -> Term .
-  op int_neg : Term -> Term .
-  op add_int : Term Term -> Term .
-  op leq_int : Term Term -> Term .
-  op match_some : Term -> Term .
+  op sub-int-nat : Term Term -> Term .
+  op int-pos : Term -> Term .
+  op int-neg : Term -> Term .
+  op add-int : Term Term -> Term .
+  op leq-int : Term Term -> Term .
+  op match-some : Term -> Term .
   op some : Term -> Term .
   op none : -> Term .
-  op match_cons : Term -> Term .
+  op match-cons : Term -> Term .
   op cons : Term Term -> Term .
   op nil : -> Term .
-  op match_nil : Term -> Term .
-  op match_type_INT_0 : Term -> Term .
-  op variant_type_INT_0 : -> Term .
-  op variant_type_BOOL_0 : -> Term .
-  op match_type_BOOL_0 : Term -> Term .
-  op match_literal_NUM_1 : Term -> Term .
-  op variant_literal_NUM_1 : Term -> Term .
-  op variant_literal_BOOL_1 : Term -> Term .
-  op match_literal_BOOL_1 : Term -> Term .
-  op subty_literal : Term -> Term .
-  op subty_id : Term -> Term .
-  op variant_id_ID_1 : Term -> Term .
-  op match_expr_bang_1 : Term -> Term .
-  op variant_expr_bang_1 : Term -> Term .
-  op variant_expr_plus_2 : Term Term -> Term .
-  op variant_expr_lt_eq_2 : Term Term -> Term .
-  op variant_expr_amp_amp_2 : Term Term -> Term .
-  op match_expr_plus_2 : Term -> Term .
-  op match_expr_lt_eq_2 : Term -> Term .
-  op match_expr_amp_amp_2 : Term -> Term .
-  op match_command_SKIP_0 : Term -> Term .
-  op variant_command_SKIP_0 : -> Term .
-  op variant_command_eq_3 : Term Term Term -> Term .
-  op variant_command_eq_2 : Term Term -> Term .
-  op variant_command_IF_THEN_ELSE_END_3 : Term Term Term -> Term .
-  op variant_command_WHILE_DO_END_2 : Term Term -> Term .
-  op variant_command_semi_2 : Term Term -> Term .
-  op match_command_eq_3 : Term -> Term .
-  op match_command_eq_2 : Term -> Term .
-  op match_command_IF_THEN_ELSE_END_3 : Term -> Term .
-  op match_command_WHILE_DO_END_2 : Term -> Term .
-  op match_command_semi_2 : Term -> Term .
-  op $itermap_K_t_minus_gt_V_t_list_2_pair : Term Term -> Term .
-  op variant_pair_minus_gt_2 : Term Term -> Term .
-  op $unzip_K_t_minus_gt_V_t_list_V_t : Term -> Term .
-  op $unzip_K_t_minus_gt_V_t_list_K_t : Term -> Term .
+  op match-nil : Term -> Term .
+  op match-type-INT-0 : Term -> Term .
+  op variant-type-INT-0 : -> Term .
+  op variant-type-BOOL-0 : -> Term .
+  op match-type-BOOL-0 : Term -> Term .
+  op match-literal-NUM-1 : Term -> Term .
+  op variant-literal-NUM-1 : Term -> Term .
+  op variant-literal-BOOL-1 : Term -> Term .
+  op match-literal-BOOL-1 : Term -> Term .
+  op subty-literal : Term -> Term .
+  op subty-id : Term -> Term .
+  op variant-id-ID-1 : Term -> Term .
+  op match-expr-bang-1 : Term -> Term .
+  op variant-expr-bang-1 : Term -> Term .
+  op variant-expr-plus-2 : Term Term -> Term .
+  op variant-expr-lt-eq-2 : Term Term -> Term .
+  op variant-expr-amp-amp-2 : Term Term -> Term .
+  op match-expr-plus-2 : Term -> Term .
+  op match-expr-lt-eq-2 : Term -> Term .
+  op match-expr-amp-amp-2 : Term -> Term .
+  op match-command-SKIP-0 : Term -> Term .
+  op variant-command-SKIP-0 : -> Term .
+  op variant-command-eq-3 : Term Term Term -> Term .
+  op variant-command-eq-2 : Term Term -> Term .
+  op variant-command-IF-THEN-ELSE-END-3 : Term Term Term -> Term .
+  op variant-command-WHILE-DO-END-2 : Term Term -> Term .
+  op variant-command-semi-2 : Term Term -> Term .
+  op match-command-eq-3 : Term -> Term .
+  op match-command-eq-2 : Term -> Term .
+  op match-command-IF-THEN-ELSE-END-3 : Term -> Term .
+  op match-command-WHILE-DO-END-2 : Term -> Term .
+  op match-command-semi-2 : Term -> Term .
+  op $itermap-K-t-minus-gt-V-t-list-2-pair : Term Term -> Term .
+  op variant-pair-minus-gt-2 : Term Term -> Term .
+  op $unzip-K-t-minus-gt-V-t-list-V-t : Term -> Term .
+  op $unzip-K-t-minus-gt-V-t-list-K-t : Term -> Term .
   op $lookup : Term Term -> Term .
-  op Check_expr : Term Term -> Term .
-  op Check_command : Term Term -> Term .
-  op Check_prog : Term -> Term .
-  op Eval_expr : Term Term -> Term .
-  op Eval_command : Term Term -> Term .
-  op Eval_prog : Term -> Term .
-  op Run_prog : Term -> Term .
-  vars y x xs x0 x1 x2 K_t__hd K_t__tl V_t__hd V_t__tl __rest pair<K, V> K_query V_h K_h iterbind_0 K_t V_t tenv expr literal i b t type e e_l e_r type' command c_1 c_2 tenv_1 tenv_2 c env v value b_e i_l literal' i_r b_l b_r env_1 env_2 : Term .
+  op Check-expr : Term Term -> Term .
+  op Check-command : Term Term -> Term .
+  op Check-prog : Term -> Term .
+  op Eval-expr : Term Term -> Term .
+  op Eval-command : Term Term -> Term .
+  op Eval-prog : Term -> Term .
+  op Run-prog : Term -> Term .
+  vars y x xs x0 x1 x2 K-t--hd K-t--tl V-t--hd V-t--tl --rest pair-lt-K-comma-V-gt K-query V-h K-h iterbind-0 K-t V-t tenv expr literal i b t type e e-l e-r type-prime command c-1 c-2 tenv-1 tenv-2 c env v value b-e i-l literal-prime i-r b-l b-r env-1 env-2 : Term .
   eq not(true) = false .
   eq not(false) = true .
   eq and(true, y) = y .
@@ -73,138 +75,138 @@
   eq leq(zero, y) = true .
   eq leq(succ(x), zero) = false .
   eq leq(succ(x), succ(y)) = leq(x, y) .
-  eq sub_int_nat(zero, zero) = int_pos(zero) .
-  eq sub_int_nat(succ(x), zero) = int_pos(succ(x)) .
-  eq sub_int_nat(zero, succ(y)) = int_neg(y) .
-  eq sub_int_nat(succ(x), succ(y)) = sub_int_nat(x, y) .
-  eq add_int(int_pos(x), int_pos(y)) = int_pos(add(x, y)) .
-  eq add_int(int_neg(x), int_neg(y)) = int_neg(succ(add(x, y))) .
-  eq add_int(int_pos(x), int_neg(y)) = sub_int_nat(x, succ(y)) .
-  eq add_int(int_neg(x), int_pos(y)) = sub_int_nat(y, succ(x)) .
-  eq leq_int(int_pos(x), int_pos(y)) = leq(x, y) .
-  eq leq_int(int_neg(x), int_neg(y)) = leq(y, x) .
-  eq leq_int(int_pos(x), int_neg(y)) = false .
-  eq leq_int(int_neg(x), int_pos(y)) = true .
-  eq match_some(some(x)) = true .
-  eq match_some(none) = false .
-  eq match_cons(cons(x, xs)) = true .
-  eq match_cons(nil) = false .
-  eq match_nil(nil) = true .
-  eq match_nil(cons(x, xs)) = false .
-  eq match_type_INT_0(variant_type_INT_0) = true .
-  eq match_type_INT_0(variant_type_BOOL_0) = false .
-  eq match_type_BOOL_0(variant_type_INT_0) = false .
-  eq match_type_BOOL_0(variant_type_BOOL_0) = true .
-  eq match_literal_NUM_1(variant_literal_NUM_1(x0)) = true .
-  eq match_literal_NUM_1(variant_literal_BOOL_1(x0)) = false .
-  eq match_literal_BOOL_1(variant_literal_NUM_1(x0)) = false .
-  eq match_literal_BOOL_1(variant_literal_BOOL_1(x0)) = true .
-  eq subty_literal(variant_literal_NUM_1(x0)) = true .
-  eq subty_literal(variant_literal_BOOL_1(x0)) = true .
-  eq subty_id(variant_id_ID_1(x0)) = true .
-  eq match_expr_bang_1(variant_literal_NUM_1(x0)) = false .
-  eq match_expr_bang_1(variant_literal_BOOL_1(x0)) = false .
-  eq match_expr_bang_1(variant_id_ID_1(x0)) = false .
-  eq match_expr_bang_1(variant_expr_bang_1(x0)) = true .
-  eq match_expr_bang_1(variant_expr_plus_2(x0, x1)) = false .
-  eq match_expr_bang_1(variant_expr_lt_eq_2(x0, x1)) = false .
-  eq match_expr_bang_1(variant_expr_amp_amp_2(x0, x1)) = false .
-  eq match_expr_plus_2(variant_literal_NUM_1(x0)) = false .
-  eq match_expr_plus_2(variant_literal_BOOL_1(x0)) = false .
-  eq match_expr_plus_2(variant_id_ID_1(x0)) = false .
-  eq match_expr_plus_2(variant_expr_bang_1(x0)) = false .
-  eq match_expr_plus_2(variant_expr_plus_2(x0, x1)) = true .
-  eq match_expr_plus_2(variant_expr_lt_eq_2(x0, x1)) = false .
-  eq match_expr_plus_2(variant_expr_amp_amp_2(x0, x1)) = false .
-  eq match_expr_lt_eq_2(variant_literal_NUM_1(x0)) = false .
-  eq match_expr_lt_eq_2(variant_literal_BOOL_1(x0)) = false .
-  eq match_expr_lt_eq_2(variant_id_ID_1(x0)) = false .
-  eq match_expr_lt_eq_2(variant_expr_bang_1(x0)) = false .
-  eq match_expr_lt_eq_2(variant_expr_plus_2(x0, x1)) = false .
-  eq match_expr_lt_eq_2(variant_expr_lt_eq_2(x0, x1)) = true .
-  eq match_expr_lt_eq_2(variant_expr_amp_amp_2(x0, x1)) = false .
-  eq match_expr_amp_amp_2(variant_literal_NUM_1(x0)) = false .
-  eq match_expr_amp_amp_2(variant_literal_BOOL_1(x0)) = false .
-  eq match_expr_amp_amp_2(variant_id_ID_1(x0)) = false .
-  eq match_expr_amp_amp_2(variant_expr_bang_1(x0)) = false .
-  eq match_expr_amp_amp_2(variant_expr_plus_2(x0, x1)) = false .
-  eq match_expr_amp_amp_2(variant_expr_lt_eq_2(x0, x1)) = false .
-  eq match_expr_amp_amp_2(variant_expr_amp_amp_2(x0, x1)) = true .
-  eq match_command_SKIP_0(variant_command_SKIP_0) = true .
-  eq match_command_SKIP_0(variant_command_eq_3(x0, x1, x2)) = false .
-  eq match_command_SKIP_0(variant_command_eq_2(x0, x1)) = false .
-  eq match_command_SKIP_0(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
-  eq match_command_SKIP_0(variant_command_WHILE_DO_END_2(x0, x1)) = false .
-  eq match_command_SKIP_0(variant_command_semi_2(x0, x1)) = false .
-  eq match_command_eq_3(variant_command_SKIP_0) = false .
-  eq match_command_eq_3(variant_command_eq_3(x0, x1, x2)) = true .
-  eq match_command_eq_3(variant_command_eq_2(x0, x1)) = false .
-  eq match_command_eq_3(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
-  eq match_command_eq_3(variant_command_WHILE_DO_END_2(x0, x1)) = false .
-  eq match_command_eq_3(variant_command_semi_2(x0, x1)) = false .
-  eq match_command_eq_2(variant_command_SKIP_0) = false .
-  eq match_command_eq_2(variant_command_eq_3(x0, x1, x2)) = false .
-  eq match_command_eq_2(variant_command_eq_2(x0, x1)) = true .
-  eq match_command_eq_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
-  eq match_command_eq_2(variant_command_WHILE_DO_END_2(x0, x1)) = false .
-  eq match_command_eq_2(variant_command_semi_2(x0, x1)) = false .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_SKIP_0) = false .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_eq_3(x0, x1, x2)) = false .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_eq_2(x0, x1)) = false .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = true .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_WHILE_DO_END_2(x0, x1)) = false .
-  eq match_command_IF_THEN_ELSE_END_3(variant_command_semi_2(x0, x1)) = false .
-  eq match_command_WHILE_DO_END_2(variant_command_SKIP_0) = false .
-  eq match_command_WHILE_DO_END_2(variant_command_eq_3(x0, x1, x2)) = false .
-  eq match_command_WHILE_DO_END_2(variant_command_eq_2(x0, x1)) = false .
-  eq match_command_WHILE_DO_END_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
-  eq match_command_WHILE_DO_END_2(variant_command_WHILE_DO_END_2(x0, x1)) = true .
-  eq match_command_WHILE_DO_END_2(variant_command_semi_2(x0, x1)) = false .
-  eq match_command_semi_2(variant_command_SKIP_0) = false .
-  eq match_command_semi_2(variant_command_eq_3(x0, x1, x2)) = false .
-  eq match_command_semi_2(variant_command_eq_2(x0, x1)) = false .
-  eq match_command_semi_2(variant_command_IF_THEN_ELSE_END_3(x0, x1, x2)) = false .
-  eq match_command_semi_2(variant_command_WHILE_DO_END_2(x0, x1)) = false .
-  eq match_command_semi_2(variant_command_semi_2(x0, x1)) = true .
-  eq $itermap_K_t_minus_gt_V_t_list_2_pair(nil, nil) = nil .
-  eq $itermap_K_t_minus_gt_V_t_list_2_pair(cons(K_t__hd, K_t__tl), cons(V_t__hd, V_t__tl)) = cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), $itermap_K_t_minus_gt_V_t_list_2_pair(K_t__tl, V_t__tl)) .
-  eq $unzip_K_t_minus_gt_V_t_list_V_t(nil) = nil .
-  eq $unzip_K_t_minus_gt_V_t_list_V_t(cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), __rest)) = cons(V_t__hd, $unzip_K_t_minus_gt_V_t_list_V_t(__rest)) .
-  eq $unzip_K_t_minus_gt_V_t_list_K_t(nil) = nil .
-  eq $unzip_K_t_minus_gt_V_t_list_K_t(cons(variant_pair_minus_gt_2(K_t__hd, V_t__hd), __rest)) = cons(K_t__hd, $unzip_K_t_minus_gt_V_t_list_K_t(__rest)) .
-  ceq $lookup(pair<K, V>, K_query) = none if match_nil(pair<K, V>) = true .
-  ceq $lookup(pair<K, V>, K_query) = some(V_h) if match_cons(pair<K, V>) = true /\ pair<K, V> = cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0) /\ $unzip_K_t_minus_gt_V_t_list_K_t(iterbind_0) = K_t /\ $unzip_K_t_minus_gt_V_t_list_V_t(iterbind_0) = V_t /\ K_h = K_query .
-  ceq $lookup(pair<K, V>, K_query) = $lookup($itermap_K_t_minus_gt_V_t_list_2_pair(K_t, V_t), K_query) if match_cons(pair<K, V>) = true /\ pair<K, V> = cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0) /\ $unzip_K_t_minus_gt_V_t_list_K_t(iterbind_0) = K_t /\ $unzip_K_t_minus_gt_V_t_list_V_t(iterbind_0) = V_t [owise] .
-  ceq Check_expr(tenv, expr) = variant_type_INT_0 if subty_literal(expr) = true /\ expr = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i) .
-  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if subty_literal(expr) = true /\ expr = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b) .
-  ceq Check_expr(tenv, expr) = t if subty_id(expr) = true /\ expr = x /\ $lookup(tenv, x) = type /\ match_some(type) = true /\ type = some(t) .
-  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_bang_1(expr) = true /\ expr = variant_expr_bang_1(e) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true .
-  ceq Check_expr(tenv, expr) = variant_type_INT_0 if match_expr_plus_2(expr) = true /\ expr = variant_expr_plus_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_INT_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_INT_0(type') = true .
-  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_lt_eq_2(expr) = true /\ expr = variant_expr_lt_eq_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_INT_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_INT_0(type') = true .
-  ceq Check_expr(tenv, expr) = variant_type_BOOL_0 if match_expr_amp_amp_2(expr) = true /\ expr = variant_expr_amp_amp_2(e_l, e_r) /\ Check_expr(tenv, e_l) = type /\ match_type_BOOL_0(type) = true /\ Check_expr(tenv, e_r) = type' /\ match_type_BOOL_0(type') = true .
-  ceq Check_command(tenv, command) = tenv if match_command_SKIP_0(command) = true .
-  ceq Check_command(tenv, command) = cons(variant_pair_minus_gt_2(x, t), tenv) if match_command_eq_3(command) = true /\ command = variant_command_eq_3(t, x, e) /\ Check_expr(tenv, e) = type /\ type = t .
-  ceq Check_command(tenv, command) = tenv if match_command_eq_2(command) = true /\ command = variant_command_eq_2(x, e) /\ Check_expr(tenv, e) = t /\ $lookup(tenv, x) = some(t) .
-  ceq Check_command(tenv, command) = tenv if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true /\ Check_command(tenv, c_1) = tenv_1 /\ Check_command(tenv, c_2) = tenv_2 .
-  ceq Check_command(tenv, command) = tenv if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Check_expr(tenv, e) = type /\ match_type_BOOL_0(type) = true /\ Check_command(tenv, c) = tenv_1 .
-  ceq Check_command(tenv, command) = tenv_2 if match_command_semi_2(command) = true /\ command = variant_command_semi_2(c_1, c_2) /\ Check_command(tenv, c_1) = tenv_1 /\ Check_command(tenv_1, c_2) = tenv_2 .
-  ceq Check_prog(command) = true if Check_command(nil, command) = tenv .
-  ceq Eval_expr(env, expr) = variant_literal_NUM_1(i) if subty_literal(expr) = true /\ expr = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i) .
-  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if subty_literal(expr) = true /\ expr = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b) .
-  ceq Eval_expr(env, expr) = v if subty_id(expr) = true /\ expr = x /\ $lookup(env, x) = value /\ match_some(value) = true /\ value = some(v) .
-  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_bang_1(expr) = true /\ expr = variant_expr_bang_1(e) /\ Eval_expr(env, e) = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b_e) /\ not(b_e) = b .
-  ceq Eval_expr(env, expr) = variant_literal_NUM_1(i) if match_expr_plus_2(expr) = true /\ expr = variant_expr_plus_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_NUM_1(literal') = true /\ literal' = variant_literal_NUM_1(i_r) /\ add_int(i_l, i_r) = i .
-  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_lt_eq_2(expr) = true /\ expr = variant_expr_lt_eq_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_NUM_1(literal) = true /\ literal = variant_literal_NUM_1(i_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_NUM_1(literal') = true /\ literal' = variant_literal_NUM_1(i_r) /\ leq_int(i_l, i_r) = b .
-  ceq Eval_expr(env, expr) = variant_literal_BOOL_1(b) if match_expr_amp_amp_2(expr) = true /\ expr = variant_expr_amp_amp_2(e_l, e_r) /\ Eval_expr(env, e_l) = literal /\ match_literal_BOOL_1(literal) = true /\ literal = variant_literal_BOOL_1(b_l) /\ Eval_expr(env, e_r) = literal' /\ match_literal_BOOL_1(literal') = true /\ literal' = variant_literal_BOOL_1(b_r) /\ and(b_l, b_r) = b .
-  ceq Eval_command(env, command) = env if match_command_SKIP_0(command) = true .
-  ceq Eval_command(env, command) = cons(variant_pair_minus_gt_2(x, v), env) if match_command_eq_3(command) = true /\ command = variant_command_eq_3(t, x, e) /\ Eval_expr(env, e) = v .
-  ceq Eval_command(env, command) = cons(variant_pair_minus_gt_2(x, v), env) if match_command_eq_2(command) = true /\ command = variant_command_eq_2(x, e) /\ Eval_expr(env, e) = v .
-  ceq Eval_command(env, command) = env_1 if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(true) /\ Eval_command(env, c_1) = env_1 .
-  ceq Eval_command(env, command) = env_2 if match_command_IF_THEN_ELSE_END_3(command) = true /\ command = variant_command_IF_THEN_ELSE_END_3(e, c_1, c_2) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(false) /\ Eval_command(env, c_2) = env_2 .
-  ceq Eval_command(env, command) = env if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(false) .
-  ceq Eval_command(env, command) = env_2 if match_command_WHILE_DO_END_2(command) = true /\ command = variant_command_WHILE_DO_END_2(e, c) /\ Eval_expr(env, e) = literal /\ literal = variant_literal_BOOL_1(true) /\ Eval_command(env, c) = env_1 /\ Eval_command(env_1, variant_command_WHILE_DO_END_2(e, c)) = env_2 .
-  ceq Eval_command(env, command) = env_2 if match_command_semi_2(command) = true /\ command = variant_command_semi_2(c_1, c_2) /\ Eval_command(env, c_1) = env_1 /\ Eval_command(env_1, c_2) = env_2 .
-  ceq Eval_prog(command) = env if Eval_command(nil, command) = env .
-  ceq Run_prog(command) = env if Check_prog(command) = true /\ Eval_prog(command) = env .
+  eq sub-int-nat(zero, zero) = int-pos(zero) .
+  eq sub-int-nat(succ(x), zero) = int-pos(succ(x)) .
+  eq sub-int-nat(zero, succ(y)) = int-neg(y) .
+  eq sub-int-nat(succ(x), succ(y)) = sub-int-nat(x, y) .
+  eq add-int(int-pos(x), int-pos(y)) = int-pos(add(x, y)) .
+  eq add-int(int-neg(x), int-neg(y)) = int-neg(succ(add(x, y))) .
+  eq add-int(int-pos(x), int-neg(y)) = sub-int-nat(x, succ(y)) .
+  eq add-int(int-neg(x), int-pos(y)) = sub-int-nat(y, succ(x)) .
+  eq leq-int(int-pos(x), int-pos(y)) = leq(x, y) .
+  eq leq-int(int-neg(x), int-neg(y)) = leq(y, x) .
+  eq leq-int(int-pos(x), int-neg(y)) = false .
+  eq leq-int(int-neg(x), int-pos(y)) = true .
+  eq match-some(some(x)) = true .
+  eq match-some(none) = false .
+  eq match-cons(cons(x, xs)) = true .
+  eq match-cons(nil) = false .
+  eq match-nil(nil) = true .
+  eq match-nil(cons(x, xs)) = false .
+  eq match-type-INT-0(variant-type-INT-0) = true .
+  eq match-type-INT-0(variant-type-BOOL-0) = false .
+  eq match-type-BOOL-0(variant-type-INT-0) = false .
+  eq match-type-BOOL-0(variant-type-BOOL-0) = true .
+  eq match-literal-NUM-1(variant-literal-NUM-1(x0)) = true .
+  eq match-literal-NUM-1(variant-literal-BOOL-1(x0)) = false .
+  eq match-literal-BOOL-1(variant-literal-NUM-1(x0)) = false .
+  eq match-literal-BOOL-1(variant-literal-BOOL-1(x0)) = true .
+  eq subty-literal(variant-literal-NUM-1(x0)) = true .
+  eq subty-literal(variant-literal-BOOL-1(x0)) = true .
+  eq subty-id(variant-id-ID-1(x0)) = true .
+  eq match-expr-bang-1(variant-literal-NUM-1(x0)) = false .
+  eq match-expr-bang-1(variant-literal-BOOL-1(x0)) = false .
+  eq match-expr-bang-1(variant-id-ID-1(x0)) = false .
+  eq match-expr-bang-1(variant-expr-bang-1(x0)) = true .
+  eq match-expr-bang-1(variant-expr-plus-2(x0, x1)) = false .
+  eq match-expr-bang-1(variant-expr-lt-eq-2(x0, x1)) = false .
+  eq match-expr-bang-1(variant-expr-amp-amp-2(x0, x1)) = false .
+  eq match-expr-plus-2(variant-literal-NUM-1(x0)) = false .
+  eq match-expr-plus-2(variant-literal-BOOL-1(x0)) = false .
+  eq match-expr-plus-2(variant-id-ID-1(x0)) = false .
+  eq match-expr-plus-2(variant-expr-bang-1(x0)) = false .
+  eq match-expr-plus-2(variant-expr-plus-2(x0, x1)) = true .
+  eq match-expr-plus-2(variant-expr-lt-eq-2(x0, x1)) = false .
+  eq match-expr-plus-2(variant-expr-amp-amp-2(x0, x1)) = false .
+  eq match-expr-lt-eq-2(variant-literal-NUM-1(x0)) = false .
+  eq match-expr-lt-eq-2(variant-literal-BOOL-1(x0)) = false .
+  eq match-expr-lt-eq-2(variant-id-ID-1(x0)) = false .
+  eq match-expr-lt-eq-2(variant-expr-bang-1(x0)) = false .
+  eq match-expr-lt-eq-2(variant-expr-plus-2(x0, x1)) = false .
+  eq match-expr-lt-eq-2(variant-expr-lt-eq-2(x0, x1)) = true .
+  eq match-expr-lt-eq-2(variant-expr-amp-amp-2(x0, x1)) = false .
+  eq match-expr-amp-amp-2(variant-literal-NUM-1(x0)) = false .
+  eq match-expr-amp-amp-2(variant-literal-BOOL-1(x0)) = false .
+  eq match-expr-amp-amp-2(variant-id-ID-1(x0)) = false .
+  eq match-expr-amp-amp-2(variant-expr-bang-1(x0)) = false .
+  eq match-expr-amp-amp-2(variant-expr-plus-2(x0, x1)) = false .
+  eq match-expr-amp-amp-2(variant-expr-lt-eq-2(x0, x1)) = false .
+  eq match-expr-amp-amp-2(variant-expr-amp-amp-2(x0, x1)) = true .
+  eq match-command-SKIP-0(variant-command-SKIP-0) = true .
+  eq match-command-SKIP-0(variant-command-eq-3(x0, x1, x2)) = false .
+  eq match-command-SKIP-0(variant-command-eq-2(x0, x1)) = false .
+  eq match-command-SKIP-0(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
+  eq match-command-SKIP-0(variant-command-WHILE-DO-END-2(x0, x1)) = false .
+  eq match-command-SKIP-0(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-eq-3(variant-command-SKIP-0) = false .
+  eq match-command-eq-3(variant-command-eq-3(x0, x1, x2)) = true .
+  eq match-command-eq-3(variant-command-eq-2(x0, x1)) = false .
+  eq match-command-eq-3(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
+  eq match-command-eq-3(variant-command-WHILE-DO-END-2(x0, x1)) = false .
+  eq match-command-eq-3(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-eq-2(variant-command-SKIP-0) = false .
+  eq match-command-eq-2(variant-command-eq-3(x0, x1, x2)) = false .
+  eq match-command-eq-2(variant-command-eq-2(x0, x1)) = true .
+  eq match-command-eq-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
+  eq match-command-eq-2(variant-command-WHILE-DO-END-2(x0, x1)) = false .
+  eq match-command-eq-2(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-SKIP-0) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-3(x0, x1, x2)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-2(x0, x1)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = true .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-WHILE-DO-END-2(x0, x1)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-SKIP-0) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-eq-3(x0, x1, x2)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-eq-2(x0, x1)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-WHILE-DO-END-2(x0, x1)) = true .
+  eq match-command-WHILE-DO-END-2(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-semi-2(variant-command-SKIP-0) = false .
+  eq match-command-semi-2(variant-command-eq-3(x0, x1, x2)) = false .
+  eq match-command-semi-2(variant-command-eq-2(x0, x1)) = false .
+  eq match-command-semi-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
+  eq match-command-semi-2(variant-command-WHILE-DO-END-2(x0, x1)) = false .
+  eq match-command-semi-2(variant-command-semi-2(x0, x1)) = true .
+  eq $itermap-K-t-minus-gt-V-t-list-2-pair(nil, nil) = nil .
+  eq $itermap-K-t-minus-gt-V-t-list-2-pair(cons(K-t--hd, K-t--tl), cons(V-t--hd, V-t--tl)) = cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), $itermap-K-t-minus-gt-V-t-list-2-pair(K-t--tl, V-t--tl)) .
+  eq $unzip-K-t-minus-gt-V-t-list-V-t(nil) = nil .
+  eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), --rest)) = cons(V-t--hd, $unzip-K-t-minus-gt-V-t-list-V-t(--rest)) .
+  eq $unzip-K-t-minus-gt-V-t-list-K-t(nil) = nil .
+  eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), --rest)) = cons(K-t--hd, $unzip-K-t-minus-gt-V-t-list-K-t(--rest)) .
+  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = none if match-nil(pair-lt-K-comma-V-gt) = true .
+  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = some(V-h) if match-cons(pair-lt-K-comma-V-gt) = true /\ pair-lt-K-comma-V-gt = cons(variant-pair-minus-gt-2(K-h, V-h), iterbind-0) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0) = K-t /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0) = V-t /\ K-h = K-query .
+  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair(K-t, V-t), K-query) if match-cons(pair-lt-K-comma-V-gt) = true /\ pair-lt-K-comma-V-gt = cons(variant-pair-minus-gt-2(K-h, V-h), iterbind-0) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0) = K-t /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0) = V-t [owise] .
+  ceq Check-expr(tenv, expr) = variant-type-INT-0 if subty-literal(expr) = true /\ expr = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i) .
+  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if subty-literal(expr) = true /\ expr = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b) .
+  ceq Check-expr(tenv, expr) = t if subty-id(expr) = true /\ expr = x /\ $lookup(tenv, x) = type /\ match-some(type) = true /\ type = some(t) .
+  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-bang-1(expr) = true /\ expr = variant-expr-bang-1(e) /\ Check-expr(tenv, e) = type /\ match-type-BOOL-0(type) = true .
+  ceq Check-expr(tenv, expr) = variant-type-INT-0 if match-expr-plus-2(expr) = true /\ expr = variant-expr-plus-2(e-l, e-r) /\ Check-expr(tenv, e-l) = type /\ match-type-INT-0(type) = true /\ Check-expr(tenv, e-r) = type-prime /\ match-type-INT-0(type-prime) = true .
+  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-lt-eq-2(expr) = true /\ expr = variant-expr-lt-eq-2(e-l, e-r) /\ Check-expr(tenv, e-l) = type /\ match-type-INT-0(type) = true /\ Check-expr(tenv, e-r) = type-prime /\ match-type-INT-0(type-prime) = true .
+  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-amp-amp-2(expr) = true /\ expr = variant-expr-amp-amp-2(e-l, e-r) /\ Check-expr(tenv, e-l) = type /\ match-type-BOOL-0(type) = true /\ Check-expr(tenv, e-r) = type-prime /\ match-type-BOOL-0(type-prime) = true .
+  ceq Check-command(tenv, command) = tenv if match-command-SKIP-0(command) = true .
+  ceq Check-command(tenv, command) = cons(variant-pair-minus-gt-2(x, t), tenv) if match-command-eq-3(command) = true /\ command = variant-command-eq-3(t, x, e) /\ Check-expr(tenv, e) = type /\ type = t .
+  ceq Check-command(tenv, command) = tenv if match-command-eq-2(command) = true /\ command = variant-command-eq-2(x, e) /\ Check-expr(tenv, e) = t /\ $lookup(tenv, x) = some(t) .
+  ceq Check-command(tenv, command) = tenv if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ Check-expr(tenv, e) = type /\ match-type-BOOL-0(type) = true /\ Check-command(tenv, c-1) = tenv-1 /\ Check-command(tenv, c-2) = tenv-2 .
+  ceq Check-command(tenv, command) = tenv if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ Check-expr(tenv, e) = type /\ match-type-BOOL-0(type) = true /\ Check-command(tenv, c) = tenv-1 .
+  ceq Check-command(tenv, command) = tenv-2 if match-command-semi-2(command) = true /\ command = variant-command-semi-2(c-1, c-2) /\ Check-command(tenv, c-1) = tenv-1 /\ Check-command(tenv-1, c-2) = tenv-2 .
+  ceq Check-prog(command) = true if Check-command(nil, command) = tenv .
+  ceq Eval-expr(env, expr) = variant-literal-NUM-1(i) if subty-literal(expr) = true /\ expr = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i) .
+  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(b) if subty-literal(expr) = true /\ expr = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b) .
+  ceq Eval-expr(env, expr) = v if subty-id(expr) = true /\ expr = x /\ $lookup(env, x) = value /\ match-some(value) = true /\ value = some(v) .
+  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(b) if match-expr-bang-1(expr) = true /\ expr = variant-expr-bang-1(e) /\ Eval-expr(env, e) = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b-e) /\ not(b-e) = b .
+  ceq Eval-expr(env, expr) = variant-literal-NUM-1(i) if match-expr-plus-2(expr) = true /\ expr = variant-expr-plus-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-NUM-1(literal-prime) = true /\ literal-prime = variant-literal-NUM-1(i-r) /\ add-int(i-l, i-r) = i .
+  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(b) if match-expr-lt-eq-2(expr) = true /\ expr = variant-expr-lt-eq-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-NUM-1(literal-prime) = true /\ literal-prime = variant-literal-NUM-1(i-r) /\ leq-int(i-l, i-r) = b .
+  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(b) if match-expr-amp-amp-2(expr) = true /\ expr = variant-expr-amp-amp-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-BOOL-1(literal-prime) = true /\ literal-prime = variant-literal-BOOL-1(b-r) /\ and(b-l, b-r) = b .
+  ceq Eval-command(env, command) = env if match-command-SKIP-0(command) = true .
+  ceq Eval-command(env, command) = cons(variant-pair-minus-gt-2(x, v), env) if match-command-eq-3(command) = true /\ command = variant-command-eq-3(t, x, e) /\ Eval-expr(env, e) = v .
+  ceq Eval-command(env, command) = cons(variant-pair-minus-gt-2(x, v), env) if match-command-eq-2(command) = true /\ command = variant-command-eq-2(x, e) /\ Eval-expr(env, e) = v .
+  ceq Eval-command(env, command) = env-1 if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ Eval-expr(env, e) = literal /\ literal = variant-literal-BOOL-1(true) /\ Eval-command(env, c-1) = env-1 .
+  ceq Eval-command(env, command) = env-2 if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ Eval-expr(env, e) = literal /\ literal = variant-literal-BOOL-1(false) /\ Eval-command(env, c-2) = env-2 .
+  ceq Eval-command(env, command) = env if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ Eval-expr(env, e) = literal /\ literal = variant-literal-BOOL-1(false) .
+  ceq Eval-command(env, command) = env-2 if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ Eval-expr(env, e) = literal /\ literal = variant-literal-BOOL-1(true) /\ Eval-command(env, c) = env-1 /\ Eval-command(env-1, variant-command-WHILE-DO-END-2(e, c)) = env-2 .
+  ceq Eval-command(env, command) = env-2 if match-command-semi-2(command) = true /\ command = variant-command-semi-2(c-1, c-2) /\ Eval-command(env, c-1) = env-1 /\ Eval-command(env-1, c-2) = env-2 .
+  ceq Eval-prog(command) = env if Eval-command(nil, command) = env .
+  ceq Run-prog(command) = env if Check-prog(command) = true /\ Eval-prog(command) = env .
 endm)
 
