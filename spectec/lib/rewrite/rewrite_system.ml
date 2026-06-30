@@ -215,6 +215,146 @@ let slice (t : t) ~(roots : string list) : t =
   { rules; vars }
 
 (* -------------------------------------------------------------------------- *)
+(* Premise-binder normalization (analysis-surface confluence). *)
+
+(* Substitute the variable [v] by [repl] throughout a term. *)
+let rec subst_var (v : string) (repl : term) = function
+  | Var u -> if u = v then repl else Var u
+  | App (f, ts) -> App (f, List.map (subst_var v repl) ts)
+
+(* Occurrences of variable [v] in a term. *)
+let rec count_var (v : string) = function
+  | Var u -> if u = v then 1 else 0
+  | App (_, ts) -> List.fold_left (fun n t -> n + count_var v t) 0 ts
+
+(* A value-constructor pattern: every applied head is a constructor (one no rule
+   defines, [is_defined] false) and the leaves are variables. Folding such a
+   pattern into a rule's lhs keeps the lhs a matchable value pattern. *)
+let rec is_ctor_pattern (is_defined : string -> bool) = function
+  | Var _ -> true
+  | App (f, ts) ->
+      (not (is_defined f)) && List.for_all (is_ctor_pattern is_defined) ts
+
+(* Normalize every premise-bound variable out of the analysis system's rules so
+   the MFE's Church-Rosser checker is not tripped by the spurious critical pairs
+   the single-sort [prod = v] / [v = K(..)] condition rendering raises.
+
+   The surface renders a CTRS join-condition as an equality, so the fresh
+   variable a condition binds (a relation/function output, or a field a
+   destructuring pattern extracts) is left FREE on the rule's right -- and the
+   CRC, which never solves the (deterministic) binding, reports e.g.
+   [#v# = v if prod = v /\ prod = #v#]. Per rule, a fixpoint folds each such
+   binder back into the rule until none remains, applying the first applicable of:
+
+   - {b inline} an output binder [(prod, v)] with [v] NOT head-bound: substitute
+     [v := prod] into the rhs/conditions ([prod] a deterministic value, so this is
+     semantics-preserving). The binder must be live and used once (or be a plain
+     [Var] alias) so a producer is never duplicated;
+   - {b fold} a PURE-accessor destructuring [(v, K(..))] -- [v] head-bound and
+     used in no other condition, [K(..)] a constructor pattern: substitute
+     [v := K(..)] EVERYWHERE, so [K]'s fresh field variables become
+     lhs-pattern-bound (the binder moves from the right to the head, where Maude
+     binds it by matching).
+
+   Uniform over every rule, so a binder inside a recursive iteration helper
+   ([$iterapply]/[$itercollect]/[$unzip]) is normalized the same way. Gensym
+   threading (run before this) binds a [tuple(out, state)], not a bare [Var], so a
+   threaded binder is skipped. Analysis-surface only: {!To_maude} keeps the [:=]
+   matching condition its stuck-head guard relies on. *)
+let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
+  let defined = Hashtbl.create 512 in
+  List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
+  let is_defined h = Hashtbl.mem defined h in
+  let rules_set = Hashtbl.create 64 in
+  List.iter (fun h -> Hashtbl.replace rules_set h ()) rule_heads;
+  let fold_rule (r : rule) : rule =
+    (* The variable a condition binds and the term to fold it to, if any. *)
+    let binding lhs_vars ~rhs ~others ((a, b) : cond) : (string * term) option =
+      (* inline: [v] a non-head output bound to deterministic [prod]. *)
+      let inline v prod =
+        let deterministic =
+          match prod with
+          | App (f, _) -> not (Hashtbl.mem rules_set f)
+          | Var _ -> true
+        in
+        if
+          List.mem v lhs_vars
+          || List.mem v (vars_of_term prod)
+          || not deterministic
+        then None
+        else
+          let is_alias = match prod with Var _ -> true | _ -> false in
+          let uses =
+            count_var v rhs
+            + List.fold_left
+                (fun n (l, r) -> n + count_var v l + count_var v r)
+                0 others
+          in
+          if uses >= 1 && (is_alias || uses = 1) then Some (v, prod) else None
+      in
+      (* fold: [v] a head variable destructured against a constructor pattern.
+         Only a PURE accessor -- [v] used in no other condition -- is folded:
+         folding a guarded clause (where [v] also feeds a [match_*]/owise guard,
+         e.g. [$lookup]'s [pair]) would strip the disjointness guard the CRC
+         relies on and expose the clause's owise overlap (turning a YES into a
+         MAYBE). *)
+      let fold v pat =
+        let pat_vars = vars_of_term pat in
+        let used_elsewhere =
+          List.exists (fun (l, r) -> count_var v l + count_var v r > 0) others
+        in
+        match pat with
+        | App _
+          when List.mem v lhs_vars && (not used_elsewhere)
+               && count_var v r.lhs = 1
+               && is_ctor_pattern is_defined pat
+               && (not (List.mem v pat_vars))
+               && not (List.exists (fun w -> List.mem w lhs_vars) pat_vars) ->
+            Some (v, pat)
+        | _ -> None
+      in
+      let binder v other =
+        match inline v other with Some x -> Some x | None -> fold v other
+      in
+      match (a, b) with
+      | Var v, _ -> (
+          match binder v b with
+          | Some x -> Some x
+          | None -> ( match b with Var w -> binder w a | _ -> None))
+      | _, Var w -> binder w a
+      | _ -> None
+    in
+    let rec loop (r : rule) =
+      let lhs_vars = vars_of_term r.lhs in
+      let rec find before = function
+        | [] -> None
+        | c :: after -> (
+            let others = List.rev_append before after in
+            match binding lhs_vars ~rhs:r.rhs ~others c with
+            | Some sub -> Some (sub, others)
+            | None -> find (c :: before) after)
+      in
+      match find [] r.conds with
+      | None -> r
+      | Some ((v, repl), others) ->
+          let sub = subst_var v repl in
+          loop
+            {
+              r with
+              lhs = sub r.lhs;
+              rhs = sub r.rhs;
+              conds = List.map (fun (l, rr) -> (sub l, sub rr)) others;
+            }
+    in
+    let r = loop r in
+    (* Drop conditions a substitution made trivially true ([t = t]). *)
+    { r with conds = List.filter (fun (l, rr) -> l <> rr) r.conds }
+  in
+  let rules = List.map fold_rule t.rules in
+  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
+  { rules; vars }
+
+(* -------------------------------------------------------------------------- *)
 (* Maude system-module surface, for the Maude Formal Environment (CRC + ChC).
 
    The textual surface of a CTRS: a single-sort Full Maude *system* module. The

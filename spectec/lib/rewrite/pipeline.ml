@@ -30,9 +30,18 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
   |> Gensym.thread ~scalars
 
 (* Analysis pipeline: self-contained structural scalars, for the MFE
-   (CRC/ChC) confluence/coherence surface. *)
+   (CRC/ChC) confluence/coherence surface. A final
+   {!Rewrite_system.fold_premise_binders} pass folds each premise-bound variable
+   (a relation/function output, or a field a destructuring extracts) back into
+   the rule -- into its rhs or its head pattern -- and drops the guards the fold
+   makes redundant, so the MFE's Church-Rosser checker is not tripped by the
+   spurious critical pairs the single-sort [prod = v] / [v = K(..)] condition
+   rendering of a (deterministic) binding would otherwise raise. Analysis-only:
+   the execution pipeline keeps the binding as a [:=] matching condition. *)
 let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
-  build To_ctrs.Structural spec
+  Rewrite_system.fold_premise_binders
+    ~rule_heads:(To_ctrs.rule_head_syms spec)
+    (build To_ctrs.Structural spec)
 
 (* Execution pipeline: the DIRECT IL -> Maude path. The native built-in theory
    is the translation target from the start ([~scalars:Native]), so this is NOT
