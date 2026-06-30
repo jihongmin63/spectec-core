@@ -26,6 +26,81 @@ type t = {
 (* The IL -> CTRS translation lives in {!To_ctrs}; this module is only the data
    model and printer. *)
 
+(* -------------------------------------------------------------------------- *)
+(* CTRS identifier lexical conventions.
+
+   Scrubbing an arbitrary string into a CTRS-safe identifier lives here at the
+   data model, not in the symbol-naming layer, because BOTH that layer
+   ({!Ctrs_term}, which builds every rule's symbols) and the Maude surfaces (the
+   analysis {!string_of_system_maude} below and the executable {!To_maude}) must
+   agree on the exact spelling -- so the one definition sits at the layer all of
+   them can reach. *)
+
+(* A readable token for a non-alphanumeric character so symbolic notations keep
+   distinct, legible names (e.g. [`+`] -> "plus", not the empty string). A prime
+   ['] is kept as "prime" because it distinguishes sibling definitions ([f] vs
+   [f'] vs [f'']) that would otherwise collide on the same symbol; backticks,
+   double quotes and whitespace are dropped; truly unknown symbols become "sym". *)
+let mnemonic_of_char (c : char) : string =
+  match c with
+  | '+' -> "plus"
+  | '-' -> "minus"
+  | '*' -> "star"
+  | '/' -> "slash"
+  | '\\' -> "backslash"
+  | '<' -> "lt"
+  | '>' -> "gt"
+  | '=' -> "eq"
+  | '!' -> "bang"
+  | '?' -> "quest"
+  | '&' -> "amp"
+  | '|' -> "bar"
+  | '^' -> "caret"
+  | '~' -> "tilde"
+  | '%' -> "percent"
+  | '.' -> "dot"
+  | ',' -> "comma"
+  | ';' -> "semi"
+  | ':' -> "colon"
+  | '#' -> "hash"
+  | '$' -> "dollar"
+  | '@' -> "at"
+  | '(' -> "lparen"
+  | ')' -> "rparen"
+  | '[' -> "lbrack"
+  | ']' -> "rbrack"
+  | '{' -> "lbrace"
+  | '}' -> "rbrace"
+  | '\'' -> "prime"
+  | '`' | '"' | ' ' | '_' -> ""
+  | _ -> "sym"
+
+(* Scrub a string into a CTRS-safe identifier: maximal [A-Za-z0-9] runs are kept,
+   every other character is replaced by a mnemonic token, tokens are joined with
+   [_], an alphabetic lead is guaranteed, and the result is never empty. Distinct
+   inputs may still collide (a known first-cut limitation). *)
+let sanitize (s : string) : string =
+  let is_alnum c =
+    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+  in
+  (* Accumulate completed tokens (reversed) plus the current alphanumeric run;
+     [run] is committed to [tokens] whenever a non-alphanumeric breaks it. *)
+  let commit run tokens = if run = "" then tokens else run :: tokens in
+  let tokens, run =
+    String.fold_left
+      (fun (tokens, run) c ->
+        if is_alnum c then (tokens, run ^ String.make 1 c)
+        else
+          match mnemonic_of_char c with
+          | "" -> (commit run tokens, "")
+          | m -> (m :: commit run tokens, ""))
+      ([], "") s
+  in
+  let r = String.concat "_" (List.rev (commit run tokens)) in
+  if r = "" then "anon"
+  else if r.[0] >= '0' && r.[0] <= '9' then "c_" ^ r
+  else r
+
 let rec string_of_term = function
   | Var id -> id
   | App (id, []) -> id
@@ -152,6 +227,41 @@ let slice (t : t) ~(roots : string list) : t =
    overlaps may surface as spurious critical pairs). The wrapping [(mod ... endm)]
    parens are Full Maude's module-entry syntax. *)
 
+(* Maude lexical layer, shared with the executable surface ({!To_maude}). *)
+
+(* A CTRS id ([A-Za-z0-9_$]+) to a Maude-safe id: [_] is a mixfix placeholder in
+   Maude, so map it to [-] (injective, since CTRS ids never contain [-]). *)
+let maude_id (s : string) : string =
+  String.map (fun c -> if c = '_' then '-' else c) s
+
+(* A CTRS variable name as a valid Maude variable identifier. A variable built
+   from a pretty-printed pattern (a tuple bind ["(value, id)"], an angle-bracket
+   type ["pair<K, V>"], a primed name) can carry characters Maude forbids in a
+   variable -- spaces, parens, commas, dots, angle brackets. Names already
+   confined to [A-Za-z0-9_] (the overwhelming majority) render exactly as the
+   [maude_id] mangling; only the rest are run through {!sanitize} first to become
+   well-formed (and stay distinct). *)
+let maude_var (v : string) : string =
+  let plain =
+    String.for_all
+      (function
+        | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' -> true | _ -> false)
+      v
+  in
+  maude_id (if plain then v else sanitize v)
+
+(* A CTRS term in Maude's single-sort surface syntax: variables scrubbed to
+   valid Maude identifiers, application heads mangled, no on-the-fly sorts (the
+   module declares one global [vars ... : Term]). Distinct from {!string_of_term}
+   (the raw human-readable diagnostic printer). *)
+let rec string_of_term_maude = function
+  | Var id -> maude_var id
+  | App (id, []) -> maude_id id
+  | App (id, terms) ->
+      maude_id id ^ "("
+      ^ String.concat ", " (List.map string_of_term_maude terms)
+      ^ ")"
+
 (* Every (symbol, arity) pair applied in a term. *)
 let rec ops_of_term acc = function
   | Var _ -> acc
@@ -184,16 +294,23 @@ let ops_of_system (t : t) : (string * int) list =
    ([s == t] becomes the equational condition [s = t]). *)
 let string_of_conds_maude conds =
   String.concat " /\\ "
-    (List.map (fun (a, b) -> string_of_term a ^ " = " ^ string_of_term b) conds)
+    (List.map
+       (fun (a, b) -> string_of_term_maude a ^ " = " ^ string_of_term_maude b)
+       conds)
 
 let string_of_system_maude ?(module_name = "SPEC") ~(rule_heads : string list)
     (t : t) : string =
   let buf = Buffer.create 512 in
   let add = Buffer.add_string buf in
+  (* The single sort [Term] declares its own [not]/[and]/[true]/[false], which
+     would clash with Maude's built-in [BOOL] ("Ambiguous parsing"); turning the
+     implicit import off lets the module's own boolean operators stand. *)
+  add "set include BOOL off .\n\n";
   add ("(mod " ^ module_name ^ " is\n");
   add "  sort Term .\n";
   List.iter
     (fun (sym, arity) ->
+      let sym = maude_id sym in
       if arity = 0 then add (Printf.sprintf "  op %s : -> Term .\n" sym)
       else
         let dom = String.concat " " (List.init arity (fun _ -> "Term")) in
@@ -201,13 +318,17 @@ let string_of_system_maude ?(module_name = "SPEC") ~(rule_heads : string list)
     (ops_of_system t);
   (match t.vars with
   | [] -> ()
-  | vs -> add (Printf.sprintf "  vars %s : Term .\n" (String.concat " " vs)));
+  | vs ->
+      add
+        (Printf.sprintf "  vars %s : Term .\n"
+           (String.concat " " (List.map maude_var vs))));
   let is_rule r =
     match defined_head r with Some h -> List.mem h rule_heads | None -> false
   in
   List.iter
     (fun r ->
-      let lhs = string_of_term r.lhs and rhs = string_of_term r.rhs in
+      let lhs = string_of_term_maude r.lhs
+      and rhs = string_of_term_maude r.rhs in
       if is_rule r then
         match r.conds with
         | [] -> add (Printf.sprintf "  rl %s => %s .\n" lhs rhs)

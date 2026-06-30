@@ -1,5 +1,6 @@
 open Common.Source
 open Lang.Il
+module R = Rewrite_system
 module T = Ctrs_term
 
 (** Back-translate a Maude object term (the normal form {!Maude_run} prints as
@@ -22,14 +23,11 @@ module T = Ctrs_term
     {!To_maude.encode_value} threads) to put a [nil] in a text position back as
     [TextV ""]. *)
 
-(* -------------------------------------------------------------------------- *)
-(* Lexical layer: the inverse of {!To_maude.maude_id}. *)
-
-(* A Maude id back to its CTRS spelling is not needed (we key the forward table
-   by the maude-spelled symbol), but the table keys must match what Maude prints,
-   so they are mangled with the same [_]->[-] map the emitter used. *)
-let maude_id (s : string) : string =
-  String.map (fun c -> if c = '_' then '-' else c) s
+(* Lexical layer: the forward table keys must match what Maude prints, so a
+   constructor symbol is mangled with the same [_]->[-] map the emitter used
+   ({!Rewrite_system.maude_id}, referenced as [R.maude_id] below and shared with
+   both Maude surfaces); the reverse mapping is never needed (we key by the
+   maude-spelled symbol). *)
 
 (* -------------------------------------------------------------------------- *)
 (* The parsed Maude term. *)
@@ -216,13 +214,13 @@ let build_tables (orig : spec) : tables =
                     List.map (fun t -> t.it) (Mixfix.args tc.notation.it)
                   in
                   Hashtbl.replace variants
-                    (maude_id (T.variant_sym origin mixop))
+                    (R.maude_id (T.variant_sym origin mixop))
                     (origin, mixop, ftyps))
                 typcases
           | StructT fields ->
               let fields = List.map (fun (a, t) -> (a, t.it)) fields in
               Hashtbl.replace structs
-                (maude_id (T.struct_sym tid.it))
+                (R.maude_id (T.struct_sym tid.it))
                 (tid.it, fields)
           | PlainT _ -> ())
       | _ -> ())
@@ -459,7 +457,7 @@ let values_of_result (orig : spec) ~(rel : string) (term : string) : value list
   let out_typs = relation_output_typs orig rel in
   let nout = List.length out_typs in
   let effectful =
-    List.mem (T.sanitize rel)
+    List.mem (R.sanitize rel)
       (Gensym.effectful_syms (Pipeline.maude_system_of_spec orig))
   in
   let total = nout + if effectful then 1 else 0 in

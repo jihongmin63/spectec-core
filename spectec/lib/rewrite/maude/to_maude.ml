@@ -49,27 +49,10 @@ module T = Ctrs_term
     different sorts in different rules. *)
 
 (* -------------------------------------------------------------------------- *)
-(* Maude lexical layer. *)
-
-(* A CTRS id ([A-Za-z0-9_]+) to a Maude-safe id: [_] is a mixfix placeholder in
-   Maude, so map it to [-] (injective, since CTRS ids never contain [-]). *)
-let maude_id (s : string) : string =
-  String.map (fun c -> if c = '_' then '-' else c) s
-
-(* A CTRS variable name as a valid Maude variable identifier. A variable built
-   from a pretty-printed pattern (a tuple bind ["(value, id)"], a primed name)
-   can carry characters Maude forbids in a variable -- spaces, parens, commas,
-   dots, angle brackets. Names already confined to [A-Za-z0-9_] (the
-   overwhelming majority) render exactly as before; only the rest are run
-   through [T.sanitize] to become well-formed (and stay distinct). *)
-let maude_var (v : string) : string =
-  let plain =
-    String.for_all
-      (function
-        | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '_' -> true | _ -> false)
-      v
-  in
-  maude_id (if plain then v else T.sanitize v)
+(* Maude lexical layer. The id/variable scrubbing ([R.maude_id]/[R.maude_var], built
+   on [sanitize]) lives in {!Rewrite_system} so the analysis surface
+   ({!Rewrite_system.string_of_system_maude}) and this executable surface share
+   the same spelling; referenced here as [R.maude_id]/[R.maude_var]. *)
 
 (* The universal supersort every other sort sits under. *)
 let val_sort = "Val"
@@ -81,7 +64,7 @@ let typ_name_of (typ : typ') : string option =
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
 let sort_of_name (n : string) : string =
-  String.capitalize_ascii (maude_id (T.sanitize n))
+  String.capitalize_ascii (R.maude_id (R.sanitize n))
 
 (* -------------------------------------------------------------------------- *)
 (* IL types -> sorts. *)
@@ -361,12 +344,12 @@ let sort_of_var (vs : (string, string) Hashtbl.t) (v : string) : string =
 
 let rec print_term vs (t : R.term) : string =
   match t with
-  | R.Var v -> maude_var v ^ ":" ^ sort_of_var vs v
+  | R.Var v -> R.maude_var v ^ ":" ^ sort_of_var vs v
   (* a built-in literal (numeral / quoted string): verbatim, never mangled *)
   | R.App (f, []) when Maude_theory.is_literal_sym f -> f
-  | R.App (f, []) -> maude_id f
+  | R.App (f, []) -> R.maude_id f
   | R.App (f, args) ->
-      maude_id f ^ "("
+      R.maude_id f ^ "("
       ^ String.concat ", " (List.map (print_term vs) args)
       ^ ")"
 
@@ -508,7 +491,7 @@ let print_rule vs rels defined (is_rel : bool) (r : R.rule) : string =
       Printf.eprintf
         "warning: dropping `otherwise' on relation rule for %s (Maude rules \
          cannot express owise)\n"
-        (match r.R.lhs with R.App (h, _) -> maude_id h | R.Var _ -> "?");
+        (match r.R.lhs with R.App (h, _) -> R.maude_id h | R.Var _ -> "?");
       "")
     else " [owise]"
   in
@@ -646,9 +629,9 @@ let stuck_head_eqs (heads : (string * int) list) sg : string list =
       else List.init n (fun _ -> val_sort)
     in
     let pat =
-      if n = 0 then maude_id h
+      if n = 0 then R.maude_id h
       else
-        maude_id h ^ "("
+        R.maude_id h ^ "("
         ^ String.concat ", "
             (List.mapi (fun i s -> Printf.sprintf "V%d:%s" i s) argsorts)
         ^ ")"
@@ -669,13 +652,13 @@ let stuck_head_eqs (heads : (string * int) list) sg : string list =
 (* extra guards. Variable sorts are spelled at every occurrence (Maude         *)
 (* requires it for on-the-fly variables).                                      *)
 
-let natp inner = maude_id Maude_theory.nat_wrap_sym ^ "(" ^ inner ^ ")"
-let intp inner = maude_id Maude_theory.int_wrap_sym ^ "(" ^ inner ^ ")"
-let boolp inner = maude_id Maude_theory.bool_wrap_sym ^ "(" ^ inner ^ ")"
-let txtp inner = maude_id Maude_theory.text_wrap_sym ^ "(" ^ inner ^ ")"
+let natp inner = R.maude_id Maude_theory.nat_wrap_sym ^ "(" ^ inner ^ ")"
+let intp inner = R.maude_id Maude_theory.int_wrap_sym ^ "(" ^ inner ^ ")"
+let boolp inner = R.maude_id Maude_theory.bool_wrap_sym ^ "(" ^ inner ^ ")"
+let txtp inner = R.maude_id Maude_theory.text_wrap_sym ^ "(" ^ inner ^ ")"
 
 let deleg_line sym args rhs =
-  Printf.sprintf "  eq %s(%s) = %s ." (maude_id sym) (String.concat ", " args)
+  Printf.sprintf "  eq %s(%s) = %s ." (R.maude_id sym) (String.concat ", " args)
     rhs
 
 (* [sym -> (arity, delegated dependencies, equation lines)]. Emitted (with the
@@ -728,7 +711,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
           Printf.sprintf
             "  ceq %s(%s, %s) = %s if P:Int := 2 ^ W:Nat /\\ B:Int := ((2 ^ \
              W:Nat) - 1) & N:Int ."
-            (maude_id sym) (intp "W:Nat") (intp "N:Int")
+            (R.maude_id sym) (intp "W:Nat") (intp "N:Int")
             (intp "if B:Int < (P:Int quo 2) then B:Int else B:Int - P:Int fi");
         ] ) )
   in
@@ -739,8 +722,8 @@ let delegation_eqs : (string * (int * string list * string list)) list =
         [
           deleg_line sym [ "nil" ] (natp "0");
           Printf.sprintf "  ceq %s(cons(%s, L:List)) = %s if %s := %s(L:List) ."
-            (maude_id sym) (natp "N:Nat") (natp op) (natp "M:Nat")
-            (maude_id sym);
+            (R.maude_id sym) (natp "N:Nat") (natp op) (natp "M:Nat")
+            (R.maude_id sym);
         ] ) )
   in
   [
@@ -779,7 +762,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
           deleg_line "equiv" [ boolp "true"; "Y:Val" ] "Y:Val";
           deleg_line "equiv"
             [ boolp "false"; "Y:Val" ]
-            (maude_id "not" ^ "(Y:Val)");
+            (R.maude_id "not" ^ "(Y:Val)");
         ] ) );
     ("add", (2, [], [ n2 "add" "+" ]));
     ( "sub",
@@ -936,7 +919,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
           deleg_line "upd_idx"
             [ "cons(V:Val, L:List)"; natp "s(N:Nat)"; "W:Val" ]
             (Printf.sprintf "cons(V:Val, %s(L:List, %s, W:Val))"
-               (maude_id "upd_idx") (natp "N:Nat"));
+               (R.maude_id "upd_idx") (natp "N:Nat"));
         ] ) );
     ( "upd_slice",
       ( 4,
@@ -997,13 +980,13 @@ let delegation_eqs : (string * (int * string list * string list)) list =
           deleg_line "$strip_all_whitespace" [ "nil" ] "nil";
           Printf.sprintf
             "  ceq %s(%s) = %s if find(S:String, \" \", 0) == notFound ."
-            (maude_id "$strip_all_whitespace")
+            (R.maude_id "$strip_all_whitespace")
             (txtp "S:String") (txtp "S:String");
           Printf.sprintf
             "  ceq %s(%s) = %s if I:Nat := find(S:String, \" \", 0) ."
-            (maude_id "$strip_all_whitespace")
+            (R.maude_id "$strip_all_whitespace")
             (txtp "S:String")
-            (maude_id "$strip_all_whitespace"
+            (R.maude_id "$strip_all_whitespace"
             ^ "("
             ^ txtp
                 "substr(S:String, 0, I:Nat) + substr(S:String, I:Nat + 1, \
@@ -1049,7 +1032,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
             (intp "I:Int");
           deleg_line "$shr_arith"
             [ intp "I:Int"; intp "s(N:Nat)"; intp "M:Int" ]
-            (Printf.sprintf "%s(%s, %s, %s)" (maude_id "$shr_arith")
+            (Printf.sprintf "%s(%s, %s, %s)" (R.maude_id "$shr_arith")
                (intp "(I:Int quo 2) + M:Int")
                (intp "N:Nat") (intp "M:Int"));
         ] ) );
@@ -1086,7 +1069,7 @@ let delegation_eqs : (string * (int * string list * string list)) list =
         [],
         [
           Printf.sprintf "  ceq %s(%s, %s, %s) = %s if L:Nat <= M:Nat = true ."
-            (maude_id "$bitacc") (intp "N:Int") (intp "M:Nat") (intp "L:Nat")
+            (R.maude_id "$bitacc") (intp "N:Int") (intp "M:Nat") (intp "L:Nat")
             (intp "(N:Int >> L:Nat) & ((2 ^ sd(M:Nat + 1, L:Nat)) - 1)");
         ] ) );
     (* [$to_bitstr(w, n)] = n mod 2^w (the low w bits, non-negative);
@@ -1294,7 +1277,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
-      buf_line b ("  op " ^ maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
+      buf_line b ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
     (List.sort compare op_sigs);
   buf_line b "";
   (* rules: equations first (functions/prelude/constructors), then relation
@@ -1395,7 +1378,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
         Printf.eprintf
           "warning: negated relation %s is not an equation-mode judgment; its \
            negated premises stay unsatisfiable\n"
-          (maude_id sym)
+          (R.maude_id sym)
       else
         match List.assoc_opt sym used with
         | None -> ()
@@ -1405,10 +1388,10 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
               List.mapi (fun i s -> Printf.sprintf "X%d:%s" i s) args
             in
             let lhs =
-              if vars = [] then maude_id sym
-              else maude_id sym ^ "(" ^ String.concat ", " vars ^ ")"
+              if vars = [] then R.maude_id sym
+              else R.maude_id sym ^ "(" ^ String.concat ", " vars ^ ")"
             in
-            let false_t = maude_id Maude_theory.bool_wrap_sym ^ "(false)" in
+            let false_t = R.maude_id Maude_theory.bool_wrap_sym ^ "(false)" in
             let rhs =
               (* threaded judgment: the trailing argument is the state, handed
                  back unchanged alongside the failure *)
@@ -1444,7 +1427,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     (fun (sym, arity) ->
       let args, _ = sg sym arity in
       let vars = List.mapi (fun i s -> Printf.sprintf "X%d:%s" i s) args in
-      let lhs = maude_id sym ^ "(" ^ String.concat ", " vars ^ ")" in
+      let lhs = R.maude_id sym ^ "(" ^ String.concat ", " vars ^ ")" in
       let guards =
         List.map
           (fun v -> Printf.sprintf "%s(%s) = false" stuck_head_sym v)
@@ -1452,7 +1435,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       in
       buf_line b
         (Printf.sprintf "  ceq %s = %s(false) if %s [owise] ." lhs
-           (maude_id Maude_theory.bool_wrap_sym)
+           (R.maude_id Maude_theory.bool_wrap_sym)
            (String.concat " /\\ " guards)))
     (List.sort compare subty_syms);
   (* The value-head predicate guarding bare-variable matching conditions. *)
@@ -1477,7 +1460,7 @@ let module_of_spec ?(module_name = "SPEC") ?(relations_as_rules = false)
    The same system [module_of_spec] emits. *)
 let maude_defined_heads (orig : spec) : string list =
   let sys = Pipeline.maude_system_of_spec orig in
-  List.map maude_id
+  List.map R.maude_id
     (dedup (R.defined_heads sys @ List.map fst (native_delegated sys)))
 
 (* -------------------------------------------------------------------------- *)
@@ -1485,7 +1468,7 @@ let maude_defined_heads (orig : spec) : string list =
    front-end) to a ground Maude term in this module's vocabulary. *)
 
 (* A symbol the way it appears in the emitted module (sanitized + mangled). *)
-let maude_sym (s : string) : string = maude_id (T.sanitize s)
+let maude_sym (s : string) : string = R.maude_id (R.sanitize s)
 
 (* A region-independent key for a [mixop], equivalent to [Mixfix.eq_mixop]:
    [compare_mixop] compares atoms by [Xl.Atom.compare] (= [Stdlib.compare] on the
@@ -1706,18 +1689,18 @@ let meta_int_lit (n : string) : string =
    constant). *)
 let rec print_meta_term sg (t : R.term) : string =
   match t with
-  | R.Var v -> "'" ^ maude_var v ^ ":" ^ val_sort
+  | R.Var v -> "'" ^ R.maude_var v ^ ":" ^ val_sort
   | R.App (w, [ R.App (n, []) ]) when w = Maude_theory.nat_wrap_sym ->
-      Printf.sprintf "'%s[%s]" (maude_id w) (meta_nat_lit n)
+      Printf.sprintf "'%s[%s]" (R.maude_id w) (meta_nat_lit n)
   | R.App (w, [ R.App (n, []) ]) when w = Maude_theory.int_wrap_sym ->
-      Printf.sprintf "'%s[%s]" (maude_id w) (meta_int_lit n)
+      Printf.sprintf "'%s[%s]" (R.maude_id w) (meta_int_lit n)
   | R.App (w, [ R.App (b, []) ]) when w = Maude_theory.bool_wrap_sym ->
-      Printf.sprintf "'%s['%s.Bool]" (maude_id w) b
+      Printf.sprintf "'%s['%s.Bool]" (R.maude_id w) b
   | R.App (w, [ R.App (s, []) ]) when w = Maude_theory.text_wrap_sym ->
-      Printf.sprintf "'%s['%s.String]" (maude_id w) s
-  | R.App (f, []) -> Printf.sprintf "'%s.%s" (maude_id f) (snd (sg f 0))
+      Printf.sprintf "'%s['%s.String]" (R.maude_id w) s
+  | R.App (f, []) -> Printf.sprintf "'%s.%s" (R.maude_id f) (snd (sg f 0))
   | R.App (f, args) ->
-      Printf.sprintf "'%s[%s]" (maude_id f)
+      Printf.sprintf "'%s[%s]" (R.maude_id f)
         (String.concat ", " (List.map (print_meta_term sg) args))
 
 (* Encode [value] to its Maude META-TERM text (self-contained: literals carry
@@ -1732,7 +1715,7 @@ let meta_term_of_value (orig : spec) (v : value) : string =
 let meta_start_app (orig : spec) (rel : string) (args : string list) : string =
   let threaded = Gensym.effectful_syms (Pipeline.maude_system_of_spec orig) in
   let args =
-    if List.mem (T.sanitize rel) threaded then
+    if List.mem (R.sanitize rel) threaded then
       args
       @ [
           print_meta_term (meta_signature orig)

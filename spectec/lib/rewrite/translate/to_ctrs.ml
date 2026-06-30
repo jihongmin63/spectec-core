@@ -49,7 +49,7 @@ let iter_tag (iter : iter) : string =
    place the descriptor is sanitized and length-bounded ([abbrev]). *)
 let iter_helper_sym (base : string) (descr : string) (iter : iter)
     (parts : string list) : string =
-  String.concat "_" (base :: abbrev (sanitize descr) :: iter_tag iter :: parts)
+  String.concat "_" (base :: abbrev (R.sanitize descr) :: iter_tag iter :: parts)
 
 (* The co-iterated variables' ids, in iterexp order -- these name the list-level
    values at a use site and the destructured spines in a definition. *)
@@ -185,7 +185,7 @@ let iter_map_sym (body : exp) (iter : iter) (n_lists : int) : string =
    pretty-printed descriptor, bounded the same way as [iter_helper_sym]'s. *)
 let subty_helper_sym (shape : string) (t : typ') : string =
   Printf.sprintf "subty_%s_%s" shape
-    (abbrev (sanitize (Print.string_of_typ (t $ no_region))))
+    (abbrev (R.sanitize (Print.string_of_typ (t $ no_region))))
 
 let subty_tup_sym (ts : typ list) : string = subty_helper_sym "tup" (TupleT ts)
 let subty_list_sym (elem : typ') : string = subty_helper_sym "list" elem
@@ -342,7 +342,7 @@ let iter_map_def ~scalars (e : exp) : (string * R.rule list) option =
    iterated body in binder position (the inverse of one [iter_map_def] column).
 *)
 let unzip_sym (body : exp) (iter : iter) (v : string) : string =
-  iter_helper_sym "$unzip" (Print.string_of_exp body) iter [ sanitize v ]
+  iter_helper_sym "$unzip" (Print.string_of_exp body) iter [ R.sanitize v ]
 
 (* Defining rules for the [unzip] helpers of an [IterE] used in binder position
    (a clause/rule head pattern): one helper per co-iterated variable, recursing
@@ -635,7 +635,7 @@ let iter_collect_sym (inner : prem) (iter : iter) (n_bound : int) (b : string) :
   iter_helper_sym "$itercollect"
     (Print.string_of_prem inner)
     iter
-    [ string_of_int n_bound; sanitize b ]
+    [ string_of_int n_bound; R.sanitize b ]
 
 (* When the iterated premise is a single relation call whose outputs are exactly
    the collected variables, the iteration is a plain "map" carrying the call
@@ -652,7 +652,7 @@ let iter_proj_sym (inner : prem) (iter : iter) (n_bound : int) (b : string) :
   iter_helper_sym "$iterproj"
     (Print.string_of_prem inner)
     iter
-    [ string_of_int n_bound; sanitize b ]
+    [ string_of_int n_bound; R.sanitize b ]
 
 (* [Some (call, out_vars)] when [inner] is a single relation call whose output
    positions are exactly the collected [binding_ids] as bare variables.

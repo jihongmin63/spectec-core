@@ -25,70 +25,9 @@ type scalar_theory = Structural | Native
 (* Symbol + builder layer. Raw [R.App]/[R.Var] construction is confined to this
    module; everything above builds terms through these helpers. *)
 
-(* A readable token for a non-alphanumeric character so symbolic notations keep
-   distinct, legible names (e.g. [`+`] -> "plus", not the empty string). A prime
-   ['] is kept as "prime" because it distinguishes sibling definitions ([f] vs
-   [f'] vs [f'']) that would otherwise collide on the same symbol; backticks,
-   double quotes and whitespace are dropped; truly unknown symbols become "sym". *)
-let mnemonic_of_char (c : char) : string =
-  match c with
-  | '+' -> "plus"
-  | '-' -> "minus"
-  | '*' -> "star"
-  | '/' -> "slash"
-  | '\\' -> "backslash"
-  | '<' -> "lt"
-  | '>' -> "gt"
-  | '=' -> "eq"
-  | '!' -> "bang"
-  | '?' -> "quest"
-  | '&' -> "amp"
-  | '|' -> "bar"
-  | '^' -> "caret"
-  | '~' -> "tilde"
-  | '%' -> "percent"
-  | '.' -> "dot"
-  | ',' -> "comma"
-  | ';' -> "semi"
-  | ':' -> "colon"
-  | '#' -> "hash"
-  | '$' -> "dollar"
-  | '@' -> "at"
-  | '(' -> "lparen"
-  | ')' -> "rparen"
-  | '[' -> "lbrack"
-  | ']' -> "rbrack"
-  | '{' -> "lbrace"
-  | '}' -> "rbrace"
-  | '\'' -> "prime"
-  | '`' | '"' | ' ' | '_' -> ""
-  | _ -> "sym"
-
-(* Scrub a string into a CTRS-safe identifier: maximal [A-Za-z0-9] runs are kept,
-   every other character is replaced by a mnemonic token, tokens are joined with
-   [_], an alphabetic lead is guaranteed, and the result is never empty. Distinct
-   inputs may still collide (a known first-cut limitation). *)
-let sanitize (s : string) : string =
-  let is_alnum c =
-    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-  in
-  (* Accumulate completed tokens (reversed) plus the current alphanumeric run;
-     [run] is committed to [tokens] whenever a non-alphanumeric breaks it. *)
-  let commit run tokens = if run = "" then tokens else run :: tokens in
-  let tokens, run =
-    String.fold_left
-      (fun (tokens, run) c ->
-        if is_alnum c then (tokens, run ^ String.make 1 c)
-        else
-          match mnemonic_of_char c with
-          | "" -> (commit run tokens, "")
-          | m -> (m :: commit run tokens, ""))
-      ([], "") s
-  in
-  let r = String.concat "_" (List.rev (commit run tokens)) in
-  if r = "" then "anon"
-  else if r.[0] >= '0' && r.[0] <= '9' then "c_" ^ r
-  else r
+(* The CTRS-safe identifier scrub ({!Rewrite_system.sanitize}) lives at the data
+   model so the Maude surfaces can share it; the symbol-naming conventions below
+   build on it. *)
 
 (* Bound the length of a sanitized descriptor. The iteration and structural-
    subtype helpers fold a pretty-printed body/premise/type into their symbol to
@@ -104,7 +43,8 @@ let abbrev (s : string) : string =
     let h = String.sub (Digest.to_hex (Digest.string s)) 0 8 in
     String.sub s 0 keep ^ "_" ^ h
 
-let sanitize_atom (a : Mixfix.atom) : string = sanitize (Xl.Atom.to_string a.it)
+let sanitize_atom (a : Mixfix.atom) : string =
+  R.sanitize (Xl.Atom.to_string a.it)
 
 (* A mixop reduced to its atom spelling, e.g. the notation [`NUM %] -> "NUM". *)
 let sanitize_mixop (mixop : mixop) : string =
@@ -112,7 +52,7 @@ let sanitize_mixop (mixop : mixop) : string =
   let s =
     String.concat "_" (List.map (fun a -> Xl.Atom.to_string a.it) atoms)
   in
-  sanitize s
+  R.sanitize s
 
 (* Symbol conventions -- must agree between the rule that defines a symbol and
    the rule that uses it. *)
@@ -122,24 +62,24 @@ let sanitize_mixop (mixop : mixop) : string =
    CTRS function symbol must have a fixed arity. The arity is recoverable from
    the mixop at every site (notexp args, typcase nottyp, and [CaseP] pattern). *)
 let variant_sym (origin : string) (mixop : mixop) : string =
-  Printf.sprintf "variant_%s_%s_%d" (sanitize origin) (sanitize_mixop mixop)
+  Printf.sprintf "variant_%s_%s_%d" (R.sanitize origin) (sanitize_mixop mixop)
     (Mixfix.arity mixop)
 
 let match_sym (typ_name : string) (mixop : mixop) : string =
-  Printf.sprintf "match_%s_%s_%d" (sanitize typ_name) (sanitize_mixop mixop)
+  Printf.sprintf "match_%s_%s_%d" (R.sanitize typ_name) (sanitize_mixop mixop)
     (Mixfix.arity mixop)
 
-let struct_sym (typ_name : string) : string = "struct_" ^ sanitize typ_name
+let struct_sym (typ_name : string) : string = "struct_" ^ R.sanitize typ_name
 
 let field_sym (typ_name : string) (a : Mixfix.atom) : string =
-  "field_" ^ sanitize typ_name ^ "_" ^ sanitize_atom a
+  "field_" ^ R.sanitize typ_name ^ "_" ^ sanitize_atom a
 
 let upd_field_sym (typ_name : string) (a : Mixfix.atom) : string =
-  "upd_field_" ^ sanitize typ_name ^ "_" ^ sanitize_atom a
+  "upd_field_" ^ R.sanitize typ_name ^ "_" ^ sanitize_atom a
 
-let subty_sym (typ_name : string) : string = "subty_" ^ sanitize typ_name
-let func_sym (id : id) : string = "$" ^ sanitize id.it
-let rel_sym (id : id) : string = sanitize id.it
+let subty_sym (typ_name : string) : string = "subty_" ^ R.sanitize typ_name
+let func_sym (id : id) : string = "$" ^ R.sanitize id.it
+let rel_sym (id : id) : string = R.sanitize id.it
 
 (* Smart constructors. *)
 let var_t (name : string) : R.term = R.Var name
