@@ -21,6 +21,10 @@ let native_replaced_heads : string list =
     "mul";
     "div";
     "mod";
+    (* boolean-dispatch auxiliaries for div/mod: analysis-surface only, no Native
+       delegation (unreferenced once [div]/[mod] delegate to built-in quo/rem). *)
+    "div_aux";
+    "mod_aux";
     "pow";
     "leq";
     "lt";
@@ -35,6 +39,8 @@ let native_replaced_heads : string list =
     "mul_int";
     "div_int";
     "mod_int";
+    "div_int_aux";
+    "mod_int_aux";
     "pow_int";
     "leq_int";
     "lt_int";
@@ -109,13 +115,24 @@ let rules ~scalars : R.rule list =
       rule (lt_t x zero_t) no;
       rule (lt_t zero_t (succ_t y)) yes;
       rule (lt_t (succ_t x) (succ_t y)) (lt_t x y);
-      (* naturals: pow / div / mod (div by zero diverges -- partial) *)
+      (* naturals: pow / div / mod (div by zero diverges -- partial).
+         div/mod dispatch through a boolean auxiliary ([div_aux]/[mod_aux])
+         rather than two [lt x y]/[leq y x]-guarded clauses: the base and
+         recursive clauses then differ in a disjoint [yes]/[no] head pattern, so
+         they DO NOT overlap and raise no critical pair. (The two complementary
+         guards are the SAME predicate up to negation, but the analysis CRC
+         cannot see [lt x y] and [leq y x] as mutually exclusive, so the direct
+         form is spuriously non-joinable -- MAYBE. These heads are
+         [native_replaced_heads], so the auxiliaries live only on the analysis
+         surface; Native delegates [div]/[mod] to built-in [quo]/[rem].) *)
       rule (pow_t x zero_t) (succ_t zero_t);
       rule (pow_t x (succ_t y)) (mul_t x (pow_t x y));
-      rule_cond (div_t x y) zero_t [ (lt_t x y, yes) ];
-      rule_cond (div_t x y) (succ_t (div_t (sub_t x y) y)) [ (leq_t y x, yes) ];
-      rule_cond (mod_t x y) x [ (lt_t x y, yes) ];
-      rule_cond (mod_t x y) (mod_t (sub_t x y) y) [ (leq_t y x, yes) ];
+      rule (div_t x y) (app_t "div_aux" [ lt_t x y; x; y ]);
+      rule (app_t "div_aux" [ yes; x; y ]) zero_t;
+      rule (app_t "div_aux" [ no; x; y ]) (succ_t (div_t (sub_t x y) y));
+      rule (mod_t x y) (app_t "mod_aux" [ lt_t x y; x; y ]);
+      rule (app_t "mod_aux" [ yes; x; y ]) x;
+      rule (app_t "mod_aux" [ no; x; y ]) (mod_t (sub_t x y) y);
       (* integer helpers: negate / magnitude / sign / projection, and the signed
          difference of two nats ([sub_int_nat m n] = m - n as an int). All
          structural over [int_pos]/[int_neg], so they stay canonical. *)
@@ -167,18 +184,28 @@ let rules ~scalars : R.rule list =
       rule
         (pow_int_t x (int_pos_t (succ_t y)))
         (mul_int_t x (pow_int_t x (int_pos_t y)));
-      rule_cond (div_int_t x y)
-        (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y)))
-        [ (eq_t (nonneg_int_t x) (nonneg_int_t y), yes) ];
-      rule_cond (div_int_t x y)
-        (negate_int_t (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y))))
-        [ (eq_t (nonneg_int_t x) (nonneg_int_t y), no) ];
-      rule_cond (mod_int_t x y)
-        (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y)))
-        [ (nonneg_int_t x, yes) ];
-      rule_cond (mod_int_t x y)
-        (negate_int_t (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y))))
-        [ (nonneg_int_t x, no) ];
+      (* The signed div/mod also dispatch through a boolean auxiliary (the
+         quotient's sign is [equiv(nonneg x, nonneg y)] -- "same sign", computed
+         with the boolean [equiv] rather than structural [eq] so the slice does
+         not drag in equality over every spec constructor; the remainder takes
+         the dividend's sign [nonneg x]) so the two sign cases differ in a
+         disjoint [yes]/[no] head pattern and raise no spurious critical pair. *)
+      rule (div_int_t x y)
+        (app_t "div_int_aux"
+           [ equiv_t (nonneg_int_t x) (nonneg_int_t y); x; y ]);
+      rule
+        (app_t "div_int_aux" [ yes; x; y ])
+        (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y)));
+      rule
+        (app_t "div_int_aux" [ no; x; y ])
+        (negate_int_t (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y))));
+      rule (mod_int_t x y) (app_t "mod_int_aux" [ nonneg_int_t x; x; y ]);
+      rule
+        (app_t "mod_int_aux" [ yes; x; y ])
+        (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y)));
+      rule
+        (app_t "mod_int_aux" [ no; x; y ])
+        (negate_int_t (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y))));
       (* lists *)
       rule (len_t nil_t) zero_t;
       rule (len_t (cons_t x xs)) (succ_t (len_t xs));
