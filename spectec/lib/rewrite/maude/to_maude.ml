@@ -98,7 +98,7 @@ let print_cond vs rels defined bound ((l, r) : R.cond) : string * string list =
   let fresh_of t =
     List.filter (fun v -> not (List.mem v bound)) (vars_of_term t)
   in
-  let pl = print_term vs l and pr = print_term vs r in
+  let pl = print_term Native vs l and pr = print_term Native vs r in
   (* A matching condition [pat := subj] binding [vars]: it succeeds whenever
      [subj] is structurally of [pat]'s sort -- even when a defined head in [subj]
      got stuck (no rule applied), since a stuck application still inhabits its
@@ -176,7 +176,8 @@ let print_conds vs rels defined (lhs_vars : string list) (conds : R.cond list) :
 (* Rule printing. *)
 
 let print_rule vs rels defined (is_rel : bool) (r : R.rule) : string =
-  let lhs = print_term vs r.R.lhs and rhs = print_term vs r.R.rhs in
+  let lhs = print_term Native vs r.R.lhs
+  and rhs = print_term Native vs r.R.rhs in
   let arrow = if is_rel then " => " else " = " in
   let kw =
     if is_rel then if r.R.conds = [] then "rl" else "crl"
@@ -788,7 +789,7 @@ let text_cat_eqs () : string list =
    they have no rules in the system, so op declaration, stuck detection and
    the bare-variable match guards must count them explicitly. *)
 let native_delegated (sys : R.t) : (string * int) list =
-  let used = symbol_arities sys.R.rules in
+  let used = symbol_arities Native sys.R.rules in
   let rec close acc sym =
     if List.mem_assoc sym acc then acc
     else
@@ -825,7 +826,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
      operators (rule-less, see [native_delegated]), the wrapper constructors
      (a start term needs them even when the spec's own rules do not), plus all
      IL constructors (so encoders can build start terms). *)
-  let used = symbol_arities sys.R.rules in
+  let used = symbol_arities Native sys.R.rules in
   let delegated = native_delegated sys in
   let wrapper_arities =
     [

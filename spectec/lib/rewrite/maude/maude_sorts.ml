@@ -138,10 +138,11 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("none", ([], "Opt"));
     ("some", ([ val_sort ], "Opt"));
     ("sub_nat", ([ val_sort ], "BoolV"));
-    ("match_some", ([ val_sort ], "BoolV"));
-    ("match_none", ([ val_sort ], "BoolV"));
-    ("match_cons", ([ val_sort ], "BoolV"));
-    ("match_nil", ([ val_sort ], "BoolV"));
+    (* the list/option matchers decide a [BoolV] over a spine of their own sort *)
+    ("match_some", ([ "Opt" ], "BoolV"));
+    ("match_none", ([ "Opt" ], "BoolV"));
+    ("match_cons", ([ "List" ], "BoolV"));
+    ("match_nil", ([ "List" ], "BoolV"));
     ("eq", ([ val_sort; val_sort ], "BoolV"));
   ]
 
@@ -197,6 +198,11 @@ let recover (scalars : scalar_theory) (orig : spec)
               let field_typs = Mixfix.args nottyp.it in
               let args = List.map (fun ft -> sort_of ft.it) field_typs in
               add (T.variant_sym origin mixop) (args, sort_of_name origin);
+              (* the matcher for this case tests a value of the containing type
+                 [tid]: at every use site the subject has been narrowed to [tid]
+                 (a cast/match precedes it), so a [tid]-sorted argument is safe
+                 and drops the needless [Val]. *)
+              add (T.match_sym tid.it mixop) ([ sort_of_name tid.it ], "BoolV");
               (* an injected case ([origin <> tid]) makes [origin] a subsort *)
               if origin <> tid.it then
                 subsorts :=
@@ -238,9 +244,14 @@ let recover (scalars : scalar_theory) (orig : spec)
   (tbl, !subsorts)
 
 (* The signature of [sym] at [arity]: the recovered/prelude one when its arity
-   agrees, otherwise a heuristic for the per-type predicates/accessors the CTRS
-   derives ([match_<T>_*]/[subty_<T>] decide [Bool]; [field_<T>_*] reads a
-   [Val]; [chr_<n>] is a nullary char), and finally an all-[Val] fallback. *)
+   agrees, otherwise a heuristic for the per-type predicates the CTRS derives
+   ([match_<T>_*]/[subty_<T>] decide [BoolV] over a bare-[Val] subject --
+   [subty_<T>] is totalized over [Val], and a generic matcher may see any
+   value), and finally an all-[Val] fallback. (The iteration helpers
+   [$itermap]/[$unzip]/[$iterall]/[$itercollect] are intentionally left at [Val]:
+   their arg/result sorts vary -- [$iterall] returns a [BoolV], [$itercollect]'s
+   spine sort depends on the body -- so a blanket [List] typing was ill-formed
+   and stuck tuple/sequence programs.) *)
 let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
   match Hashtbl.find_opt tbl sym with
   | Some (args, res) when List.length args = arity -> (args, res)
@@ -332,18 +343,27 @@ let infer_var_sorts edges (sg : string -> int -> string list * string)
 (* -------------------------------------------------------------------------- *)
 (* Term printing with on-the-fly variable sorts. *)
 
+(* A nullary symbol that Maude parses as a built-in literal to print verbatim (a
+   numeral, quoted string, or [true]/[false]) rather than declare + mangle. Only
+   in the [Native] theory: [Structural] has no built-ins, so its [true]/[false]
+   are ordinary declared constructors and every numeral is a Peano tower. *)
+let is_literal (scalars : scalar_theory) (s : string) : bool =
+  match scalars with
+  | Native -> Maude_theory.is_literal_sym s
+  | Structural -> false
+
 let sort_of_var (vs : (string, string) Hashtbl.t) (v : string) : string =
   Option.value (Hashtbl.find_opt vs v) ~default:val_sort
 
-let rec print_term vs (t : R.term) : string =
+let rec print_term scalars vs (t : R.term) : string =
   match t with
   | R.Var v -> R.maude_var v ^ ":" ^ sort_of_var vs v
-  (* a built-in literal (numeral / quoted string): verbatim, never mangled *)
-  | R.App (f, []) when Maude_theory.is_literal_sym f -> f
+  (* a built-in literal (numeral / quoted string / bool): verbatim, never mangled *)
+  | R.App (f, []) when is_literal scalars f -> f
   | R.App (f, []) -> R.maude_id f
   | R.App (f, args) ->
       R.maude_id f ^ "("
-      ^ String.concat ", " (List.map (print_term vs) args)
+      ^ String.concat ", " (List.map (print_term scalars vs) args)
       ^ ")"
 
 (* -------------------------------------------------------------------------- *)
@@ -375,12 +395,12 @@ let il_constructor_syms (orig : spec) : string list =
    spans 2-tuples, 3-tuples, …) yields one pair per arity, so each gets its own
    Maude [op] declaration; collapsing them to one arity would leave the others
    unparseable ("didn't expect token ,"). *)
-let symbol_arities (rules : R.rule list) : (string * int) list =
+let symbol_arities scalars (rules : R.rule list) : (string * int) list =
   let acc = Hashtbl.create 256 in
   let rec walk = function
     | R.Var _ -> ()
     | R.App (f, args) ->
-        if not (Maude_theory.is_literal_sym f) then
+        if not (is_literal scalars f) then
           Hashtbl.replace acc (f, List.length args) ();
         List.iter walk args
   in
