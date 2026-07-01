@@ -60,22 +60,51 @@ crashing.
   Completeness Checker 2b"); Maude++ is NOT required just to load + run CRC/ChC.
 - Both are gitignored (own licenses, sizable) — see the repo `.gitignore`.
 
-## MTT (Maude Termination Tool) — bundled, but not runnable here
+## MTT (Maude Termination Tool) — runnable via the Maude 2.7.1 hook stack
 
-MTT is **already bundled** in the MFE (`src/MTT/`: `mtt.maude`,
-`MTT-transformations.1.5l.maude`, `termcheck.maude`); there is no separate
-download (the old `lcc.uma.es/~duran/MTT` page no longer serves a distribution).
-It is **not runnable in this setup**, because it needs both:
-1. **Maude++** — the `writeToFile`/`termCheck` reflective hooks MTT calls
-   (`ceta-hook`/`mtt-hook` in `src/mfe.maude`); stock Maude 3.5.1 lacks them, and
-2. an **external WST-format termination prover** named in an `mfe.config`
-   (absent), e.g. AProVE / mu-term.
+The MTT bundled in *this* (3.5.1) MFE does not run: its `termCheck`/`writeToFile`
+hooks need **Maude++**, and its `MTT-transformations.1.5l.maude` is Maude-2.x
+syntax that stock Maude 3.5.1 rejects (unpatchable `TPDB-SIGN` errors). BUT the
+whole termination path **does run** on the matching Maude-2.7.1-era stack, which
+is obtainable and wired here (all gitignored, under `spectec/tools/`):
 
-Consequence for the gate: the **CRC reports local confluence + sort-decreasingness**
-(`All critical pairs have been joined.` / `The specification is locally-confluent.`),
-not full Church-Rosser — full Church-Rosser additionally needs the termination
-proof MTT would discharge. For our confluence gate, local confluence is the
-practical positive verdict (the CTRS is assumed terminating).
+1. **`tools/maude271-hooks/maude`** — Maude 2.7.1 *with external hooks* (the
+   `v2.7.1-ext-hooks` release of `maude-team/maude`, asset
+   `maude-2.7.1-hooks-linux.tar.gz`). Binds the `TerminationCheckerSymbol`
+   special ops (`termCheck`/`writeToFile`) that stock Maude leaves inert. Its
+   dir is exported as `MAUDE_LIB` (and holds `mfe.config`).
+2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the *old* MFE (`maude-team/MFE` tag
+   `mfe-2.7.1`). Bundles old Full Maude (`src/FM/full-maude27*.maude`, giving
+   `FULL-MAUDE-SIGN`, which the MTT transformations parse against) + **MTT 1.5j**.
+   Boots under the hook binary; banner lists `Maude Termination Tool 1.5j`.
+3. **`tools/aprove/aprove.jar`** — WST backend (`aprove-developers/aprove-releases`);
+   `tools/aprove/runme` runs `java -jar aprove.jar -u cli -t $2 -p plain -m wst $1`
+   and `tools/maude271-hooks/mfe.config` = `aprove <abs>/tools/aprove/runme .trs`.
+4. **`tools/z3/z3`** — the SMT backend AProVE actually uses (its default
+   `SmtSolver = "z3"`; official download page lists Z3 ≥ 4.4.0, no license gate:
+   `Z3Prover/z3` release asset `z3-*-x64-glibc-*.zip`). `runme` puts it on PATH.
+   The WST strategy *also* has legacy `Engine = YICES` processors, but with no
+   `yices` on PATH those **abort gracefully** (`Aborted Exec, QTRSRRR with some
+   error`) and AProVE proceeds with Z3-based dependency-pair proofs — so
+   **yices 1.x is NOT required** (AProVE's own docs call it "an outdated
+   dependency [we] will update in the future"). yices/minisat2 would only be a
+   faster path for arithmetic-heavy slices (SAT falls back to internal SAT4J).
+
+Run one slice with `tools/mfe/run-termination.sh <symbol>`: it dumps the
+analysis slice (`rewrite --ctrs --symbol`), rewrites the header to an old
+Full-Maude functional module (`set include BOOL[-OPS] off .` as commands,
+`mod`→`fmod`), then feeds `(select tool MTT .) (select external tool aprove .)`
+`(select path C;A .)` for conditional slices `(ct SPEC .)`. MTT transforms the
+(order-sorted, conditional) module to a TPDB CTRS — adding `isTerm`/`isThruth`
+sort guards — and `termCheck` shells out to AProVE per the `mfe.config` (its
+hardcoded per-call timeout was bumped 30→120 s in `mtt.maude`). Verified
+end-to-end via Z3: `FOO`, `$empty_map`, `$is_lpm_key_prime` → termination `YES`;
+arithmetic-heavy slices (`$un_op` — its transform drags in the whole int prelude)
+are slower and may return MAYBE/TIMEOUT without the yices KBO fast-path.
+
+So the gate can pair **CRC local confluence** with an **MTT/AProVE(Z3) termination
+proof** for full Church-Rosser. Standalone, the CRC still stands alone as local
+confluence + sort-decreasingness (the CTRS assumed terminating).
 
 ## Calibration (observed against the real MFE)
 

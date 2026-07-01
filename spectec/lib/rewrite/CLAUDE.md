@@ -223,14 +223,25 @@ and [tools/mfe/README.md](../../tools/mfe/README.md)):
   under stock Maude 3.5.1 (CRC 3t / ChC 3t / SCC 2b) — Maude++ is not needed just
   to load + run CRC/ChC.
 
-**MTT (Maude Termination Tool)** is **bundled** in the MFE (`src/MTT/`), not a
-separate download (the old `lcc.uma.es/~duran/MTT` page is dead). It is **not
-runnable here**: it needs Maude++ (`writeToFile`/`termCheck` hooks, absent in stock
-Maude) AND an external WST-format termination prover named in an `mfe.config`
-(absent). So the **CRC yields local confluence + sort-decreasingness**, not full
-Church-Rosser (which needs the termination proof MTT would discharge); for the
-gate, local confluence is the practical positive verdict (the CTRS is assumed
-terminating).
+**MTT (Maude Termination Tool)** does not run in *this* (3.5.1) MFE — its
+`termCheck`/`writeToFile` hooks need Maude++, and its transformations are Maude-2.x
+syntax 3.5.1 rejects. But the termination path **does run on the matching
+Maude-2.7.1 stack**, which is wired here (all gitignored under `spectec/tools/`,
+full setup in [tools/mfe/README.md](../../tools/mfe/README.md)):
+`tools/maude271-hooks/maude` (v2.7.1-ext-hooks, binds the hooks) + `tools/mfe271/`
+(old MFE, bundles **MTT 1.5j** + old Full Maude) + `tools/aprove/aprove.jar` +
+`tools/z3/z3`. Run one slice with `tools/mfe/run-termination.sh <symbol>`: it
+dumps `rewrite --ctrs --symbol`, rewrites the header to an old Full-Maude `fmod`,
+and drives `(select tool MTT .) (select external tool aprove .)` `(ct SPEC .)`;
+MTT transforms the (order-sorted conditional) module to a TPDB CTRS and shells out
+to AProVE per `mfe.config`. **Backend = Z3** (AProVE's default `SmtSolver=z3`); the
+WST strategy's legacy yices-1.x calls abort gracefully, so the license-gated yices
+is **not needed** (only slower for arithmetic-heavy slices). Verified: `FOO` and
+the `$empty_map`/`$is_lpm_key_prime` slices → termination `YES`.
+
+So the gate can pair **CRC local confluence** with an **MTT/AProVE(Z3) termination
+proof** for full Church-Rosser. Standalone, the CRC yields local confluence +
+sort-decreasingness (the CTRS assumed terminating).
 
 **Protocol (calibrated; `mfe.ml` now encodes this — the old constants were
 wrong guesses):**
@@ -260,7 +271,23 @@ slices are the practical path** (`$lookup` → YES/YES ~1.4s). See
 slices). impty/base: `$lookup`/`Check_*`/`Eval_*` = YES/YES, `Eval_prog` = CRC
 MAYBE, `Run_prog` = TIMEOUT. p4 (159 slices ≤200 rules): 104 YES, **33 MAYBE**,
 13 TIMEOUT, 9 degenerate (no rules); the 415 >200-rule symbols are
-whole-system-ish → TIMEOUT. ChC is YES throughout (no `rl`/`crl`: every relation
+whole-system-ish → TIMEOUT.
+
+**Full 574-symbol p4 sweep + triage tool** (see [todo.md](todo.md) "전체 p4
+sweep"): the whole `verify --list-symbols` set is swept ascending by slice size
+(`--timeout 120`, background; live `spectec/mfe_sweep.log`/`.tsv` symlinks).
+[`triage_mfe.py`](../../triage_mfe.py) pulls the CRC=MAYBE / ChC=NO rows and links
+each back to its IL declaration (`file:line`), and **re-concretizes
+defunctionalization templates** (the 7 higher-order/generic `$find_overloaded<V>`-
+class symbols show as size-0 NOVERDICT because Defunctionalize *copies* their rules
+into per-instantiation `-of-<type>` names; the tool expands each to its concrete
+CTRS ops and resolves each def-arg getter to source). The 9 degenerate (no-rule)
+symbols are all rule-less by design, in three classes: 7 higher-order/generic
+templates (rules copied to specialized names, checked in caller slices), 1 target
+hook (`$init_objectState`, `dec` with no `def`), 1 extern relation stub
+(`ExternFunctionCall_eval_lctk`, no `rule`).
+
+ChC is YES throughout (no `rl`/`crl`: every relation
 is input-moded → equations, so coherence is vacuous). The MAYBE non-confluence
 has two analysis-surface causes (both approximations, not translation bugs — the
 executable surface handles them with `:=`/`=>` and owise complements):

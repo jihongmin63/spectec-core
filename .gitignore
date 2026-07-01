@@ -16,3 +16,15 @@ spectec/tools/mfe/src/
 spectec/tools/mfe/examples/
 spectec/tools/mfe/license.txt
 spectec/tools/mfe/readme.md
+# Termination backend (obtained on demand; see spectec/tools/mfe/README.md):
+# the hook-enabled Maude 2.7.1 + old MFE 2.7.1 (bundles MTT 1.5j), the AProVE
+# jar + its runner, and the maude/MTT scratch files they write.
+spectec/tools/maude271-hooks/
+spectec/tools/mfe271/
+spectec/tools/aprove/
+spectec/tools/yices/
+spectec/tools/yices1/
+spectec/tools/z3/
+spectec/log.txt
+spectec/term_sweep.tsv
+spectec/.hook-check
