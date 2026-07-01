@@ -1,11 +1,11 @@
 (** Submit a {!Rewrite_system.t} to the Maude Formal Environment (MFE) and
     report its Church-Rosser (CRC) and coherence (ChC) verdicts.
 
-    [check] renders the system as a single-sort Full Maude *system* module
-    ({!Rewrite_system.string_of_system_maude}) -- the equational fragment as
-    [eq]/[ceq], the [rule_heads] relations as [rl]/[crl] -- loads the MFE into a
-    local Maude binary, and runs the Church-Rosser and coherence checks in one
-    invocation. CRC decides whether the equations are confluent (so [reduce] is
+    [check] renders the system as an order-sorted Full Maude *system* module
+    ({!To_mfe.module_of_system}) -- the equational fragment as [eq]/[ceq], the
+    [rule_heads] relations as [rl]/[crl] -- loads the MFE into a local Maude
+    binary, and runs the Church-Rosser and coherence checks in one invocation.
+    CRC decides whether the equations are confluent (so [reduce] is
     well-defined); ChC whether the rules are coherent with them (so search is
     complete modulo the equations). See [tools/mfe/README.md].
 
@@ -17,7 +17,8 @@ type result = { church_rosser : verdict; coherence : verdict }
 
 val string_of_verdict : verdict -> string
 
-(** [check ?timeout ?maude_bin ?mfe_dir ~rule_heads system].
+(** [check ?timeout ?maude_bin ?mfe_dir ~rule_heads orig system]. [orig] is the
+    elaborated IL spec, from which {!To_mfe} recovers each operator's sort.
 
     [rule_heads] are the CTRS symbols emitted as Maude rules ([rl]) rather than
     equations -- the non-input-moded relations (the complement of
@@ -32,5 +33,6 @@ val check :
   ?maude_bin:string ->
   ?mfe_dir:string ->
   rule_heads:string list ->
+  Lang.Il.spec ->
   Rewrite_system.t ->
   result

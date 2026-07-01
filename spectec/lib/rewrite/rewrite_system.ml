@@ -1,9 +1,10 @@
 (** Conditional term-rewriting system (CTRS) representation produced from an
     elaborated + simplified IL spec.
 
-    Only the representation and the term printer live here; the IL -> CTRS
-    translation is in {!To_ctrs}, and the textual surface that feeds the Maude
-    Formal Environment (CRC/ChC) is {!string_of_system_maude} below. *)
+    Only the representation, the diagnostic printer, and the shared Maude
+    lexical layer live here; the IL -> CTRS translation is in {!To_ctrs}, and
+    the order-sorted Maude module surfaces are {!To_maude} (execution) and
+    {!To_mfe} (analysis, for the Maude Formal Environment). *)
 
 (* A CTRS term: either a variable, or a function symbol applied to zero or more
    argument terms. A nullary application prints as a bare [id]. *)
@@ -14,8 +15,8 @@ type cond = term * term
 
 (* A (possibly conditional) rewrite rule [lhs -> rhs | conds]. [owise] marks a
    clause that applied "otherwise" (SpecTec [ElsePr]): it fires only when no
-   earlier sibling did. {!string_of_system_maude} renders it as Maude's [owise]
-   equation attribute. *)
+   earlier sibling did. The Maude surfaces ({!To_maude}/{!To_mfe}) render it as
+   Maude's [owise] equation attribute. *)
 type rule = { lhs : term; rhs : term; conds : cond list; owise : bool }
 
 type t = {
@@ -31,10 +32,9 @@ type t = {
 
    Scrubbing an arbitrary string into a CTRS-safe identifier lives here at the
    data model, not in the symbol-naming layer, because BOTH that layer
-   ({!Ctrs_term}, which builds every rule's symbols) and the Maude surfaces (the
-   analysis {!string_of_system_maude} below and the executable {!To_maude}) must
-   agree on the exact spelling -- so the one definition sits at the layer all of
-   them can reach. *)
+   ({!Ctrs_term}, which builds every rule's symbols) and the Maude surfaces
+   ({!To_mfe} analysis and {!To_maude} execution) must agree on the exact
+   spelling -- so the one definition sits at the layer all of them can reach. *)
 
 (* A readable token for a non-alphanumeric character so symbolic notations keep
    distinct, legible names (e.g. [`+`] -> "plus", not the empty string). A prime
@@ -108,8 +108,8 @@ let rec string_of_term = function
       id ^ "(" ^ String.concat ", " (List.map string_of_term terms) ^ ")"
 
 (* A single rule for debug/error messages: [lhs -> rhs], any conditions appended
-   as [ | s == t, ...]. Not a surface a tool parses -- the executable surface is
-   {!string_of_system_maude}; this is only for human-readable diagnostics. *)
+   as [ | s == t, ...]. Not a surface a tool parses -- the Maude surfaces are
+   {!To_maude}/{!To_mfe}; this is only for human-readable diagnostics. *)
 let string_of_rule { lhs; rhs; conds; _ } =
   let head = string_of_term lhs ^ " -> " ^ string_of_term rhs in
   match conds with
@@ -370,19 +370,11 @@ let drop_owise (t : t) : t =
   { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
 
 (* -------------------------------------------------------------------------- *)
-(* Maude system-module surface, for the Maude Formal Environment (CRC + ChC).
-
-   The textual surface of a CTRS: a single-sort Full Maude *system* module. The
-   equational fragment prints as [eq]/[ceq]; the symbols in [rule_heads] (the
-   non-input-moded relations -- genuinely non-deterministic, run via search)
-   print as [rl]/[crl]. The split lets the Church-Rosser Checker decide the
-   equations' confluence and the Coherence Checker the rules' coherence with
-   them. Everything sits in one sort [Term]: the CTRS carries no sorts, so each
-   operator is declared from its arity alone (an over-approximation -- ill-sorted
-   overlaps may surface as spurious critical pairs). The wrapping [(mod ... endm)]
-   parens are Full Maude's module-entry syntax. *)
-
-(* Maude lexical layer, shared with the executable surface ({!To_maude}). *)
+(* Maude lexical layer, shared by both Maude surfaces ({!To_maude} execution and
+   {!To_mfe} analysis) so operator and variable identifiers get a single
+   spelling. The order-sorted module emission itself lives in the [maude/]
+   backends (which read the IL spec to recover sorts); this low layer owns only
+   the lexical scrub. *)
 
 (* A CTRS id ([A-Za-z0-9_$]+) to a Maude-safe id: [_] is a mixfix placeholder in
    Maude, so map it to [-] (injective, since CTRS ids never contain [-]). *)
@@ -404,104 +396,3 @@ let maude_var (v : string) : string =
       v
   in
   maude_id (if plain then v else sanitize v)
-
-(* A CTRS term in Maude's single-sort surface syntax: variables scrubbed to
-   valid Maude identifiers, application heads mangled, no on-the-fly sorts (the
-   module declares one global [vars ... : Term]). Distinct from {!string_of_term}
-   (the raw human-readable diagnostic printer). *)
-let rec string_of_term_maude = function
-  | Var id -> maude_var id
-  | App (id, []) -> maude_id id
-  | App (id, terms) ->
-      maude_id id ^ "("
-      ^ String.concat ", " (List.map string_of_term_maude terms)
-      ^ ")"
-
-(* Every (symbol, arity) pair applied in a term. *)
-let rec ops_of_term acc = function
-  | Var _ -> acc
-  | App (sym, ts) ->
-      List.fold_left ops_of_term ((sym, List.length ts) :: acc) ts
-
-(* Every (symbol, arity) the system applies, first occurrence kept. A symbol's
-   arity is fixed (the naming convention folds arity into variant/case symbols),
-   so each symbol appears with a single arity. *)
-let ops_of_system (t : t) : (string * int) list =
-  let acc =
-    List.fold_left
-      (fun acc r ->
-        let acc = ops_of_term (ops_of_term acc r.lhs) r.rhs in
-        List.fold_left
-          (fun acc (a, b) -> ops_of_term (ops_of_term acc a) b)
-          acc r.conds)
-      [] t.rules
-  in
-  let seen = Hashtbl.create 64 in
-  List.filter
-    (fun p ->
-      if Hashtbl.mem seen p then false
-      else (
-        Hashtbl.add seen p ();
-        true))
-    (List.rev acc)
-
-(* A Maude conditional fragment [t1 = t2 /\ t3 = t4] from COPS join conditions
-   ([s == t] becomes the equational condition [s = t]). *)
-let string_of_conds_maude conds =
-  String.concat " /\\ "
-    (List.map
-       (fun (a, b) -> string_of_term_maude a ^ " = " ^ string_of_term_maude b)
-       conds)
-
-let string_of_system_maude ?(module_name = "SPEC") ~(rule_heads : string list)
-    (t : t) : string =
-  let buf = Buffer.create 512 in
-  let add = Buffer.add_string buf in
-  (* The single sort [Term] declares its own [not]/[and]/[true]/[false], which
-     would clash with Maude's built-in [BOOL] ("Ambiguous parsing"); turning the
-     implicit import off lets the module's own boolean operators stand. *)
-  add "set include BOOL off .\n\n";
-  add ("(mod " ^ module_name ^ " is\n");
-  add "  sort Term .\n";
-  List.iter
-    (fun (sym, arity) ->
-      let sym = maude_id sym in
-      if arity = 0 then add (Printf.sprintf "  op %s : -> Term .\n" sym)
-      else
-        let dom = String.concat " " (List.init arity (fun _ -> "Term")) in
-        add (Printf.sprintf "  op %s : %s -> Term .\n" sym dom))
-    (ops_of_system t);
-  (match t.vars with
-  | [] -> ()
-  | vs ->
-      add
-        (Printf.sprintf "  vars %s : Term .\n"
-           (String.concat " " (List.map maude_var vs))));
-  let is_rule r =
-    match defined_head r with Some h -> List.mem h rule_heads | None -> false
-  in
-  List.iter
-    (fun r ->
-      let lhs = string_of_term_maude r.lhs
-      and rhs = string_of_term_maude r.rhs in
-      if is_rule r then
-        match r.conds with
-        | [] -> add (Printf.sprintf "  rl %s => %s .\n" lhs rhs)
-        | cs ->
-            add
-              (Printf.sprintf "  crl %s => %s if %s .\n" lhs rhs
-                 (string_of_conds_maude cs))
-      else
-        (* [owise] (SpecTec [ElsePr]) is an equation attribute; rules carry it
-           only spuriously (relations are non-deterministic), so it is ignored
-           on the [rl] branch above. *)
-        let owise = if r.owise then " [owise]" else "" in
-        match r.conds with
-        | [] -> add (Printf.sprintf "  eq %s = %s%s .\n" lhs rhs owise)
-        | cs ->
-            add
-              (Printf.sprintf "  ceq %s = %s if %s%s .\n" lhs rhs
-                 (string_of_conds_maude cs) owise))
-    t.rules;
-  add "endm)\n";
-  Buffer.contents buf

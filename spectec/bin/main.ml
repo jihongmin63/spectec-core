@@ -209,9 +209,9 @@ let rewrite_command =
         | None -> system
       in
       Ok
-        (Rewrite.Rewrite_system.string_of_system_maude
+        (Rewrite.To_mfe.module_of_system
            ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-           system)
+           spec_il system)
     else Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
 
 (* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
@@ -290,7 +290,7 @@ let verify_command =
       let result : Rewrite.Mfe.result =
         Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir
           ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-          system
+          spec_il system
       in
       let verdict = Rewrite.Mfe.string_of_verdict in
       let line =
