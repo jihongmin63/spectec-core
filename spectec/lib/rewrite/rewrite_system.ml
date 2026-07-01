@@ -354,6 +354,21 @@ let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
   { rules; vars }
 
+(* Analysis-surface only: drop the [owise] equations before the CRC. An [owise]
+   rule fires only where no sibling rule of the same operator matched, so every
+   critical pair it forms with a sibling is infeasible by construction -- but the
+   Church-Rosser checker ignores the [owise] attribute and reports them as
+   spurious "must be proved joinable" pairs. Removing the owise rules drops
+   exactly those infeasible pairs; genuine non-confluence lives in sibling
+   (non-owise) overlaps, which remain. So the confluence verdict cannot gain a
+   false YES (a hidden real divergence) -- the worst case is a conservative false
+   MAYBE, if joining a critical pair happened to need an owise step (the owise rhs
+   is a constant in practice, so this does not arise). The executable surface
+   ({!To_maude}) keeps owise for evaluation; this is the analysis pipeline only. *)
+let drop_owise (t : t) : t =
+  let rules = List.filter (fun (r : rule) -> not r.owise) t.rules in
+  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+
 (* -------------------------------------------------------------------------- *)
 (* Maude system-module surface, for the Maude Formal Environment (CRC + ChC).
 

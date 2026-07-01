@@ -251,6 +251,13 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ~(rule_heads : string list)
   | Ok mfe_dir ->
       let bin = resolve_bin maude_bin in
       let mfe_path = absolute (Filename.concat mfe_dir mfe_entry) in
+      (* Drop the [owise] equations before the CRC/ChC. An owise rule fires only
+         where no sibling matched, so its overlaps are infeasible by construction;
+         the checker ignores the [owise] attribute and would flag them as spurious
+         critical pairs. Stripping them is sound for the confluence gate and is
+         confined to the MFE input -- the [--ctrs] dump and any termination view
+         keep the full system. *)
+      let system = Rewrite_system.drop_owise system in
       let module_text =
         Rewrite_system.string_of_system_maude ~module_name ~rule_heads system
       in
