@@ -1,6 +1,13 @@
 (library
  (name targets_p4)
  (public_name spectec.targets.p4)
- (libraries spectec spectec.cli core str builtins_p4 frontend_p4)
+ (libraries
+  spectec
+  spectec.rewrite
+  spectec.cli
+  core
+  str
+  builtins_p4
+  frontend_p4)
  (preprocess
   (pps ppx_let)))

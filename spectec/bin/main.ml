@@ -304,30 +304,243 @@ let verify_command =
       in
       Ok (line, not ok)
 
-(* Run a translated spec in Maude. The execution backend (start-term sourcing
-   for [--imp]/[--p4], [Maude_run] batch execution, the [--check-p4] result
-   oracle) is reintroduced in M2; until then [run] emits the executable module,
-   the same artifact [rewrite] produces by default. *)
+(* Emit the spec as an executable Maude module and run a start term through a
+   local Maude binary (see {!Rewrite.Maude_run}). [--emit] dumps the module
+   without invoking Maude; otherwise [--start] supplies the term to run, by
+   default with [reduce] (input-moded relations are equations; use [--search]
+   with [--relations-as-rules] to explore non-deterministic rule rewriting). *)
 let run_command =
   Core.Command.basic
-    ~summary:"run a translated spec in Maude (currently: emit the module)"
+    ~summary:"run a translated spec in Maude (emit a module and execute a term)"
   @@
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
   let%map filenames = anon (sequence ("spec files" %: string))
   and color = Cli.Cli_args.Output.color_flag
+  and start =
+    flag "--start" (optional string)
+      ~doc:
+        "TERM Maude start term to run (required unless --imp, --p4, or --emit)"
+  and imp =
+    flag "--imp" (listed string)
+      ~doc:
+        "FILE parse an impty program and run it (builds the start term; repeat \
+         to batch several through one Maude invocation)"
+  and p4 =
+    flag "--p4" (listed string)
+      ~doc:
+        "FILE parse a P4 program and run it through Program_ok against the \
+         loaded spec (builds the start term; repeat to batch several through \
+         one Maude invocation)"
+  and includes =
+    flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
+  and task =
+    flag "--task"
+      (optional_with_default "run" string)
+      ~doc:"WHICH run | eval | check (impty start relation; default run)"
+  and emit =
+    flag "--emit" no_arg ~doc:" print the Maude module and exit (do not run)"
+  and search =
+    flag "--search" no_arg
+      ~doc:" explore rules + equations (search) instead of reduce"
+  and _reduce =
+    flag "--reduce" no_arg
+      ~doc:" evaluate with equations only (reduce); the default mode"
+  and rewrite =
+    flag "--rewrite" no_arg
+      ~doc:
+        " apply rules along one path (rewrite); deterministic semantics \
+         without the search blow-up"
   and relations_as_rules =
     flag "--relations-as-rules" no_arg
       ~doc:
         " keep relations as Maude rules (rl/crl) instead of equations for \
-         input-moded ones"
+         input-moded ones (pair with --search to explore non-determinism)"
+  and bound =
+    flag "--bound" (optional int)
+      ~doc:"N cap the number of search solutions explored"
+  and maude_bin =
+    flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
+  and timeout =
+    flag "--timeout"
+      (optional_with_default 30 int)
+      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
+  and check_p4 =
+    flag "--check-p4" no_arg
+      ~doc:
+        " for each --p4 program also typecheck it with the interpreter and \
+         compare the typing RESULT value with Maude's (result MATCH/MISMATCH)"
   in
   fun () ->
-    Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
+    (match (start, imp, p4, emit) with
+    | None, [], [], false ->
+        Format.eprintf
+          "run needs --start TERM, --imp FILE, or --p4 FILE (or --emit to just \
+           print the module)@.";
+        exit 2
+    | _ -> ());
+    Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
+        Format.printf "%s\n" out;
+        if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
+    (* Resolve the start terms to run, each labeled by its source: every impty
+       program (--imp), every P4 program (--p4, run through Program_ok against
+       the loaded spec), then a raw --start term. The labels survive into the
+       batched output so each program's result stays identifiable. *)
+    let sources =
+      List.map
+        (fun f ->
+          ( f,
+            `Other,
+            fun () -> Targets_impty.Impty.maude_start_term ~task ~spec_il f ))
+        imp
+      @ List.map
+          (fun f ->
+            ( f,
+              `P4 f,
+              fun () -> Targets_p4.P4.maude_start_term ~includes ~spec_il f ))
+          p4
+      @
+      match start with
+      | Some t -> [ ("--start", `Other, fun () -> Ok t) ]
+      | None -> []
+    in
+    (* Resolve each source INDEPENDENTLY: a P4 program that fails to produce a
+       start term must NOT abort the whole invocation -- it becomes its own
+       [Error] verdict so every other program in the batch still runs on the
+       amortized path (the ~50k-line module is reflected/internalized ONCE per
+       invocation, ~20s). Both failure shapes are handled: a clean [Error]
+       result (e.g. a surface syntax error, which the [p4_16_errors] negatives
+       are full of) AND a RAISED exception (e.g. a lexer error on a malformed
+       integer literal), which the frontend does not always reflect into the
+       result monad. *)
+    let resolve_error_msg e =
+      Diagnostic.Render.render_bag ~ansi:Diagnostic.Ansi.plain
+        (Error.to_diagnostics e)
+    in
+    let resolved =
+      List.map
+        (fun (label, kind, build) ->
+          let outcome =
+            try build ()
+            with exn ->
+              Error (Error.UnhandledException (Printexc.to_string exn))
+          in
+          match outcome with
+          | Ok term -> (label, kind, Ok term)
+          | Error e -> (label, kind, Error (resolve_error_msg e)))
+        sources
+    in
+    let module_text =
+      Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il
+    in
+    if emit then Ok (module_text, false)
+    else
+      let mode =
+        if search then Rewrite.Maude_run.Search bound
+        else if rewrite then Rewrite.Maude_run.Rewrite
+        else Rewrite.Maude_run.Reduce
+      in
+      let defined_heads = Rewrite.To_maude.maude_defined_heads spec_il in
+      let run_results =
+        Rewrite.Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
+          ~module_text
+          ~starts:
+            (List.filter_map
+               (fun (_, _, r) ->
+                 match r with Ok t -> Some t | Error _ -> None)
+               resolved)
+          ()
+      in
+      (* Stitch the Maude results back onto the sources in order, dropping the
+         resolution-failure verdict in where a program never produced a start
+         term ([run_batch] returns exactly one result per runnable term,
+         positionally). *)
+      let rec stitch resolved run_results =
+        match resolved with
+        | [] -> []
+        | (label, kind, Ok _) :: rest -> (
+            match run_results with
+            | r :: more -> (label, kind, r) :: stitch rest more
+            | [] -> [])
+        | (label, kind, Error msg) :: rest ->
+            (label, kind, Rewrite.Maude_run.Error msg)
+            :: stitch rest run_results
+      in
+      let outcomes = stitch resolved run_results in
+      (* When [--check-p4], compare Maude's typing RESULT against the
+         interpreter's for the same program: decode Maude's normal form back to
+         an IL value ({!Rewrite.Of_maude}) and [Eq.eq_values] it against the
+         interpreter's relation output. Returns the report line and whether it
+         is a genuine mismatch (so a single-file run can exit non-zero). *)
+      let string_of_values vs =
+        String.concat ", " (List.map Lang.Il.Print.string_of_value vs)
+      in
+      let compare_p4 filename (result : Rewrite.Maude_run.result) :
+          string * bool =
+        match result with
+        | Rewrite.Maude_run.Reduced term -> (
+            let input =
+              {
+                Targets_p4.P4.Typecheck.includes;
+                filename;
+                expect = Spectec.Task.Positive;
+              }
+            in
+            match
+              Spectec.eval_task
+                (module Targets_p4.P4.Typecheck)
+                ~sl_mode:false ~spec_il input
+            with
+            | Error _ -> ("result: interp FAILED (not compared)", false)
+            | Ok interp_vals -> (
+                try
+                  let interp_vals = Rewrite.Of_maude.canonicalize interp_vals in
+                  let maude_vals =
+                    Rewrite.Of_maude.canonicalize
+                      (Rewrite.Of_maude.values_of_result spec_il
+                         ~rel:"Program_ok" term)
+                  in
+                  if Lang.Il.Eq.eq_values interp_vals maude_vals then
+                    ("result: MATCH", false)
+                  else
+                    ( Printf.sprintf
+                        "result: MISMATCH\n  interp: %s\n  maude:  %s"
+                        (string_of_values interp_vals)
+                        (string_of_values maude_vals),
+                      true )
+                with Rewrite.Of_maude.Parse_error msg ->
+                  (Printf.sprintf "result: decode error: %s" msg, false)))
+        | _ -> ("result: not reduced (not compared)", false)
+      in
+      let render (_, kind, result) =
+        let base = Rewrite.Maude_run.string_of_result result in
+        match kind with
+        | `P4 filename when check_p4 ->
+            let line, mismatch = compare_p4 filename result in
+            (base ^ "\n" ^ line, mismatch)
+        | _ -> (base, false)
+      in
+      let rendered = List.map render outcomes in
+      let failed =
+        List.exists (fun (_, _, r) -> Rewrite.Maude_run.is_failure r) outcomes
+        || List.exists snd rendered
+      in
+      (* A single start keeps the bare result line (golden/grep-stable); a batch
+         labels each program's block so the results stay attributable. *)
+      let out =
+        match (outcomes, rendered) with
+        | [ _ ], [ (body, _) ] -> body
+        | _ ->
+            List.map2
+              (fun (label, _, _) (body, _) ->
+                Printf.sprintf "=== %s ===\n%s" label body)
+              outcomes rendered
+            |> String.concat "\n"
+      in
+      Ok (out, failed)
 
 let command =
   let module P4 = Targets_p4.P4.Cli in

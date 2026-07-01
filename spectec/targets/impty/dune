@@ -3,6 +3,7 @@
  (public_name spectec.targets.impty)
  (libraries
   spectec
+  spectec.rewrite
   spectec.cli
   spectec.common
   spectec.lang

@@ -219,6 +219,19 @@ module Typecheck_old = struct
   let save_output _filename _values = ()
 end
 
+(* Parse a P4 program (resolving [includes]) and build the Maude start term
+   that runs it under the typing judgment [Program_ok] against the elaborated
+   [spec_il] -- whichever P4 spec (p4 or p4-old) the caller loaded: the
+   front-end parse is spec-independent and both targets share [handler].
+   Mirrors {!Targets_impty.Impty.maude_start_term}; the encoding lives in
+   {!Rewrite.To_maude}. *)
+let maude_start_term ~(includes : string list) ~(spec_il : Lang.Il.spec)
+    (filename : string) : (string, Spectec.Error.t) result =
+  let ( let* ) = Result.bind in
+  let* value = Frontend.parse_file ~handler:Target.handler includes filename in
+  let term = Rewrite.To_maude.meta_term_of_value spec_il value in
+  Ok (Rewrite.To_maude.meta_start_app spec_il "Program_ok" [ term ])
+
 module Typecheck_cli : Cli.Task_cli.S = struct
   module Task = Typecheck
 
