@@ -1,212 +1,217 @@
 set include BOOL off .
 
 (mod SPEC is
-  sort Term .
-  op not : Term -> Term .
-  op true : -> Term .
-  op false : -> Term .
-  op and : Term Term -> Term .
-  op add : Term Term -> Term .
-  op zero : -> Term .
-  op succ : Term -> Term .
-  op leq : Term Term -> Term .
-  op sub-int-nat : Term Term -> Term .
-  op int-pos : Term -> Term .
-  op int-neg : Term -> Term .
-  op add-int : Term Term -> Term .
-  op leq-int : Term Term -> Term .
-  op match-some : Term -> Term .
-  op some : Term -> Term .
-  op none : -> Term .
-  op match-cons : Term -> Term .
-  op cons : Term Term -> Term .
-  op nil : -> Term .
-  op match-nil : Term -> Term .
-  op match-type-INT-0 : Term -> Term .
-  op variant-type-INT-0 : -> Term .
-  op variant-type-BOOL-0 : -> Term .
-  op match-type-BOOL-0 : Term -> Term .
-  op match-literal-NUM-1 : Term -> Term .
-  op variant-literal-NUM-1 : Term -> Term .
-  op variant-literal-BOOL-1 : Term -> Term .
-  op match-literal-BOOL-1 : Term -> Term .
-  op subty-literal : Term -> Term .
-  op subty-id : Term -> Term .
-  op variant-id-ID-1 : Term -> Term .
-  op match-expr-bang-1 : Term -> Term .
-  op variant-expr-bang-1 : Term -> Term .
-  op variant-expr-plus-2 : Term Term -> Term .
-  op variant-expr-lt-eq-2 : Term Term -> Term .
-  op variant-expr-amp-amp-2 : Term Term -> Term .
-  op match-expr-plus-2 : Term -> Term .
-  op match-expr-lt-eq-2 : Term -> Term .
-  op match-expr-amp-amp-2 : Term -> Term .
-  op match-command-SKIP-0 : Term -> Term .
-  op variant-command-SKIP-0 : -> Term .
-  op variant-command-eq-3 : Term Term Term -> Term .
-  op variant-command-eq-2 : Term Term -> Term .
-  op variant-command-IF-THEN-ELSE-END-3 : Term Term Term -> Term .
-  op variant-command-WHILE-DO-END-2 : Term Term -> Term .
-  op variant-command-semi-2 : Term Term -> Term .
-  op match-command-eq-3 : Term -> Term .
-  op match-command-eq-2 : Term -> Term .
-  op match-command-IF-THEN-ELSE-END-3 : Term -> Term .
-  op match-command-WHILE-DO-END-2 : Term -> Term .
-  op match-command-semi-2 : Term -> Term .
-  op $itermap-K-t-minus-gt-V-t-list-2-pair : Term Term -> Term .
-  op variant-pair-minus-gt-2 : Term Term -> Term .
-  op $unzip-K-t-minus-gt-V-t-list-V-t : Term -> Term .
-  op $unzip-K-t-minus-gt-V-t-list-K-t : Term -> Term .
-  op $lookup : Term Term -> Term .
-  op Check-expr : Term Term -> Term .
-  op Check-command : Term Term -> Term .
-  op Check-prog : Term -> Term .
-  op Eval-expr : Term Term -> Term .
-  op Eval-command : Term Term -> Term .
-  op Eval-prog : Term -> Term .
-  op Run-prog : Term -> Term .
-  vars y x xs x0 x1 x2 K-t--hd K-t--tl V-t--hd V-t--tl --rest pair-lt-K-comma-V-gt K-query V-h iterbind-0 K-t V-t K-h tenv expr i b t type e e-l e-r command c-1 c-2 tenv-1 tenv-2 c env v value b-e literal i-l i-r literal-prime b-l b-r : Term .
+  sorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type Val .
+  subsorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type < Val .
+  subsort Id < Expr .
+  subsort List < Text .
+  subsort Literal < Expr .
+
+  op $itermap-K-t-minus-gt-V-t-list-2-pair : Val Val -> Val .
+  op $lookup : List Val -> Opt .
+  op $unzip-K-t-minus-gt-V-t-list-K-t : Val -> Val .
+  op $unzip-K-t-minus-gt-V-t-list-V-t : Val -> Val .
+  op Check-command : List Command -> List .
+  op Check-expr : List Expr -> Type .
+  op Check-prog : Command -> BoolV .
+  op Eval-command : List Command -> List .
+  op Eval-expr : List Expr -> Literal .
+  op Eval-prog : Command -> List .
+  op Run-prog : Command -> List .
+  op add : NatV NatV -> NatV .
+  op add-int : IntV IntV -> IntV .
+  op and : BoolV BoolV -> BoolV .
+  op cons : Val List -> List .
+  op false : -> BoolV .
+  op int-neg : NatV -> IntV .
+  op int-pos : NatV -> IntV .
+  op leq : NatV NatV -> BoolV .
+  op leq-int : IntV IntV -> BoolV .
+  op match-command-IF-THEN-ELSE-END-3 : Command -> BoolV .
+  op match-command-SKIP-0 : Command -> BoolV .
+  op match-command-WHILE-DO-END-2 : Command -> BoolV .
+  op match-command-eq-2 : Command -> BoolV .
+  op match-command-eq-3 : Command -> BoolV .
+  op match-command-semi-2 : Command -> BoolV .
+  op match-cons : List -> BoolV .
+  op match-expr-amp-amp-2 : Expr -> BoolV .
+  op match-expr-bang-1 : Expr -> BoolV .
+  op match-expr-lt-eq-2 : Expr -> BoolV .
+  op match-expr-plus-2 : Expr -> BoolV .
+  op match-literal-BOOL-1 : Literal -> BoolV .
+  op match-literal-NUM-1 : Literal -> BoolV .
+  op match-nil : List -> BoolV .
+  op match-some : Opt -> BoolV .
+  op match-type-BOOL-0 : Type -> BoolV .
+  op match-type-INT-0 : Type -> BoolV .
+  op nil : -> List .
+  op none : -> Opt .
+  op not : BoolV -> BoolV .
+  op some : Val -> Opt .
+  op sub-int-nat : NatV NatV -> IntV .
+  op subty-id : Val -> BoolV .
+  op subty-literal : Val -> BoolV .
+  op succ : NatV -> NatV .
+  op true : -> BoolV .
+  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
+  op variant-command-SKIP-0 : -> Command .
+  op variant-command-WHILE-DO-END-2 : Expr Command -> Command .
+  op variant-command-eq-2 : Id Expr -> Command .
+  op variant-command-eq-3 : Type Id Expr -> Command .
+  op variant-command-semi-2 : Command Command -> Command .
+  op variant-expr-amp-amp-2 : Expr Expr -> Expr .
+  op variant-expr-bang-1 : Expr -> Expr .
+  op variant-expr-lt-eq-2 : Expr Expr -> Expr .
+  op variant-expr-plus-2 : Expr Expr -> Expr .
+  op variant-id-ID-1 : Text -> Id .
+  op variant-literal-BOOL-1 : BoolV -> Literal .
+  op variant-literal-NUM-1 : IntV -> Literal .
+  op variant-pair-minus-gt-2 : Val Val -> Pair .
+  op variant-type-BOOL-0 : -> Type .
+  op variant-type-INT-0 : -> Type .
+  op zero : -> NatV .
+
   eq not(true) = false .
   eq not(false) = true .
-  eq and(true, y) = y .
-  eq and(false, y) = false .
-  eq add(zero, y) = y .
-  eq add(succ(x), y) = succ(add(x, y)) .
-  eq leq(zero, y) = true .
-  eq leq(succ(x), zero) = false .
-  eq leq(succ(x), succ(y)) = leq(x, y) .
+  eq and(true, y:BoolV) = y:BoolV .
+  eq and(false, y:BoolV) = false .
+  eq add(zero, y:NatV) = y:NatV .
+  eq add(succ(x:NatV), y:NatV) = succ(add(x:NatV, y:NatV)) .
+  eq leq(zero, y:NatV) = true .
+  eq leq(succ(x:NatV), zero) = false .
+  eq leq(succ(x:NatV), succ(y:NatV)) = leq(x:NatV, y:NatV) .
   eq sub-int-nat(zero, zero) = int-pos(zero) .
-  eq sub-int-nat(succ(x), zero) = int-pos(succ(x)) .
-  eq sub-int-nat(zero, succ(y)) = int-neg(y) .
-  eq sub-int-nat(succ(x), succ(y)) = sub-int-nat(x, y) .
-  eq add-int(int-pos(x), int-pos(y)) = int-pos(add(x, y)) .
-  eq add-int(int-neg(x), int-neg(y)) = int-neg(succ(add(x, y))) .
-  eq add-int(int-pos(x), int-neg(y)) = sub-int-nat(x, succ(y)) .
-  eq add-int(int-neg(x), int-pos(y)) = sub-int-nat(y, succ(x)) .
-  eq leq-int(int-pos(x), int-pos(y)) = leq(x, y) .
-  eq leq-int(int-neg(x), int-neg(y)) = leq(y, x) .
-  eq leq-int(int-pos(x), int-neg(y)) = false .
-  eq leq-int(int-neg(x), int-pos(y)) = true .
-  eq match-some(some(x)) = true .
+  eq sub-int-nat(succ(x:NatV), zero) = int-pos(succ(x:NatV)) .
+  eq sub-int-nat(zero, succ(y:NatV)) = int-neg(y:NatV) .
+  eq sub-int-nat(succ(x:NatV), succ(y:NatV)) = sub-int-nat(x:NatV, y:NatV) .
+  eq add-int(int-pos(x:NatV), int-pos(y:NatV)) = int-pos(add(x:NatV, y:NatV)) .
+  eq add-int(int-neg(x:NatV), int-neg(y:NatV)) = int-neg(succ(add(x:NatV, y:NatV))) .
+  eq add-int(int-pos(x:NatV), int-neg(y:NatV)) = sub-int-nat(x:NatV, succ(y:NatV)) .
+  eq add-int(int-neg(x:NatV), int-pos(y:NatV)) = sub-int-nat(y:NatV, succ(x:NatV)) .
+  eq leq-int(int-pos(x:NatV), int-pos(y:NatV)) = leq(x:NatV, y:NatV) .
+  eq leq-int(int-neg(x:NatV), int-neg(y:NatV)) = leq(y:NatV, x:NatV) .
+  eq leq-int(int-pos(x:NatV), int-neg(y:NatV)) = false .
+  eq leq-int(int-neg(x:NatV), int-pos(y:NatV)) = true .
+  eq match-some(some(x:Val)) = true .
   eq match-some(none) = false .
-  eq match-cons(cons(x, xs)) = true .
+  eq match-cons(cons(x:Val, xs:List)) = true .
   eq match-cons(nil) = false .
   eq match-nil(nil) = true .
-  eq match-nil(cons(x, xs)) = false .
+  eq match-nil(cons(x:Val, xs:List)) = false .
   eq match-type-INT-0(variant-type-INT-0) = true .
   eq match-type-INT-0(variant-type-BOOL-0) = false .
   eq match-type-BOOL-0(variant-type-INT-0) = false .
   eq match-type-BOOL-0(variant-type-BOOL-0) = true .
-  eq match-literal-NUM-1(variant-literal-NUM-1(x0)) = true .
-  eq match-literal-NUM-1(variant-literal-BOOL-1(x0)) = false .
-  eq match-literal-BOOL-1(variant-literal-NUM-1(x0)) = false .
-  eq match-literal-BOOL-1(variant-literal-BOOL-1(x0)) = true .
-  eq subty-literal(variant-literal-NUM-1(x0)) = true .
-  eq subty-literal(variant-literal-BOOL-1(x0)) = true .
-  eq subty-id(variant-id-ID-1(x0)) = true .
-  eq match-expr-bang-1(variant-literal-NUM-1(x0)) = false .
-  eq match-expr-bang-1(variant-literal-BOOL-1(x0)) = false .
-  eq match-expr-bang-1(variant-id-ID-1(x0)) = false .
-  eq match-expr-bang-1(variant-expr-bang-1(x0)) = true .
-  eq match-expr-bang-1(variant-expr-plus-2(x0, x1)) = false .
-  eq match-expr-bang-1(variant-expr-lt-eq-2(x0, x1)) = false .
-  eq match-expr-bang-1(variant-expr-amp-amp-2(x0, x1)) = false .
-  eq match-expr-plus-2(variant-literal-NUM-1(x0)) = false .
-  eq match-expr-plus-2(variant-literal-BOOL-1(x0)) = false .
-  eq match-expr-plus-2(variant-id-ID-1(x0)) = false .
-  eq match-expr-plus-2(variant-expr-bang-1(x0)) = false .
-  eq match-expr-plus-2(variant-expr-plus-2(x0, x1)) = true .
-  eq match-expr-plus-2(variant-expr-lt-eq-2(x0, x1)) = false .
-  eq match-expr-plus-2(variant-expr-amp-amp-2(x0, x1)) = false .
-  eq match-expr-lt-eq-2(variant-literal-NUM-1(x0)) = false .
-  eq match-expr-lt-eq-2(variant-literal-BOOL-1(x0)) = false .
-  eq match-expr-lt-eq-2(variant-id-ID-1(x0)) = false .
-  eq match-expr-lt-eq-2(variant-expr-bang-1(x0)) = false .
-  eq match-expr-lt-eq-2(variant-expr-plus-2(x0, x1)) = false .
-  eq match-expr-lt-eq-2(variant-expr-lt-eq-2(x0, x1)) = true .
-  eq match-expr-lt-eq-2(variant-expr-amp-amp-2(x0, x1)) = false .
-  eq match-expr-amp-amp-2(variant-literal-NUM-1(x0)) = false .
-  eq match-expr-amp-amp-2(variant-literal-BOOL-1(x0)) = false .
-  eq match-expr-amp-amp-2(variant-id-ID-1(x0)) = false .
-  eq match-expr-amp-amp-2(variant-expr-bang-1(x0)) = false .
-  eq match-expr-amp-amp-2(variant-expr-plus-2(x0, x1)) = false .
-  eq match-expr-amp-amp-2(variant-expr-lt-eq-2(x0, x1)) = false .
-  eq match-expr-amp-amp-2(variant-expr-amp-amp-2(x0, x1)) = true .
+  eq match-literal-NUM-1(variant-literal-NUM-1(x0:IntV)) = true .
+  eq match-literal-NUM-1(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq match-literal-BOOL-1(variant-literal-NUM-1(x0:IntV)) = false .
+  eq match-literal-BOOL-1(variant-literal-BOOL-1(x0:BoolV)) = true .
+  eq subty-literal(variant-literal-NUM-1(x0:IntV)) = true .
+  eq subty-literal(variant-literal-BOOL-1(x0:BoolV)) = true .
+  eq subty-id(variant-id-ID-1(x0:Text)) = true .
+  eq match-expr-bang-1(variant-literal-NUM-1(x0:IntV)) = false .
+  eq match-expr-bang-1(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq match-expr-bang-1(variant-id-ID-1(x0:Text)) = false .
+  eq match-expr-bang-1(variant-expr-bang-1(x0:Expr)) = true .
+  eq match-expr-bang-1(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-bang-1(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-bang-1(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-plus-2(variant-literal-NUM-1(x0:IntV)) = false .
+  eq match-expr-plus-2(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq match-expr-plus-2(variant-id-ID-1(x0:Text)) = false .
+  eq match-expr-plus-2(variant-expr-bang-1(x0:Expr)) = false .
+  eq match-expr-plus-2(variant-expr-plus-2(x0:Expr, x1:Expr)) = true .
+  eq match-expr-plus-2(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-plus-2(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-lt-eq-2(variant-literal-NUM-1(x0:IntV)) = false .
+  eq match-expr-lt-eq-2(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq match-expr-lt-eq-2(variant-id-ID-1(x0:Text)) = false .
+  eq match-expr-lt-eq-2(variant-expr-bang-1(x0:Expr)) = false .
+  eq match-expr-lt-eq-2(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-lt-eq-2(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = true .
+  eq match-expr-lt-eq-2(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-amp-amp-2(variant-literal-NUM-1(x0:IntV)) = false .
+  eq match-expr-amp-amp-2(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq match-expr-amp-amp-2(variant-id-ID-1(x0:Text)) = false .
+  eq match-expr-amp-amp-2(variant-expr-bang-1(x0:Expr)) = false .
+  eq match-expr-amp-amp-2(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-amp-amp-2(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
+  eq match-expr-amp-amp-2(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = true .
   eq match-command-SKIP-0(variant-command-SKIP-0) = true .
-  eq match-command-SKIP-0(variant-command-eq-3(x0, x1, x2)) = false .
-  eq match-command-SKIP-0(variant-command-eq-2(x0, x1)) = false .
-  eq match-command-SKIP-0(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
-  eq match-command-SKIP-0(variant-command-WHILE-DO-END-2(x0, x1)) = false .
-  eq match-command-SKIP-0(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-SKIP-0(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = false .
+  eq match-command-SKIP-0(variant-command-eq-2(x0:Id, x1:Expr)) = false .
+  eq match-command-SKIP-0(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
+  eq match-command-SKIP-0(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
+  eq match-command-SKIP-0(variant-command-semi-2(x0:Command, x1:Command)) = false .
   eq match-command-eq-3(variant-command-SKIP-0) = false .
-  eq match-command-eq-3(variant-command-eq-3(x0, x1, x2)) = true .
-  eq match-command-eq-3(variant-command-eq-2(x0, x1)) = false .
-  eq match-command-eq-3(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
-  eq match-command-eq-3(variant-command-WHILE-DO-END-2(x0, x1)) = false .
-  eq match-command-eq-3(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-eq-3(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = true .
+  eq match-command-eq-3(variant-command-eq-2(x0:Id, x1:Expr)) = false .
+  eq match-command-eq-3(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
+  eq match-command-eq-3(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
+  eq match-command-eq-3(variant-command-semi-2(x0:Command, x1:Command)) = false .
   eq match-command-eq-2(variant-command-SKIP-0) = false .
-  eq match-command-eq-2(variant-command-eq-3(x0, x1, x2)) = false .
-  eq match-command-eq-2(variant-command-eq-2(x0, x1)) = true .
-  eq match-command-eq-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
-  eq match-command-eq-2(variant-command-WHILE-DO-END-2(x0, x1)) = false .
-  eq match-command-eq-2(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-eq-2(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = false .
+  eq match-command-eq-2(variant-command-eq-2(x0:Id, x1:Expr)) = true .
+  eq match-command-eq-2(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
+  eq match-command-eq-2(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
+  eq match-command-eq-2(variant-command-semi-2(x0:Command, x1:Command)) = false .
   eq match-command-IF-THEN-ELSE-END-3(variant-command-SKIP-0) = false .
-  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-3(x0, x1, x2)) = false .
-  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-2(x0, x1)) = false .
-  eq match-command-IF-THEN-ELSE-END-3(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = true .
-  eq match-command-IF-THEN-ELSE-END-3(variant-command-WHILE-DO-END-2(x0, x1)) = false .
-  eq match-command-IF-THEN-ELSE-END-3(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-eq-2(x0:Id, x1:Expr)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = true .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
+  eq match-command-IF-THEN-ELSE-END-3(variant-command-semi-2(x0:Command, x1:Command)) = false .
   eq match-command-WHILE-DO-END-2(variant-command-SKIP-0) = false .
-  eq match-command-WHILE-DO-END-2(variant-command-eq-3(x0, x1, x2)) = false .
-  eq match-command-WHILE-DO-END-2(variant-command-eq-2(x0, x1)) = false .
-  eq match-command-WHILE-DO-END-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
-  eq match-command-WHILE-DO-END-2(variant-command-WHILE-DO-END-2(x0, x1)) = true .
-  eq match-command-WHILE-DO-END-2(variant-command-semi-2(x0, x1)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-eq-2(x0:Id, x1:Expr)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
+  eq match-command-WHILE-DO-END-2(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = true .
+  eq match-command-WHILE-DO-END-2(variant-command-semi-2(x0:Command, x1:Command)) = false .
   eq match-command-semi-2(variant-command-SKIP-0) = false .
-  eq match-command-semi-2(variant-command-eq-3(x0, x1, x2)) = false .
-  eq match-command-semi-2(variant-command-eq-2(x0, x1)) = false .
-  eq match-command-semi-2(variant-command-IF-THEN-ELSE-END-3(x0, x1, x2)) = false .
-  eq match-command-semi-2(variant-command-WHILE-DO-END-2(x0, x1)) = false .
-  eq match-command-semi-2(variant-command-semi-2(x0, x1)) = true .
+  eq match-command-semi-2(variant-command-eq-3(x0:Type, x1:Id, x2:Expr)) = false .
+  eq match-command-semi-2(variant-command-eq-2(x0:Id, x1:Expr)) = false .
+  eq match-command-semi-2(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
+  eq match-command-semi-2(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
+  eq match-command-semi-2(variant-command-semi-2(x0:Command, x1:Command)) = true .
   eq $itermap-K-t-minus-gt-V-t-list-2-pair(nil, nil) = nil .
-  eq $itermap-K-t-minus-gt-V-t-list-2-pair(cons(K-t--hd, K-t--tl), cons(V-t--hd, V-t--tl)) = cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), $itermap-K-t-minus-gt-V-t-list-2-pair(K-t--tl, V-t--tl)) .
+  eq $itermap-K-t-minus-gt-V-t-list-2-pair(cons(K-t--hd:Val, K-t--tl:List), cons(V-t--hd:Val, V-t--tl:List)) = cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), $itermap-K-t-minus-gt-V-t-list-2-pair(K-t--tl:List, V-t--tl:List)) .
   eq $unzip-K-t-minus-gt-V-t-list-V-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), --rest)) = cons(V-t--hd, $unzip-K-t-minus-gt-V-t-list-V-t(--rest)) .
+  eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
   eq $unzip-K-t-minus-gt-V-t-list-K-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd, V-t--hd), --rest)) = cons(K-t--hd, $unzip-K-t-minus-gt-V-t-list-K-t(--rest)) .
-  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = none if match-nil(pair-lt-K-comma-V-gt) = true .
-  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = some(V-h) if match-cons(pair-lt-K-comma-V-gt) = true /\ pair-lt-K-comma-V-gt = cons(variant-pair-minus-gt-2(K-query, V-h), iterbind-0) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0) = K-t /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0) = V-t .
-  ceq $lookup(pair-lt-K-comma-V-gt, K-query) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0)), K-query) if match-cons(pair-lt-K-comma-V-gt) = true /\ pair-lt-K-comma-V-gt = cons(variant-pair-minus-gt-2(K-h, V-h), iterbind-0) [owise] .
-  ceq Check-expr(tenv, expr) = variant-type-INT-0 if subty-literal(expr) = true /\ match-literal-NUM-1(expr) = true /\ expr = variant-literal-NUM-1(i) .
-  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if subty-literal(expr) = true /\ match-literal-BOOL-1(expr) = true /\ expr = variant-literal-BOOL-1(b) .
-  ceq Check-expr(tenv, expr) = t if subty-id(expr) = true /\ $lookup(tenv, expr) = type /\ match-some(type) = true /\ type = some(t) .
-  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-bang-1(expr) = true /\ expr = variant-expr-bang-1(e) /\ match-type-BOOL-0(Check-expr(tenv, e)) = true .
-  ceq Check-expr(tenv, expr) = variant-type-INT-0 if match-expr-plus-2(expr) = true /\ expr = variant-expr-plus-2(e-l, e-r) /\ match-type-INT-0(Check-expr(tenv, e-l)) = true /\ match-type-INT-0(Check-expr(tenv, e-r)) = true .
-  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-lt-eq-2(expr) = true /\ expr = variant-expr-lt-eq-2(e-l, e-r) /\ match-type-INT-0(Check-expr(tenv, e-l)) = true /\ match-type-INT-0(Check-expr(tenv, e-r)) = true .
-  ceq Check-expr(tenv, expr) = variant-type-BOOL-0 if match-expr-amp-amp-2(expr) = true /\ expr = variant-expr-amp-amp-2(e-l, e-r) /\ match-type-BOOL-0(Check-expr(tenv, e-l)) = true /\ match-type-BOOL-0(Check-expr(tenv, e-r)) = true .
-  ceq Check-command(tenv, command) = tenv if match-command-SKIP-0(command) = true .
-  ceq Check-command(tenv, command) = cons(variant-pair-minus-gt-2(x, t), tenv) if match-command-eq-3(command) = true /\ command = variant-command-eq-3(t, x, e) /\ Check-expr(tenv, e) = t .
-  ceq Check-command(tenv, command) = tenv if match-command-eq-2(command) = true /\ command = variant-command-eq-2(x, e) /\ $lookup(tenv, x) = some(Check-expr(tenv, e)) .
-  ceq Check-command(tenv, command) = tenv if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ match-type-BOOL-0(Check-expr(tenv, e)) = true /\ Check-command(tenv, c-1) = tenv-1 /\ Check-command(tenv, c-2) = tenv-2 .
-  ceq Check-command(tenv, command) = tenv if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ match-type-BOOL-0(Check-expr(tenv, e)) = true /\ Check-command(tenv, c) = tenv-1 .
-  ceq Check-command(tenv, command) = Check-command(Check-command(tenv, c-1), c-2) if match-command-semi-2(command) = true /\ command = variant-command-semi-2(c-1, c-2) .
-  ceq Check-prog(command) = true if Check-command(nil, command) = tenv .
-  ceq Eval-expr(env, expr) = variant-literal-NUM-1(i) if subty-literal(expr) = true /\ match-literal-NUM-1(expr) = true /\ expr = variant-literal-NUM-1(i) .
-  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(b) if subty-literal(expr) = true /\ match-literal-BOOL-1(expr) = true /\ expr = variant-literal-BOOL-1(b) .
-  ceq Eval-expr(env, expr) = v if subty-id(expr) = true /\ $lookup(env, expr) = value /\ match-some(value) = true /\ value = some(v) .
-  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(not(b-e)) if match-expr-bang-1(expr) = true /\ expr = variant-expr-bang-1(e) /\ Eval-expr(env, e) = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b-e) .
-  ceq Eval-expr(env, expr) = variant-literal-NUM-1(add-int(i-l, i-r)) if match-expr-plus-2(expr) = true /\ expr = variant-expr-plus-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-NUM-1(literal-prime) = true /\ literal-prime = variant-literal-NUM-1(i-r) .
-  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(leq-int(i-l, i-r)) if match-expr-lt-eq-2(expr) = true /\ expr = variant-expr-lt-eq-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-NUM-1(literal) = true /\ literal = variant-literal-NUM-1(i-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-NUM-1(literal-prime) = true /\ literal-prime = variant-literal-NUM-1(i-r) .
-  ceq Eval-expr(env, expr) = variant-literal-BOOL-1(and(b-l, b-r)) if match-expr-amp-amp-2(expr) = true /\ expr = variant-expr-amp-amp-2(e-l, e-r) /\ Eval-expr(env, e-l) = literal /\ match-literal-BOOL-1(literal) = true /\ literal = variant-literal-BOOL-1(b-l) /\ Eval-expr(env, e-r) = literal-prime /\ match-literal-BOOL-1(literal-prime) = true /\ literal-prime = variant-literal-BOOL-1(b-r) .
-  ceq Eval-command(env, command) = env if match-command-SKIP-0(command) = true .
-  ceq Eval-command(env, command) = cons(variant-pair-minus-gt-2(x, Eval-expr(env, e)), env) if match-command-eq-3(command) = true /\ command = variant-command-eq-3(t, x, e) .
-  ceq Eval-command(env, command) = cons(variant-pair-minus-gt-2(x, Eval-expr(env, e)), env) if match-command-eq-2(command) = true /\ command = variant-command-eq-2(x, e) .
-  ceq Eval-command(env, command) = Eval-command(env, c-1) if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ Eval-expr(env, e) = variant-literal-BOOL-1(true) .
-  ceq Eval-command(env, command) = Eval-command(env, c-2) if match-command-IF-THEN-ELSE-END-3(command) = true /\ command = variant-command-IF-THEN-ELSE-END-3(e, c-1, c-2) /\ Eval-expr(env, e) = variant-literal-BOOL-1(false) .
-  ceq Eval-command(env, command) = env if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ Eval-expr(env, e) = variant-literal-BOOL-1(false) .
-  ceq Eval-command(env, command) = Eval-command(Eval-command(env, c), variant-command-WHILE-DO-END-2(e, c)) if match-command-WHILE-DO-END-2(command) = true /\ command = variant-command-WHILE-DO-END-2(e, c) /\ Eval-expr(env, e) = variant-literal-BOOL-1(true) .
-  ceq Eval-command(env, command) = Eval-command(Eval-command(env, c-1), c-2) if match-command-semi-2(command) = true /\ command = variant-command-semi-2(c-1, c-2) .
-  eq Eval-prog(command) = Eval-command(nil, command) .
-  ceq Run-prog(command) = Eval-prog(command) if Check-prog(command) = true .
+  eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = true .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:Val /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:Val .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) [owise] .
+  ceq Check-expr(tenv:List, expr:Literal) = variant-type-INT-0 if subty-literal(expr:Literal) = true /\ match-literal-NUM-1(expr:Literal) = true /\ expr:Literal = variant-literal-NUM-1(i:IntV) .
+  ceq Check-expr(tenv:List, expr:Literal) = variant-type-BOOL-0 if subty-literal(expr:Literal) = true /\ match-literal-BOOL-1(expr:Literal) = true /\ expr:Literal = variant-literal-BOOL-1(b:BoolV) .
+  ceq Check-expr(tenv:List, expr:Expr) = t:Type if subty-id(expr:Expr) = true /\ $lookup(tenv:List, expr:Expr) = type:Opt /\ match-some(type:Opt) = true /\ type:Opt = some(t:Type) .
+  ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if match-expr-bang-1(expr:Expr) = true /\ expr:Expr = variant-expr-bang-1(e:Expr) /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true .
+  ceq Check-expr(tenv:List, expr:Expr) = variant-type-INT-0 if match-expr-plus-2(expr:Expr) = true /\ expr:Expr = variant-expr-plus-2(e-l:Expr, e-r:Expr) /\ match-type-INT-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-INT-0(Check-expr(tenv:List, e-r:Expr)) = true .
+  ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if match-expr-lt-eq-2(expr:Expr) = true /\ expr:Expr = variant-expr-lt-eq-2(e-l:Expr, e-r:Expr) /\ match-type-INT-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-INT-0(Check-expr(tenv:List, e-r:Expr)) = true .
+  ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if match-expr-amp-amp-2(expr:Expr) = true /\ expr:Expr = variant-expr-amp-amp-2(e-l:Expr, e-r:Expr) /\ match-type-BOOL-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-BOOL-0(Check-expr(tenv:List, e-r:Expr)) = true .
+  ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-SKIP-0(command:Command) = true .
+  ceq Check-command(tenv:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, t:Type), tenv:List) if match-command-eq-3(command:Command) = true /\ command:Command = variant-command-eq-3(t:Type, x:Id, e:Expr) /\ Check-expr(tenv:List, e:Expr) = t:Type .
+  ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-eq-2(command:Command) = true /\ command:Command = variant-command-eq-2(x:Id, e:Expr) /\ $lookup(tenv:List, x:Id) = some(Check-expr(tenv:List, e:Expr)) .
+  ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-IF-THEN-ELSE-END-3(command:Command) = true /\ command:Command = variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command) /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true /\ Check-command(tenv:List, c-1:Command) = tenv-1:List /\ Check-command(tenv:List, c-2:Command) = tenv-2:List .
+  ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-WHILE-DO-END-2(command:Command) = true /\ command:Command = variant-command-WHILE-DO-END-2(e:Expr, c:Command) /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true /\ Check-command(tenv:List, c:Command) = tenv-1:List .
+  ceq Check-command(tenv:List, command:Command) = Check-command(Check-command(tenv:List, c-1:Command), c-2:Command) if match-command-semi-2(command:Command) = true /\ command:Command = variant-command-semi-2(c-1:Command, c-2:Command) .
+  ceq Check-prog(command:Command) = true if Check-command(nil, command:Command) = tenv:List .
+  ceq Eval-expr(env:List, expr:Literal) = variant-literal-NUM-1(i:IntV) if subty-literal(expr:Literal) = true /\ match-literal-NUM-1(expr:Literal) = true /\ expr:Literal = variant-literal-NUM-1(i:IntV) .
+  ceq Eval-expr(env:List, expr:Literal) = variant-literal-BOOL-1(b:BoolV) if subty-literal(expr:Literal) = true /\ match-literal-BOOL-1(expr:Literal) = true /\ expr:Literal = variant-literal-BOOL-1(b:BoolV) .
+  ceq Eval-expr(env:List, expr:Expr) = v:Literal if subty-id(expr:Expr) = true /\ $lookup(env:List, expr:Expr) = value:Opt /\ match-some(value:Opt) = true /\ value:Opt = some(v:Literal) .
+  ceq Eval-expr(env:List, expr:Expr) = variant-literal-BOOL-1(not(b-e:BoolV)) if match-expr-bang-1(expr:Expr) = true /\ expr:Expr = variant-expr-bang-1(e:Expr) /\ Eval-expr(env:List, e:Expr) = literal:Literal /\ match-literal-BOOL-1(literal:Literal) = true /\ literal:Literal = variant-literal-BOOL-1(b-e:BoolV) .
+  ceq Eval-expr(env:List, expr:Expr) = variant-literal-NUM-1(add-int(i-l:IntV, i-r:IntV)) if match-expr-plus-2(expr:Expr) = true /\ expr:Expr = variant-expr-plus-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-NUM-1(literal:Literal) = true /\ literal:Literal = variant-literal-NUM-1(i-l:IntV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-NUM-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-NUM-1(i-r:IntV) .
+  ceq Eval-expr(env:List, expr:Expr) = variant-literal-BOOL-1(leq-int(i-l:IntV, i-r:IntV)) if match-expr-lt-eq-2(expr:Expr) = true /\ expr:Expr = variant-expr-lt-eq-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-NUM-1(literal:Literal) = true /\ literal:Literal = variant-literal-NUM-1(i-l:IntV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-NUM-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-NUM-1(i-r:IntV) .
+  ceq Eval-expr(env:List, expr:Expr) = variant-literal-BOOL-1(and(b-l:BoolV, b-r:BoolV)) if match-expr-amp-amp-2(expr:Expr) = true /\ expr:Expr = variant-expr-amp-amp-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-BOOL-1(literal:Literal) = true /\ literal:Literal = variant-literal-BOOL-1(b-l:BoolV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-BOOL-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-BOOL-1(b-r:BoolV) .
+  ceq Eval-command(env:List, command:Command) = env:List if match-command-SKIP-0(command:Command) = true .
+  ceq Eval-command(env:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, Eval-expr(env:List, e:Expr)), env:List) if match-command-eq-3(command:Command) = true /\ command:Command = variant-command-eq-3(t:Type, x:Id, e:Expr) .
+  ceq Eval-command(env:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, Eval-expr(env:List, e:Expr)), env:List) if match-command-eq-2(command:Command) = true /\ command:Command = variant-command-eq-2(x:Id, e:Expr) .
+  ceq Eval-command(env:List, command:Command) = Eval-command(env:List, c-1:Command) if match-command-IF-THEN-ELSE-END-3(command:Command) = true /\ command:Command = variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command) /\ Eval-expr(env:List, e:Expr) = variant-literal-BOOL-1(true) .
+  ceq Eval-command(env:List, command:Command) = Eval-command(env:List, c-2:Command) if match-command-IF-THEN-ELSE-END-3(command:Command) = true /\ command:Command = variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command) /\ Eval-expr(env:List, e:Expr) = variant-literal-BOOL-1(false) .
+  ceq Eval-command(env:List, command:Command) = env:List if match-command-WHILE-DO-END-2(command:Command) = true /\ command:Command = variant-command-WHILE-DO-END-2(e:Expr, c:Command) /\ Eval-expr(env:List, e:Expr) = variant-literal-BOOL-1(false) .
+  ceq Eval-command(env:List, command:Command) = Eval-command(Eval-command(env:List, c:Command), variant-command-WHILE-DO-END-2(e:Expr, c:Command)) if match-command-WHILE-DO-END-2(command:Command) = true /\ command:Command = variant-command-WHILE-DO-END-2(e:Expr, c:Command) /\ Eval-expr(env:List, e:Expr) = variant-literal-BOOL-1(true) .
+  ceq Eval-command(env:List, command:Command) = Eval-command(Eval-command(env:List, c-1:Command), c-2:Command) if match-command-semi-2(command:Command) = true /\ command:Command = variant-command-semi-2(c-1:Command, c-2:Command) .
+  eq Eval-prog(command:Command) = Eval-command(nil, command:Command) .
+  ceq Run-prog(command:Command) = Eval-prog(command:Command) if Check-prog(command:Command) = true .
 endm)
 
