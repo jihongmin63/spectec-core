@@ -28,3 +28,8 @@ spectec/tools/z3/
 spectec/log.txt
 spectec/term_sweep.tsv
 spectec/.hook-check
+
+# check_diff_p4.sh differential-run outputs (per-run verdicts, gap tables, log).
+# The harness (check_diff_p4.sh) and reference suite (p4_typecheck_suite.txt)
+# stay tracked; only the generated result files are ignored.
+/check_diff_p4_*
