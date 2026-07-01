@@ -1,9 +1,13 @@
 # `rewrite` 재구현 TODO (new-rewrite)
 
-골격은 클린 빌드됩니다. 남은 `failwith` 스텁은 **`To_ctrs`의 `of_spec`·`var_type_hints`
-둘뿐**입니다(= 당신이 채울 핵심). 보조(auxiliary)는 모두 정리됐습니다. 알고리즘 설계
-기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는 [CLAUDE.md](CLAUDE.md) 참고. 이
-문서는 *무엇을 어떤 순서로 채우는가*만 추적합니다.
+**골격은 전부 채워졌습니다 — `failwith` 스텁은 하나도 남아 있지 않습니다**(코드
+전수 grep 확인). 번역(`To_ctrs.of_spec`/`var_type_hints`), 지원 패스
+(`Defunctionalize`/`Gensym`/`Builtin`/`Exp_map`), Maude 백엔드
+(`To_maude`/`Maude_run`/`Of_maude`), confluence 게이트(`Mfe`)가 모두 구현·컴파일되고
+동작합니다. 남은 일은 *새 번역 로직*이 아니라 **(a) 분석 confluence 잔여 MAYBE 해소,
+(b) CLI `run`의 실제 실행 배선(오라클), (c) subtype struct 처리 + 문서 정리**입니다.
+알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
+[CLAUDE.md](CLAUDE.md) 참고.
 
 ## 현재 상태
 
@@ -27,10 +31,11 @@
   남김 — wrapper 철자(`nat`/`int`/`bool`/`txt`) + 리터럴 빌더(`nat_t`/…)·
   `is_literal_sym`·`string_literal`·`chars_value`. (Native 항은 옛 fold가 아니라
   `of_spec ~scalars:Native`가 직접 생성.)
-- 🔴 스텁: **`To_ctrs.of_spec`·`var_type_hints` 둘뿐.** 채우면 분석/실행 모두 즉시
-  동작(지원 패스·Maude 백엔드는 이미 배선·컴파일됨).
+- ✅ **`To_ctrs.of_spec`·`var_type_hints` 포팅 완료.** 분석/실행 모두 동작하며
+  impty/base 골든이 byte-identical로 고정됨. (스텁 아님.)
 - ⛔ 삭제 유지: `prem_env`(불필요), `cocoweb`·`muterm`·`aprove`·`termination`
-  (COPS/TPDB 표면 제거 — 분석 confluence는 MFE 한 경로).
+  (COPS/TPDB 표면 제거 — 분석 confluence는 MFE 한 경로; termination은 MTT/AProVE를
+  Maude 2.7.1 스택으로 외부 구동, 아래 참조).
 
 ## 파이프라인
 
@@ -290,28 +295,28 @@ delegated text builtin을 Native에서 생략, `gensym`은 native txt/`cat`로 f
 모듈 모두 **byte-identical**(Structural 경로 무변, Native 경로 post-fold와 동일),
 p4(79 파일) native 모듈 emit 시 구조적 스칼라 leaf 누출 0·delegation 정상.
 
-다음 줄들은 조사 당시 기록이며, 위 완료 시점에 해소되었다:
+다음 줄들은 조사 당시 기록이며 **전부 위 완료 시점에 해소됐다**(historical, `[x]`):
 
-조사로 드러난 blocker(왜 단순 leaf 교체로 안 되나):
+조사로 드러났던 blocker(왜 단순 leaf 교체로 안 됐나):
 
-- [ ] **bool leaf가 `to_ctrs` 밖에서도 생성됨.** `builtin.ml`(30+곳)·`gensym.ml`(5곳)이
+- [x] **bool leaf가 `to_ctrs` 밖에서도 생성됨.** `builtin.ml`(30+곳)·`gensym.ml`(5곳)이
   `T.true_t`/`T.false_t`/`T.text_t`/`T.peano_of_int`/`T.int_pos_t`로 규칙을 직접
   만든다. 이 규칙들도 시스템에 들어가므로 native에선 wrapper여야 한다 → **3개 모듈
   모두 mode-aware**로 만들어야 함(post-fold는 조립 시스템 전체를 균일 fold해 자동 처리).
-- [ ] **유지되는 prelude 규칙도 bool leaf 보유.** native에서 살아남는
+- [x] **유지되는 prelude 규칙도 bool leaf 보유.** native에서 살아남는
   `mem(x,nil)→false`, `match_some/none/cons/nil`, 옵션/리스트 `eq(...)→true/false/and`은
   native bool이 필요. 드롭되는 scalar 규칙과 한 리스트에 섞여 있어 **prelude를
   scalar(드롭)/struct(유지) 둘로 분리** 필요.
-- [ ] **`int_pos` 막다른 길.** `term_of_unop` 단항 마이너스 = `negate_int(int_pos(x))`.
+- [x] **`int_pos` 막다른 길.** `term_of_unop` 단항 마이너스 = `negate_int(int_pos(x))`.
   post-fold는 ground `int_pos(peano)`→`int(n)`으로 접지만, direct-gen은 operand가
   `nat(5)`라 `int_pos(nat(5))`가 되고 `int_pos`는 `native_replaced_heads`에 없어
   **delegation도 fold도 없어 stuck**. → `To_maude`에 `int_pos`/`int_neg` delegation
   추가 또는 `term_of_unop` mode-aware화.
-- [ ] **드롭 필터 충돌.** scalar 규칙 드롭하는 `scalar_pat`은 bare `true`/`false`/`zero`를
+- [x] **드롭 필터 충돌.** scalar 규칙 드롭하는 `scalar_pat`은 bare `true`/`false`/`zero`를
   본다. leaf를 `bool(true)`로 바꾸면 `eq(bool(true),bool(true))`를 못 알아봐 안 드롭됨
   → To_maude의 scalar `eq` delegation과 충돌. **필터를 head-기반(scalar/struct 분리)으로
   재설계** 필요.
-- [ ] **OCaml 제약:** `true_t`/`false_t`는 값(value)이라 모듈 로드 시 1회 평가됨 →
+- [x] **OCaml 제약:** `true_t`/`false_t`는 값(value)이라 모듈 로드 시 1회 평가됨 →
   ref로 mode-aware 못 만듦. mode-aware는 함수(`bool_t`/`term_of_num`/`text_t`)로 두고
   `true_t`/`false_t` 사용처를 `bool_t true`/`bool_t false`로 교체하거나, prelude는
   thunk로 만들어 of_spec에서 mode 설정 후 평가.
