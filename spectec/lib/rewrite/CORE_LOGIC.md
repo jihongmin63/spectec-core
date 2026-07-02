@@ -159,11 +159,87 @@ int 항에 절대 매치 안 됨. `native_replaced_heads`(골격에 유지)가 M
 
 ### 3.7 반복 (iterations)
 
-- **`IterE` 값 위치** → `$itermap` helper(요소 타입을 심볼에 포함해 같은 notation의 두
-  타입이 한 helper로 collapse되는 것 방지). **binder 위치** → 새 binder + `$unzip` 조건.
-- **`IterPr`** → 아무 것도 안 묶으면 `$iterall` 술어; relation 호출 하나를 반복하면
-  `$iterapply` map(출력 1개면 스트림 직접, 여러 개면 `$iterproj`); 그 외 바인딩 전제는
-  출력별 `$itercollect`.
+CTRS에는 바인더/컴프리헨션이 없으므로 IL의 반복(`*`/`?`)은 전부 **이름 붙은 1차
+재귀 헬퍼**로 컴파일된다. 헬퍼 이름은 내부 전제/본문의 프린트 문자열 + iter 종류 +
+bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복은 헬퍼를 공유하고
+(`Helper_defs`가 심볼로 dedup), `*`는 `nil`/`cons`, `?`는 `none`/`some` 변형을 가진다.
+
+기반 개념 — `iter_split`이 반복 변수를 둘로 나눈다: **bound**(이미 값이 있는 입력
+스트림; 반복이 걷는 spine이 되고, 여러 개면 lockstep으로 동시 cons 매칭) vs
+**binding**(스텝마다 생산되어 리스트로 수집되는 출력). 루프-불변 자유변수(fvs)는
+선두 인자로 스레딩된다.
+
+**`IterPr`(반복 전제) → 3분기** (`conds_of_prem`의 dispatch; 헬퍼 규칙 생성은
+`iterpr_defs`):
+
+- **`$iterall`** — binding이 없을 때(순수 검사). "모든 원소에서 전제 성립"을 재귀로:
+
+  ```
+  $iterall(fvs, nil, nil)               = true
+  $iterall(fvs, cons(a,as), cons(b,bs)) = $iterall(fvs, as, bs)   if <원소 전제>
+  ```
+
+  사용처 조건은 `$iterall(..) = true`. 예: `(Type_alpha: field_a ~~ field_b)*`
+  (무출력 relation은 모든 인자가 bound → 이 갈래). cons-스텝이 **조건부라 partial**:
+  원소 하나가 실패하면 false가 아니라 **stuck**.
+- **`$iterapply`** — 내부가 **단일 relation call**이고 수집 변수가 정확히 그 call의
+  출력일 때(`iter_call_map` — "map" 케이스). 조건 없이 call을 spine에 map:
+
+  ```
+  $iterapply(fvs, nil)        = nil
+  $iterapply(fvs, cons(x,xs)) = cons(R(..x..), $iterapply(fvs, xs))
+  ```
+
+  사용처 조건은 `($iterapply(ins), out*)` — 출력 스트림이 통째로 바인딩된다.
+- **`$iterproj`** — `$iterapply`의 짝: call 출력이 2개 이상이면 map 결과가 튜플
+  스트림이므로 출력 변수마다 성분 추출 헬퍼를 붙인다:
+
+  ```
+  $iterproj_b(cons(tuple(a_h, b_h), rest)) = cons(b_h, $iterproj_b(rest))
+  ```
+
+  조건은 출력 b마다 `($iterproj_b($iterapply(ins)), b*)`.
+- **`$itercollect`** — 일반 fallback(내부가 단일 call 모양이 아닌데 수집이 있을 때).
+  수집 변수 b **하나당 헬퍼 하나**, 각각 같은 내부 조건을 달고 재귀(중복 평가를
+  감수한 단순 설계):
+
+  ```
+  $itercollect_b(fvs, cons(x,xs)) = cons(b_h, $itercollect_b(fvs, xs))   if <원소 전제>
+  ```
+
+  `$iterall`처럼 조건부 스텝 → partial.
+
+**`IterE`(반복 식)** 는 위치에 따라:
+
+- **값 위치** → `$itermap` helper(성분 스트림들 → 구조 리스트; 요소 타입을 심볼에
+  포함해 같은 notation의 두 타입이 한 helper로 collapse되는 것 방지).
+- **binder(패턴) 위치** → **`$unzip`**. CTRS LHS는 생성자만 허용하므로 구조를 가진
+  반복 본문(예: head 인자 `(typeId typeIR)*` — 쌍의 리스트)은 패턴이 될 수 없다.
+  `pattern_of_exp`가 컬렉션 전체를 신선한 `iterbind_N`으로 받고, 공동-반복 변수
+  v마다 성분 스트림을 복원하는 조건을 단다:
+
+  ```
+  head 패턴:  … iterbind_0 …
+  조건:       ($unzip_id(iterbind_0), typeId*) /\ ($unzip_t(iterbind_0), typeIR*)
+
+  $unzip_v(fvs, cons(<원소패턴>, rest)) = cons(v_h, $unzip_v(fvs, rest))
+  ```
+
+  원소가 `<원소패턴>`에 안 맞으면 stuck(refutable), 캡처 fvs가 원소 안에서 매칭되면
+  비좌선형. `$itermap`의 역방향.
+
+| 헬퍼 | 트리거 | 성격 | total? |
+|---|---|---|---|
+| `$iterall` | IterPr, 수집 없음 | 전 원소 검사 → `true` | ✗ (실패=stuck) |
+| `$iterapply` | IterPr, 단일 rel call = 수집 | call을 map, 출력 스트림 반환 | call만큼 |
+| `$iterproj` | ↑에서 출력 여러 개 | 튜플 스트림 성분 추출 | ✓ (형태 맞으면) |
+| `$itercollect` | IterPr, 일반 수집 | 변수별 조건부 수집 재귀 | ✗ |
+| `$itermap` | IterE 값 위치 | 성분 스트림들 → 구조 리스트 | ✓ (형태 맞으면) |
+| `$unzip` | IterE 패턴 위치 | 구조 리스트 → 성분 스트림 복원 | ✗ (shape refutable) |
+
+partial(✗) 헬퍼들의 "실패=stuck" 거동은 실행 표면에선 의도된 것이지만, 분석
+표면의 owise/negation 반사에서는 total boolean 짝(`and`-fold + 길이 불일치
+`false`)이 필요해지는 지점이다 — §7과 [todo.md](todo.md)의 negation 스토리 참조.
 - **iteration-binder-scope 규율(핵심 버그원).** substitution이 *다른* 반복이 묶은
   요소 변수를 끌고 들어오면 안 됨 — `Simplify.subst_prem`이 `elem_bound`(블록 내 어떤
   반복이든 묶은 요소 변수, `iter_binders_prem`)를 스레딩해 그런 pair를 보류
