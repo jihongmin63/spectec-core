@@ -280,7 +280,7 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       |---|---|---|---|
       | `$is_lpm_key'` (p4, 가드 포함 3규칙) | **YES** | **YES** | drop_owise가 규칙을 빼고 얻던 YES를 **충실 인코딩으로 재현** |
       | `$join_ctk` (p4) | MAYBE | YES | 예측대로 — 잔여 쌍은 owise가 아니라 **형제끼리** 같은-subject 다른-matcher(B의 몫: discriminator fold) |
-      | `$lookup` (impty, 18규칙) | TIMEOUT@600s | — | eq 폭증 아님(슬라이스 정상) — 조건부 unzip/itermap 헬퍼 쌍의 CRC 비용 + 환경 저하; 1800s 재측정 중 |
+      | `$lookup` (impty, 18규칙) | TIMEOUT@1800s | — | eq 폭증 아님(슬라이스 정상). 3규칙이 4분 걸리는 현 환경에서 조건부(unzip/itermap) 18규칙 슬라이스의 CRC 비용으로 추정 — 단, 현 환경 기준선이 없어(7/1의 YES는 빠른 환경 + drop_owise 측정) 미확정. 환경 복구 후 drop_owise 대조와 함께 재측정할 것 |
       150-슬라이스 재-sweep은 환경 복구 후(심볼당 4분+ 현재로는 ~10시간) 진행할 것.
       게이트의 안전성상 어떤 결과든 false YES는 불가(반사 가드는 discharge를
       돕기만 하고, 실패 시 보수적 MAYBE).
