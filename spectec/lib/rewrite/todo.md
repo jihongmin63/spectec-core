@@ -236,13 +236,16 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       `$flatten(CONST)=some(CONST)` — head 서로소 → 임계쌍 소멸). totality가 이
       폴드의 건전성 근거. (B) 구현 시 match-discriminator와 subty-discriminator를
       함께 다룰 것.
-  - [ ] **subty false-보완의 실행 무회귀 표본 (미실행 — 의도적 보류).** false-보완은
-    of_spec 공통이라 실행 Maude 모듈에도 5,425 eq가 추가됐다(의미상 To_maude owise
-    complement가 주던 값과 동일해 무해 예상이지만 실측 미확인). negated `<:` 경로
-    (casting/wellformed)를 지나는 p4 파일을 포함해 ~50개 배치로
-    `run --p4 … --check-p4` (Phase B verdict + Phase D 결과-VALUE 일치)를 serial로
-    확인할 것. impty 실행은 확인됨(skip/arith/assign 정상). 모듈이 커진 만큼
-    metaReduce 1회 내부화 비용 증가도 함께 측정.
+  - [x] **subty false-보완의 실행 무회귀 표본 (확인 완료 2026-07-02).** suite 균등
+    추출 47 + casting-heavy(cast-call/issue447-2-bmv2/key-bmv2) = **49개 표본,
+    13개 단위 serial 배치 4회, 49/49 `result: MATCH`** (Phase B verdict + Phase D
+    결과-VALUE 일치; MISMATCH/FAIL/TIMEOUT 0). impty 실행도 8/8 정상
+    (skip/arith/assign/bool_ops/hello/ite/loop/shadow). 내부화 비용은 배치당
+    ~60s(13파일, 5,425 eq 추가 후; 느려진 환경 기준)로 상각 유지. 같은 검증에서
+    **stale 실행 골든 발견·재생성**: `impty/base/spec.maude`가 matcher-sort 협소화
+    (48e59d5f)와 subty 보완(5a406ccc)을 반영하지 않은 채 남아 있었다 — diff는
+    정확히 그 두 변경(match-* 34줄 sort 변경 + subty-* 11줄 추가)뿐임을 분류 확인
+    후 재생성.
   - [x] **prelude 산술 overlap 해소(완료).** `mod`/`div`/`mod_int`/`div_int`은
     `= A if lt(x,y)=true` + `= B if leq(y,x)=true`처럼 보집합 가드를 *다른 술어*로
     적어 CRC가 동시 불가를 못 보고 `x = mod(sub(x,y),y) if lt(x,y)=true /\ leq(y,x)=true`
