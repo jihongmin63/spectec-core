@@ -308,6 +308,15 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   [tools/mfe/README.md](../../tools/mfe/README.md). 남은 일: tractable 150 슬라이스
   Z3 sweep으로 CRC 표 옆 termination 열 채우기(작은/중간=verdict, 산술=MAYBE/TIMEOUT).
 - [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
+- **⛔ `$iterproj` 제거(수집 헬퍼 통일 1단계) — 보류, 정합성 벽 (2026-07-02).**
+  다중 출력 iterated relation을 "출력별 무조건 map"으로 바꾸려던 안은 **gensym과
+  충돌**한다: p4의 multi-output `$iterapply` 3개(`TableEntry_ok`,
+  `Type_ok/block` ×2 — 출력에 fresh `typeId'` 포함)가 전부 state-thread돼 있어,
+  출력별 map이 각자 relation을 재호출하면 **fresh 이름 발급이 map마다 갈라져**
+  인터프리터와 divergence가 난다(성능이 아니라 정합성 문제). 단일 호출 + 순수
+  스트림 projection(현 `$iterapply`+`$iterproj`)이 효과적 다중 출력의 올바른
+  형태라 유지. 후속 `$itercollect`-only 통일(4e00da94 revert)도 같은 벽 —
+  effectful 반복은 원소당 1회 호출 구조가 불변식임을 전제로 재설계해야 함.
 
 ## M2 — 실행 (Maude)
 
