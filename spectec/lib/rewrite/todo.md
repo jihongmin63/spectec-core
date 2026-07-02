@@ -267,8 +267,19 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       ambiguous matcher 1. `drop_owise`는 이 잔여분 fallback으로 유지.
     - 실행 표면 byte-identical; support(match/proj) 규칙은 prune 이후라 필요 시
       재생성(트랜잭션, 미사용 필터). `holds_*`는 BoolV 시그니처(Maude_sorts).
-    - MFE 재검: 느려진 환경(심볼당 4분+)에서 진행 중 — `$is_lpm_key'` 420s
-      TIMEOUT 후 900s 재시도 중; 결과로 본 표 갱신할 것.
+    - **가드 등호는 `eqg` (a7d85f94) — 구조적 `eq` 금지.** 가드에 `eq` 하나만
+      넣어도 head-기반 slice가 전 타입 eq 패밀리(47,213규칙)를 끌어와
+      `$is_lpm_key'` 슬라이스가 4→47,217규칙으로 폭증, CRC가 어떤 timeout으로도
+      안 끝났다(div_int 교훈의 재발). CRC가 필요로 하는 건 대각뿐 — 임계쌍
+      unifier 아래서 형제 가설이 양변을 문자 그대로 같은 항으로 재작성하므로
+      (ground 리터럴/비선형 재출현/`t = t'` 모두) 비선형 규칙 하나
+      `eqg(x, x) = true`로 전부 접힌다. 대각 밖 stuck = 보수적 MAYBE(false YES
+      불가). 슬라이스 3규칙 복귀.
+    - **MFE 실측 (2026-07-02, timeout 600s):** `$is_lpm_key'` = **CRC YES /
+      ChC YES** — 반사된 owise 가드가 **포함된 채로** YES (drop_owise가 규칙을
+      빼고 얻던 결과를 충실 인코딩으로 재현). 추가 스팟체크(`$lookup`(impty)·
+      `$join_ctk`) 및 150-슬라이스 재-sweep은 느려진 환경(심볼당 4분+)에서 순차
+      진행 — 표 갱신 예정.
   - [ ] **owise 반사 확장 — 출력 relation "성공 반사" + 수집형 IterPr (한 확장).**
     reflect 게이트가 skip한 심볼(stderr 집계 목록 참조)을 열기 위한 후속.
     두 케이스는 동일한 확장 하나다: `all_R?` = 원소별 `R_succeeds?`의 fold.
