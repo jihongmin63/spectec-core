@@ -178,8 +178,12 @@ let iter_map_sym (body : exp) (iter : iter) (n_lists : int) : string =
 (* Subtype predicate. [SubE] (`e <: T`) is a boolean term that dispatches on the
    target type and recurses. Scalars decide directly; a named type defers to its
    [subty_<T>] helper ([defs_of_typ]); tuples and iterations defer to structural
-   [subty_tup]/[subty_list]/[subty_opt] helpers ([sub_helper_defs]). Positive use
-   only: a non-member reduces to no rule (irreducible). *)
+   [subty_tup]/[subty_list]/[subty_opt] helpers ([sub_helper_defs]). The
+   predicate is TOTAL over each use site's subject type: [defs_of_typ] decides
+   the members, and [sub_helper_defs]' usage-based false-completion decides the
+   non-members, mirroring the interpreter's total-boolean [subtyp]
+   (interp/eval_il/interp.ml) -- so negated uses reduce instead of getting
+   stuck. *)
 
 (* A structural-subtype helper symbol: the shape tag plus the type's
    pretty-printed descriptor, bounded the same way as [iter_helper_sym]'s. *)
@@ -194,7 +198,12 @@ let subty_opt_sym (elem : typ') : string = subty_helper_sym "opt" elem
 let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
   match t with
   | NumT `NatT -> app_t "sub_nat" [ x ]
-  (* int, bool, text, func: the static type already guarantees membership. *)
+  (* int, bool, text, func: the static type already guarantees membership.
+     This matches the interpreter's [subtyp] exactly: int accepts every
+     number, bool/text accept their own sort, and only nat needs a runtime
+     test (a negative int is not a nat -- [sub_nat]). Undefined type
+     parameters (the [VarT]-without-[TypD] branch of [sub_helper_defs]) are
+     trivially true there too. *)
   | NumT _ | BoolT | TextT | FuncT -> bool_t ~scalars true
   | VarT { synid; _ } -> app_t (subty_sym synid.it) [ x ]
   | TupleT ts -> app_t (subty_tup_sym ts) [ x ]
@@ -433,6 +442,36 @@ let case_ctor (spec : spec) (name : string) (case_sym : string) :
       | _ -> None)
     spec
 
+(* The typcases of variant type [name] in [spec]; [None] when [name] is
+   undefined or not a variant. *)
+let typcases_of (spec : spec) (name : string) : typcase list option =
+  List.find_map
+    (fun (d : def) ->
+      match d.it with
+      | TypD { synid; deftyp = { it = VariantT tcs; _ }; _ }
+        when synid.it = name ->
+          Some tcs
+      | _ -> None)
+    spec
+
+(* Unwrap plain-alias chains ([syntax T = U]) down to the underlying type. *)
+let rec unalias (spec : spec) (t : typ') : typ' =
+  match t with
+  | VarT { synid = tid; _ } -> (
+      match
+        List.find_map
+          (fun (d : def) ->
+            match d.it with
+            | TypD { synid; deftyp = { it = PlainT u; _ }; _ }
+              when synid.it = tid.it ->
+                Some u.it
+            | _ -> None)
+          spec
+      with
+      | Some u -> unalias spec u
+      | None -> t)
+  | _ -> t
+
 (* Definition rules contributed by one [TypD]. For a variant type [T]:
    - matcher: [match_<T>_<Ci>] is [true] on [Ci]'s constructor, [false] on every
      sibling;
@@ -529,7 +568,15 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
           (eq_t (app_t (struct_sym t) xs) (app_t (struct_sym t) ys))
           (conj_t ~scalars (List.map2 eq_t xs ys))
       in
-      (* structs are invariant: any value of the type is trivially a subtype. *)
+      (* Structs are invariant in SpecTec, so the membership check is trivially
+         true -- the interpreter's [subtyp] has no struct case at all (its
+         catch-all answers [true]; see the invariance note in
+         interp/eval_il/interp.ml) because the elaborator guarantees a
+         struct-typed subject already has exactly this type. No width/depth
+         checking is intended. We keep the LHS keyed on [struct_<t>] rather
+         than a bare variable: a well-typed subject always matches, and an
+         ill-typed one (a translation bug) stays visibly stuck instead of
+         being absorbed to [true]. *)
       let subty_rule =
         rule
           (app_t (subty_sym t) [ app_t (struct_sym t) (fresh_vars n) ])
@@ -1084,6 +1131,89 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
     (List.concat_map blocks_of_def simplified);
   Helper_defs.rules defs
 
+(* The usage-based false-completion that makes [subty_<T>] total. At every
+   [SubE (e, T)] site the subject's static type [S = e.note] bounds the
+   constructors that can reach [subty_<T>], so a [-> false] rule per case of
+   [S] not in [T] decides every non-member; [defs_of_typ]'s member rules decide
+   the rest, so the predicate reduces on the whole reachable domain -- the same
+   total-boolean semantics as the interpreter's [subtyp]
+   (interp/eval_il/interp.ml), which is what negated uses
+   ([~(e <: T)] -> [not(subty_<T>(e))]) need to reduce.
+
+   Case identity is origin + mixop + arity (the [variant_sym] keying), so the
+   super-variant's constructors pattern-match directly. Aliases are unwrapped
+   on both sides; tuple/list/option pairs co-descend into their element types
+   (the structural helpers recurse elementwise, so the element predicate needs
+   its complement too). Deduplicated per (predicate, constructor). *)
+let sub_complement_defs ~scalars (orig : spec) (simplified : spec) : R.rule list
+    =
+  let seen = Hashtbl.create 64 in
+  let rec complement (target : typ') (subject : typ') : R.rule list =
+    match (unalias orig target, unalias orig subject) with
+    | VarT { synid = tid; _ }, VarT { synid = sid; _ } when tid.it <> sid.it
+      -> (
+        match (typcases_of orig tid.it, typcases_of orig sid.it) with
+        | Some tcs, Some scs ->
+            let t_infos = List.map case_info_of_typcase tcs in
+            List.concat_map
+              (fun sc ->
+                let ci = case_info_of_typcase sc in
+                if List.mem ci t_infos then []
+                else (
+                  (* The interpreter keys membership on the notation alone; we
+                     key on origin too. Flag a non-member whose notation
+                     collides with a member's under another origin, where the
+                     two keyings could part ways. *)
+                  if
+                    List.exists
+                      (fun ti ->
+                        ti.mixop = ci.mixop && ti.arity = ci.arity
+                        && ti.origin <> ci.origin)
+                      t_infos
+                  then
+                    Printf.eprintf
+                      "warning: subty complement %s: non-member case %s of %s \
+                       shares its notation with a member case under a \
+                       different origin\n"
+                      tid.it
+                      (variant_sym ci.origin ci.mixop)
+                      sid.it;
+                  let key =
+                    (subty_sym tid.it, variant_sym ci.origin ci.mixop)
+                  in
+                  if Hashtbl.mem seen key then []
+                  else (
+                    Hashtbl.add seen key ();
+                    [
+                      rule
+                        (app_t (subty_sym tid.it)
+                           [
+                             variant_t ci.origin ci.mixop (fresh_vars ci.arity);
+                           ])
+                        (bool_t ~scalars false);
+                    ])))
+              scs
+        | _ -> [])
+    | TupleT ts, TupleT ss when List.length ts = List.length ss ->
+        List.concat
+          (List.map2 (fun (t : typ) (s : typ) -> complement t.it s.it) ts ss)
+    | IterT { typ = te; iter = List }, IterT { typ = se; iter = List }
+    | IterT { typ = te; iter = Opt }, IterT { typ = se; iter = Opt } ->
+        complement te.it se.it
+    | _ -> []
+  in
+  let rec of_exp (e : exp) : R.rule list =
+    (match e.it with SubE (e1, t) -> complement t.it e1.note | _ -> [])
+    @ List.concat_map of_exp (Exp_map.subexps e.it)
+  in
+  let of_prem (p : prem) : R.rule list =
+    List.concat_map of_exp (Exp_map.exps_of_prem p)
+  in
+  List.concat_map
+    (fun (exps, prems) ->
+      List.concat_map of_exp exps @ List.concat_map of_prem prems)
+    (List.concat_map blocks_of_def simplified)
+
 (* -------------------------------------------------------------------------- *)
 (* Spec body rules. *)
 
@@ -1174,7 +1304,10 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
   in
   let body_rules = List.concat_map (rules_of_def ~scalars orig) simplified in
   let iter_rules = iter_helper_defs ~scalars orig simplified in
-  let sub_rules = sub_helper_defs ~scalars orig simplified in
+  let sub_rules =
+    sub_helper_defs ~scalars orig simplified
+    @ sub_complement_defs ~scalars orig simplified
+  in
   (* [extra_defs] (builtin rules) can introduce text bytes of their own, so scan
      them too, or a produced text could meet a [chr] with no equality rule. *)
   let char_rules =
