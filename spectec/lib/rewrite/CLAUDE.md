@@ -89,6 +89,7 @@ un-simplified form.
 | [builtin.ml](translate/builtin.ml) / [.mli](translate/builtin.mli) | Backend-local CTRS rules for P4's collection builtins (map/set/list/text) that `BuiltinDecD` declares but `To_ctrs` emits no rules for; fed to `of_spec` as `extra_defs`. |
 | [gensym.ml](translate/gensym.ml) / [.mli](translate/gensym.mli) | Make the stateful gensym (`$fresh_typeId`/p4-old `$fresh_tid`) pure by state threading: every fresh-reaching symbol gains a trailing state argument and a `tuple(result, state')` result; issuing appends a prime to the last issued name (seed `"FRESH"` → `FRESH'`, `FRESH''`, …). Runs last in `ctrs_of_spec`; identity on gensym-free specs (impty golden untouched). |
 | [defunctionalize.ml](translate/defunctionalize.ml) / [.mli](translate/defunctionalize.mli) | Specialize away `def`-valued arguments (`DefP`/`DefA`): each call `$f(args, def $g)` → a generated first-order copy `$f_$g` with `$check := $g` substituted through the template's clauses (worklist closure over recursion/chained templates; templates removed; no `DefA` may survive). Runs FIRST in `ctrs_of_spec`; identity without `DefP` (impty). |
+| [reflect.ml](translate/reflect.ml) / [.mli](translate/reflect.mli) | **Analysis-only owise/judgment reflection** (last `ctrs_of_spec` pass): replaces each reflectable `[owise]` marker with the explicit `or(g_1..g_k) = false` sibling-applicability guard, generates `holds_<R>`/`holds_$iterall..` total-boolean reflections for negated/owise-relevant no-output judgments and respells their conditions, so the MFE CRC discharges owise/negation critical pairs by hypothesis rewriting. Gated symbols keep `owise` (→ `Mfe`'s `drop_owise` fallback) with stderr reasons. Execution surface untouched. |
 | [to_maude.ml](maude/to_maude.ml) / [.mli](maude/to_maude.mli) | **Execution Maude backend**: emit the native-theory system as an executable order-sorted Maude module (sort recovery via `Maude_sorts`, op declarations, eq/rl printing, the built-in delegation equations, `isStuckHead`/owise totalization), plus the **META-TERM start-term encoding** (`print_meta_term`/`meta_term_of_value`/`meta_start_app`) the reflective `metaReduce` path runs. |
 | [of_maude.ml](maude/of_maude.ml) / [.mli](maude/of_maude.mli) | **Reverse of the start-term encoder**: parse a Maude object normal form (`To_maude` vocabulary) back into a {!Lang.Il.value} via a forward table read off the spec (the sanitizing `variant_sym`/`struct_sym` spelling is lossy). `values_of_result` strips the gensym `tuple(result, state)` wrapper; `canonicalize` (applied to BOTH sides) renames `FRESH…` leaves so the two gensym models compare equal AND sorts each `map<K,V>`'s entries by `Value.compare` on the key (a map is unordered: interp renders it `VMap.bindings`-sorted, the translation insertion-ordered). Powers the result-VALUE oracle (`run --check-p4`, Phase D below). |
 | [maude_run.ml](maude/maude_run.ml) / [.mli](maude/maude_run.mli) | Execution bridge: run an emitted module on a **META-TERM** start term with a local `maude` binary, reflectively (`metaReduce`/`metaRewrite`/`metaSearch` via a `META-LEVEL`-importing wrapper module), `downTerm` the result back to object syntax, parse the normal form, flag stuck heads. `run` does one start; `run_batch` runs a list of starts in **one** Maude invocation (sentinel-delimited per-start output) so the reflected module is internalized once for the whole batch — eliminating the per-program start-term parse (the old dominant cost; see the performance section). |
@@ -311,6 +312,24 @@ guard the CRC uses and expose the clause's owise overlap (an aggressive variant
 regressed 6 impty symbols YES→MAYBE). Result: no regression; **19 of the 33 p4
 MAYBEs flip to YES** (the output + accessor classes, incl. iteration). The
 remaining 14 are cause (2) owise + a few multi-clause symbols.
+
+Cause (2) is fixed by `Reflect.owise` ([translate/reflect.ml](translate/reflect.ml),
+2026-07-02), the last `ctrs_of_spec` pass (also analysis-only): each reflectable
+`[owise]` rule's marker becomes the explicit condition `or(g_1..g_k) = false`
+over the preceding siblings' applicability (total boolean guards built from the
+TRANSLATED sibling patterns/conditions — matchers + payload projections behind
+short-circuit `and` — so the guard reduces to the sibling's own condition
+subjects under a critical-pair unifier; the MFE CRC discharges conditions by
+hypothesis rewriting, not constructor narrowing, so this same-subject alignment
+is load-bearing). The same pass reflects **negated judgments**: a no-output
+judgment `R` used under negation (`Type_alpha:/`, previously an unsatisfiable
+dead clause) or in an owise sibling gains `holds_R(xs) = or(g_1..g_n)` — one
+unconditional rule, no new critical pairs — and every `R(in) = true/false`
+condition is respelled over `holds_R` (positive uses too, for alignment);
+no-binding `IterPr` helpers get a totalized and-fold `holds_$iterall..`.
+Unreflectable symbols (collecting iteration helpers, gensym-threaded `$subst_*`)
+keep the flag and fall back to `Mfe.check`'s `drop_owise`. p4: 51/72 owise rules
+reflected, `Type_alpha`/`ParameterType_alpha` + 15 iterall helpers reflected.
 
 ## External tool bridges
 

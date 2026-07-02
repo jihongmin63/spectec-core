@@ -246,6 +246,49 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     (48e59d5f)와 subty 보완(5a406ccc)을 반영하지 않은 채 남아 있었다 — diff는
     정확히 그 두 변경(match-* 34줄 sort 변경 + subty-* 11줄 추가)뿐임을 분류 확인
     후 재생성.
+  - [x] **owise 반사 + judgment 반사 (구현 완료 2026-07-02, 커밋 752c82f8 — (A) drop을
+    충실 인코딩으로 대체).** 분석 전용 `ctrs_of_spec` 최종 패스
+    [translate/reflect.ml](translate/reflect.ml). MFE CRC의 실측 메커니즘(조건을
+    가설로 서로 재작성, 생성자 narrowing 없음 — 미니모듈 T1–T5로 검증)에 맞춰:
+    - **owise**: 반사 가능한 owise 절의 조건에 `or(g_1..g_k) = false`(선행 형제
+      적용가능성의 or) 추가 + owise 플래그 클리어. g는 형제의 **번역된** head
+      패턴(match/proj, 단락 `and` 뒤)과 조건에서 구성 — 같은-subject 정렬이
+      가설 접힘의 전제. p4 **51/72 반사**, impty `$lookup` 반사(골든 재생성).
+    - **judgment 반사**: 부정되거나 owise 형제에 나오는 무출력 judgment R에
+      `holds_R(xs) = or(g_1..g_n)` **무조건 규칙 1개**(임계쌍 0) 생성, 시스템
+      전체에서 `R(in)=true/false` 조건을 `holds_R`로 재철자(양성 포함 — CRC에겐
+      R과 holds_R이 무관 심볼이라 통일해야 정렬; 무출력 R의 자기 규칙은 전부
+      RHS true라 검증력 손실 없음). no-binding IterPr은 totalized and-fold
+      `holds_$iterall..`(+길이불일치 false). p4: `Type_alpha`·`ParameterType_alpha`
+      + iterall 15개; **`Type_alpha:/` 죽은 절 8개가 충족 가능해짐**.
+    - 잔여 21 kept(게이트, stderr 사유 로그): 수집형 iteration 헬퍼
+      (`$itercollect`/`$iterapply` — 아래 후속 확장; `Cast_impl_neq`→`Cast_impl`→
+      `$cast_unary`/`$cast_binary`가 이 체인에 막힘), gensym-threaded `$subst_*` 5,
+      ambiguous matcher 1. `drop_owise`는 이 잔여분 fallback으로 유지.
+    - 실행 표면 byte-identical; support(match/proj) 규칙은 prune 이후라 필요 시
+      재생성(트랜잭션, 미사용 필터). `holds_*`는 BoolV 시그니처(Maude_sorts).
+    - MFE 재검: 느려진 환경(심볼당 4분+)에서 진행 중 — `$is_lpm_key'` 420s
+      TIMEOUT 후 900s 재시도 중; 결과로 본 표 갱신할 것.
+  - [ ] **owise 반사 확장 — 출력 relation "성공 반사" + 수집형 IterPr (한 확장).**
+    reflect 게이트가 skip한 심볼(stderr 집계 목록 참조)을 열기 위한 후속.
+    두 케이스는 동일한 확장 하나다: `all_R?` = 원소별 `R_succeeds?`의 fold.
+    - **성공 반사**: input-moded relation은 출력이 있어도 성공 여부(∃out)가
+      입력만의 boolean → `R_succeeds?(in) = or(g_1…g_n)` (무출력 R?와 같은
+      스킴). g 구성 추가 규칙: 절 안의 출력 바인딩 전제 `R'(in') = ⟨패턴⟩` →
+      `and(R'_succeeds?(in'), match_⟨패턴⟩(R'(in')), …)`, 바인딩 변수의 후속
+      사용처는 호출 항 `R'(in')`/`proj_tuple_i(R'(in'))`로 인라인(성공 가드
+      뒤라 `and(false,·)=false` 단락으로 stuck 안전). 결정성 가정 = 분석 표면
+      기존 가정(CRC가 검증하는 성질). **주의**: to_maude의 "출력 relation 보완
+      금지"는 R 자체 totalize(실패=값 → stuck 전파 붕괴) 이야기 —
+      `R_succeeds?`는 별도 심볼이라 R은 partial 유지, 해당 제약 무관.
+    - **수집형 IterPr**: `(R: in ~ out)*` 수집의 적용가능성 =
+      `all_R?(ins)`(성공 반사 fold) + 수집 스트림은 `$iterapply(ins)` **항**으로
+      가드에 인라인. **정렬 필수 조건**: 양성 sibling에도 `all_R?(ins) = true`
+      잉여 조건을 추가해야 CRC 가설이 정렬됨(sibling 조건엔 원래 all_R?가
+      없어서 가설 없음 → or-가드 안 접힘; `$iterapply(ins) = outs` 가설만으론
+      부족). `$itercollect`/`$unzip`도 같은 레시피(성공? fold + 항 인라인).
+    - 검증: reflect 게이트 집계에서 열리는 심볼 수 확인 → 해당 슬라이스
+      per-symbol CRC, 기존-YES 무회귀, 골든 재생성.
   - [x] **prelude 산술 overlap 해소(완료).** `mod`/`div`/`mod_int`/`div_int`은
     `= A if lt(x,y)=true` + `= B if leq(y,x)=true`처럼 보집합 가드를 *다른 술어*로
     적어 CRC가 동시 불가를 못 보고 `x = mod(sub(x,y),y) if lt(x,y)=true /\ leq(y,x)=true`
