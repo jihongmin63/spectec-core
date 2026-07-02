@@ -179,6 +179,17 @@ set include BOOL off .
   eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
   eq $unzip-K-t-minus-gt-V-t-list-K-t(nil) = nil .
   eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  eq subty-literal(variant-id-ID-1(x0:Text)) = false .
+  eq subty-literal(variant-expr-bang-1(x0:Expr)) = false .
+  eq subty-literal(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
+  eq subty-literal(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
+  eq subty-literal(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
+  eq subty-id(variant-literal-NUM-1(x0:IntV)) = false .
+  eq subty-id(variant-literal-BOOL-1(x0:BoolV)) = false .
+  eq subty-id(variant-expr-bang-1(x0:Expr)) = false .
+  eq subty-id(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
+  eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
+  eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = true .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:Val /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:Val .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) [owise] .
