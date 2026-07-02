@@ -275,11 +275,15 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       (ground 리터럴/비선형 재출현/`t = t'` 모두) 비선형 규칙 하나
       `eqg(x, x) = true`로 전부 접힌다. 대각 밖 stuck = 보수적 MAYBE(false YES
       불가). 슬라이스 3규칙 복귀.
-    - **MFE 실측 (2026-07-02, timeout 600s):** `$is_lpm_key'` = **CRC YES /
-      ChC YES** — 반사된 owise 가드가 **포함된 채로** YES (drop_owise가 규칙을
-      빼고 얻던 결과를 충실 인코딩으로 재현). 추가 스팟체크(`$lookup`(impty)·
-      `$join_ctk`) 및 150-슬라이스 재-sweep은 느려진 환경(심볼당 4분+)에서 순차
-      진행 — 표 갱신 예정.
+    - **MFE 실측 (2026-07-02, timeout 600s, 느려진 환경):**
+      | symbol | CRC | ChC | 비고 |
+      |---|---|---|---|
+      | `$is_lpm_key'` (p4, 가드 포함 3규칙) | **YES** | **YES** | drop_owise가 규칙을 빼고 얻던 YES를 **충실 인코딩으로 재현** |
+      | `$join_ctk` (p4) | MAYBE | YES | 예측대로 — 잔여 쌍은 owise가 아니라 **형제끼리** 같은-subject 다른-matcher(B의 몫: discriminator fold) |
+      | `$lookup` (impty, 18규칙) | TIMEOUT@600s | — | eq 폭증 아님(슬라이스 정상) — 조건부 unzip/itermap 헬퍼 쌍의 CRC 비용 + 환경 저하; 1800s 재측정 중 |
+      150-슬라이스 재-sweep은 환경 복구 후(심볼당 4분+ 현재로는 ~10시간) 진행할 것.
+      게이트의 안전성상 어떤 결과든 false YES는 불가(반사 가드는 discharge를
+      돕기만 하고, 실패 시 보수적 MAYBE).
   - [ ] **owise 반사 확장 — 출력 relation "성공 반사" + 수집형 IterPr (한 확장).**
     reflect 게이트가 skip한 심볼(stderr 집계 목록 참조)을 열기 위한 후속.
     두 케이스는 동일한 확장 하나다: `all_R?` = 원소별 `R_succeeds?`의 fold.
