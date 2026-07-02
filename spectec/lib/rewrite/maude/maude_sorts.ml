@@ -245,9 +245,10 @@ let recover (scalars : scalar_theory) (orig : spec)
 
 (* The signature of [sym] at [arity]: the recovered/prelude one when its arity
    agrees, otherwise a heuristic for the per-type predicates the CTRS derives
-   ([match_<T>_*]/[subty_<T>] decide [BoolV] over a bare-[Val] subject --
-   [subty_<T>] is totalized over [Val], and a generic matcher may see any
-   value), and finally an all-[Val] fallback. (The iteration helpers
+   ([match_<T>_*]/[subty_<T>]/[holds_*] (the {!Reflect} judgment reflections)
+   decide [BoolV] over a bare-[Val] subject -- [subty_<T>] is totalized over
+   [Val], and a generic matcher may see any value), and finally an all-[Val]
+   fallback. (The iteration helpers
    [$itermap]/[$unzip]/[$iterall]/[$itercollect] are intentionally left at [Val]:
    their arg/result sorts vary -- [$iterall] returns a [BoolV], [$itercollect]'s
    spine sort depends on the body -- so a blanket [List] typing was ill-formed
@@ -260,7 +261,7 @@ let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
         String.length sym >= String.length p
         && String.sub sym 0 (String.length p) = p
       in
-      if has "match_" || has "subty_" then
+      if has "match_" || has "subty_" || has "holds_" then
         (List.init arity (fun _ -> val_sort), "BoolV")
       else (List.init arity (fun _ -> val_sort), val_sort)
 

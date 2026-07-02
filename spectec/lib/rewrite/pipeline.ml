@@ -18,30 +18,49 @@
    {!To_ctrs}, pass [spec] as the last argument instead of
    [Simplify.simplify_spec spec]. *)
 
-let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
-    Rewrite_system.t =
+let build_with (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
+    Lang.Il.spec * Rewrite_system.t =
   (* First: specialize away [def]-valued arguments. *)
   let spec = Defunctionalize.defunctionalize spec in
-  To_ctrs.of_spec ~scalars
-    ~extra_defs:(Builtin.rules_of_builtins ~scalars spec)
-    ~orig:spec
-    (Simplify.simplify_spec spec)
-  (* Last: thread the gensym state, so both surfaces see the same pure gensym. *)
-  |> Gensym.thread ~scalars
+  let sys =
+    To_ctrs.of_spec ~scalars
+      ~extra_defs:(Builtin.rules_of_builtins ~scalars spec)
+      ~orig:spec
+      (Simplify.simplify_spec spec)
+    (* Last: thread the gensym state, so both surfaces see the same pure
+       gensym. *)
+    |> Gensym.thread ~scalars
+  in
+  (spec, sys)
+
+let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
+    Rewrite_system.t =
+  snd (build_with scalars spec)
 
 (* Analysis pipeline: self-contained structural scalars, for the MFE
-   (CRC/ChC) confluence/coherence surface. A final
-   {!Rewrite_system.fold_premise_binders} pass folds each premise-bound variable
-   (a relation/function output, or a field a destructuring extracts) back into
-   the rule -- into its rhs or its head pattern -- and drops the guards the fold
-   makes redundant, so the MFE's Church-Rosser checker is not tripped by the
-   spurious critical pairs the single-sort [prod = v] / [v = K(..)] condition
-   rendering of a (deterministic) binding would otherwise raise. Analysis-only:
-   the execution pipeline keeps the binding as a [:=] matching condition. *)
+   (CRC/ChC) confluence/coherence surface, with two analysis-only final
+   passes. {!Rewrite_system.fold_premise_binders} folds each premise-bound
+   variable (a relation/function output, or a field a destructuring extracts)
+   back into the rule -- into its rhs or its head pattern -- and drops the
+   guards the fold makes redundant, so the MFE's Church-Rosser checker is not
+   tripped by the spurious critical pairs the single-sort [prod = v] /
+   [v = K(..)] condition rendering of a (deterministic) binding would
+   otherwise raise. {!Reflect.owise} then replaces each reflectable [owise]
+   rule's marker with the explicit "no earlier sibling applies" guard
+   condition, so the checker discharges the owise/sibling pairs instead of
+   flagging them (the unreflectable remainder keeps its flag for {!Mfe}'s
+   [drop_owise] fallback). The execution pipeline keeps [:=] bindings and the
+   [owise] attribute; it sees neither pass. *)
 let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
-  Rewrite_system.fold_premise_binders
-    ~rule_heads:(To_ctrs.rule_head_syms spec)
-    (build To_ctrs.Structural spec)
+  let dspec, sys = build_with To_ctrs.Structural spec in
+  let sys =
+    Rewrite_system.fold_premise_binders
+      ~rule_heads:(To_ctrs.rule_head_syms spec)
+      sys
+  in
+  Reflect.owise ~scalars:To_ctrs.Structural ~orig:dspec
+    ~effectful:(Gensym.effectful_syms sys)
+    sys
 
 (* Execution pipeline: the DIRECT IL -> Maude path. The native built-in theory
    is the translation target from the start ([~scalars:Native]), so this is NOT
