@@ -261,7 +261,7 @@ let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
         String.length sym >= String.length p
         && String.sub sym 0 (String.length p) = p
       in
-      if has "match_" || has "subty_" || has "holds_" then
+      if has "match_" || has "subty_" || has "holds_" || sym = "eqg" then
         (List.init arity (fun _ -> val_sort), "BoolV")
       else (List.init arity (fun _ -> val_sort), val_sort)
 

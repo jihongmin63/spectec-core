@@ -29,11 +29,13 @@
    - struct and tuple patterns project without a test (single constructor);
    - list/option patterns use the prelude's total [match_cons]/[match_nil]/
      [match_some]/[match_none];
-   - a fully-ground non-variant pattern is one structural [eq] test;
+   - a fully-ground non-variant pattern is one [eqg] test (the reflexive
+     guard equality -- see [eqg_sym] for why the structural [eq] must not
+     appear in a guard);
    - a condition [(l, true)] contributes [l], [(l, false)] contributes
      [not(l)], a binding condition [(l, v)] extends the substitution with
      [v := l], a destructuring [(l, K(ps))] tests the matcher on [l], and any
-     other [(l, r)] becomes [eq(l, r)].
+     other [(l, r)] becomes [eqg(l, r)].
    The prelude's short-circuit booleans ([and(false, y) = false]) make the
    projections safe: a projection only ever sits to the right of the matcher
    that guards it.
@@ -330,6 +332,29 @@ type acc = {
 let push (acc : acc) (t : R.term) : unit = acc.tests <- t :: acc.tests
 let sub_terms (acc : acc) = List.map (fun (v, (t, _)) -> (v, t)) acc.sub
 
+(* The guard equality. NOT the structural [eq]: [eq]'s per-constructor-pair
+   family shares one head, so a single [eq] in a guard would drag the WHOLE
+   family (47k rules on p4) into every slice ({!Rewrite_system.slice} is
+   head-based) and blow the CRC up -- the [div_int] lesson. One reflexive
+   rule is all the checker needs: under a critical-pair unifier the sibling's
+   own condition (hypothesis) rewrites the guard's operands to literally the
+   same term -- a ground literal to itself, a non-linear re-occurrence to its
+   binding, [t = t'] to [eqg(t', t')] -- so [eqg(x, x) = true] collapses the
+   guard. Off the diagonal [eqg] is stuck, which only leaves a pair
+   undischarged (a conservative MAYBE, never a false YES). *)
+let eqg_sym = "eqg"
+let eqg_t (a : R.term) (b : R.term) : R.term = T.app_t eqg_sym [ a; b ]
+
+let ensure_eqg ~scalars (sup : support) : unit =
+  if not (have sup eqg_sym) then
+    emit sup eqg_sym
+      [ T.rule (eqg_t (T.var_t "x") (T.var_t "x")) (T.bool_t ~scalars true) ]
+
+let push_eq ~scalars (sup : support) (acc : acc) (a : R.term) (b : R.term) :
+    unit =
+  ensure_eqg ~scalars sup;
+  push acc (eqg_t a b)
+
 (* The variant type to type a pattern's matcher against: the expected type
    when the spec gives one, else the single type containing the constructor. *)
 let matcher_type (tbl : tables) (et : typ' option) (ctor : string) : string =
@@ -365,7 +390,7 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
   match pat with
   | R.Var v -> (
       match List.assoc_opt v acc.sub with
-      | Some (t0, _) -> push acc (T.eq_t t0 subject) (* non-linear *)
+      | Some (t0, _) -> push_eq ~scalars sup acc t0 subject (* non-linear *)
       | None -> acc.sub <- (v, (subject, et)) :: acc.sub)
   (* A fully-ground non-variant pattern (a text literal, a scalar, a ground
      list/option) is one structural [eq] test -- the prelude's [eq] family
@@ -376,7 +401,7 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
          && (not (Hashtbl.mem tbl.ctor_types c))
          && (not (has_prefix "struct_" c))
          && c <> "tuple" ->
-      push acc (T.eq_t subject pat)
+      push_eq ~scalars sup acc subject pat
   | R.App ("tuple", ps) ->
       let n = List.length ps in
       let comp_ets =
@@ -449,7 +474,7 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
                 ps
           | _ -> raise (Gate (Printf.sprintf "struct shape %s" c)))
       | None ->
-          if ground pat then push acc (T.eq_t subject pat)
+          if ground pat then push_eq ~scalars sup acc subject pat
           else raise (Gate (Printf.sprintf "unrecognized pattern head %s" c)))
 
 (* Reflect one sibling condition [(l, r)] under the running substitution. *)
@@ -479,12 +504,12 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
     match r with
     | R.Var v -> (
         match List.assoc_opt v acc.sub with
-        | Some (t0, _) -> push acc (T.eq_t sl t0)
+        | Some (t0, _) -> push_eq ~scalars sup acc sl t0
         | None ->
             acc.sub <- (v, (sl, type_of_l)) :: acc.sub (* binding condition *))
     | _ when ground r ->
         check_reflectable tbl effectful r;
-        push acc (T.eq_t sl r)
+        push_eq ~scalars sup acc sl r
     | R.App (c, _)
       when not
              (Hashtbl.mem tbl.ctor_types c
@@ -496,7 +521,7 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
         | [] ->
             let sr = subst (sub_terms acc) r in
             check_reflectable tbl effectful sr;
-            push acc (T.eq_t sl sr)
+            push_eq ~scalars sup acc sl sr
         | v :: _ ->
             raise
               (Gate (Printf.sprintf "computed condition binds variable %s" v)))

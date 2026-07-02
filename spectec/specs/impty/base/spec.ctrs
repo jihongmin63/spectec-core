@@ -22,7 +22,7 @@ set include BOOL off .
   op add-int : IntV IntV -> IntV .
   op and : BoolV BoolV -> BoolV .
   op cons : Val List -> List .
-  op eq : Val Val -> BoolV .
+  op eqg : Val Val -> BoolV .
   op false : -> BoolV .
   op int-neg : NatV -> IntV .
   op int-pos : NatV -> IntV .
@@ -196,7 +196,7 @@ set include BOOL off .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = true .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:Val /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:Val .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(match-nil(pair-lt-K-comma-V-gt:List), and(match-cons(pair-lt-K-comma-V-gt:List), eq(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(match-nil(pair-lt-K-comma-V-gt:List), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
   ceq Check-expr(tenv:List, expr:Literal) = variant-type-INT-0 if subty-literal(expr:Literal) = true /\ match-literal-NUM-1(expr:Literal) = true /\ expr:Literal = variant-literal-NUM-1(i:IntV) .
   ceq Check-expr(tenv:List, expr:Literal) = variant-type-BOOL-0 if subty-literal(expr:Literal) = true /\ match-literal-BOOL-1(expr:Literal) = true /\ expr:Literal = variant-literal-BOOL-1(b:BoolV) .
   ceq Check-expr(tenv:List, expr:Expr) = t:Type if subty-id(expr:Expr) = true /\ $lookup(tenv:List, expr:Expr) = type:Opt /\ match-some(type:Opt) = true /\ type:Opt = some(t:Type) .
@@ -230,5 +230,6 @@ set include BOOL off .
   ceq Run-prog(command:Command) = Eval-prog(command:Command) if Check-prog(command:Command) = true .
   eq proj-cons-0(cons(x0:Val, x1:List)) = x0:Val .
   eq proj-variant-pair-minus-gt-2-0(variant-pair-minus-gt-2(x0:Val, x1:Val)) = x0:Val .
+  eq eqg(x:Val, x:Val) = true .
 endm)
 
