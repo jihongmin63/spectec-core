@@ -194,9 +194,9 @@ set include BOOL off .
   eq subty-id(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
   eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = true .
+  eq $lookup(nil, K-query:Val) = none .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:Val /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:Val .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(match-nil(pair-lt-K-comma-V-gt:List), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(eqg(pair-lt-K-comma-V-gt:List, nil), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
   ceq Check-expr(tenv:List, expr:Literal) = variant-type-INT-0 if subty-literal(expr:Literal) = true /\ match-literal-NUM-1(expr:Literal) = true /\ expr:Literal = variant-literal-NUM-1(i:IntV) .
   ceq Check-expr(tenv:List, expr:Literal) = variant-type-BOOL-0 if subty-literal(expr:Literal) = true /\ match-literal-BOOL-1(expr:Literal) = true /\ expr:Literal = variant-literal-BOOL-1(b:BoolV) .
   ceq Check-expr(tenv:List, expr:Expr) = t:Type if subty-id(expr:Expr) = true /\ $lookup(tenv:List, expr:Expr) = type:Opt /\ match-some(type:Opt) = true /\ type:Opt = some(t:Type) .
@@ -204,7 +204,7 @@ set include BOOL off .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-INT-0 if match-expr-plus-2(expr:Expr) = true /\ expr:Expr = variant-expr-plus-2(e-l:Expr, e-r:Expr) /\ match-type-INT-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-INT-0(Check-expr(tenv:List, e-r:Expr)) = true .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if match-expr-lt-eq-2(expr:Expr) = true /\ expr:Expr = variant-expr-lt-eq-2(e-l:Expr, e-r:Expr) /\ match-type-INT-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-INT-0(Check-expr(tenv:List, e-r:Expr)) = true .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if match-expr-amp-amp-2(expr:Expr) = true /\ expr:Expr = variant-expr-amp-amp-2(e-l:Expr, e-r:Expr) /\ match-type-BOOL-0(Check-expr(tenv:List, e-l:Expr)) = true /\ match-type-BOOL-0(Check-expr(tenv:List, e-r:Expr)) = true .
-  ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-SKIP-0(command:Command) = true .
+  eq Check-command(tenv:List, variant-command-SKIP-0) = tenv:List .
   ceq Check-command(tenv:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, t:Type), tenv:List) if match-command-eq-3(command:Command) = true /\ command:Command = variant-command-eq-3(t:Type, x:Id, e:Expr) /\ Check-expr(tenv:List, e:Expr) = t:Type .
   ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-eq-2(command:Command) = true /\ command:Command = variant-command-eq-2(x:Id, e:Expr) /\ $lookup(tenv:List, x:Id) = some(Check-expr(tenv:List, e:Expr)) .
   ceq Check-command(tenv:List, command:Command) = tenv:List if match-command-IF-THEN-ELSE-END-3(command:Command) = true /\ command:Command = variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command) /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true /\ Check-command(tenv:List, c-1:Command) = tenv-1:List /\ Check-command(tenv:List, c-2:Command) = tenv-2:List .
@@ -218,7 +218,7 @@ set include BOOL off .
   ceq Eval-expr(env:List, expr:Expr) = variant-literal-NUM-1(add-int(i-l:IntV, i-r:IntV)) if match-expr-plus-2(expr:Expr) = true /\ expr:Expr = variant-expr-plus-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-NUM-1(literal:Literal) = true /\ literal:Literal = variant-literal-NUM-1(i-l:IntV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-NUM-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-NUM-1(i-r:IntV) .
   ceq Eval-expr(env:List, expr:Expr) = variant-literal-BOOL-1(leq-int(i-l:IntV, i-r:IntV)) if match-expr-lt-eq-2(expr:Expr) = true /\ expr:Expr = variant-expr-lt-eq-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-NUM-1(literal:Literal) = true /\ literal:Literal = variant-literal-NUM-1(i-l:IntV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-NUM-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-NUM-1(i-r:IntV) .
   ceq Eval-expr(env:List, expr:Expr) = variant-literal-BOOL-1(and(b-l:BoolV, b-r:BoolV)) if match-expr-amp-amp-2(expr:Expr) = true /\ expr:Expr = variant-expr-amp-amp-2(e-l:Expr, e-r:Expr) /\ Eval-expr(env:List, e-l:Expr) = literal:Literal /\ match-literal-BOOL-1(literal:Literal) = true /\ literal:Literal = variant-literal-BOOL-1(b-l:BoolV) /\ Eval-expr(env:List, e-r:Expr) = literal-prime:Literal /\ match-literal-BOOL-1(literal-prime:Literal) = true /\ literal-prime:Literal = variant-literal-BOOL-1(b-r:BoolV) .
-  ceq Eval-command(env:List, command:Command) = env:List if match-command-SKIP-0(command:Command) = true .
+  eq Eval-command(env:List, variant-command-SKIP-0) = env:List .
   ceq Eval-command(env:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, Eval-expr(env:List, e:Expr)), env:List) if match-command-eq-3(command:Command) = true /\ command:Command = variant-command-eq-3(t:Type, x:Id, e:Expr) .
   ceq Eval-command(env:List, command:Command) = cons(variant-pair-minus-gt-2(x:Id, Eval-expr(env:List, e:Expr)), env:List) if match-command-eq-2(command:Command) = true /\ command:Command = variant-command-eq-2(x:Id, e:Expr) .
   ceq Eval-command(env:List, command:Command) = Eval-command(env:List, c-1:Command) if match-command-IF-THEN-ELSE-END-3(command:Command) = true /\ command:Command = variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command) /\ Eval-expr(env:List, e:Expr) = variant-literal-BOOL-1(true) .
@@ -228,8 +228,8 @@ set include BOOL off .
   ceq Eval-command(env:List, command:Command) = Eval-command(Eval-command(env:List, c-1:Command), c-2:Command) if match-command-semi-2(command:Command) = true /\ command:Command = variant-command-semi-2(c-1:Command, c-2:Command) .
   eq Eval-prog(command:Command) = Eval-command(nil, command:Command) .
   ceq Run-prog(command:Command) = Eval-prog(command:Command) if Check-prog(command:Command) = true .
+  eq eqg(x:Val, x:Val) = true .
   eq proj-cons-0(cons(x0:Val, x1:List)) = x0:Val .
   eq proj-variant-pair-minus-gt-2-0(variant-pair-minus-gt-2(x0:Val, x1:Val)) = x0:Val .
-  eq eqg(x:Val, x:Val) = true .
 endm)
 

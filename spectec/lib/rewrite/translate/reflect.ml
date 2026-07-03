@@ -164,6 +164,104 @@ let variant_case (tbl : tables) (ty : string) (ctor : string) :
   | _ -> None
 
 (* -------------------------------------------------------------------------- *)
+(* (B) discriminator hoist: respell an opaque matcher test [match_K(v) = true]
+   as the structural equation [v = K(fresh..)], for a bare-variable subject
+   [v] that no OTHER condition of the same rule mentions. The reverse table
+   (matcher symbol -> its constructor + arity) mirrors [build_tables]'s
+   [ctor_types] construction, walked backwards.
+
+   [Rewrite_system.fold_premise_binders] only recognizes a condition shaped
+   [Var v = K(..)] / [K(..) = Var v], so an opaque [match_K(v) = true] guard
+   never qualifies -- this respelling is what lets a head-bound discriminator
+   variable fold into the constructor pattern the guard tests, turning a
+   guarded multi-clause dispatch (several rules sharing one head, their
+   disjointness carried only by opaque [match_*] conditions the CRC cannot
+   see through) into genuinely disjoint head patterns. Whether the fold
+   actually fires is otherwise entirely [fold_premise_binders]'s call.
+
+   The "no other condition mentions [v]" guard mirrors
+   [fold_premise_binders]'s own "not used elsewhere" gate for a reason: a
+   clause whose head-bound [v] ALSO feeds a companion destructuring condition
+   (e.g. a [let K(x, y) = v] alongside the [matches K] guard SpecTec's
+   elaborator emits as two separate premises) already blocks that
+   companion's own fold today (used-elsewhere), and unconditionally
+   respelling [match_K(v) = true] into a SECOND, differently-named
+   [v = K(fresh..)] would not unblock it (both conditions still mention [v])
+   -- it would only replace one inert opaque condition with an equally inert
+   but noisier structural one carrying dead fresh variables. Skipping the
+   respelling in that case leaves the original (harmless, already-inert)
+   [match_*] condition untouched, matching today's output exactly. Runs over
+   the FLAT rule list {!To_ctrs} produced, so a matcher condition nested
+   inside an [IterPr] helper's step rule is covered the same way, with no
+   separate recursive scan. *)
+
+type matcher = { ctor : string; arity : int }
+
+let build_matcher_table (orig : spec) : (string, matcher) Hashtbl.t =
+  let tbl = Hashtbl.create 256 in
+  List.iter
+    (fun (def : def) ->
+      match def.it with
+      | TypD { synid; deftyp = { it = VariantT typcases; _ }; _ } ->
+          List.iter
+            (fun (tc : typcase) ->
+              let { synid = oid; _ } = tc.origin.it in
+              let mixop = Mixfix.to_mixop tc.notation.it in
+              let msym = T.match_sym synid.it mixop in
+              if not (Hashtbl.mem tbl msym) then
+                Hashtbl.add tbl msym
+                  {
+                    ctor = T.variant_sym oid.it mixop;
+                    arity = Mixfix.arity mixop;
+                  })
+            typcases
+      | _ -> ())
+    orig;
+  List.iter
+    (fun (msym, m) -> Hashtbl.replace tbl msym m)
+    [
+      ("match_some", { ctor = "some"; arity = 1 });
+      ("match_none", { ctor = "none"; arity = 0 });
+      ("match_cons", { ctor = "cons"; arity = 2 });
+      ("match_nil", { ctor = "nil"; arity = 0 });
+    ];
+  tbl
+
+let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
+    =
+  let tbl = build_matcher_table orig in
+  let yes = T.bool_t ~scalars true in
+  let hoist_rule (r : R.rule) : R.rule =
+    let n = ref 0 in
+    let fresh () =
+      let i = !n in
+      incr n;
+      Printf.sprintf "hoist_%d" i
+    in
+    let orig_conds = Array.of_list r.R.conds in
+    let mentioned_elsewhere i (v : string) : bool =
+      Array.to_list orig_conds
+      |> List.filteri (fun j _ -> j <> i)
+      |> List.exists (fun (l, rr) ->
+             R.count_var v l > 0 || R.count_var v rr > 0)
+    in
+    let hoist_cond i ((l, r) : R.cond) : R.cond =
+      match l with
+      | R.App (msym, [ R.Var v ]) when r = yes && not (mentioned_elsewhere i v)
+        -> (
+          match Hashtbl.find_opt tbl msym with
+          | Some { ctor; arity } ->
+              ( R.Var v,
+                T.app_t ctor (List.init arity (fun _ -> T.var_t (fresh ()))) )
+          | None -> (l, r))
+      | _ -> (l, r)
+    in
+    { r with R.conds = List.mapi hoist_cond (Array.to_list orig_conds) }
+  in
+  let rules = List.map hoist_rule sys.R.rules in
+  { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
+
+(* -------------------------------------------------------------------------- *)
 (* Skip conditions. *)
 
 exception Gate of string

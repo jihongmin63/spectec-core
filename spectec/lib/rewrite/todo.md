@@ -167,7 +167,7 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   아니라 CRC가 임계쌍 전제의 disjointness/unsatisfiability를 못 푸는 불완전성이다.
   번역 단계에서 disjointness를 **구문적으로 노출**해 주면 대부분 YES로 떨어진다:
 
-  - [ ] **(B) owise-없는 케이스-분기 절의 head-패턴 폴드 — 계획 확정 (2026-07-03).**
+  - [x] **(B) owise-없는 케이스-분기 절의 head-패턴 폴드 — 구현 완료 (2026-07-03).**
     `$un_op`/`$tableCustomName`류는 동일 head `$un-op(unop,value)` 위에
     `if match_X(unop)=true` 가드 4절이라 CRC가
     `$un-bnot(value)=$un-lnot(value) if match-tilde(unop)=true /\ match-bang(unop)=true`
@@ -225,6 +225,56 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       no-op) → `verify --symbol '$un_op'`/`'$inherit_i'` MAYBE→YES 확인 → 기존
       YES 표본 재검(회귀 없는지, 특히 Some/Cons 확장 리스크) → 실행 표면
       (`spec.maude`, `run --p4 --check-p4`) 무영향 확인.
+    - **구현 결과 (2026-07-03).** `Reflect.hoist_matchers`를 계획대로 추가하고
+      `pipeline.ml`의 `ctrs_of_spec`에서 `Gensym.thread` 직후 · `fold_premise_binders`
+      바로 앞에 배선. **계획에서 한 가지 실측으로 드러난 보정**: naive하게
+      "`match_K(subj)=true`는 전부 재철자"로 구현했더니 impty 골든이
+      **비-no-op**으로 깨졌다 — `Check-command`/`Check-expr`/`Eval-expr`/
+      `Eval-command`/`$lookup`처럼 SpecTec 엘라보레이터가 `matches` 가드(바인딩
+      없음)와 필드-바인딩 `let K(x,y)=subj` 구조분해를 **별개의 두 premise**로
+      내보내는 경우, 재철자된 `subj=K(fresh..)`가 기존 `subj=K(x,y)`와 같은
+      `subj`를 다시 언급해 서로의 "다른 조건에 안 쓰임" 게이트를 막아버려
+      **아무것도 안 접히면서** opaque `match_*` 조건만 죽은 fresh 변수투성이
+      동등식으로 바뀌는 순수 노이즈가 됐다(=fold는 여전히 안 되는데 텍스트만
+      나빠짐). 고쳐서, `hoist_matchers`는 이제 **subj가 bare 변수이고 같은
+      rule의 다른 어떤 조건에도 그 변수가 안 나올 때만** 재철자한다 — 이
+      가드가 있으면 companion-let이 있는 절은 원래 `match_*` 조건을 그대로
+      두고(=이전과 동일 출력), companion이 없는 절(discriminator만 있는 경우,
+      즉 (B)가 실제로 겨냥한 경우)만 재철자→폴드된다.
+      - **impty 골든 갱신(byte-identical 아님, 의도된 3건 개선)**: `$lookup`의
+        nil 베이스케이스, `Check-command`/`Eval-command`의 SKIP 케이스가
+        head-패턴으로 접혔다(전부 필드 없는 nullary 케이스라 companion
+        destructure가 애초에 없음 — "해당 케이스 없어 no-op"이었던 원래
+        가정이 부분적으로 틀렸던 것; impty에도 대상 케이스가 3건 있었다).
+        나머지(Check-expr/Eval-expr/필드 있는 $lookup cons 케이스 등)는
+        companion-let 때문에 게이트대로 스킵 — 출력 불변. `$lookup`의 owise
+        가드에서 nil-sibling 항이 `match-nil(..)`→`eqg(..,nil)`로 바뀌었는데,
+        이는 sibling1의 head가 이제 리터럴 `nil`이라 owise reflection의
+        `ptest`가 (더 이른 순서의) "ground 패턴은 eqg 한 방" 분기를 타기
+        때문 — 유니파이어 하에서 `eqg(nil,nil)⇒true`로 즉시 반사적으로
+        붕괴하므로 기존 hypothesis-rewriting 경로보다 오히려 더 직접적이고
+        안전(critical-pair discharge 의미는 동일). `spec.ctrs` 갱신,
+        `spec.maude`(실행 표면)는 무변화 확인(hoist_matchers는 분석
+        파이프라인에만 배선).
+      - **MFE 실측(`$un_op`/`$inherit_i` MAYBE→YES 확인, `$is_lpm_key_prime`
+        회귀 재검, impty `$lookup` 대조군) — 이번 세션에서 완주 못 함, 환경
+        차단.** `verify --symbol '$lookup' spec.spectec`(과거 ~1.4s로
+        기록됐던 대조군)가 `--timeout 900`(15분)에도 TIMEOUT. `git stash`로
+        **코드 변경을 뺀 베이스라인**에서 동일 슬라이스를 재현해도 60s
+        타임아웃까지 동일하게 TIMEOUT → **이 세션의 코드 변경과 무관한
+        기존(pre-existing) 환경 문제**로 확인(회귀 아님). Maude 바이너리
+        자체는 정상(단순 `reduce 1 + 1 .` ~0.17s). MFE 프로토콜을 수동으로
+        재현해 관찰한 결과, 모듈 로딩 직후 "variable used before bound"
+        경고 3개 세트가 30초 지점과 90초 지점에서 **글자 그대로 반복
+        출력**됨 — CRC 내부가 critical pair마다 모듈을 재적재/재선언하는
+        것으로 보이며, [Maude 배치 폴백 슬로우다운] 메모의 "50k줄 모듈
+        재내부화" 현상과 결이 비슷하다(다만 이건 MFE `check`의 내부 동작이라
+        `check_diff_p4.sh`와는 별개 경로). [MFE 환경 슬로우다운] 메모의
+        "심볼당 ~4분"보다도 더 나빠진 상태로 보임 — 재측정 전까지 MFE
+        확인은 이 환경에서 사실상 막혀 있다고 간주. **다음 세션에서 할 일**:
+        환경(WSL 메모리/디스크) 점검 또는 다른 머신에서 `verify --symbol
+        '$un_op'`/`'$inherit_i'`/`'$is_lpm_key_prime'`/impty `'$lookup'`
+        재실행해 MAYBE→YES 전환과 무회귀를 확인.
   - [x] **(A) MFE 입력에서 owise 규칙 drop (구현·검증 완료 — 옛 "owise-보완 번역"안 대체).**
     `$is_lpm_key'`/`$requires_priority'` 류는 `= true if text="lpm"` + `= false [owise]`인데
     CRC가 owise를 임계쌍 생성에서 무시해 `false=true if text="lpm"` 충돌. **단순 confluence
@@ -789,11 +839,23 @@ interp.subtyp 대조로 struct width/depth·타입파라미터·스칼라 근사
 성공 반사**(`Reflect.gen_itercollect_holds`/`gen_iterapply_holds` + 전역 성공-테스트
 삽입 + `cond_heads`의 재귀 term 스캔; p4 owise 51/72 → 66/72 반사, kept 21 → 6).)
 
+(추가 완료 2026-07-03: **(B) match-가드 discriminator head-패턴 폴드**
+(`Reflect.hoist_matchers`; 위 M1 "남은 14 MAYBE" 항목 참조) — `match_K(subj)=true`를
+`subj=K(fresh..)`로 재철자해 기존 `fold_premise_binders`가 head로 접게 함, subj가 같은
+rule의 다른 조건에도 안 쓰일 때만(companion destructure 충돌 회피). impty 골든 갱신
+(`$lookup`/`Check-command`/`Eval-command`의 nullary 케이스 3건 head-fold, byte-identical
+아님이지만 의도된 개선; 실행 표면 `spec.maude` 무변화 확인). **MFE 실측(p4 `$un_op`/
+`$inherit_i` MAYBE→YES, 회귀 재검)은 이 세션에서 미완 — MFE 환경이 impty `$lookup`
+대조군(과거 ~1.4s)조차 `--timeout 900`에서 TIMEOUT, `git stash` 베이스라인도 동일 증상이라
+코드 회귀 아닌 기존 환경 문제로 확인(아래 M1 (B) 항목에 상세). 다음 세션에서 환경 복구 후
+재검 필요.**)
+
 남은 작업:
 
 ```
   → subty false-보완 실행 무회귀 표본 (run --p4 --check-p4 ~50개)   [위 M1 체크박스; 보류 중]
-  → (B) discriminator head-패턴 폴드 — match + subty 가드 확장     [분석 confluence; B′ 해법]
+  → (B) MFE 실측 — p4 $un_op/$inherit_i MAYBE→YES + 무회귀 재검      [환경 차단, 위 M1 (B) 항목 참조]
+  → (B′) subty-가드 확장 — B의 discriminator fold를 subty_*까지     [위 M1 "B′" 7개; totality 기반, 미설계]
   → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
   → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
