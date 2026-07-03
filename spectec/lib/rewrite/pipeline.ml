@@ -49,8 +49,14 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    rule's marker with the explicit "no earlier sibling applies" guard
    condition, so the checker discharges the owise/sibling pairs instead of
    flagging them (the unreflectable remainder keeps its flag for {!Mfe}'s
-   [drop_owise] fallback). The execution pipeline keeps [:=] bindings and the
-   [owise] attribute; it sees neither pass. *)
+   [drop_owise] fallback). It also, system-wide (not only for owise rules),
+   inserts a [holds_<helper>(args) = true] test before any condition binding
+   a success-reflected [$itercollect]/[$iterapply] helper's result -- the
+   helper's own call site never carries a bool rhs for {!Reflect.replace_cond}
+   to respell, so the guard alignment a later owise reflection needs is added
+   as an extra condition instead. Both are analysis-only and add conditions
+   only, never removing one: soundness is unaffected. The execution pipeline
+   keeps [:=] bindings and the [owise] attribute; it sees neither pass. *)
 let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
   let dspec, sys = build_with To_ctrs.Structural spec in
   let sys =
