@@ -167,21 +167,64 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   아니라 CRC가 임계쌍 전제의 disjointness/unsatisfiability를 못 푸는 불완전성이다.
   번역 단계에서 disjointness를 **구문적으로 노출**해 주면 대부분 YES로 떨어진다:
 
-  - [ ] **(B) owise-없는 케이스-분기 절의 head-패턴 폴드.** `$un_op`/`$tableCustomName`
-    류는 동일 head `$un-op(unop,value)` 위에 `if match_X(unop)=true` 가드 4절이라
-    CRC가 `$un-bnot(value)=$un-lnot(value) if match-tilde(unop)=true /\ match-bang(unop)=true`
-    같은 임계쌍을 만들고 두 match가 배타적임을 못 본다. **fold:** match 분기자를
-    head 패턴으로 끌어올려 `$un-op(variant-unop-tilde-0,value)=$un-bnot(value)` /
-    `$un-op(variant-unop-bang-0,value)=$un-lnot(value)`. head 생성자가 달라져
-    단일화 불가 → 임계쌍 미생성 → YES. **판별은 전역 "case-분기 함수" 라벨이 아니라
-    per-condition 구조 인식**: 조건 `App(p,[Var v])=true`, `v`가 선형 head 변수,
-    `p`가 *discriminator*(정의 규칙이 `p(ctor(서로 다른 변수))=true|false` 무조건절,
-    유일한 true-생성자)인 경우만. 이 discriminator_index가 곧 안전 게이트 —
-    `subty_*`(RHS가 `and(sub-nat..)` 계산식이라 리터럴 아님)·다중-true·비선형은
-    자동 배제(=`$invalidate_value`의 subty 부분은 이걸로 **안** 됨, 별도). **반드시
-    owise-없는 심볼로 게이트** — owise-짝 절을 폴드하면 disjointness 가드가 사라져
-    owise 중첩이 노출(aggressive 변형이 impty 6개를 역행시킨 그 원인). `discriminator_index`
-    는 이전 aggressive 시도에서 프로토타입했다가 surgical 후퇴 때 제거 — 재도입.
+  - [ ] **(B) owise-없는 케이스-분기 절의 head-패턴 폴드 — 계획 확정 (2026-07-03).**
+    `$un_op`/`$tableCustomName`류는 동일 head `$un-op(unop,value)` 위에
+    `if match_X(unop)=true` 가드 4절이라 CRC가
+    `$un-bnot(value)=$un-lnot(value) if match-tilde(unop)=true /\ match-bang(unop)=true`
+    같은 임계쌍을 만들고 두 match가 배타적임을 못 본다.
+
+    **구현 계획(새 엔진 불필요 — 기존 `fold_premise_binders` 재사용).** 처음엔
+    CRC-facing 전용 "discriminator fold" 패스를 새로 설계하려 했으나, 조사 결과
+    `Rewrite_system.fold_premise_binders`([rewrite_system.ml:264](rewrite_system.ml#L264))가
+    이미 `v = K(fresh..)`형 구조적 동등식을 만나면 head로 접는 로직(+ 안전 게이트:
+    `is_ctor_pattern`/"다른 조건에 안 쓰임"/"LHS에 1회만 등장")을 갖고 있음을
+    발견했다 — `MatchE`(matches) 가드만 `cond_of_match`
+    ([to_ctrs.ml:840-851](translate/to_ctrs.ml#L840-L851))가 항상
+    `match_sym(subj)=true`(불투명 술어) 형태로 내보내서 이 기존 메커니즘을 못
+    탈 뿐이다. 그래서 새 엔진 대신, `match_sym(v)=true`를 동등식
+    `v = K(fresh..)`로 **재철자**만 해주는 작은 패스(`Reflect.hoist_matchers`,
+    신설)를 `fold_premise_binders` 바로 앞에 끼워 넣고, 나머지(head-bound 여부,
+    안전성, 실제 치환)는 전부 `fold_premise_binders`에 위임한다.
+
+    **`IterPr` 내부에 중첩된 `IfPr`도 별도 재귀 스캔 없이 자동으로 커버된다** —
+    두 패스 다 `to_ctrs` 이후의 **flat한 CTRS rule 리스트**를 균일하게 훑기
+    때문에, `iterpr_defs`([to_ctrs.ml:862-974](translate/to_ctrs.ml#L862-L974))가
+    만드는 반복 헬퍼의 step rule도 그냥 "리스트의 규칙 하나"라 캡처 변수
+    (`iter_captured`/`captured_fvs`, [to_ctrs.ml:62-138](translate/to_ctrs.ml#L62-L138))든
+    원소 변수든 같은 경로로 처리된다(헬퍼 심볼당 step rule이 1개뿐이라 sibling
+    경쟁이 없어 안전 — 가드가 head로 옮겨가도 발화 조건 집합이 동일).
+
+    - **범위**: `CaseP`(임의 arity, variant-case 역조회) + `OptP` `\`Some`/`\`None` +
+      `ListP` `\`Cons`/`\`Nil`. 옛 `Prem_env.reconstruct_pattern`이 companion-let
+      충돌을 우려해 배제했던 Some/Cons까지 포함 — `fold_premise_binders`의
+      "다른 조건에 안 쓰임" 게이트가 그 충돌을 이미 구조적으로 막아준다는 게
+      이번 결론(실측으로 확인 필요, 아래 검증 참조). `ListP` `\`Fixed n``(길이
+      체크, `len(subj)=n` 형태)은 코드 경로가 달라 이번엔 보류.
+    - **배치**: `translate/reflect.ml`에 새 함수 `hoist_matchers`
+      (`~orig:spec -> Rewrite_system.t -> Rewrite_system.t`)로 추가 — `owise`가
+      이미 만들어 둔 `tables`/`build_tables`/`variant_case`/`matcher_type`/
+      `fresh_vars` 재사용. 매처 심볼 → (타입, mixop, 필드타입) 역테이블은
+      `build_tables`의 `ctor_types` 구성 방식을 그대로 거울처럼 뒤집어서 만든다
+      (`T.match_sym ty mixop`를 타입 순회하며 계산 — 문자열 파싱 없이 안전).
+      `match_some`/`match_none`/`match_cons`/`match_nil` 4개는 고정 이름으로
+      직접 인식(각각 fresh 0/1/0/2개).
+    - **파이프라인**: `pipeline.ml`의 `ctrs_of_spec`에서 `Gensym.thread` 직후,
+      `Rewrite_system.fold_premise_binders` 바로 앞에 `Reflect.hoist_matchers`
+      삽입. `maude_system_of_spec`(실행)에는 절대 넣지 않음 — 기존
+      owise/fold_premise_binders와 동일하게 분석 전용.
+    - **범위 밖(유지)**: subty 섞인 (B′) 7개(`$flatten_constOpt`/`$tableCustomName`/
+      `$name`/`$prefixedTypeName`/`$prefixedNonTypeName`/`$invalidate_value`
+      (+`$invalidate_headerUnion`))는 이 fold로 안 풀림 — subty totality가 만든
+      case-membership 정보 기반 multi-way clause 전개가 별도로 필요(멤버
+      생성자 수만큼 클로즈 복제, 단일 substitution이 아님 — 위 subty totality
+      절 참조). `IterPr` 원소 자체의 매치로부터 **스트림 전체 모양을 재구성**하는
+      것(옛 `Prem_env.env_of_prem`의 `IterPr` 승격 트릭, `IterE`로 감싼 pair
+      생성)도 범위 밖 — 이건 head disjoint화가 아니라 premise 단순화 성격이라
+      지금 기록된 MAYBE 원인 어디에도 필요하지 않다.
+    - **검증 계획**: impty 골든(`spec.ctrs`) byte-identical(해당 케이스 없어
+      no-op) → `verify --symbol '$un_op'`/`'$inherit_i'` MAYBE→YES 확인 → 기존
+      YES 표본 재검(회귀 없는지, 특히 Some/Cons 확장 리스크) → 실행 표면
+      (`spec.maude`, `run --p4 --check-p4`) 무영향 확인.
   - [x] **(A) MFE 입력에서 owise 규칙 drop (구현·검증 완료 — 옛 "owise-보완 번역"안 대체).**
     `$is_lpm_key'`/`$requires_priority'` 류는 `= true if text="lpm"` + `= false [owise]`인데
     CRC가 owise를 임계쌍 생성에서 무시해 `false=true if text="lpm"` 충돌. **단순 confluence
