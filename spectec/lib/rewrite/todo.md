@@ -345,6 +345,161 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       사용자 승인 설계가 명시적으로 이번 범위에서 제외했고, 위 게이트 결과
       (잔여 6개 중 output-relation 게이트 0개)로 현재는 불필요함이 확인됨;
       게이트 로그가 실제로 요구하면 별건으로 착수.
+  - [ ] **`$unzip`/`$iterproj` 규칙-생성 코드 통합 + reflect.ml `$iterproj`
+    하드게이트 제거 (설계 완료 2026-07-03, 미구현 — 전체 계획 기록, 재계획
+    불필요).**
+
+    **배경**: `iter_unzip_defs`(`$unzip`, `to_ctrs.ml:363-396`)와
+    `iterpr_defs` 안의 `proj_defs`(`$iterproj`, `to_ctrs.ml:916-946`)가 규칙
+    생성 로직상 동일함을 발견 — 차이는 `fv_terms`(캡처 자유변수 leading
+    args, iterproj는 항상 빈 리스트)와 매칭 패턴(`elem_pat`: 임의 구조 vs
+    `tuple_pat`: 항상 bare 튜플) 뿐. 조사 중 `reflect.ml`의
+    `iter_helper_prefixes`(`reflect.ml:181-182`)가 `$iterproj`를 owise
+    가드에서 하드게이트하는 이유도 "success reflection(`holds_`) 미구현"일
+    뿐, `$unzip`/`$itermap`이 무조건 허용되는 근거("relation 미호출, 형제의
+    binding 조건으로만 가드에 진입")가 `$iterproj`에도 문자 그대로 적용됨을
+    코드로 확인(`proj_defs`가 만드는 규칙은 `nil_t`/`cons_t`/`tuple_t`/
+    자기재귀 호출만 참조, relation 심볼 없음). **이전에 막힌 `⛔ $iterproj
+    완전 제거`(위 항목, 커밋 `0c260cc6`, gensym 벽)와는 무관** — 그건
+    `$iterapply`의 "원소당 1회 호출" 구조 자체를 없애려던 시도였고, 이번
+    건 이미 계산된 튜플 스트림의 순수 후처리 코드만 공유/게이트 완화하는
+    것이라 gensym에 전혀 영향 없음(`$iterapply`/`apply_rules`,
+    `to_ctrs.ml:898-915`는 미변경).
+
+    **Phase 1 — `to_ctrs.ml` 코드 공유** (3개 edit, `to_ctrs.ml`만):
+
+    (a) `unzip_sym`(353-354줄) 뒤·`iter_unzip_defs`(356줄) 앞에 삽입:
+    ```ocaml
+    (* Defining rules for a single-spine helper [sym]: recurse over a [List]/[Opt]
+       spine, matching each element against [elem_pat] and returning the element's
+       [v] component ([var_t (step_hd v)], one of [elem_pat]'s pattern variables).
+       [fv_terms] are captured constants threaded unchanged as leading arguments
+       ([] when there are none). The spine's tail is always the fixed variable
+       [__rest] -- there is exactly one spine here, unlike [spine_args]'s N-way
+       [step_tl id] naming.
+
+       Shared by [iter_unzip_defs] below ([$unzip]: [elem_pat] is the arbitrary
+       translated iterated body -- possibly non-left-linear, when it re-mentions a
+       captured [fv_terms] variable) and [iterpr_defs]'s [proj_defs] far below
+       ([$iterproj]: [elem_pat] is always a bare fresh-variable tuple over an
+       already-materialized stream, [fv_terms] always [] -- always irrefutable). *)
+    let spine_projection_rules (sym : string) (fv_terms : R.term list)
+        (iter : iter) (elem_pat : R.term) (v : string) : R.rule list =
+      let collected = var_t (step_hd v) in
+      let rest = var_t "__rest" in
+      match iter with
+      | List ->
+          [
+            rule (app_t sym (fv_terms @ [ nil_t ])) nil_t;
+            rule
+              (app_t sym (fv_terms @ [ cons_t elem_pat rest ]))
+              (cons_t collected (app_t sym (fv_terms @ [ rest ])));
+          ]
+      | Opt ->
+          [
+            rule (app_t sym (fv_terms @ [ none_t ])) none_t;
+            rule (app_t sym (fv_terms @ [ some_t elem_pat ])) (some_t collected);
+          ]
+    ```
+    이름은 기존 `spine_args`(158-167줄, IL 노드가 아니라 이미 추상화된
+    term/string을 받는 범용 콤비네이터에 붙는 접두사)와의 명명 관례를 따름
+    — 이 계열의 다른 함수는 전부 `iter_` 접두사(특정 IL exp/prem 사이트에서
+    직접 계산). **`spine_args`로 위임 금지** — tail 변수 명명이 `step_tl id`
+    (`v__tl`)라 `$unzip`/`$iterproj`가 쓰는 고정 리터럴 `"__rest"`와 달라
+    위임하면 방출 심볼이 바뀜(byte-identical 불변식 위반).
+
+    (b) `iter_unzip_defs`(363-396줄) 본문 교체:
+    ```ocaml
+      match e.it with
+      | IterE ({ it = VarE _; _ }, _) -> []
+      | IterE (body, (iter, vars)) ->
+          let fv_terms = List.map var_t (captured_fvs (Free.free_exp body) vars) in
+          let ids = iter_var_ids vars in
+          let elem_pat =
+            subst_term (elem_renaming ids) (term_of_exp ~scalars body)
+          in
+          List.map
+            (fun v ->
+              let sym = unzip_sym body iter v in
+              (sym, spine_projection_rules sym fv_terms iter elem_pat v))
+            ids
+      | _ -> []
+    ```
+    (`let rest`/`let collected` 라인은 공유 함수 안으로 이동해 제거.)
+
+    (c) `iterpr_defs` 안 `proj_defs` 블록(916-946줄) 교체 — `apply`/
+    `apply_rules`(898-915줄)와 `(apply, apply_rules) :: proj_defs`/`None`
+    분기(947줄 이후)는 미변경:
+    ```ocaml
+                let proj_defs =
+                  if List.length out_vars <= 1 then []
+                  else
+                    let tuple_pat =
+                      tuple_t (List.map (fun v -> var_t (step_hd v)) out_vars)
+                    in
+                    List.map
+                      (fun v ->
+                        let sym = iter_proj_sym inner iter n v in
+                        (sym, spine_projection_rules sym [] iter tuple_pat v))
+                      out_vars
+                in
+    ```
+
+    **Phase 1 검증**: 심볼 이름(`unzip_sym`/`iter_proj_sym`)·방출 규칙 모양
+    불변 → byte-identical이어야 함:
+    - impty/base golden diff 0: `main.exe rewrite --ctrs
+      specs/impty/base/spec.spectec | diff - specs/impty/base/spec.ctrs`,
+      `main.exe rewrite specs/impty/base/spec.spectec | diff -
+      specs/impty/base/spec.maude`.
+    - p4 전체 corpus diff 0: `main.exe rewrite --ctrs $(find specs/p4 -name
+      '*.spectec' | sort)` 편집 전/후 비교(golden 없음, 직접 캡처; ~69초/회).
+    - `$iterproj` golden 없는 경로는 슬라이스로 확인: `--symbol
+      TableProperty_ok`(`TableEntry_ok` 반복 —
+      `specs/p4/5-typing/5.14.1-typing-control-table.spectec:814`
+      `TableProperty_ok/entries` 규칙 안), `--symbol Decl_ok`(`Type_ok`
+      block 반복 3곳 —
+      `specs/p4/5-typing/5.11-typing-declaration.spectec:875,901,927`
+      `Decl_ok` 규칙들 안). 슬라이스 루트가 바깥쪽 relation인 이유:
+      `iterpr_defs`는 반복 프리미스를 담은 바깥쪽 rule을 순회할 때 트리거됨.
+    - `reflect:` stderr 요약도 diff 0 기대(이 단계는 `reflect.ml` 미변경).
+
+    **Phase 2 — `reflect.ml` 하드게이트 제거** (2개 edit, `reflect.ml`만):
+
+    (d) `iter_helper_prefixes`(181-182줄):
+    ```ocaml
+    let iter_helper_prefixes = [ "$iterall"; "$itercollect"; "$iterapply" ]
+    ```
+
+    (e) doc comment 3곳 정정(문장 삭제/이동만, 로직 변경 없음):
+    - 43-52줄(파일 상단 개요): "an iteration helper without a success
+      reflection (`$iterproj` -- multi-output projection, not handled yet --
+      and `$iterall`/...; `$unzip`/`$itermap` are pure stream transformers
+      and never gated)"에서 `$iterproj`를 빼고 `$unzip`/`$itermap` 목록으로
+      옮김.
+    - 171-180줄(`iter_helper_prefixes` 바로 위): "[$iterproj] (multi-output
+      projection) has no success reflection yet, so it stays hard-gated
+      regardless of [succ]." 문장 삭제, "The pure stream transformers
+      [$unzip]/[$itermap]" → "[$unzip]/[$itermap]/[$iterproj]"로 확장.
+    - 913-920줄(judgment-phase candidate 주석): "[$iterproj] does not [get a
+      success reflection] ... so it is deliberately excluded here"를
+      "`$iterall`/`$itercollect`/`$iterapply`는 boolean-valued judgment라
+      success reflection이 필요하고, `$unzip`/`$itermap`/`$iterproj`는
+      value-binding pure stream transformer라 애초에 불필요해 제외"로 정정.
+    - **`is_iter_helper` 함수 자체(`is_iterall f || is_itercollect f ||
+      is_iterapply f`)는 코드 변경 불요** — `$iterproj`는 원래도 이
+      OR-체인에 없었음(주석만 stale).
+
+    **Phase 2 검증**: p4 전체 corpus `--ctrs` 실행 시 `reflect:` stderr를
+    Phase 1 이후 상태와 diff. 카운트 불변이면 "이 코퍼스에선 게이트가 실제로
+    아무것도 막고 있지 않았다"는 뜻(그래도 정당한 정리 — 최신 "잔여 6 kept"
+    목록(위 owise 반사 확장 항목)에 iterproj 관련 항목이 원래 없어 무회귀가
+    오히려 예상됨). 새로 반사되는 symbol이 생기면 그중 하나를 `verify
+    --symbol <name> --timeout 360`(MFE CRC/ChC)으로 무회귀 확인. impty/base
+    golden도 재확인(iterproj 자체가 impty엔 없어 무영향 예상).
+
+    **마무리**: `make fmt`. (계획 전문은 세션 로컬
+    `/home/min/.claude/plans/tingly-enchanting-star.md`에도 있으나, 이
+    항목이 authoritative — repo에 커밋되는 쪽.)
   - [x] **prelude 산술 overlap 해소(완료).** `mod`/`div`/`mod_int`/`div_int`은
     `= A if lt(x,y)=true` + `= B if leq(y,x)=true`처럼 보집합 가드를 *다른 술어*로
     적어 CRC가 동시 불가를 못 보고 `x = mod(sub(x,y),y) if lt(x,y)=true /\ leq(y,x)=true`
@@ -599,4 +754,5 @@ interp.subtyp 대조로 struct width/depth·타입파라미터·스칼라 근사
   → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
   → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
+  → $unzip/$iterproj 코드 통합 + reflect.ml $iterproj 하드게이트 제거     [설계 완료(위 M1 항목 참조); to_ctrs.ml+reflect.ml 각 소수 edit, 미착수]
 ```
