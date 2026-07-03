@@ -284,26 +284,58 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       150-슬라이스 재-sweep은 환경 복구 후(심볼당 4분+ 현재로는 ~10시간) 진행할 것.
       게이트의 안전성상 어떤 결과든 false YES는 불가(반사 가드는 discharge를
       돕기만 하고, 실패 시 보수적 MAYBE).
-  - [ ] **owise 반사 확장 — 출력 relation "성공 반사" + 수집형 IterPr (한 확장).**
-    reflect 게이트가 skip한 심볼(stderr 집계 목록 참조)을 열기 위한 후속.
-    두 케이스는 동일한 확장 하나다: `all_R?` = 원소별 `R_succeeds?`의 fold.
-    - **성공 반사**: input-moded relation은 출력이 있어도 성공 여부(∃out)가
-      입력만의 boolean → `R_succeeds?(in) = or(g_1…g_n)` (무출력 R?와 같은
-      스킴). g 구성 추가 규칙: 절 안의 출력 바인딩 전제 `R'(in') = ⟨패턴⟩` →
-      `and(R'_succeeds?(in'), match_⟨패턴⟩(R'(in')), …)`, 바인딩 변수의 후속
-      사용처는 호출 항 `R'(in')`/`proj_tuple_i(R'(in'))`로 인라인(성공 가드
-      뒤라 `and(false,·)=false` 단락으로 stuck 안전). 결정성 가정 = 분석 표면
-      기존 가정(CRC가 검증하는 성질). **주의**: to_maude의 "출력 relation 보완
-      금지"는 R 자체 totalize(실패=값 → stuck 전파 붕괴) 이야기 —
-      `R_succeeds?`는 별도 심볼이라 R은 partial 유지, 해당 제약 무관.
-    - **수집형 IterPr**: `(R: in ~ out)*` 수집의 적용가능성 =
-      `all_R?(ins)`(성공 반사 fold) + 수집 스트림은 `$iterapply(ins)` **항**으로
-      가드에 인라인. **정렬 필수 조건**: 양성 sibling에도 `all_R?(ins) = true`
-      잉여 조건을 추가해야 CRC 가설이 정렬됨(sibling 조건엔 원래 all_R?가
-      없어서 가설 없음 → or-가드 안 접힘; `$iterapply(ins) = outs` 가설만으론
-      부족). `$itercollect`/`$unzip`도 같은 레시피(성공? fold + 항 인라인).
-    - 검증: reflect 게이트 집계에서 열리는 심볼 수 확인 → 해당 슬라이스
-      per-symbol CRC, 기존-YES 무회귀, 골든 재생성.
+  - [x] **owise 반사 확장 — 수집형 IterPr 성공 반사 (구현 완료 2026-07-03).**
+    reflect 게이트가 skip하던 `$itercollect`/`$iterapply`를 위한 후속
+    [translate/reflect.ml](translate/reflect.ml). 재구성 없이 형제의 바인딩
+    조건(`$itercollect_S(args), ys`)은 그대로 두고 세 메커니즘으로 연다:
+    1. **성공 반사 생성기** `gen_itercollect_holds`/`gen_iterapply_holds`
+       (`gen_iterall_holds`와 같은 골격, base→`true`/step→and-fold; 공유
+       스핀-불일치 로직은 `iter_spine_mismatches`로 분리). `$itercollect`는
+       step rhs가 `cons(collected, S(rec))`/`some(collected)`라 재귀 인자를
+       cons의 둘째 항에서 뽑고 collected는 버림(성공 반사엔 무의미) —
+       step 조건은 `gen_iterall_holds`처럼 그대로 반사. `$iterapply`는 절 자체가
+       무조건(step 조건 없음, 원소가 relation call 항 그대로)이라 g_inner를
+       `holds_<call 심볼>`로 직접 재구성.
+    2. **전역 성공-테스트 삽입** (`insert_success_test`): `S`가 성공-반사된 모든
+       규칙에서, `S`를 호출하는 바인딩 조건 `(App(S,args), r)`(`r`이 불리언
+       리터럴이 아닌 경우) 바로 앞에 `(holds_S(args), true)`를 삽입 — owise
+       형제뿐 아니라 시스템 전역(수집 성공은 의미상 함의라 안전; 분석
+       전용이라 실행 무영향). `replace_cond`(1→1 매핑, 불리언 조건 전용)로는
+       처리 못 하는 항상-바인딩 케이스를 `List.concat_map` 기반 삽입으로 보완.
+    3. **게이트 완화**: `check_reflectable`이 `succ`(현재 시도의 후보 집합/
+       최종 성공 집합)를 받아, 이미 성공-반사된 iteration helper 호출은
+       `iter_helper_prefixes` 게이트를 통과시킴 — (2)가 심어둔 테스트 덕에
+       형제의 원래 바인딩 조건이 ctest에서 그대로(“ys := S(args) 그대로
+       인라인”) 처리됨, 별도 명시 처리 불필요(설계대로 확인).
+    - **부수 발견 + 수정**: `cond_heads`(후보 종속성 탐색)가 조건의 최상위
+      head만 보던 얕은 스캔이라, `fold_premise_binders`가 이미 인라인해 둔
+      바람에 다른 호출의 **인자 위치에 중첩**된 iteration-helper 호출을
+      놓쳐 `Cast_impl_neq`/`Cast_impl`/`$cast_unary`/`$cast_binary` 사슬이
+      안 열렸다. `cond_heads`를 조건 term 전체(양변)를 재귀 순회하는
+      `term_heads`로 교체해 해결(=check_reflectable이 실제로 보는 것과 동일
+      깊이로 탐색을 맞춤).
+    - **결과 (p4)**: owise 51/72 → **66/72 반사**(21 kept → **6 kept**: 잔여는
+      `$subst_typeIR`/`$subst_parameterIR`/`$subst_callableTypeIR`/
+      `$subst_callableTypeDefIR`/`$subst_constructorTypeIR`(gensym-threaded
+      5개) + `$find_local_return_type_t`(ambiguous matcher 1개)뿐 — 태스크가
+      기대한 사슬 `$itercollect→Cast_impl_neq→Cast_impl→$cast_unary/
+      $cast_binary`, `$match_overloaded_{named,unnamed}_*` 12심볼,
+      `$gen_constraint`가 전부 열림. `$cast_unary` 절2가
+      `holds_Cast_impl(..)=true`로 재철자되고 owise 절이
+      `or(holds_Type_alpha(...), and(not(...), holds_Cast_impl(...)))=false`
+      가드로 반사됨을 CTRS 육안 확인. impty golden(`spec.ctrs`)·impty/p4 실행
+      모듈(`spec.maude`/native emit) 전부 byte-identical(SHA256 대조).
+    - **MFE 실측**: `$itercollect_let_b_default_..._b_default`(7규칙 슬라이스:
+      itercollect base/step + `$is_default_parameterIR` 2절 + 지원규칙) →
+      **CRC YES / ChC YES**(무회귀, 새 반사가 실제로 discharge됨을 확인).
+      `$cast_unary`/`$cast_binary`/`Cast_impl_neq` 자체 슬라이스는 subty
+      전수 보완 규칙을 끌어와 5만 규칙급이라 이 환경(심볼당 분↔십분대)에서는
+      스윕 불가 — 별도 세션에서 환경 여유 시 재시도.
+    - **범위 밖으로 남긴 것**: 출력을 갖는 일반 relation의 `R_succeeds?`
+      (임의 output-moded relation의 존재성 반사)는 이번에 구현하지 않음 —
+      사용자 승인 설계가 명시적으로 이번 범위에서 제외했고, 위 게이트 결과
+      (잔여 6개 중 output-relation 게이트 0개)로 현재는 불필요함이 확인됨;
+      게이트 로그가 실제로 요구하면 별건으로 착수.
   - [x] **prelude 산술 overlap 해소(완료).** `mod`/`div`/`mod_int`/`div_int`은
     `= A if lt(x,y)=true` + `= B if leq(y,x)=true`처럼 보집합 가드를 *다른 술어*로
     적어 CRC가 동시 불가를 못 보고 `x = mod(sub(x,y),y) if lt(x,y)=true /\ leq(y,x)=true`
@@ -517,6 +549,10 @@ Phase D 1227/1227 MATCH).)
 (추가 완료 2026-07-02: **subty totality — 사용-기반 false-보완**(`sub_complement_defs`;
 interp.subtyp 대조로 struct width/depth·타입파라미터·스칼라 근사 전부 종결),
 **MFE 환경 재보정**(심볼당 ~4분, `--timeout 360`+ 필요).)
+
+(추가 완료 2026-07-03: **owise 반사 확장 — 수집형 IterPr(`$itercollect`/`$iterapply`)
+성공 반사**(`Reflect.gen_itercollect_holds`/`gen_iterapply_holds` + 전역 성공-테스트
+삽입 + `cond_heads`의 재귀 term 스캔; p4 owise 51/72 → 66/72 반사, kept 21 → 6).)
 
 남은 작업:
 
