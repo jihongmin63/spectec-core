@@ -353,6 +353,37 @@ let iter_map_def ~scalars (e : exp) : (string * R.rule list) option =
 let unzip_sym (body : exp) (iter : iter) (v : string) : string =
   iter_helper_sym "$unzip" (Print.string_of_exp body) iter [ R.sanitize v ]
 
+(* Defining rules for a single-spine helper [sym]: recurse over a [List]/[Opt]
+   spine, matching each element against [elem_pat] and returning the element's
+   [v] component ([var_t (step_hd v)], one of [elem_pat]'s pattern variables).
+   [fv_terms] are captured constants threaded unchanged as leading arguments
+   ([] when there are none). The spine's tail is always the fixed variable
+   [__rest] -- there is exactly one spine here, unlike [spine_args]'s N-way
+   [step_tl id] naming.
+
+   Shared by [iter_unzip_defs] below ([$unzip]: [elem_pat] is the arbitrary
+   translated iterated body -- possibly non-left-linear, when it re-mentions a
+   captured [fv_terms] variable) and [iterpr_defs]'s [proj_defs] far below
+   ([$iterproj]: [elem_pat] is always a bare fresh-variable tuple over an
+   already-materialized stream, [fv_terms] always [] -- always irrefutable). *)
+let spine_projection_rules (sym : string) (fv_terms : R.term list) (iter : iter)
+    (elem_pat : R.term) (v : string) : R.rule list =
+  let collected = var_t (step_hd v) in
+  let rest = var_t "__rest" in
+  match iter with
+  | List ->
+      [
+        rule (app_t sym (fv_terms @ [ nil_t ])) nil_t;
+        rule
+          (app_t sym (fv_terms @ [ cons_t elem_pat rest ]))
+          (cons_t collected (app_t sym (fv_terms @ [ rest ])));
+      ]
+  | Opt ->
+      [
+        rule (app_t sym (fv_terms @ [ none_t ])) none_t;
+        rule (app_t sym (fv_terms @ [ some_t elem_pat ])) (some_t collected);
+      ]
+
 (* Defining rules for the [unzip] helpers of an [IterE] used in binder position
    (a clause/rule head pattern): one helper per co-iterated variable, recursing
    over the list and matching each element against the iterated body to project
@@ -369,29 +400,10 @@ let iter_unzip_defs ~scalars (e : exp) : (string * R.rule list) list =
       let elem_pat =
         subst_term (elem_renaming ids) (term_of_exp ~scalars body)
       in
-      let rest = var_t "__rest" in
       List.map
         (fun v ->
           let sym = unzip_sym body iter v in
-          let collected = var_t (step_hd v) in
-          let rules =
-            match iter with
-            | List ->
-                [
-                  rule (app_t sym (fv_terms @ [ nil_t ])) nil_t;
-                  rule
-                    (app_t sym (fv_terms @ [ cons_t elem_pat rest ]))
-                    (cons_t collected (app_t sym (fv_terms @ [ rest ])));
-                ]
-            | Opt ->
-                [
-                  rule (app_t sym (fv_terms @ [ none_t ])) none_t;
-                  rule
-                    (app_t sym (fv_terms @ [ some_t elem_pat ]))
-                    (some_t collected);
-                ]
-          in
-          (sym, rules))
+          (sym, spine_projection_rules sym fv_terms iter elem_pat v))
         ids
   | _ -> []
 
@@ -919,29 +931,10 @@ let iterpr_defs ~scalars (orig : spec) (prem : prem) :
                 let tuple_pat =
                   tuple_t (List.map (fun v -> var_t (step_hd v)) out_vars)
                 in
-                let rest = var_t "__rest" in
                 List.map
                   (fun v ->
                     let sym = iter_proj_sym inner iter n v in
-                    let collected = var_t (step_hd v) in
-                    let rules =
-                      match iter with
-                      | List ->
-                          [
-                            rule (app_t sym [ nil_t ]) nil_t;
-                            rule
-                              (app_t sym [ cons_t tuple_pat rest ])
-                              (cons_t collected (app_t sym [ rest ]));
-                          ]
-                      | Opt ->
-                          [
-                            rule (app_t sym [ none_t ]) none_t;
-                            rule
-                              (app_t sym [ some_t tuple_pat ])
-                              (some_t collected);
-                          ]
-                    in
-                    (sym, rules))
+                    (sym, spine_projection_rules sym [] iter tuple_pat v))
                   out_vars
             in
             (apply, apply_rules) :: proj_defs

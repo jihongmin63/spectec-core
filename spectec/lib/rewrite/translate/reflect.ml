@@ -44,12 +44,11 @@
    owise flag, so {!Mfe}'s [drop_owise] fallback still applies) any symbol
    whose siblings involve: a relation call (needs the R? judgment reflection,
    the planned Phase 3), an iteration helper without a success reflection
-   ([$iterproj] -- multi-output projection, not handled yet -- and
-   [$iterall]/[$itercollect]/[$iterapply] when THIS attempt could not build
-   one for them; [$unzip]/[$itermap] are pure stream transformers and never
-   gated), a gensym state-threaded symbol, or a pattern/condition shape it
-   cannot type against the spec. Each skip is reported on stderr with its
-   reason, so the gate doubles as the follow-up worklist.
+   ([$iterall]/[$itercollect]/[$iterapply] when THIS attempt could not build
+   one for them; [$unzip]/[$itermap]/[$iterproj] are pure stream transformers
+   and never gated), a gensym state-threaded symbol, or a pattern/condition
+   shape it cannot type against the spec. Each skip is reported on stderr
+   with its reason, so the gate doubles as the follow-up worklist.
 
    [$iterall]/[$itercollect]/[$iterapply] each get a "does this iteration
    succeed" total-boolean reflection [holds_$iterall../$itercollect../
@@ -270,14 +269,12 @@ exception Gate of string
    [holds_] counterpart has already been generated for it -- [succ] is the
    currently-assumed-successful set (an in-progress attempt's candidates
    while judgment reflection is still generating [holds_] rules, the final
-   successful set afterwards). [$iterproj] (multi-output projection) has no
-   success reflection yet, so it stays hard-gated regardless of [succ]. The
-   pure stream transformers [$unzip]/[$itermap] are allowed unconditionally:
-   they call no relation, and they enter a guard only through a binding
-   condition the sibling itself carries with the same spelling, so the
-   hypothesis alignment is preserved. *)
-let iter_helper_prefixes =
-  [ "$iterall"; "$itercollect"; "$iterapply"; "$iterproj" ]
+   successful set afterwards). The pure stream transformers
+   [$unzip]/[$itermap]/[$iterproj] are allowed unconditionally: they call no
+   relation, and they enter a guard only through a binding condition the
+   sibling itself carries with the same spelling, so the hypothesis
+   alignment is preserved. *)
+let iter_helper_prefixes = [ "$iterall"; "$itercollect"; "$iterapply" ]
 
 let has_prefix p s =
   String.length s >= String.length p && String.sub s 0 (String.length p) = p
@@ -1011,11 +1008,11 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   (* Candidates: judgments negated anywhere, plus judgments/iteration helpers
      conditioning the clauses of an owise-carrying symbol, plus everything
      those pull in (their own rules' judgment/iteration-helper conditions).
-     [$iterall]/[$itercollect]/[$iterapply] all get a success reflection;
-     [$iterproj] does not (see {!iter_helper_prefixes}), so it is deliberately
-     excluded here -- a candidate found only through a [$iterproj] condition
-     head would never be generated, since [close] only expands symbols
-     [qualified] accepts. *)
+     [$iterall]/[$itercollect]/[$iterapply] are boolean-valued judgments, so
+     they need a success reflection to enter a guard; [$unzip]/[$itermap]/
+     [$iterproj] are value-binding pure stream transformers, so they never
+     need one and are excluded here -- {!iter_helper_prefixes} allows them
+     unconditionally already. *)
   let is_rel f = Hashtbl.mem tbl.relsigs f in
   let is_iterall f = has_prefix "$iterall" f in
   let is_itercollect f = has_prefix "$itercollect" f in

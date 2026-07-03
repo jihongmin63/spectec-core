@@ -438,9 +438,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       사용자 승인 설계가 명시적으로 이번 범위에서 제외했고, 위 게이트 결과
       (잔여 6개 중 output-relation 게이트 0개)로 현재는 불필요함이 확인됨;
       게이트 로그가 실제로 요구하면 별건으로 착수.
-  - [ ] **`$unzip`/`$iterproj` 규칙-생성 코드 통합 + reflect.ml `$iterproj`
-    하드게이트 제거 (설계 완료 2026-07-03, 미구현 — 전체 계획 기록, 재계획
-    불필요).**
+  - [x] **`$unzip`/`$iterproj` 규칙-생성 코드 통합 + reflect.ml `$iterproj`
+    하드게이트 제거 (설계 2026-07-03, 구현 완료 2026-07-03).**
 
     **배경**: `iter_unzip_defs`(`$unzip`, `to_ctrs.ml:363-396`)와
     `iterpr_defs` 안의 `proj_defs`(`$iterproj`, `to_ctrs.ml:916-946`)가 규칙
@@ -593,6 +592,28 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     **마무리**: `make fmt`. (계획 전문은 세션 로컬
     `/home/min/.claude/plans/tingly-enchanting-star.md`에도 있으나, 이
     항목이 authoritative — repo에 커밋되는 쪽.)
+
+    **구현 결과 (2026-07-03).** 계획대로 Phase 1(`to_ctrs.ml`: `spine_projection_rules`
+    신설 + `iter_unzip_defs`/`proj_defs` 위임) + Phase 2(`reflect.ml`:
+    `iter_helper_prefixes`에서 `$iterproj` 제거, 주석 3곳 정정) 그대로 구현, `make fmt`
+    적용(포맷만, 로직 무변경). **검증 전부 통과, 예상대로 무회귀:**
+    - impty/base `--ctrs`/기본(`spec.maude`) 골든 둘 다 byte-identical.
+    - p4 전체 corpus(`rewrite --ctrs`, 79파일) 출력 **및** `reflect:` stderr 요약
+      (`66 owise rule(s) reflected, 6 kept`) Phase 1 전/후/포맷 후 3단 비교 모두
+      byte-identical — 예측대로 이 코퍼스에선 `$iterproj` 하드게이트가 실제로 아무
+      owise 절도 막고 있지 않았음(잔여 6 kept는 예상대로 iterproj 무관).
+    - `--symbol TableProperty_ok`/`--symbol Decl_ok` 슬라이스에 `$iterproj` 규칙이
+      각각 7·22개 존재 확인 — 공유 코드 경로(`spine_projection_rules`)가 실제로
+      두 소비처 모두에서 발화함.
+    - 새로 반사된 symbol이 없어(카운트 불변) 계획의 "새 symbol 있으면 MFE
+      재검" 조건이 vacuous — 별도 MFE 확인 불필요.
+    - **MFE 환경 재확인(본 세션 시작 시, 이 작업과 무관하게 선행 시도):** todo.md가
+      "다음 세션에서 환경 복구 후 재검"이라 적어 둔 (B) MFE 실측을 먼저 시도했으나,
+      impty `$lookup` 대조군(과거 ~1.4s)이 `--timeout 280`에서도 TIMEOUT — 지난
+      세션 기록([[MFE env slowdown]] 메모)과 동일 증상으로 **환경이 아직 회복되지
+      않음**을 재확인(회귀 아님, RAM/OOM 로그 이상 없음 — 원인 불명, 별도 조사 필요).
+      이번 세션은 그 대신 환경 의존이 없는 본 항목(코드 통합, golden/corpus diff로만
+      검증 가능)을 완료함.
   - [x] **prelude 산술 overlap 해소(완료).** `mod`/`div`/`mod_int`/`div_int`은
     `= A if lt(x,y)=true` + `= B if leq(y,x)=true`처럼 보집합 가드를 *다른 술어*로
     적어 CRC가 동시 불가를 못 보고 `x = mod(sub(x,y),y) if lt(x,y)=true /\ leq(y,x)=true`
@@ -850,14 +871,21 @@ rule의 다른 조건에도 안 쓰일 때만(companion destructure 충돌 회�
 코드 회귀 아닌 기존 환경 문제로 확인(아래 M1 (B) 항목에 상세). 다음 세션에서 환경 복구 후
 재검 필요.**)
 
+(추가 완료 2026-07-03: **`$unzip`/`$iterproj` 규칙-생성 코드 통합 + reflect.ml
+`$iterproj` 하드게이트 제거**(위 M1 항목 참조) — `to_ctrs.ml`의 공유 헬퍼
+`spine_projection_rules` + `reflect.ml`의 `iter_helper_prefixes`에서 `$iterproj`
+제거; impty golden·p4 전체 corpus `--ctrs`+`reflect:` stderr 모두 byte-identical,
+`TableProperty_ok`/`Decl_ok` 슬라이스로 공유 경로 발화 확인. 이 세션 시작 시 (B) MFE
+재검을 먼저 시도했으나 impty `$lookup` 대조군이 `--timeout 280`에서도 TIMEOUT —
+환경이 여전히 미회복임을 재확인(회귀 아님), 그래서 환경 비의존적인 이 항목으로
+전환해 완료.)
+
 남은 작업:
 
 ```
-  → subty false-보완 실행 무회귀 표본 (run --p4 --check-p4 ~50개)   [위 M1 체크박스; 보류 중]
-  → (B) MFE 실측 — p4 $un_op/$inherit_i MAYBE→YES + 무회귀 재검      [환경 차단, 위 M1 (B) 항목 참조]
+  → (B) MFE 실측 — p4 $un_op/$inherit_i MAYBE→YES + 무회귀 재검      [환경 차단, 2026-07-03 재확인: impty $lookup 대조군 --timeout 280도 TIMEOUT — 여전히 미회복, 원인 불명(RAM/OOM 이상 없음)]
   → (B′) subty-가드 확장 — B의 discriminator fold를 subty_*까지     [위 M1 "B′" 7개; totality 기반, 미설계]
   → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
   → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
-  → $unzip/$iterproj 코드 통합 + reflect.ml $iterproj 하드게이트 제거     [설계 완료(위 M1 항목 참조); to_ctrs.ml+reflect.ml 각 소수 edit, 미착수]
 ```
