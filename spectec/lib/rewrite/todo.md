@@ -265,6 +265,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       (`$itercollect`/`$iterapply` — 아래 후속 확장; `Cast_impl_neq`→`Cast_impl`→
       `$cast_unary`/`$cast_binary`가 이 체인에 막힘), gensym-threaded `$subst_*` 5,
       ambiguous matcher 1. `drop_owise`는 이 잔여분 fallback으로 유지.
+      **(2026-07-03 후속으로 21→6까지 반사 확장됨 — 아래 "owise 반사 확장" 항목
+      참조; 이 21의 스냅샷은 그대로 둠, 최신 잔여는 아래 항목의 6개.)**
     - 실행 표면 byte-identical; support(match/proj) 규칙은 prune 이후라 필요 시
       재생성(트랜잭션, 미사용 필터). `holds_*`는 BoolV 시그니처(Maude_sorts).
     - **가드 등호는 `eqg` (a7d85f94) — 구조적 `eq` 금지.** 가드에 `eq` 하나만
@@ -317,9 +319,16 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     - **결과 (p4)**: owise 51/72 → **66/72 반사**(21 kept → **6 kept**: 잔여는
       `$subst_typeIR`/`$subst_parameterIR`/`$subst_callableTypeIR`/
       `$subst_callableTypeDefIR`/`$subst_constructorTypeIR`(gensym-threaded
-      5개) + `$find_local_return_type_t`(ambiguous matcher 1개)뿐 — 태스크가
-      기대한 사슬 `$itercollect→Cast_impl_neq→Cast_impl→$cast_unary/
-      $cast_binary`, `$match_overloaded_{named,unnamed}_*` 12심볼,
+      상태 인자가 형제 조건에 그대로 남아 "같은 subject 정렬" 전제가 깨져
+      `effectful` 목록으로 무조건 게이트, 5개) + `$find_local_return_type_t`
+      (반사는 시도되나 sibling 패턴의 생성자 `FUNCTION_colon_1`이
+      `definedFunctionLocalKind`/`functionLocalKind`/`localKind` 세 타입에
+      걸쳐 이름이 겹쳐 `matcher_type`이 유일 소유 타입을 못 찾아
+      `Gate "ambiguous matcher"`, 1개)뿐 — 둘 다 `Mfe.check`의 `drop_owise`
+      폴백이 계속 커버(분석 자체는 안 막힘), 실행 표면은 원래대로 `owise`
+      속성 유지. 태스크가 기대한 사슬
+      `$itercollect→Cast_impl_neq→Cast_impl→$cast_unary/$cast_binary`,
+      `$match_overloaded_{named,unnamed}_*` 12심볼,
       `$gen_constraint`가 전부 열림. `$cast_unary` 절2가
       `holds_Cast_impl(..)=true`로 재철자되고 owise 절이
       `or(holds_Type_alpha(...), and(not(...), holds_Cast_impl(...)))=false`
@@ -432,6 +441,34 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   [check_diff_p4.sh](../../../check_diff_p4.sh)로 전체 corpus 교차 검사. 결과:
   completeness gap 0, soundness gap 1(알려진 issue1944), Phase D 결과-VALUE
   오라클 1227/1227 MATCH. 상세는 [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정" 절.
+- [ ] **CTRS(구조적) differential — 별도, 미착수.** 위 differential은 인터프리터
+  vs **Native 실행 모듈**(`To_maude`, 내장 Bool/Nat/Int/String 위임)만
+  교차 검증한다. **구조적 CTRS**(`Reflect.owise`/`Rewrite_system.
+  fold_premise_binders`/`prune_unused`를 거친 분석 표면 —
+  `To_mfe.module_of_system`이 만드는 order-sorted `eq`/`ceq` Full Maude
+  모듈)는 지금까지 MFE의 confluence(CRC)·coherence(ChC) 판정만 받았을 뿐,
+  **실제로 Maude에서 rewrite해 나온 값을 오라클과 대조한 적은 없다** —
+  owise/judgment 반사가 "분석 전용, 실행 무영향"이라는 주장은 지금 논거로만
+  뒷받침되고 실행 기반 실측은 없다(반사 로직에 숨은 의미 버그가 있어도
+  실행 표면은 이 패스들을 안 타므로 현재 체계로는 못 잡음).
+  - **목표**: structural CTRS 모듈을 Maude에서 직접 `reduce`(또는 META-TERM
+    경로)해 얻은 정규형을 IL value로 역번역해, 같은 프로그램의 인터프리터
+    결과(그리고/또는 기존 Native 실행 오라클)와 비교하는 **제3의 오라클
+    레그**로 삼는다.
+  - **필요한 조각**: (a) structural scalar(Peano `succ`/`zero`, 부호-크기
+    `int_pos`/`int_neg`, char-list `chr_<code>` text, 자체 `true`/`false`)
+    시작항 인코딩 — 지금 `to_maude.ml`의 META-TERM 인코더(`meta_term_of_value`/
+    `meta_start_app`)는 Native 전용이라 재사용 불가, structural 전용 인코더가
+    필요; (b) structural 정규형 → IL value 역번역기(`Of_maude`의 structural
+    버전 — 생성자 스펠링이 다름: `succ`/`zero`, `cons`/`nil`, `chr_<code>`,
+    `variant_*`/`struct_*` 등, `canonicalize`의 gensym/map 정렬 정규화는
+    그대로 재사용 가능할 것); (c) 성능 — Peano 인코딩·문자 단위 텍스트라
+    Native보다 훨씬 느릴 것(작은 입력·표본 위주로 시작, `run_batch`류 배치
+    상각 필요할 수 있음).
+  - **가치**: `Reflect.owise`/`fold_premise_binders`가 실제로 의미 보존인지
+    최초로 **실행 기반**으로 검증(현재는 byte-identical golden + CRC/ChC
+    판정으로만 뒷받침 — 둘 다 반사 인코딩이 "말이 되는지"는 보지만 실제
+    reduce 결과까지 확인하지는 않는다).
 
 ## Native 직접 생성 리팩토링 (B) — ✅ 완료
 
@@ -560,5 +597,6 @@ interp.subtyp 대조로 struct width/depth·타입파라미터·스칼라 근사
   → subty false-보완 실행 무회귀 표본 (run --p4 --check-p4 ~50개)   [위 M1 체크박스; 보류 중]
   → (B) discriminator head-패턴 폴드 — match + subty 가드 확장     [분석 confluence; B′ 해법]
   → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
+  → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
 ```
