@@ -345,6 +345,203 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           in
           u_rules @ s_rules
       | _ -> [])
+  (* ----- fixed-width numeric conversions and bitwise ops -----
+     Unlike [bin_satplus]/[bin_satminus] above (real spec [def] clauses),
+     [pow2]/[shl]/[shr]/[shr_arith]/[bitstr_to_int]/[int_to_bitstr]/[bneg]/
+     [band]/[bxor]/[bor]/[bitacc] are [builtin dec]s with NO spec clauses at
+     all -- the only definition anywhere is the interpreter's own OCaml,
+     [targets/p4/builtins/numerics.ml]. These mirror that file's recursive
+     STRUCTURE directly (step-by-step halving, not a closed-form division by
+     [2^o]) rather than an equivalent-looking shortcut, specifically so a
+     rounding subtlety (how truncating division interacts with repeated
+     halving of a negative number) can never make this oracle disagree with
+     the interpreter it exists to be checked against. [$bitacc_replace] (also
+     a [builtin dec] in the spec) has no OCaml implementation in
+     [numerics.ml] either -- not covered here, left exactly as unimplemented
+     as the interpreter itself leaves it. *)
+  | "pow2", _, _ ->
+      (* [pow2 w = 2^w] -- a direct nat power, not hand-rolled doubling:
+         {!Rewrite.Prelude}'s [pow] already has real equations. *)
+      let w = T.var_t "w" in
+      [
+        T.rule (T.app_t sym [ w ])
+          (T.int_pos_t (T.pow_t (T.nat_lit ~scalars 2) w));
+      ]
+  | "shl", _, _ ->
+      (* [shl v o = v * 2^o] for [o >= 0] -- a single multiplication is exact
+         regardless of how [numerics.ml]'s [shl'] breaks it into steps, no
+         rounding to preserve. [o <= 0] is the identity ([shl'] only recurses
+         while [o > 0]; it does not shift the other way for a negative
+         offset). *)
+      let v = T.var_t "v" and o = T.var_t "o" in
+      [
+        T.rule
+          (T.app_t sym [ v; T.int_pos_t o ])
+          (T.mul_int_t v (T.pow_int_t (T.int_lit ~scalars 2) (T.int_pos_t o)));
+        T.rule (T.app_t sym [ v; T.int_neg_t o ]) v;
+      ]
+  | "shr", _, _ ->
+      (* [numerics.ml]'s [shr'] halves [v] (a truncating division) ONE STEP
+         AT A TIME, [o] times -- mirrored via structural recursion on [o]'s
+         Peano magnitude rather than a single division by [2^o], since
+         repeated truncation is not always the same value as one truncation
+         by the product. [o <= 0] is the identity, same as [shl]. *)
+      let v = T.var_t "v" and o = T.var_t "o" in
+      [
+        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t ]) v;
+        T.rule
+          (T.app_t sym [ v; T.int_pos_t (T.succ_t o) ])
+          (T.app_t sym [ T.div_int_t v (T.int_lit ~scalars 2); T.int_pos_t o ]);
+        T.rule (T.app_t sym [ v; T.int_neg_t o ]) v;
+      ]
+  | "shr_arith", _, _ ->
+      (* Same recursive shape as [shr], but [m] is added back in at EVERY
+         halving step (not once at the end) for sign extension -- genuinely
+         not a closed form, so [numerics.ml]'s [shr_arith'] recursion is
+         mirrored exactly. *)
+      let v = T.var_t "v" and o = T.var_t "o" and m = T.var_t "m" in
+      [
+        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t; m ]) v;
+        T.rule
+          (T.app_t sym [ v; T.int_pos_t (T.succ_t o); m ])
+          (T.app_t sym
+             [
+               T.add_int_t (T.div_int_t v (T.int_lit ~scalars 2)) m;
+               T.int_pos_t o;
+               m;
+             ]);
+        T.rule (T.app_t sym [ v; T.int_neg_t o; m ]) v;
+      ]
+  | "bitstr_to_int", _, _ ->
+      (* Two's-complement DECODE: normalize a raw (unsigned) [n] into
+         [-2^(w-1) .. 2^(w-1) - 1] by adding/subtracting [2^w] once.
+         [numerics.ml]'s [bitstr_to_int'] recurses instead of assuming one
+         correction step always suffices, so this does too. *)
+      let w = T.var_t "w" and n = T.var_t "n" in
+      let pow2w = T.var_t "pow2w" and half = T.var_t "half" in
+      let neg_half = T.var_t "neg_half" in
+      let common =
+        [
+          (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w);
+          (T.div_int_t pow2w (T.int_lit ~scalars 2), half);
+          (T.negate_int_t half, neg_half);
+        ]
+      in
+      [
+        T.rule_cond (T.app_t sym [ w; n ])
+          (T.app_t sym [ w; T.sub_int_t n pow2w ])
+          (common @ [ (T.leq_int_t half n, T.bool_t ~scalars true) ]);
+        T.rule_cond (T.app_t sym [ w; n ])
+          (T.app_t sym [ w; T.add_int_t n pow2w ])
+          (common
+          @ [
+              (T.leq_int_t half n, T.bool_t ~scalars false);
+              (T.lt_int_t n neg_half, T.bool_t ~scalars true);
+            ]);
+        T.rule_cond (T.app_t sym [ w; n ]) n
+          (common
+          @ [
+              (T.leq_int_t half n, T.bool_t ~scalars false);
+              (T.lt_int_t n neg_half, T.bool_t ~scalars false);
+            ]);
+      ]
+  | "int_to_bitstr", _, _ ->
+      (* Two's-complement ENCODE: wrap [n] modulo [2^w] into [0 .. 2^w - 1]. *)
+      let w = T.var_t "w" and n = T.var_t "n" in
+      let pow2w = T.var_t "pow2w" in
+      let common = [ (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w) ] in
+      [
+        T.rule_cond (T.app_t sym [ w; n ]) (T.mod_int_t n pow2w)
+          (common @ [ (T.leq_int_t pow2w n, T.bool_t ~scalars true) ]);
+        T.rule_cond (T.app_t sym [ w; n ])
+          (T.app_t sym [ w; T.add_int_t n pow2w ])
+          (common
+          @ [
+              (T.leq_int_t pow2w n, T.bool_t ~scalars false);
+              (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars true);
+            ]);
+        T.rule_cond (T.app_t sym [ w; n ]) n
+          (common
+          @ [
+              (T.leq_int_t pow2w n, T.bool_t ~scalars false);
+              (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars false);
+            ]);
+      ]
+  | "bneg", _, _ ->
+      (* Arbitrary-precision two's-complement NOT is the arithmetic identity
+         [~n = -(n+1)] ([Bigint.bit_not]) -- no bit decomposition needed, and
+         it holds for every [n], not just nonnegative ones. *)
+      let n = T.var_t "n" in
+      [
+        T.rule (T.app_t sym [ n ])
+          (T.negate_int_t (T.add_int_t n (T.int_lit ~scalars 1)));
+      ]
+  | ("band" | "bxor" | "bor"), _, _ ->
+      (* Unlike [bneg], AND/XOR/OR have no such arithmetic identity; this
+         only covers NONNEGATIVE operands (matching P4's actual use: `&`/`^`/
+         `|` combine already-masked, unsigned bit<w> values) -- decompose
+         both nat magnitudes bit by bit via [div_t]/[mod_t] by 2, recombining
+         with the operator's own single-bit formula. A negative operand
+         doesn't match [int_pos] and is left stuck, same spirit as
+         [bin_satplus]'s arbitrary-precision-operand case above. *)
+      let combine_bit bl br =
+        match id.it with
+        | "band" -> T.mul_t bl br
+        | "bor" -> T.sub_t (T.add_t bl br) (T.mul_t bl br)
+        | _ (* "bxor" *) -> T.mod_t (T.add_t bl br) (T.nat_lit ~scalars 2)
+      in
+      (* AND's identity is 0 (0 against anything is 0); OR/XOR's is the
+         OTHER operand unchanged (0 contributes nothing to either) -- a
+         genuinely different base case per operator, not a shared "either
+         side zero -> 0" shortcut (that shortcut is correct for AND alone --
+         caught by testing band/bor/bxor independently: band(6,3)=2 checked
+         out, but a shared zero-base gave bor(6,3)=3 and bxor(6,3)=1 instead
+         of the correct 7 and 5). *)
+      let base_rhs other = match id.it with "band" -> T.zero_t | _ -> other in
+      let nat_sym = helper "nat" in
+      let l = T.var_t "l" and r = T.var_t "r" in
+      let two_n = T.nat_lit ~scalars 2 in
+      let bl = T.var_t "bl" and br = T.var_t "br" in
+      let ql = T.var_t "ql" and qr = T.var_t "qr" in
+      [
+        T.rule
+          (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+          (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+        T.rule (T.app_t nat_sym [ T.zero_t; r ]) (base_rhs r);
+        T.rule (T.app_t nat_sym [ l; T.zero_t ]) (base_rhs l);
+        T.rule_cond (T.app_t nat_sym [ l; r ])
+          (T.add_t (combine_bit bl br)
+             (T.mul_t two_n (T.app_t nat_sym [ ql; qr ])))
+          [
+            (T.eq_t l T.zero_t, T.bool_t ~scalars false);
+            (T.eq_t r T.zero_t, T.bool_t ~scalars false);
+            (T.mod_t l two_n, bl);
+            (T.mod_t r two_n, br);
+            (T.div_t l two_n, ql);
+            (T.div_t r two_n, qr);
+          ];
+      ]
+  | "bitacc", _, _ ->
+      (* [n[m:l]] masks the low [(m - l + 1)] bits of [n >> l]; validity
+         ([l >= 0], [m >= l]) is a guard, not a computed default -- an
+         invalid slice is left stuck, mirroring how [numerics.ml] raises
+         instead of returning a value. *)
+      let n = T.var_t "n" and m = T.var_t "m" and l = T.var_t "l" in
+      let shifted = T.var_t "shifted" and mask = T.var_t "mask" in
+      [
+        T.rule_cond (T.app_t sym [ n; m; l ])
+          (T.app_t (builtin "band") [ shifted; mask ])
+          [
+            (T.leq_int_t (T.int_lit ~scalars 0) l, T.bool_t ~scalars true);
+            (T.leq_int_t l m, T.bool_t ~scalars true);
+            (T.app_t (builtin "shr") [ n; l ], shifted);
+            ( T.sub_int_t
+                (T.pow_int_t (T.int_lit ~scalars 2)
+                   (T.add_int_t (T.sub_int_t m l) (T.int_lit ~scalars 1)))
+                (T.int_lit ~scalars 1),
+              mask );
+          ];
+      ]
   | _ -> []
 
 (* The text builtins the Maude backend re-emits as built-in-String delegations
