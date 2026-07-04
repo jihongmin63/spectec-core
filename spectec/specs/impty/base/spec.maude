@@ -7,10 +7,10 @@ mod SPEC is
   subsort List < Text .
   subsort Literal < Expr .
 
-  op $itermap-K-t-minus-gt-V-t-list-2-pair : Val Val -> Val .
+  op $itermap-K-t-minus-gt-V-t-list-2-pair : Val Val -> List .
   op $lookup : List Val -> Opt .
-  op $unzip-K-t-minus-gt-V-t-list-K-t : Val -> Val .
-  op $unzip-K-t-minus-gt-V-t-list-V-t : Val -> Val .
+  op $unzip-K-t-minus-gt-V-t-list-K-t : Val -> List .
+  op $unzip-K-t-minus-gt-V-t-list-V-t : Val -> List .
   op Check-command : List Command -> List .
   op Check-expr : List Expr -> Type .
   op Check-prog : Command -> BoolV .
@@ -166,8 +166,8 @@ mod SPEC is
   eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = bool(false) .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = bool(false) .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = bool(true) .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:Val := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:Val) = false /\ V-t:Val := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:Val) = false /\ K-h:Val = K-query:Val .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair(K-t:Val, V-t:Val), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:Val := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:Val) = false /\ V-t:Val := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:Val) = false [owise] .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:List := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:List) = false /\ V-t:List := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:List) = false /\ K-h:Val = K-query:Val .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair(K-t:List, V-t:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:List := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:List) = false /\ V-t:List := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:List) = false [owise] .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-INT-0 if subty-literal(expr:Expr) = bool(true) /\ literal:Literal := expr:Expr /\ match-literal-NUM-1(literal:Literal) = bool(true) /\ variant-literal-NUM-1(i:IntV) := literal:Literal .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if subty-literal(expr:Expr) = bool(true) /\ literal:Literal := expr:Expr /\ match-literal-BOOL-1(literal:Literal) = bool(true) /\ variant-literal-BOOL-1(b:BoolV) := literal:Literal .
   ceq Check-expr(tenv:List, expr:Expr) = t:Type if subty-id(expr:Expr) = bool(true) /\ x:Id := expr:Expr /\ type:Opt := $lookup(tenv:List, x:Id) /\ isStuckHead(type:Opt) = false /\ match-some(type:Opt) = bool(true) /\ some(t:Type) := type:Opt .
