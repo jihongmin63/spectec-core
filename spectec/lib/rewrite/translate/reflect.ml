@@ -676,8 +676,30 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
     (fun j p ->
       ptest ~scalars tbl sup acc (List.nth ow_args j) (List.nth argtyps j) p)
     s_args;
+  (* variables the rule's OWN conditions bind to an exact constructor
+     application, by either side of the condition *)
+  let exactly_bound =
+    List.filter_map
+      (fun ((l, r) : R.cond) ->
+        match (l, r) with
+        | R.Var v, R.App (c, _) when Hashtbl.mem tbl.ctor_types c -> Some v
+        | R.App (c, _), R.Var v when Hashtbl.mem tbl.ctor_types c -> Some v
+        | _ -> None)
+      s.R.conds
+  in
+  let redundant_membership_test ((l, r) : R.cond) : bool =
+    r = T.bool_t ~scalars true
+    &&
+    match l with
+    | R.App (f, [ R.Var v ]) ->
+        (has_prefix "subty_" f || has_prefix "match_" f)
+        && List.mem v exactly_bound
+    | _ -> false
+  in
   List.iter
-    (fun c -> ctest ~scalars tbl sup effectful succ acc (prep c))
+    (fun c ->
+      if not (redundant_membership_test c) then
+        ctest ~scalars tbl sup effectful succ acc (prep c))
     s.R.conds;
   (* an empty guard means the sibling always applies: the owise is dead;
      drop duplicate conjuncts (a destructure re-tests the matcher the

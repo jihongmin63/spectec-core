@@ -183,10 +183,35 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     (fun (sub, super) -> buf_line b ("  subsort " ^ sub ^ " < " ^ super ^ " ."))
     (MS.dedup inj_subsorts);
   buf_line b "";
+  (* Execution mode only: [or]/[and] are printed with only the two
+     unconditional short-circuit equations (or(true,y)=true / or(false,y)=y,
+     and symmetrically for [and]) -- Maude's DEFAULT strategy evaluates both
+     arguments to normal form before ever trying those equations, so a stuck
+     LATER disjunct/conjunct (reflect.ml's judgment/owise guards routinely
+     chain dozens via [or_t]/[and_t]) blocks the WHOLE expression even once
+     an EARLIER true/false has already decided it. [strat (1 0 2 0)] makes
+     Maude retry the top equations right after reducing just the first
+     argument, short-circuiting exactly like the equations already assume.
+     But the deciding true/false is not always in argument POSITION 1 --
+     [strat] alone still misses a fold where an early disjunct is the one
+     that gets stuck and a LATER one is the true/false (or(stuck, true) never
+     matches [or(true,y)=true], only [or(y,true)=true] would, and that
+     mirror equation was never generated -- see [prelude.ml]'s [or_t]/[and_t]
+     rules, deliberately kept to the one direction since [Rewrite_system]'s
+     CTRS layer has no operator attributes to express the other). [comm]
+     lets Maude's matcher try the argument swap itself instead, so either
+     position finds the equation. Analysis mode ({!Mfe.check}) never executes
+     ground terms, so it has no need for either attribute and is left as-is. *)
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
-      buf_line b ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
+      let attr =
+        if (not full_maude) && (sym = "or" || sym = "and") then
+          " [comm strat (1 0 2 0)]"
+        else ""
+      in
+      buf_line b
+        ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ attr ^ " ."))
     (List.sort compare op_sigs);
   (* Execution mode only: {!Maude_run.run_batch_direct} delimits each batched
      start's output with a reduce of this bare marker constant (no equations,
