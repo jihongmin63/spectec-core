@@ -94,9 +94,33 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      it so a stuck subterm cannot silently masquerade as a bound value.
      Analysis mode never prints a [:=] matching condition (see [print_rule]
      below, the plain-[=] one), so it never needs the guard. *)
+  (* Execution mode only ([full_maude = false]): [cat]/[len]'s base signatures
+     ({!Maude_sorts.prelude_sigs}) are [Text]-wide (a char list is the only
+     [Text] value there is, see the [text_subsort] comment below), but both are
+     also used generically over any list ([to_ctrs.ml]'s [CatE]/[LenE]
+     translate arbitrary sequences, not just text), and a plain [List] argument
+     is not a [Text] (no subsort edge either way) -- so a [cat]/[len]
+     application over e.g. a declaration list parses ill-sorted and can never
+     reduce ({!To_maude}'s execution path already adds this same overload for
+     the native theory). Left out of analysis mode: {!Mfe.check}'s CRC/ChC
+     results for the existing spec are already established with the [Text]-only
+     signature in place, and this session has no way to re-verify them, so the
+     fix is scoped to the new, previously-untested execution path only. *)
+  let overload_sigs =
+    if full_maude then []
+    else
+      (if List.exists (fun (s, _) -> s = "cat") ops then
+         [ ("cat", ([ "List"; "List" ], "List")) ]
+       else [])
+      @
+      if List.exists (fun (s, _) -> s = "len") ops then
+        [ ("len", ([ "List" ], "NatV")) ]
+      else []
+  in
   let op_sigs =
     MS.dedup
       (List.map (fun (s, n) -> (s, sg s n)) ops
+      @ overload_sigs
       @
       if full_maude then []
       else [ (To_maude.stuck_head_sym, ([ MS.val_sort ], "Bool")) ])
