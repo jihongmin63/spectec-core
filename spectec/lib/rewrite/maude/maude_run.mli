@@ -82,3 +82,43 @@ val run_batch :
   starts:string list ->
   unit ->
   result list
+
+(** The batch separator {!run_batch}/[run_batch_direct] delimit each start's
+    output with: a quoted [String] literal for [run_batch]'s [Native] path
+    (its module always imports [STRING]); {!To_mfe.module_of_system]'s
+    execution mode ([~full_maude:false]) instead declares it as a bare nullary
+    marker constant with this exact spelling, since [protecting STRING .]
+    would clash with that module's own [true]/[false] ([STRING] transitively
+    imports [BOOL]). Exposed so {!To_mfe} can declare a matching constant. *)
+val batch_sep : string
+
+(** [run_direct ?maude_bin ?timeout ?defined_heads ~mode ~module_text ~start ()]
+    mirrors {!run} exactly, except [start] is already plain object-syntax Maude
+    text ({!Maude_sorts.print_term}) in [module_text]'s own vocabulary, parsed
+    through its real signature -- no [metaReduce] reflection wrapper is
+    written. This is the {!Ctrs_term.scalar_theory}.[Structural] counterpart of
+    {!run} (which is [Native]-only, via {!To_maude.meta_term_of_value}): a
+    structural value has no built-in wrapper for Maude to reflect specially, so
+    it cannot go through the META-TERM grammar. [Search] is not supported (only
+    [Reduce]/[Rewrite]). *)
+val run_direct :
+  ?maude_bin:string ->
+  ?timeout:int ->
+  ?defined_heads:string list ->
+  mode:mode ->
+  module_text:string ->
+  start:string ->
+  unit ->
+  result
+
+(** The [run_direct] counterpart of {!run_batch}: batches plain object-syntax
+    [starts] against one [module_text] in a single Maude invocation. *)
+val run_batch_direct :
+  ?maude_bin:string ->
+  ?timeout:int ->
+  ?defined_heads:string list ->
+  mode:mode ->
+  module_text:string ->
+  starts:string list ->
+  unit ->
+  result list

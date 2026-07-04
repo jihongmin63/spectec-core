@@ -262,9 +262,50 @@ let iter_elem (tbl : tables) (expected : typ' option) (iter : iter) :
   | Some (IterT { typ; iter = it }) when it = iter -> Some typ.it
   | _ -> None
 
+(* A structural Peano nat ([zero]/[succ]) as a [Bigint]. Only ever reached
+   decoding {!To_mfe}'s module output (the [Native] module never emits bare
+   [zero]/[succ] -- its nats are the [nat(..)] wrapper around a Maude numeral,
+   {!Ctrs_term.nat_lit}), so no [scalars] flag is needed: the two theories'
+   scalar vocabularies never overlap (see the module doc comment). *)
+let rec bigint_of_peano (m : mt) : Bigint.t =
+  match m with
+  | MApp ("zero", []) -> Bigint.zero
+  | MApp ("succ", [ n ]) -> Bigint.succ (bigint_of_peano n)
+  | _ -> raise (Parse_error "expected a Peano nat (zero/succ)")
+
+(* A structural char-list text (a [cons]/[nil] spine of [chr_<code>] leaves) as
+   its byte codes, innermost first is outermost in the source order (the
+   spine is already left-to-right). Reused by the [cons] decode arm below when
+   [expected] says the position wants [TextT] -- the same disambiguation the
+   [nil] arm already makes for the empty string. *)
+let rec char_spine (m : mt) : int list =
+  match m with
+  | MApp ("nil", []) -> []
+  | MApp ("cons", [ MApp (sym, []); t ]) when T.chr_code_of_sym sym <> None ->
+      Option.get (T.chr_code_of_sym sym) :: char_spine t
+  | MApp ("cons", [ _; _ ]) ->
+      raise (Parse_error "expected a char-list element (chr_<code>)")
+  | _ -> raise (Parse_error "malformed char-list spine")
+
+let string_of_char_codes (codes : int list) : string =
+  let b = Buffer.create (List.length codes) in
+  List.iter (fun c -> Buffer.add_char b (Char.chr c)) codes;
+  Buffer.contents b
+
 let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
   match m with
   | MStr s -> Value.Make.text TextT s
+  (* Structural scalar leaves ({!To_mfe}'s module: Peano nats, sign-magnitude
+     ints, bare booleans -- {!Ctrs_term}'s own constructors, never emitted by
+     the [Native] module, so these arms are unreachable there). *)
+  | MApp ("zero", []) -> Value.Make.nat (NumT `NatT) Bigint.zero
+  | MApp ("succ", [ _ ]) -> Value.Make.nat (NumT `NatT) (bigint_of_peano m)
+  | MApp ("int_pos", [ n ]) -> Value.Make.int (NumT `IntT) (bigint_of_peano n)
+  | MApp ("int_neg", [ n ]) ->
+      Value.Make.int (NumT `IntT)
+        (Bigint.neg (Bigint.succ (bigint_of_peano n)))
+  | MApp ("true", []) -> Value.Make.bool BoolT true
+  | MApp ("false", []) -> Value.Make.bool BoolT false
   | MNum s -> (
       (* a bare numeral with no wrapper: take the sign/expectation as the type *)
       match Option.map (resolve tbl) expected with
@@ -291,6 +332,12 @@ let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
       | Some TextT -> Value.Make.text TextT ""
       | _ ->
           Value.Make.list (Option.value expected ~default:(var_typ "anon")) [])
+  | MApp ("cons", [ _; _ ])
+    when Option.map (resolve tbl) expected = Some TextT ->
+      (* the structural char-list spelling of a non-empty text (the empty
+         string is the bare [nil] the arm above already handles, same
+         convention as [Native]'s wrapper-vs-bare-nil choice) *)
+      Value.Make.text TextT (string_of_char_codes (char_spine m))
   | MApp ("cons", [ _; _ ]) ->
       let elem = iter_elem tbl expected List in
       let items = List.map (decode tbl elem) (list_spine m) in

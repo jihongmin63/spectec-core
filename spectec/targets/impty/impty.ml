@@ -132,6 +132,18 @@ let maude_start_term ~(task : string) ~(spec_il : Lang.Il.spec)
   let term = Rewrite.To_maude.meta_term_of_value spec_il value in
   Ok (Rewrite.To_maude.meta_start_app spec_il relation [ term ])
 
+(* Parse an impty program to its [task] relation + parsed value, leaving the
+   Maude encoding to the caller -- the [Structural] oracle leg
+   ({!Rewrite.To_mfe.start_app}) batches several sources against one already-
+   built [Rewrite_system.t], unlike [maude_start_term] (which builds the whole
+   [Native] META-TERM start string per call). *)
+let parse_for_run ~(task : string) (filename : string) :
+    (string * Lang.Il.value, Spectec.Error.t) result =
+  let ( let* ) = Result.bind in
+  let* relation = relation_of_task task in
+  let* value = Parse.parse_file ~handler:Target.handler filename in
+  Ok (relation, value)
+
 let cli_flags =
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in

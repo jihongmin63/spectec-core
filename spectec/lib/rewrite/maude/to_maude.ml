@@ -66,12 +66,14 @@ let is_relation rels = function
   | R.App (f, _) -> List.mem f rels
   | R.Var _ -> false
 
-(* A wrapped bool literal [bool(true)]/[bool(false)] (the form every IL bool
-   takes under the [Native] scalar theory, {!To_ctrs.of_spec}). *)
-let is_bool_lit = function
+(* A bool literal in [scalars]' theory: [Native]'s wrapped [bool(true)]/
+   [bool(false)] ({!To_ctrs.of_spec}), or [Structural]'s bare [true]/[false]
+   ({!Ctrs_term.bool_t}). *)
+let is_bool_lit ~(scalars : T.scalar_theory) = function
   | R.App (b, [ R.App (("true" | "false"), []) ])
-    when b = Maude_theory.bool_wrap_sym ->
+    when scalars = T.Native && b = Maude_theory.bool_wrap_sym ->
       true
+  | R.App (("true" | "false"), []) when scalars = T.Structural -> true
   | _ -> false
 
 (* The name of the head-of-term value predicate (see [stuck_head_defs]). *)
@@ -85,20 +87,22 @@ let stuck_head_sym = "isStuckHead"
      equality [=] only reduces with equations and would never fire).
    - [`Check]: the right side is a bool literal -- a pure test, binding nothing.
    - [`Match]: a matching condition, binding whichever side is fresh. *)
-let cond_form rels ((l, r) : R.cond) : [ `Rewrite | `Check | `Match ] =
+let cond_form ~(scalars : T.scalar_theory) rels ((l, r) : R.cond) :
+    [ `Rewrite | `Check | `Match ] =
   if is_relation rels l then `Rewrite
-  else if is_bool_lit r then `Check
+  else if is_bool_lit ~scalars r then `Check
   else `Match
 
 (* Render one condition, threading the set of already-bound variables (Maude
    evaluates conditions left to right). Returns the condition text and the
    variables it binds. [defined] is the set of symbols that reduce away
    (functions/relations/prelude ops), used to guard bare-variable matches. *)
-let print_cond vs rels defined bound ((l, r) : R.cond) : string * string list =
+let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
+    ((l, r) : R.cond) : string * string list =
   let fresh_of t =
     List.filter (fun v -> not (List.mem v bound)) (vars_of_term t)
   in
-  let pl = print_term Native vs l and pr = print_term Native vs r in
+  let pl = print_term scalars vs l and pr = print_term scalars vs r in
   (* A matching condition [pat := subj] binding [vars]: it succeeds whenever
      [subj] is structurally of [pat]'s sort -- even when a defined head in [subj]
      got stuck (no rule applied), since a stuck application still inhabits its
@@ -113,7 +117,7 @@ let print_cond vs rels defined bound ((l, r) : R.cond) : string * string list =
         (base ^ " /\\ " ^ stuck_head_sym ^ "(" ^ pat_s ^ ") = false", vars)
     | _ -> (base, vars)
   in
-  match cond_form rels (l, r) with
+  match cond_form ~scalars rels (l, r) with
   | `Rewrite -> (pl ^ " => " ^ pr, fresh_of r)
   | `Check -> (pl ^ " = " ^ pr, [])
   | `Match ->
@@ -139,16 +143,16 @@ let print_cond vs rels defined bound ((l, r) : R.cond) : string * string list =
    bound; a matching binds whichever side is fresh, so it needs the other side
    bound. A genuine cycle leaves nothing ready; emit the rest in source order
    rather than loop. *)
-let print_conds vs rels defined (lhs_vars : string list) (conds : R.cond list) :
-    string =
+let print_conds ~(scalars : T.scalar_theory) vs rels defined
+    (lhs_vars : string list) (conds : R.cond list) : string =
   let bnd bound t = List.for_all (fun v -> List.mem v bound) (vars_of_term t) in
   let ready bound ((l, r) : R.cond) =
-    match cond_form rels (l, r) with
+    match cond_form ~scalars rels (l, r) with
     | `Rewrite | `Check -> bnd bound l
     | `Match -> bnd bound l || bnd bound r
   in
   let emit (bound, acc) c =
-    let text, newvars = print_cond vs rels defined bound c in
+    let text, newvars = print_cond ~scalars vs rels defined bound c in
     (newvars @ bound, text :: acc)
   in
   let take_ready bound conds =
@@ -175,9 +179,10 @@ let print_conds vs rels defined (lhs_vars : string list) (conds : R.cond list) :
 (* -------------------------------------------------------------------------- *)
 (* Rule printing. *)
 
-let print_rule vs rels defined (is_rel : bool) (r : R.rule) : string =
-  let lhs = print_term Native vs r.R.lhs
-  and rhs = print_term Native vs r.R.rhs in
+let print_rule ~(scalars : T.scalar_theory) vs rels defined (is_rel : bool)
+    (r : R.rule) : string =
+  let lhs = print_term scalars vs r.R.lhs
+  and rhs = print_term scalars vs r.R.rhs in
   let arrow = if is_rel then " => " else " = " in
   let kw =
     if is_rel then if r.R.conds = [] then "rl" else "crl"
@@ -204,7 +209,7 @@ let print_rule vs rels defined (is_rel : bool) (r : R.rule) : string =
   | _ ->
       let lhs_vars = vars_of_term r.R.lhs in
       head ^ " if "
-      ^ print_conds vs rels defined lhs_vars r.R.conds
+      ^ print_conds ~scalars vs rels defined lhs_vars r.R.conds
       ^ attr ^ " ."
 
 (* -------------------------------------------------------------------------- *)
@@ -956,7 +961,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     in
     let hint v = Option.map (sort_of_typ tenv) (List.assoc_opt v hint_types) in
     let vs = infer_var_sorts edges sg hint r in
-    buf_line b ("  " ^ print_rule vs rels defined_heads is_rel r)
+    buf_line b ("  " ^ print_rule ~scalars:Native vs rels defined_heads is_rel r)
   in
   List.iter emit eqs;
   if rls <> [] then buf_line b "";
@@ -1192,12 +1197,26 @@ let encode_index (orig : spec) : encode_index =
       encode_index_memo := Some (orig, idx);
       idx
 
-(* Encode a value to a ground term in the native theory: scalars become
+(* A Bigint magnitude as a structural Peano tower ([zero]/[succ]).
+   [Native] mode never calls this -- it embeds the Bigint's decimal string
+   directly ({!Maude_theory}, unbounded); this is only reachable for
+   [Structural] encoding, so it stays practical only for small sample values
+   (Peano blows up linearly in the magnitude). *)
+let rec peano_of_bigint (n : Bigint.t) : R.term =
+  if Bigint.compare n Bigint.zero <= 0 then T.zero_t
+  else T.succ_t (peano_of_bigint (Bigint.pred n))
+
+(* Encode a value to a ground term in [scalars]' theory: [Native] scalars become
    wrapped built-in literals ({!Maude_theory}), so a program identifier is a
-   [String] and a numeral never builds a Peano tower (no [Bigint] overflow).
-   [expected] is the type the surrounding position wants, used only to put a
-   numeric leaf in the [int] vs [nat] wrapper. *)
-let encode_value (orig : spec) (v : value) : R.term =
+   [String] and a numeral never builds a Peano tower (no [Bigint] overflow);
+   [Structural] scalars are {!Ctrs_term}'s own Peano/sign-magnitude/char-list
+   encoding (via [peano_of_bigint], not {!Ctrs_term.nat_lit}/[int_lit] -- those
+   take a bounded native [int], but a parsed program's numeral is an unbounded
+   [Bigint]), matching {!To_mfe}'s analysis module vocabulary. [expected] is the
+   type the surrounding position wants, used only to put a numeric leaf in the
+   [int] vs [nat] wrapper/constructor. *)
+let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
+    R.term =
   let idx = encode_index orig in
   (* The declared field types of the variant case [origin]/[mixop], so a numeric
      leaf can be coerced to the [int]/[nat] the case expects. *)
@@ -1207,7 +1226,7 @@ let encode_value (orig : spec) (v : value) : R.term =
   in
   let rec enc (expected : typ' option) (v : value) : R.term =
     match v.it with
-    | BoolV b -> Maude_theory.bool_t b
+    | BoolV b -> T.bool_t ~scalars b
     | NumV num -> (
         let i = Xl.Num.to_int num in
         (* Respect the value's own [Num] tag first: a genuinely-[Int] numeral
@@ -1218,9 +1237,18 @@ let encode_value (orig : spec) (v : value) : R.term =
            [`Int], see [lexer.mll]). [expected] still upcasts a [Nat] value
            sitting in an [int] position (nat <: int). *)
         match (num, expected) with
-        | `Int _, _ | _, Some (NumT `IntT) -> Maude_theory.int_t i
-        | _ -> Maude_theory.nat_t i)
-    | TextV s -> Maude_theory.text_t s
+        | `Int _, _ | _, Some (NumT `IntT) -> (
+            match scalars with
+            | Native -> Maude_theory.int_t i
+            | Structural ->
+                if Bigint.compare i Bigint.zero >= 0 then
+                  T.int_pos_t (peano_of_bigint i)
+                else T.int_neg_t (peano_of_bigint (Bigint.pred (Bigint.neg i))))
+        | _ -> (
+            match scalars with
+            | Native -> Maude_theory.nat_t i
+            | Structural -> peano_of_bigint i))
+    | TextV s -> T.text_t ~scalars s
     | OptV None -> T.none_t
     | OptV (Some v) -> T.some_t (enc None v)
     | ListV vs ->
@@ -1360,7 +1388,7 @@ let rec print_meta_term sg (t : R.term) : string =
 (* Encode [value] to its Maude META-TERM text (self-contained: literals carry
    their own bytes). *)
 let meta_term_of_value (orig : spec) (v : value) : string =
-  print_meta_term (meta_signature orig) (encode_value orig v)
+  print_meta_term (meta_signature orig) (encode_value ~scalars:Native orig v)
 
 (* The start application of relation [rel] on already-encoded META-TERM [args],
    as a META-TERM ['rel[args]]. When the translated system threads [rel] with the

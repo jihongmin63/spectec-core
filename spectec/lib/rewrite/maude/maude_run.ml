@@ -152,6 +152,27 @@ let meta_commands (mode : mode) (start : string) : string list =
             (Printf.sprintf "metaSearch(%s, %s, 'R:Val, nil, '!, unbounded, %d)"
                spec_meta start k))
 
+(* The plain object-syntax command(s) for [mode] on the already-encoded object
+   term [start] (e.g. ["Program-ok(<structural term>)"]), for a direct (non-
+   reflective) [reduce]/[rewrite] -- used by the {!Structural} start-term path
+   ({!To_maude.encode_value} with [~scalars:Structural]), which has no built-in
+   wrapper for [metaReduce] to reflect specially, so it is parsed through the
+   module's real (order-sorted) signature instead of the META-TERM grammar.
+   [parse_output] below reads its output identically to the meta path's: either
+   way the top-level command is a Maude [reduce]/[rewrite], which always prints
+   [result <Sort>: <term>]. [Search] is not supported here (object-syntax search
+   patterns are unimplemented; unlike the meta path, which enumerates by
+   index) -- this direct path only ever backs the reduce-only structural
+   differential oracle. *)
+let direct_commands (mode : mode) (start : string) : string list =
+  match mode with
+  | Reduce -> [ Printf.sprintf "reduce %s ." start ]
+  | Rewrite -> [ Printf.sprintf "rewrite %s ." start ]
+  | Search _ ->
+      failwith
+        "Maude_run: direct (structural) Search mode is not supported -- only \
+         Reduce/Rewrite"
+
 (* Position of [sub] in [s], if present. *)
 let index_sub (s : string) (sub : string) : int option =
   let ns = String.length s and nb = String.length sub in
@@ -252,7 +273,8 @@ let result_of_failed_status bin output = function
 (* Write [module_text] then [commands] (each already terminated) plus [quit] to a
    fresh temp file, run Maude on it once, and hand the raw stdout+status to [k].
    Centralizes the temp-file lifecycle for both runners. *)
-let with_maude_run bin timeout module_text commands k =
+let with_maude_run ?(wrapper = meta_wrapper_module) bin timeout module_text
+    commands k =
   let file = Filename.temp_file "spectec_maude" ".maude" in
   Fun.protect
     ~finally:(fun () -> try Sys.remove file with Sys_error _ -> ())
@@ -260,7 +282,7 @@ let with_maude_run bin timeout module_text commands k =
       let oc = open_out file in
       output_string oc module_text;
       output_char oc '\n';
-      output_string oc meta_wrapper_module;
+      output_string oc wrapper;
       List.iter (output_string oc) commands;
       output_string oc "quit\n";
       close_out oc;
@@ -277,10 +299,18 @@ let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
       | Unix.WEXITED 0 -> parse_output mode defined_heads output
       | status -> result_of_failed_status bin output status)
 
-(* A String literal Maude reduces to itself, emitted between batched commands to
-   delimit each one's output: the resulting [result String: "..."] line is the
-   boundary. Chosen unlikely to collide with any real normal form. *)
-let batch_sep = "$$SPECTEC_BATCH_SEP$$"
+(* A ground term Maude reduces to itself, emitted between batched commands to
+   delimit each one's output: the resulting [result ...: ...] line is the
+   boundary. Chosen unlikely to collide with any real normal form. No
+   underscores (unlike a normal CTRS-derived identifier, this one is never fed
+   through {!Rewrite_system.maude_id}'s mangling): [run_batch]'s [Native] path
+   quotes it as a Maude [String] literal (mangling wouldn't apply inside quotes
+   anyway), but [run_batch_direct]'s [Structural] path
+   ({!To_mfe.module_of_system}'s execution mode) declares it as a bare nullary
+   identifier, and Maude's parser reads underscores in a bare identifier as
+   mixfix argument slots -- hyphens avoid that without needing to mangle (and
+   then re-derive the mangled spelling here) just for this one marker. *)
+let batch_sep = "$$SPECTEC-BATCH-SEP$$"
 
 (* The boundary is the marker's [result] line, not Maude's [reduce in M : ...]
    command echo -- both carry [batch_sep], so matching on the substring alone
@@ -347,4 +377,62 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
                 (fun start ->
                   run ?maude_bin ~timeout ~defined_heads ~mode ~module_text
                     ~start ())
+                starts)
+
+
+(* -------------------------------------------------------------------------- *)
+(* Direct (non-reflective) object-syntax execution: the {!Structural} start-term
+   path. No meta wrapper is written (nothing reflects the module), so [start] is
+   already object-syntax text in the module's own vocabulary
+   ({!Maude_sorts.print_term}), not a META-TERM. Otherwise mirrors [run]/
+   [run_batch] exactly (same process/output plumbing, same [result]). *)
+
+let run_direct ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
+    ~(module_text : string) ~(start : string) () : result =
+  let bin = resolve_bin maude_bin in
+  with_maude_run ~wrapper:"" bin timeout module_text
+    (List.map (fun c -> c ^ "\n") (direct_commands mode start) @ [ "\n" ])
+    (fun status output ->
+      match status with
+      | Unix.WEXITED 0 -> parse_output mode defined_heads output
+      | status -> result_of_failed_status bin output status)
+
+let run_batch_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
+    ~(mode : mode) ~(module_text : string) ~(starts : string list) () :
+    result list =
+  match starts with
+  | [] -> []
+  | _ ->
+      let bin = resolve_bin maude_bin in
+      let commands =
+        List.concat_map
+          (fun start ->
+            List.map (fun c -> c ^ "\n") (direct_commands mode start)
+            (* Bare identifier, not a quoted Maude [String] literal like
+               [run_batch]'s separator: [module_text] here is {!To_mfe}'s
+               structural module, which declares [batch_sep] itself as a
+               nullary marker constant (see its doc comment) rather than
+               importing [STRING] (which would clash with [BOOL]). *)
+            @ [ "\n"; Printf.sprintf "reduce %s .\n" batch_sep ])
+          starts
+      in
+      with_maude_run ~wrapper:"" bin timeout module_text commands
+        (fun status output ->
+          match status with
+          | Unix.WEXITED 0 ->
+              let segments = split_batch_segments output in
+              List.mapi
+                (fun i start ->
+                  match List.nth_opt segments i with
+                  | Some seg -> parse_output mode defined_heads seg
+                  | None ->
+                      Error
+                        (Printf.sprintf
+                           "maude produced no output for start term:\n%s" start))
+                starts
+          | _status ->
+              List.map
+                (fun start ->
+                  run_direct ?maude_bin ~timeout ~defined_heads ~mode
+                    ~module_text ~start ())
                 starts)

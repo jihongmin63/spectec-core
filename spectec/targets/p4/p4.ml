@@ -232,6 +232,13 @@ let maude_start_term ~(includes : string list) ~(spec_il : Lang.Il.spec)
   let term = Rewrite.To_maude.meta_term_of_value spec_il value in
   Ok (Rewrite.To_maude.meta_start_app spec_il "Program_ok" [ term ])
 
+(* Parse a P4 program to its parsed value, leaving the Maude encoding to the
+   caller -- the [Structural] oracle leg counterpart of [maude_start_term],
+   see {!Targets_impty.Impty.parse_for_run}. *)
+let parse_for_run ~(includes : string list) (filename : string) :
+    (Lang.Il.value, Spectec.Error.t) result =
+  Frontend.parse_file ~handler:Target.handler includes filename
+
 module Typecheck_cli : Cli.Task_cli.S = struct
   module Task = Typecheck
 

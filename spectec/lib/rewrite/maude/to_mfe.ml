@@ -1,6 +1,7 @@
 open Lang.Il
 module R = Rewrite_system
 module MS = Maude_sorts
+module T = Ctrs_term
 
 (** Emit a {!Rewrite_system.t} (the structural analysis system,
     {!Rewrite.rewrite_spec}) as an {b order-sorted} Full-Maude system module for
@@ -57,9 +58,15 @@ let print_rule vs (is_rel : bool) (r : R.rule) : string =
 
 (* Emit the order-sorted analysis module. [orig] is the elaborated IL spec (for
    sort recovery); [sys] is the structural CTRS ({!Rewrite.rewrite_spec}); the
-   symbols in [rule_heads] print as [rl]/[crl], the rest as [eq]/[ceq]. *)
-let module_of_system ?(module_name = "SPEC") ~(rule_heads : string list)
-    (orig : spec) (sys : R.t) : string =
+   symbols in [rule_heads] print as [rl]/[crl], the rest as [eq]/[ceq].
+   [full_maude] (default [true], {!Mfe.check}'s use) wraps the module in Full
+   Maude's [(mod ... endm)] parens, needed for the MFE's CRC/ChC loop to accept
+   it as a term. [false] emits it as a plain STOCK-Maude module ([mod ... endm
+   .]) instead, for {!Maude_run.run_direct}/[run_batch_direct]'s direct
+   (non-reflective) execution path, which runs a bare [maude] binary with
+   nothing loaded -- Full Maude's parenthesized form is not valid input there. *)
+let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
+    ~(rule_heads : string list) (orig : spec) (sys : R.t) : string =
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form. *)
   let orig = Defunctionalize.defunctionalize orig in
@@ -81,7 +88,19 @@ let module_of_system ?(module_name = "SPEC") ~(rule_heads : string list)
       (MS.il_constructor_syms orig)
   in
   let ops = MS.dedup (used @ ctor_arities) in
-  let op_sigs = MS.dedup (List.map (fun (s, n) -> (s, sg s n)) ops) in
+  (* Execution mode ([full_maude = false]) additionally needs
+     [{!To_maude.stuck_head_sym} : Val -> Bool] declared: {!To_maude.print_rule}
+     (used below in that mode) guards a bare-variable matching condition with
+     it so a stuck subterm cannot silently masquerade as a bound value.
+     Analysis mode never prints a [:=] matching condition (see [print_rule]
+     below, the plain-[=] one), so it never needs the guard. *)
+  let op_sigs =
+    MS.dedup
+      (List.map (fun (s, n) -> (s, sg s n)) ops
+      @
+      if full_maude then []
+      else [ (To_maude.stuck_head_sym, ([ MS.val_sort ], "Bool")) ])
+  in
   (* An empty text is the bare [nil] (a char [List]); a [text]-typed position
      takes sort [Text]. [List < Text] lets a char list inhabit those positions.
      Only when [Text] is actually a signature sort. *)
@@ -115,12 +134,22 @@ let module_of_system ?(module_name = "SPEC") ~(rule_heads : string list)
     | Some h -> List.mem h rule_heads
     | None -> false
   in
+  (* Execution mode only: the symbols that reduce away, and (for those with a
+     known arity from [used]) their [{!To_maude.stuck_head_sym}] equations --
+     see the [op_sigs] comment above. *)
+  let defined_heads = R.defined_heads sys in
+  let stuck_arities =
+    List.filter_map
+      (fun h -> Option.map (fun n -> (h, n)) (List.assoc_opt h used))
+      defined_heads
+  in
   let b = Buffer.create 4096 in
   (* The module declares its own [true]/[false]/[and]/[not]; turn the implicit
      [BOOL] import off so they don't clash ("Ambiguous parsing"). *)
   buf_line b "set include BOOL off .";
   buf_line b "";
-  buf_line b ("(mod " ^ module_name ^ " is");
+  buf_line b
+    ((if full_maude then "(mod " else "mod ") ^ module_name ^ " is");
   let non_val = List.filter (fun s -> s <> MS.val_sort) sorts in
   buf_line b ("  sorts " ^ String.concat " " non_val ^ " " ^ MS.val_sort ^ " .");
   if non_val <> [] then
@@ -135,6 +164,35 @@ let module_of_system ?(module_name = "SPEC") ~(rule_heads : string list)
       let dom = if args = [] then "" else String.concat " " args ^ " " in
       buf_line b ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
     (List.sort compare op_sigs);
+  (* Execution mode only: {!Maude_run.run_batch_direct} delimits each batched
+     start's output with a reduce of this bare marker constant (no equations,
+     so it reduces to itself) -- NOT a quoted Maude [String] literal like the
+     [Native]/meta path uses, because [protecting STRING .] transitively pulls
+     in [BOOL] and clashes with this module's own [true]/[false] (the reason
+     for [set include BOOL off .] above in the first place). Declared with the
+     exact same spelling {!Maude_run.batch_sep} is, so the bridge's line-level
+     substring search for it (shared with the native path, which does wrap it
+     in quotes) finds it either way. *)
+  if not full_maude then
+    buf_line b
+      ("  op " ^ R.maude_id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort
+     ^ " .");
+  (* Execution mode only: EVERY byte value's [chr_<code>] constructor (the
+     structural char-list text encoding, {!Ctrs_term.chars_t}), not just the
+     ones [used] happens to catch (a rule pattern rarely mentions a literal
+     character -- text data lives in ENCODED START TERMS, built at run time
+     from whatever identifiers/string literals the target program actually
+     contains, which this module-text pass cannot see yet: it runs once,
+     before any program is parsed). Harmless when unused (a plain declared
+     constant like any other constructor). *)
+  if not full_maude then (
+    let already = List.map fst op_sigs in
+    for code = 0 to 255 do
+      let sym = T.chr_sym code in
+      if not (List.mem sym already) then
+        buf_line b
+          ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " .")
+    done);
   buf_line b "";
   (* equations first (functions/prelude/constructors), then the relation rules;
      spec order preserved within each. *)
@@ -149,10 +207,56 @@ let module_of_system ?(module_name = "SPEC") ~(rule_heads : string list)
       Option.map (MS.sort_of_typ tenv) (List.assoc_opt v hint_types)
     in
     let vs = MS.infer_var_sorts edges sg hint r in
-    buf_line b ("  " ^ print_rule vs (is_rel r) r)
+    let line =
+      if full_maude then print_rule vs (is_rel r) r
+      else
+        (* [Structural]: the operational [:=]/[=>] scheduling {!To_maude} built
+           for the [Native] execution module, reused as-is -- see that
+           function's doc comment for why analysis mode's plain [l = r] cannot
+           be [reduce]d directly. *)
+        To_maude.print_rule ~scalars:Structural vs rule_heads defined_heads
+          (is_rel r) r
+    in
+    buf_line b ("  " ^ line)
   in
   List.iter emit eqs;
   if rls <> [] then buf_line b "";
   List.iter emit rls;
-  buf_line b "endm)";
+  if (not full_maude) && stuck_arities <> [] then (
+    buf_line b "";
+    List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities sg));
+  (* [endm] is itself the complete module-closing token in STOCK Maude (no
+     trailing [.] -- one was mistaken for a dangling empty top-level sentence,
+     "syntax error" right after any module, verified empirically); Full Maude's
+     parenthesized form closes with [)], also no [.]. *)
+  buf_line b (if full_maude then "endm)" else "endm");
   Buffer.contents b
+
+
+(* -------------------------------------------------------------------------- *)
+(* Structural start-term encoding, for a direct (non-reflective) [reduce] of
+   the analysis module ({!Maude_run.run_direct}) -- the [Structural] oracle
+   leg's start-term counterpart of {!To_maude.meta_start_app} (which is
+   [Native]-only: a structural value has no built-in Maude literal wrapper for
+   the META-TERM grammar to reflect, so it goes through the module's real
+   signature as plain object-syntax text instead, via {!Maude_sorts.print_term}
+   -- no per-symbol sort suffix needed there, unlike the META-TERM printer,
+   since Maude's own parser resolves sorts from the declared [op]s). *)
+let start_app (orig : spec) (system : R.t) (rel : string) (args : value list) :
+    string =
+  let vs : (string, string) Hashtbl.t = Hashtbl.create 0 in
+  let enc (v : value) : string =
+    MS.print_term Structural vs (To_maude.encode_value ~scalars:Structural orig v)
+  in
+  let arg_terms = List.map enc args in
+  (* Append the gensym seed when [system] threads [rel], exactly as
+     {!To_maude.meta_start_app} does for the native path. *)
+  let arg_terms =
+    if List.mem (R.sanitize rel) (Gensym.effectful_syms system) then
+      arg_terms
+      @ [ MS.print_term Structural vs (T.text_t ~scalars:Structural Gensym.seed_text) ]
+    else arg_terms
+  in
+  match arg_terms with
+  | [] -> To_maude.maude_sym rel
+  | _ -> To_maude.maude_sym rel ^ "(" ^ String.concat ", " arg_terms ^ ")"
