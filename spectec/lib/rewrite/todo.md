@@ -419,7 +419,9 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
       걸쳐 이름이 겹쳐 `matcher_type`이 유일 소유 타입을 못 찾아
       `Gate "ambiguous matcher"`, 1개)뿐 — 둘 다 `Mfe.check`의 `drop_owise`
       폴백이 계속 커버(분석 자체는 안 막힘), 실행 표면은 원래대로 `owise`
-      속성 유지. 태스크가 기대한 사슬
+      속성 유지. **(2026-07-04 정정: 이 5개 "무조건 게이트" 서술은 부정확했음 —
+      아래 권장 순서 섹션의 2026-07-04 항목 참조, 실제로는 안전하게 반사 가능해서
+      66/72 → 71/72로 늘어남.)** 태스크가 기대한 사슬
       `$itercollect→Cast_impl_neq→Cast_impl→$cast_unary/$cast_binary`,
       `$match_overloaded_{named,unnamed}_*` 12심볼,
       `$gen_constraint`가 전부 열림. `$cast_unary` 절2가
@@ -879,6 +881,24 @@ rule의 다른 조건에도 안 쓰일 때만(companion destructure 충돌 회�
 재검을 먼저 시도했으나 impty `$lookup` 대조군이 `--timeout 280`에서도 TIMEOUT —
 환경이 여전히 미회복임을 재확인(회귀 아님), 그래서 환경 비의존적인 이 항목으로
 전환해 완료.)
+
+(추가 완료 2026-07-04: **owise 반사의 gensym-effectful 사전 게이트 제거**
+(`reflect.ml`의 `owise` 함수 안, 형제 guard를 만들기도 전에 "이 규칙의 head 심볼이
+effectful 집합에 속하냐"만 보고 무조건 막던 2줄 삭제). `gensym.ml`의 `thread_rule`이
+컴파일 타임에 강제하는 불변식(effectful 규칙의 원래 LHS 패턴에는 절대 effectful
+호출이 들어갈 수 없음 — 위반 시 `failwith`)과, `ctest`가 형제 조건을 훑을 때 이미
+무조건 `check_reflectable`을 호출해 실제 effectful 언급을 정확히 잡아내는 기존
+안전장치 덕분에, 이 사전 게이트는 불필요하게 보수적이었음이 실측으로 확인됨(예:
+`$subst_typeIR`의 유일한 형제 절은 조건이 0개라 guard가
+`eqg(theta, variant-set-lbrace-rbrace-1(nil))`뿐이라 gensym state를 아예 언급하지
+않는데도 막혀 있었음). 2줄 삭제 후 p4: 66/72 → **71/72 반사**(5개
+`$subst_typeIR`/`$subst_parameterIR`/`$subst_callableTypeIR`/
+`$subst_callableTypeDefIR`/`$subst_constructorTypeIR` 전부 새 Gate 사유 없이 반사됨,
+남은 1개는 무관한 `$find_local_return_type_t`). impty/base·impty/closure 골든(`spec.ctrs`/
+`spec.maude`) byte-identical. 부수 효과로 레거시 `specs/p4-old`(활성 검증 대상 아님)에서도
+동일 패턴 7개가 반사됨; 그중 `$compat_table_key`는 `check_reflectable`이 실제로 다른
+gensym 심볼(`$compat_table_exact_optional_key`)을 잡아 정상적으로 계속 게이트되는 것도
+확인 — 안전장치가 실전에서도 정확히 작동함을 보여줌.)
 
 남은 작업:
 

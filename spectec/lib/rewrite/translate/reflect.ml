@@ -1184,8 +1184,6 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
                  in
                  let mark = snapshot sup in
                  try
-                   if List.mem f effectful then
-                     raise (Gate "gensym-threaded symbol");
                    let argtyps = argtyps_of f (List.length ow_args) in
                    let guards =
                      List.map
