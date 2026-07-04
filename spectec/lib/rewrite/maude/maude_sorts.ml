@@ -180,7 +180,117 @@ let case_origin_mixop (tc : typcase) : string * Lang.Il.mixop =
 
 (* Subsort edges (sub, super) and per-symbol signatures recovered from the
    original spec's type/relation/function declarations. *)
-let recover (scalars : scalar_theory) (orig : spec)
+(* The iteration/reflection layer synthesizes helpers ([$unzip_..],
+   [$itercollect_..], [holds_$iterall_..], ..) that never appear in [orig]'s
+   own [TypD]/[RelD]/[DecD], so [tbl] has no entry for them and [signature]'s
+   fallback types them all-[Val] -- workable in isolation (a stuck [Val] can
+   sit anywhere), but not when the RESULT feeds a precisely-typed consumer
+   (e.g. a real variant constructor declared [List -> Set]): a stuck,
+   [Val]-sorted argument there is a genuine sort mismatch (not [List]),
+   which is [ERROR]-kind, and no equation -- not even an [and]/[or]
+   short-circuit -- can ever match an [ERROR]-kind subterm. Recovering a
+   precise RANGE for these synthesized symbols fixes that at the source: if
+   EVERY rule defining a symbol has an RHS headed by the same container's own
+   constructor ([nil]/[cons], [none]/[some], [true]/[false]), the symbol's
+   range is that container's sort regardless of what varies inside it (the
+   ELEMENT type, which [$itercollect] in particular can't pin down) -- the
+   container shape itself is exactly what these rules always produce, so the
+   inference is sound by construction, not a name-based guess. Symbols with no
+   rules, or whose rules disagree, are left to the [Val] fallback (unchanged
+   from before). Never touches a symbol already recovered from [orig] --
+   FILLS GAPS, never overrides a real declared type. *)
+let infer_ranges (rules : R.rule list) : sigs =
+  (* per symbol: its arity (from any one rule's lhs -- a CTRS function has a
+     fixed arity) and every rule's RHS head, collected together so a single
+     pass can both size the [Val] argument list and check RHS agreement. *)
+  let seen : (string, int * string list) Hashtbl.t = Hashtbl.create 64 in
+  List.iter
+    (fun (r : R.rule) ->
+      match (R.defined_head r, r.R.lhs, r.R.rhs) with
+      | Some sym, R.App (_, args), R.App (h, _) ->
+          let arity, hs =
+            Option.value (Hashtbl.find_opt seen sym)
+              ~default:(List.length args, [])
+          in
+          Hashtbl.replace seen sym (arity, h :: hs)
+      | _ -> ())
+    rules;
+  (* A rule's RHS head can itself be a call to another BoolV-producing
+     combinator ($builtin_list_submem's own recursive case reduces via
+     [and(mem(..), ..)], not a bare true/false) -- recognize those too, not
+     just the ground constants, or one non-literal disjunct/conjunct in an
+     otherwise-uniform RHS set silently drops the whole inference. *)
+  let has_prefix p sym =
+    String.length sym >= String.length p
+    && String.sub sym 0 (String.length p) = p
+  in
+  let range_of_head sym =
+    match sym with
+    | "nil" | "cons" -> Some "List"
+    | "none" | "some" -> Some "Opt"
+    | "true" | "false" | "and" | "or" | "not" | "eqg" -> Some "BoolV"
+    | _
+      when has_prefix "match_" sym || has_prefix "subty_" sym
+           || has_prefix "holds_" sym ->
+        Some "BoolV"
+    | _ -> None
+  in
+  let ranges : sigs = Hashtbl.create 64 in
+  Hashtbl.iter
+    (fun sym (arity, heads) ->
+      (* a recursive rule's RHS head is often the symbol itself (e.g. a
+         [$builtin_list_diff]-style fold calling itself on the tail): that
+         occurrence says nothing new about the range (whatever it turns out
+         to be, it has to agree with itself), so only the OTHER, base-case
+         rules need to agree for the inference to hold. *)
+      match List.filter (fun h -> h <> sym) heads with
+      | [] -> ()
+      | h0 :: rest -> (
+          match range_of_head h0 with
+          | Some rng when List.for_all (fun h -> range_of_head h = Some rng) rest
+            ->
+              Hashtbl.replace ranges sym (List.init arity (fun _ -> val_sort), rng)
+          | _ -> ()))
+    seen;
+  ranges
+
+(* [reflect.ml]'s [ensure_proj] emits, for a variant/tuple case, ONE payload
+   projector per field: [proj_<ctor>_<i>(ctor(x0..xn-1)) = xi], always a bare
+   pattern variable on the right, so [infer_ranges]'s RHS-shape scan (which
+   needs an [App] head to read anything off) never sees these at all. But the
+   field's real type doesn't need to be guessed here: [ctor] is a REAL
+   constructor already recovered into [tbl] by the main scan above (its own
+   argument sorts came straight off the [TypD] that declared it), so the i-th
+   argument sort IS the projector's range, exactly. (A "tuple" pseudo-ctor,
+   {!Ctrs_term}'s generic n-ary wrapper with no [TypD] of its own, has no
+   entry to look up -- its projectors stay at the existing [Val] fallback,
+   same as today.) *)
+let infer_proj_ranges (tbl : sigs) (rules : R.rule list) : sigs =
+  let index_of (x : R.term) (xs : R.term list) : int option =
+    let rec go i = function
+      | [] -> None
+      | y :: ys -> if y = x then Some i else go (i + 1) ys
+    in
+    go 0 xs
+  in
+  let ranges : sigs = Hashtbl.create 64 in
+  List.iter
+    (fun (r : R.rule) ->
+      match (r.R.lhs, r.R.rhs) with
+      | R.App (sym, [ R.App (ctor, args) ]), (R.Var _ as rhs) -> (
+          match index_of rhs args with
+          | Some i -> (
+              match Hashtbl.find_opt tbl ctor with
+              | Some (ctor_args, _) when List.length ctor_args > i ->
+                  Hashtbl.replace ranges sym
+                    ([ val_sort ], List.nth ctor_args i)
+              | _ -> ())
+          | None -> ())
+      | _ -> ())
+    rules;
+  ranges
+
+let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
     (tenv : (string, deftyp') Hashtbl.t) : sigs * (string * string) list =
   let tbl : sigs = Hashtbl.create 256 in
   let subsorts = ref [] in
@@ -241,6 +351,14 @@ let recover (scalars : scalar_theory) (orig : spec)
           add (T.func_sym id) (argsorts, sort_of ret.it)
       | BuiltinDecD _ -> ())
     orig;
+  let merge_gaps sigs =
+    Hashtbl.iter
+      (fun sym sg ->
+        if not (Hashtbl.mem tbl sym) then Hashtbl.replace tbl sym sg)
+      sigs
+  in
+  merge_gaps (infer_ranges rules);
+  merge_gaps (infer_proj_ranges tbl rules);
   (tbl, !subsorts)
 
 (* The signature of [sym] at [arity]: the recovered/prelude one when its arity

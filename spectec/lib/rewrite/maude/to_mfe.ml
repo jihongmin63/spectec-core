@@ -71,7 +71,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      recovery and variable hints must read the same form. *)
   let orig = Defunctionalize.defunctionalize orig in
   let tenv = MS.type_env orig in
-  let tbl, inj_subsorts = MS.recover Structural orig tenv in
+  let tbl, inj_subsorts = MS.recover ~rules:sys.R.rules Structural orig tenv in
   let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
   let sg sym arity = MS.signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, plus all IL

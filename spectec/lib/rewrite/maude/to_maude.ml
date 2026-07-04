@@ -820,7 +820,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
      copies' declarations live only there (memoized, the same physical spec). *)
   let orig = Defunctionalize.defunctionalize orig in
   let tenv = type_env orig in
-  let tbl, inj_subsorts = recover Native orig tenv in
+  let tbl, inj_subsorts = recover ~rules:sys.R.rules Native orig tenv in
   (* Declared IL types of body-rule variables, keyed by defined symbol, used to
      restore narrow variable sorts (see {!Var_hints.of_spec}). Recomputed
      from the same idempotent simplification [sys] was built from. *)
