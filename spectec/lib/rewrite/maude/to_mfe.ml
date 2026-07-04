@@ -198,21 +198,50 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      matches [or(true,y)=true], only [or(y,true)=true] would, and that
      mirror equation was never generated -- see [prelude.ml]'s [or_t]/[and_t]
      rules, deliberately kept to the one direction since [Rewrite_system]'s
-     CTRS layer has no operator attributes to express the other). [comm]
-     lets Maude's matcher try the argument swap itself instead, so either
-     position finds the equation. Analysis mode ({!Mfe.check}) never executes
-     ground terms, so it has no need for either attribute and is left as-is. *)
+     CTRS layer has no operator attributes to express the other).
+
+     [comm] looked like the natural way to make the SAME equations match
+     either argument order, and that is what this attribute list originally
+     used -- but empirically (isolated toy modules, then confirmed on the
+     real P4 module: [holds-Type-alpha]'s recursive SET-type disjunct) [comm]
+     makes Maude's AC-style matcher canonicalize BOTH arguments before it
+     will match at all, which means it fully reduces the second argument
+     regardless of [strat]. For a disjunct/conjunct that is only STUCK
+     (unreduced but finite, {!bb116cc9}'s original case) that costs nothing
+     extra; for one that is a genuinely unfolding RECURSIVE call (a judgment
+     guard calling itself on a not-yet-decided projection, run-structural's
+     new ground-execution use of this same module) [comm] forces exactly the
+     unbounded evaluation [strat] was there to avoid, which surfaced as
+     Maude's own "Fatal error: stack overflow" reducing P4's [Program_ok].
+     [strat] alone need not re-derive the swapped-argument equation via a
+     matcher trick, since the module text is free-form here (unlike
+     {!Rewrite_system}'s CTRS layer, which has no attribute to express it):
+     print the mirror equations explicitly instead, below, and drop [comm]. *)
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
       let attr =
         if (not full_maude) && (sym = "or" || sym = "and") then
-          " [comm strat (1 0 2 0)]"
+          " [strat (1 0 2 0)]"
         else ""
       in
       buf_line b
         ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ attr ^ " ."))
     (List.sort compare op_sigs);
+  (* Execution mode only, companion to dropping [comm] above: the mirror of
+     [prelude.ml]'s [or_t]/[and_t] equations, argument order swapped, so a
+     disjunct/conjunct that decides the result in argument position 2 (while
+     position 1 is merely stuck, not yet reduced) is still caught by [strat
+     (1 0 2 0)]'s second pass without needing the matcher to canonicalize
+     either argument first. *)
+  if (not full_maude) && List.exists (fun (s, _) -> s = "or") ops then (
+    buf_line b "";
+    buf_line b "  eq or(y:BoolV, true) = true .";
+    buf_line b "  eq or(y:BoolV, false) = y:BoolV .");
+  if (not full_maude) && List.exists (fun (s, _) -> s = "and") ops then (
+    buf_line b "";
+    buf_line b "  eq and(y:BoolV, true) = y:BoolV .";
+    buf_line b "  eq and(y:BoolV, false) = false .");
   (* Execution mode only: {!Maude_run.run_batch_direct} delimits each batched
      start's output with a reduce of this bare marker constant (no equations,
      so it reduces to itself) -- NOT a quoted Maude [String] literal like the
@@ -274,6 +303,31 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   if (not full_maude) && stuck_arities <> [] then (
     buf_line b "";
     List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities sg));
+  (* Execution mode only: [eqg] ({!Reflect.ensure_eqg}) is deliberately given
+     only its reflexive equation [eqg(x, x) = true] -- analysis mode discharges
+     an off-diagonal [eqg] entirely through the CRC's critical-pair UNIFIER
+     (two guards sharing a subject unify the same way the reflexive equation
+     would, so the pair collapses to [true = false], infeasible, without
+     [eqg] itself ever needing to decide "not equal"). Ground execution has no
+     unifier: a real distinct pair like [eqg(int, bit32)] simply never matches
+     [eqg(x, x)] and, with no other equation for the symbol, sits stuck
+     forever -- discovered via [run-structural], where this alone wedges every
+     owise/judgment guard built on top of it (e.g. [holds-Type-alpha]'s base
+     case) into a non-terminating retry loop instead of resolving to [false].
+     Adding this as a THIRD, unconditional equation would double-count: it
+     would collide with the reflexive one on the diagonal. [owise] keeps it
+     strictly a fallback (only the FIRST successful match for a symbol fires),
+     so the reflexive equation is still tried first and still wins when the
+     two sides really are equal. Scoped to execution mode only -- the CRC
+     itself ignores [owise] when building critical pairs (its documented
+     limitation, see this file's header), so adding it to the shared analysis
+     module would make [eqg(x, x) = true] and this fallback look like a
+     genuine overlap at [x = x], a spurious [true = false] critical pair. *)
+  if (not full_maude) && List.exists (fun (s, _) -> s = "eqg") ops then (
+    buf_line b "";
+    buf_line b
+      ("  eq eqg(x:" ^ MS.val_sort ^ ", y:" ^ MS.val_sort
+     ^ ") = false [owise] ."));
   (* [endm] is itself the complete module-closing token in STOCK Maude (no
      trailing [.] -- one was mistaken for a dangling empty top-level sentence,
      "syntax error" right after any module, verified empirically); Full Maude's
