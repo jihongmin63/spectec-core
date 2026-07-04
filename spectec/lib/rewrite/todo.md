@@ -740,6 +740,43 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     최초로 **실행 기반**으로 검증(현재는 byte-identical golden + CRC/ChC
     판정으로만 뒷받침 — 둘 다 반사 인코딩이 "말이 되는지"는 보지만 실제
     reduce 결과까지 확인하지는 않는다).
+  - **2026-07-04 진행 상황(위 목표의 (a)/(b)는 이미 이전 세션에서 `run-structural`
+    커맨드로 배선 완료 — impty는 end-to-end 검증됨).** P4 `Program_ok`를 이
+    경로로 처음 실제 reduce해보니 세 겹의 실행 전용 버그가 순서대로 드러났다:
+    (i) reflect.ml/to_ctrs.ml이 만드는 헬퍼 심볼(`$unzip_*`/`proj_<ctor>_<i>`
+    등)이 원 spec의 `TypD`/`RelD`에 없어 `Maude_sorts.recover`의 폴백으로
+    전부 `Val` 타입이 되고, 이게 정밀 타입의 실제 constructor에 들어가면
+    ERROR-kind 항이 되어 `and`/`or` short-circuit으로도 못 고침 — `recover`에
+    `infer_ranges`/`infer_proj_ranges` 갭필 패스 추가로 해결(`8d161af8`).
+    (ii) `Program_ok` 끝까지 돌리면 native Maude가 stack overflow — 원인은
+    `eqg`(구조적 동등성)가 반사 규칙(`x=x→true`)만 있고 "다르면 false"가 없어
+    분석(CRC)에선 문제 없지만 ground reduction에선 무한정 stuck, 그리고
+    `and`/`or`에 붙인 `[comm strat (1 0 2 0)]`의 `comm`이 Maude의 AC 매처
+    때문에 `strat`이 막으려던 두 번째 인자 평가를 강제해버려 재귀 judgment
+    guard가 안 끝남(toy 모듈로 직접 재현) — `comm` 제거하고 미러 방정식을
+    직접 찍는 걸로 교체, `eqg`엔 실행 전용 owise-false 추가(둘 다 `full_maude`
+    게이트라 CRC엔 무영향)로 해결(`a3e9c271`).
+    (iii) 그 다음 막힌 지점은 `$int_to_bitstr`/`$bitstr_to_int`/`$shl`/`$shr`/
+    `$shr_arith`/`$pow2`/`$bneg`/`$band`/`$bxor`/`$bor`/`$bitacc` — spec엔
+    `builtin dec`로만 있고 Maude 방정식이 하나도 없었던 것. 인터프리터의 실제
+    구현(`targets/p4/builtins/numerics.ml`)을 그대로 참고해 11개 전부 구현
+    (반올림 방향이 갈릴 수 있는 것들은 클로즈드폼 대신 numerics.ml과 동일한
+    재귀 구조로), 독립적으로 14개 케이스 검증 후 `2583c31f`로 커밋.
+    **결과: 작은 bit-width P4 프로그램은 `Program_ok`가 이제 완전히 끝까지
+    풀린다** (`const bit<4> x = 3;` → 정확한 typed constantDeclarationIR로 축약
+    확인). 단, **새로운, 별도의 한계**를 발견: Structural 이론의 Peano/unary
+    수 인코딩은 `bit<32>` 하나 표현하는 데만 2^32(~43억) 개 중첩 `succ()` 항이
+    필요해 실제 corpus 대부분(`bit<8/16/32/48/64>` 흔함)에서 OOM(exit 137)으로
+    죽는다 — 버그가 아니라 표현 자체의 스케일 한계(`pow2(8)`은 ~2초, `pow2(32)`는
+    단독으로도 20초 안에 안 끝남 확인). 고치려면 Structural 이론에 binary 수
+    인코딩이 필요 — 별도의, 더 큰 트랙.
+    check_diff_p4.sh를 본떠 [check_diff_structural_p4.sh](../../../check_diff_structural_p4.sh)
+    작성(`cde3d763`) — Phase A는 기존 `check_diff_p4_interp.tsv` 재사용, Phase B는
+    OOM 격리를 위해 CHUNK를 30→10으로 줄이고 `ulimit -v`(기본 ~4GB)로 Maude
+    프로세스별 메모리 상한을 걸었으며 분류기에 OOM 카테고리 추가. 4/12개 표본으로
+    스모크 테스트 통과 후, 전체 1568개 corpus 대상 실행을 tmux 세션
+    (`spectec-structural-diff`, 로그: `check_diff_structural_p4.log`)으로 백그라운드
+    시작함 — 진행 중, 결과 미확인.
 
 ## Native 직접 생성 리팩토링 (B) — ✅ 완료
 
@@ -906,6 +943,6 @@ gensym 심볼(`$compat_table_exact_optional_key`)을 잡아 정상적으로 계�
   → (B) MFE 실측 — p4 $un_op/$inherit_i MAYBE→YES + 무회귀 재검      [환경 차단, 2026-07-03 재확인: impty $lookup 대조군 --timeout 280도 TIMEOUT — 여전히 미회복, 원인 불명(RAM/OOM 이상 없음)]
   → (B′) subty-가드 확장 — B의 discriminator fold를 subty_*까지     [위 M1 "B′" 7개; totality 기반, 미설계]
   → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
-  → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증]
+  → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증; 2026-07-04: run-structural로 실측 시작 — 3개 실행 전용 버그 발견/수정(8d161af8/a3e9c271/2583c31f), 작은 bit-width는 Program_ok 완전 해결, bit<32+>는 Peano 인코딩 OOM으로 별도 트랙, check_diff_structural_p4.sh로 전체 corpus 실행 진행 중]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
 ```
