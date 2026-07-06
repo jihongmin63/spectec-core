@@ -173,12 +173,20 @@ let badd_carry_t a b = app_t "badd_carry" [ a; b ]
 
 (* [bsub]/[bsub_mask]/[bsub_mask_carry] (Coq [Pos.sub_mask]/[sub_mask_carry]):
    truncated (clamped to 0) subtraction via a 3-valued mask, mirroring how
-   [add]/[add_carry] thread a carry. *)
+   [add]/[add_carry] thread a carry. [bdouble_mask]/[bsucc_double_mask] (Coq
+   [double_mask]/[succ_double_mask]) double a mask's magnitude (2x / 2x+1)
+   while leaving [bmask_nul]/[bmask_neg] as-is (0 and "negative" both stay
+   representationally fixed under doubling); [bsub_of_mask] reads a mask back
+   to the truncated [BNatV] result ([bmask_nul]/[bmask_neg] both clamp to
+   [bzero]). *)
 let bmask_nul_t = app_t "bmask_nul" []
 let bmask_neg_t = app_t "bmask_neg" []
 let bmask_pos_t a = app_t "bmask_pos" [ a ]
 let bsub_mask_t a b = app_t "bsub_mask" [ a; b ]
 let bsub_mask_carry_t a b = app_t "bsub_mask_carry" [ a; b ]
+let bdouble_mask_t a = app_t "bdouble_mask" [ a ]
+let bsucc_double_mask_t a = app_t "bsucc_double_mask" [ a ]
+let bsub_of_mask_t a = app_t "bsub_of_mask" [ a ]
 let bsub_t a b = app_t "bsub" [ a; b ]
 
 (* [bmul] (Coq [Pos.mul], double-and-add via [badd]). *)

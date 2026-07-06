@@ -147,6 +147,9 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("bmask_pos", ([ "BNatV" ], "Bmask"));
     ("bsub_mask", ([ "BNatV"; "BNatV" ], "Bmask"));
     ("bsub_mask_carry", ([ "BNatV"; "BNatV" ], "Bmask"));
+    ("bdouble_mask", ([ "Bmask" ], "Bmask"));
+    ("bsucc_double_mask", ([ "Bmask" ], "Bmask"));
+    ("bsub_of_mask", ([ "Bmask" ], "BNatV"));
     ("bsub", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bmul", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bdiv", ([ "BNatV"; "BNatV" ], "BNatV"));

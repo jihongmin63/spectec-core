@@ -61,6 +61,12 @@ let native_replaced_heads : string list =
     "blt_of_cmp";
     "bleq";
     "blt";
+    "bsub_mask";
+    "bsub_mask_carry";
+    "bdouble_mask";
+    "bsucc_double_mask";
+    "bsub_of_mask";
+    "bsub";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -349,6 +355,72 @@ let rules ~scalars : R.rule list =
       rule (blt_of_cmp_t bgt_kind_t) no;
       rule (bleq_t x y) (ble_of_cmp_t (bcompare_t x y));
       rule (blt_t x y) (blt_of_cmp_t (bcompare_t x y));
+      (* bsub/bsub_mask/bsub_mask_carry (Coq [Pos.sub_mask]/[sub_mask_carry]):
+         truncated subtraction via a 3-valued mask ([bmask_nul] = exact 0,
+         [bmask_neg] = would-be-negative, [bmask_pos r] = the positive
+         difference [r]), mirroring how [badd]/[badd_carry] thread a carry.
+         [bdouble_mask]/[bsucc_double_mask] double a mask's magnitude (2x /
+         2x+1) while [bmask_nul]/[bmask_neg] pass through unchanged (0 and
+         "negative" both stay fixed under doubling). Every clause below was
+         re-derived and hand-verified against concrete values (NOT
+         transcribed from memory of Coq's source, which is fiddlier here
+         than [add]'s carry table) -- see the binary-encoding plan's note
+         that this primitive needs extra scrutiny. *)
+      rule (bdouble_mask_t bmask_nul_t) bmask_nul_t;
+      rule (bdouble_mask_t bmask_neg_t) bmask_neg_t;
+      rule (bdouble_mask_t (bmask_pos_t p)) (bmask_pos_t (bd0_t p));
+      rule (bsucc_double_mask_t bmask_nul_t) (bmask_pos_t bone_t);
+      rule (bsucc_double_mask_t bmask_neg_t) bmask_neg_t;
+      rule (bsucc_double_mask_t (bmask_pos_t p)) (bmask_pos_t (bd1_t p));
+      rule (bsub_mask_t bzero_t bzero_t) bmask_nul_t;
+      rule (bsub_mask_t bzero_t bone_t) bmask_neg_t;
+      rule (bsub_mask_t bzero_t (bd0_t q)) bmask_neg_t;
+      rule (bsub_mask_t bzero_t (bd1_t q)) bmask_neg_t;
+      rule (bsub_mask_t bone_t bzero_t) (bmask_pos_t bone_t);
+      rule (bsub_mask_t (bd0_t p) bzero_t) (bmask_pos_t (bd0_t p));
+      rule (bsub_mask_t (bd1_t p) bzero_t) (bmask_pos_t (bd1_t p));
+      rule (bsub_mask_t bone_t bone_t) bmask_nul_t;
+      rule (bsub_mask_t bone_t (bd0_t q)) bmask_neg_t;
+      rule (bsub_mask_t bone_t (bd1_t q)) bmask_neg_t;
+      rule (bsub_mask_t (bd0_t p) bone_t) (bmask_pos_t (bpred_double_t p));
+      rule (bsub_mask_t (bd1_t p) bone_t) (bmask_pos_t (bd0_t p));
+      rule
+        (bsub_mask_t (bd0_t p) (bd0_t q))
+        (bdouble_mask_t (bsub_mask_t p q));
+      rule
+        (bsub_mask_t (bd0_t p) (bd1_t q))
+        (bsucc_double_mask_t (bsub_mask_carry_t p q));
+      rule
+        (bsub_mask_t (bd1_t p) (bd0_t q))
+        (bsucc_double_mask_t (bsub_mask_t p q));
+      rule
+        (bsub_mask_t (bd1_t p) (bd1_t q))
+        (bdouble_mask_t (bsub_mask_t p q));
+      rule (bsub_mask_carry_t bone_t bone_t) bmask_neg_t;
+      rule (bsub_mask_carry_t bone_t (bd0_t q)) bmask_neg_t;
+      rule (bsub_mask_carry_t bone_t (bd1_t q)) bmask_neg_t;
+      rule
+        (bsub_mask_carry_t (bd0_t p) bone_t)
+        (bdouble_mask_t (bsub_mask_t p bone_t));
+      rule
+        (bsub_mask_carry_t (bd1_t p) bone_t)
+        (bmask_pos_t (bpred_double_t p));
+      rule
+        (bsub_mask_carry_t (bd0_t p) (bd0_t q))
+        (bsucc_double_mask_t (bsub_mask_carry_t p q));
+      rule
+        (bsub_mask_carry_t (bd0_t p) (bd1_t q))
+        (bdouble_mask_t (bsub_mask_carry_t p q));
+      rule
+        (bsub_mask_carry_t (bd1_t p) (bd0_t q))
+        (bdouble_mask_t (bsub_mask_t p q));
+      rule
+        (bsub_mask_carry_t (bd1_t p) (bd1_t q))
+        (bsucc_double_mask_t (bsub_mask_carry_t p q));
+      rule (bsub_of_mask_t bmask_nul_t) bzero_t;
+      rule (bsub_of_mask_t bmask_neg_t) bzero_t;
+      rule (bsub_of_mask_t (bmask_pos_t p)) p;
+      rule (bsub_t x y) (bsub_of_mask_t (bsub_mask_t x y));
       (* lists *)
       rule (len_t nil_t) zero_t;
       rule (len_t (cons_t x xs)) (succ_t (len_t xs));
