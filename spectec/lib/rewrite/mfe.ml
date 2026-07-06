@@ -189,9 +189,21 @@ let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
       close_out oc;
       let fd_in = Unix.openfile infile [ Unix.O_RDONLY ] 0 in
       let r_out, w_out = Unix.pipe () in
+      (* Through a shell, not a direct exec, so [ulimit -s unlimited] can run
+         first: the CRC's critical-pair search recurses deeply enough on a
+         large/complex slice (observed on this codebase's own p4 spec) to hit
+         a native "Fatal error: stack overflow" in Maude itself under
+         whatever small default stack size the shell that launched THIS
+         process inherited -- the same root cause (and fix) as
+         [check_diff_structural_p4.sh]'s identically-named bug for the
+         ground-execution oracle, just never applied to the CRC path before.
+         ["$0"] becomes [bin] (the argument right after the [-c] script, per
+         POSIX [sh -c command name args...]), so [exec "$0" -no-banner]
+         reproduces the exact argv the direct [create_process_env] call used. *)
       let pid =
-        Unix.create_process_env bin [| bin; "-no-banner" |] (child_env bin)
-          fd_in w_out w_out
+        Unix.create_process_env "/bin/sh"
+          [| "/bin/sh"; "-c"; "ulimit -s unlimited; exec \"$0\" -no-banner"; bin |]
+          (child_env bin) fd_in w_out w_out
       in
       Unix.close fd_in;
       Unix.close w_out;

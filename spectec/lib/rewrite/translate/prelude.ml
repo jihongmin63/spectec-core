@@ -201,11 +201,20 @@ let rules ~scalars : R.rule list =
         (app_t "negate_int_pos_aux" [ no; x ])
         (int_neg_t (bpred_t x));
       rule (negate_int_t (int_neg_t x)) (int_pos_t (bsucc_t x));
-      (* negation is involutive, so a double negation cancels even when the inner
-         operand is still symbolic (e.g. the [negate_int(negate_int(int_pos(n)))]
-         of [-(-n)]); the overlap with the structural rules above stays
-         confluent. *)
-      rule (negate_int_t (negate_int_t x)) x;
+      (* No blanket "negation is involutive" shortcut here (the Peano version
+         above keeps one) -- ground execution reaches the identical result
+         through the two rules above alone, just one rewrite step slower for
+         a double negation (negate_int(int_pos(bpred(bsucc X))) = X, since
+         bpred/bsucc are inverse for any X, Phase 1). Confirmed by CRC: WITH
+         the shortcut, p4's negate_int slice comes back MAYBE -- the
+         shortcut and the [int_neg] rule above overlap at
+         negate_int(negate_int(int_neg(x))), and the two paths only agree
+         because bsucc never returns a [bzero]-shaped term (proved by hand in
+         Phase 1), a fact the [bis_zero] TAG can't see for a symbolic
+         [bsucc(x)] the way the Peano version's literal [succ]/[zero] shape
+         match could. Removing the shortcut removes the overlap entirely
+         (verified: negate_int's p4 slice is YES/YES without it) rather than
+         asking the CRC to discharge an invariant it has no way to see. *)
       rule (abs_nat_t (int_pos_t x)) x;
       rule (abs_nat_t (int_neg_t x)) (bsucc_t x);
       rule (nonneg_int_t (int_pos_t x)) yes;
