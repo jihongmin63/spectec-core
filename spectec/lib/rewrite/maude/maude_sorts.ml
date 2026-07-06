@@ -120,6 +120,41 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow_int", i2);
     ("leq_int", i2b);
     ("lt_int", i2b);
+    (* Binary (Coq [positive]/[N]-style) magnitude family, added alongside the
+       Peano [add]/[sub]/... above as a separate symbol set -- not yet wired
+       into [int_pos]/[int_neg] (see the binary-encoding plan). [BPos]
+       (nonzero) is a subsort of [BNatV] (declared alongside the analogous
+       [text_subsort] edge in {!To_mfe}/{!To_maude}); [Bmask] is [bsub_mask]'s
+       3-valued truncated-subtraction result, [Bcmp] is [bcompare]'s
+       3-valued relation-so-far, neither has any [BNatV]/[BPos] subsort edge
+       since they are never themselves used as a magnitude. *)
+    ("bzero", ([], "BNatV"));
+    ("bone", ([], "BPos"));
+    ("bd0", ([ "BPos" ], "BPos"));
+    ("bd1", ([ "BPos" ], "BPos"));
+    ("bsucc", ([ "BNatV" ], "BPos"));
+    ("bpred", ([ "BNatV" ], "BNatV"));
+    ("bpred_double", ([ "BPos" ], "BPos"));
+    ("bis_zero", ([ "BNatV" ], "BoolV"));
+    ("badd", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("badd_carry", ([ "BPos"; "BPos" ], "BPos"));
+    ("bmask_nul", ([], "Bmask"));
+    ("bmask_neg", ([], "Bmask"));
+    ("bmask_pos", ([ "BPos" ], "Bmask"));
+    ("bsub_mask", ([ "BNatV"; "BNatV" ], "Bmask"));
+    ("bsub_mask_carry", ([ "BPos"; "BPos" ], "Bmask"));
+    ("bsub", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("bmul", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("bdiv", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("bmod", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("blt_kind", ([], "Bcmp"));
+    ("beq_kind", ([], "Bcmp"));
+    ("bgt_kind", ([], "Bcmp"));
+    ("bcompare_cont", ([ "Bcmp"; "BPos"; "BPos" ], "Bcmp"));
+    ("bcompare", ([ "BNatV"; "BNatV" ], "Bcmp"));
+    ("bleq", ([ "BNatV"; "BNatV" ], "BoolV"));
+    ("blt", ([ "BNatV"; "BNatV" ], "BoolV"));
+    ("bpow_nat", ([ "BNatV"; "NatV" ], "BNatV"));
     ("nil", ([], "List"));
     ("cons", ([ val_sort; "List" ], "List"));
     (* [len]/[cat] also work over texts, and [List < Text] makes [Text] the

@@ -134,6 +134,104 @@ let mod_int_t a b = app_t "mod_int" [ a; b ]
 let pow_int_t a b = app_t "pow_int" [ a; b ]
 let leq_int_t a b = app_t "leq_int" [ a; b ]
 let lt_int_t a b = app_t "lt_int" [ a; b ]
+(* Binary (Coq [positive]/[N]-style) magnitude encoding, added alongside the
+   Peano nat family above as a separate, disjoint symbol set -- not yet wired
+   into anything ([int_pos]/[int_neg] still wrap a Peano [NatV] magnitude; see
+   the binary-encoding plan for the phase that retargets them). [BPos]
+   (nonzero) is canonical by construction: its innermost leaf is always
+   [bone], so [bd0]/[bd1] can never wrap a zero. [bzero] is the only [BNatV]
+   that is not a [BPos]. Digit order matches Coq's [positive]: construction is
+   MSB-first, recursion is LSB-first ([bd0 p] is [2 * val(p)], [bd1 p] is
+   [2 * val(p) + 1]), which is what makes [bsucc]/[badd] structurally
+   recursive and O(log n). *)
+let bzero_t = app_t "bzero" []
+let bone_t = app_t "bone" []
+let bd0_t p = app_t "bd0" [ p ]
+let bd1_t p = app_t "bd1" [ p ]
+
+(* [bsucc]/[bpred] (Coq [Pos.succ]/[Pos.pred]/[Pos.pred_double]) and
+   [bis_zero]. [bpred bzero] is deliberately left without a defining rule
+   (stuck), the same partiality convention as nat [div]/[mod] by zero. *)
+let bsucc_t a = app_t "bsucc" [ a ]
+let bpred_t a = app_t "bpred" [ a ]
+let bpred_double_t a = app_t "bpred_double" [ a ]
+let bis_zero_t a = app_t "bis_zero" [ a ]
+
+(* [badd]/[badd_carry] (Coq [Pos.add]/[Pos.add_carry]): a carry-threading
+   mutually recursive pair, every clause disjoint on both arguments -- so the
+   18-rule system is orthogonal (no critical pairs by construction). *)
+let badd_t a b = app_t "badd" [ a; b ]
+let badd_carry_t a b = app_t "badd_carry" [ a; b ]
+
+(* [bsub]/[bsub_mask]/[bsub_mask_carry] (Coq [Pos.sub_mask]/[sub_mask_carry]):
+   truncated (clamped to 0) subtraction via a 3-valued mask, mirroring how
+   [add]/[add_carry] thread a carry. *)
+let bmask_nul_t = app_t "bmask_nul" []
+let bmask_neg_t = app_t "bmask_neg" []
+let bmask_pos_t a = app_t "bmask_pos" [ a ]
+let bsub_mask_t a b = app_t "bsub_mask" [ a; b ]
+let bsub_mask_carry_t a b = app_t "bsub_mask_carry" [ a; b ]
+let bsub_t a b = app_t "bsub" [ a; b ]
+
+(* [bmul] (Coq [Pos.mul], double-and-add via [badd]). *)
+let bmul_t a b = app_t "bmul" [ a; b ]
+
+(* [bcompare]/[bleq]/[blt] (Coq [Pos.compare_cont]): threads the
+   relation-so-far so differing bit-lengths compare without a separate
+   length computation. *)
+let blt_kind_t = app_t "blt_kind" []
+let beq_kind_t = app_t "beq_kind" []
+let bgt_kind_t = app_t "bgt_kind" []
+let bcompare_cont_t r a b = app_t "bcompare_cont" [ r; a; b ]
+let bcompare_t a b = app_t "bcompare" [ a; b ]
+let bleq_t a b = app_t "bleq" [ a; b ]
+let blt_t a b = app_t "blt" [ a; b ]
+
+(* [bdiv]/[bmod]: truncating binary long division -- O(log n) rewrite steps,
+   NOT a transliteration of the nat family's repeated-subtraction [div_aux]/
+   [mod_aux] (which stays O(x/y) steps regardless of term representation). *)
+let bdiv_t a b = app_t "bdiv" [ a; b ]
+let bmod_t a b = app_t "bmod" [ a; b ]
+
+(* [bpow_nat]: binary-magnitude base, Peano [NatV] exponent -- the exponent is
+   always a small bit-width variable, so reusing the untouched Peano family
+   for it (rather than inventing a binary-exponent variant) needs no new
+   machinery. Structurally identical to [pow_t] above, just producing/
+   threading [BNatV]. *)
+let bpow_nat_t a b = app_t "bpow_nat" [ a; b ]
+
+(* Binary encoding of a non-negative OCaml int, O(log n) in both term size and
+   construction time (mirrors [peano_of_int]'s role for the Peano family). *)
+let rec binary_of_pos (n : int) : R.term =
+  if n <= 1 then bone_t
+  else if n land 1 = 0 then bd0_t (binary_of_pos (n / 2))
+  else bd1_t (binary_of_pos (n / 2))
+
+let binary_of_int (n : int) : R.term = if n <= 0 then bzero_t else binary_of_pos n
+
+(* Same, from a [Bigint.t] magnitude (the P4 bit-width literals this encoding
+   exists for can exceed native [int] range) -- O(log n) OCaml-side recursion,
+   no term-size blowup at encode time. *)
+let rec binary_of_bigint_pos (n : Bigint.t) : R.term =
+  if Bigint.compare n Bigint.one <= 0 then bone_t
+  else
+    let half = Bigint.( / ) n (Bigint.of_int 2) in
+    if Bigint.equal (Bigint.bit_and n Bigint.one) Bigint.zero then
+      bd0_t (binary_of_bigint_pos half)
+    else bd1_t (binary_of_bigint_pos half)
+
+let binary_of_bigint (n : Bigint.t) : R.term =
+  if Bigint.compare n Bigint.zero <= 0 then bzero_t else binary_of_bigint_pos n
+
+(* A binary-magnitude nat literal in the current scalar theory: [Structural]
+   builds the [bzero]/[bone]/[bd0]/[bd1] encoding above; [Native] is
+   unaffected by this encoding choice (it always wraps a [Bigint] directly),
+   so it is identical to [nat_lit]'s [Native] branch. *)
+let bnat_lit ~scalars (i : int) : R.term =
+  match scalars with
+  | Structural -> binary_of_int i
+  | Native -> Maude_theory.nat_t (Bigint.of_int i)
+
 let eq_t a b = app_t "eq" [ a; b ]
 let nil_t = app_t "nil" []
 let cons_t h t = app_t "cons" [ h; t ]

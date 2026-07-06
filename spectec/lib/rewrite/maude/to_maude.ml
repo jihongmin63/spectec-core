@@ -891,7 +891,19 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     then [ ("List", "Text") ]
     else []
   in
-  let inj_subsorts = inj_subsorts @ text_subsort in
+  (* [BPos < BNatV] (the binary magnitude family's nonzero-vs-any split, see
+     {!Ctrs_term}'s doc comment) -- same on/off-by-signature-mention gating as
+     [text_subsort]. Not yet reachable in this ([Native]) module until a later
+     phase wires [int_pos]/[int_neg] to it (Native never builds a [BPos]/
+     [BNatV] term of its own), but declared unconditionally here so the two
+     Maude surfaces ({!To_mfe}, this module) stay in lockstep. *)
+  let bpos_subsort =
+    if
+      List.exists (fun (_, (args, res)) -> List.mem "BPos" (res :: args)) op_sigs
+    then [ ("BPos", "BNatV") ]
+    else []
+  in
+  let inj_subsorts = inj_subsorts @ text_subsort @ bpos_subsort in
   (* Sorts named by op signatures, AND the endpoints of every injection subsort
      edge. A union type ([syntax baseTypeIR = primitiveTypeIR | numberTypeIR]) has
      no constructors of its own, so it surfaces only as a subsort SUPER
