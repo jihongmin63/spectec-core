@@ -79,6 +79,7 @@ let native_replaced_heads : string list =
     "bdivmod_base";
     "bdiv";
     "bmod";
+    "bpow_nat";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -489,6 +490,12 @@ let rules ~scalars : R.rule list =
       rule (bmod_t x bone_t) (brem_t (bdivmod_pos_t x bone_t));
       rule (bmod_t x (bd0_t q)) (brem_t (bdivmod_pos_t x (bd0_t q)));
       rule (bmod_t x (bd1_t q)) (brem_t (bdivmod_pos_t x (bd1_t q)));
+      (* bpow_nat: binary-magnitude base, Peano-encoded exponent -- the
+         exponent is always a small bit-width variable, so it stays on the
+         untouched Peano [NatV] family; structurally identical to [pow_t]
+         above, just producing/threading [BNatV] via [bmul]. *)
+      rule (bpow_nat_t x zero_t) bone_t;
+      rule (bpow_nat_t x (succ_t y)) (bmul_t x (bpow_nat_t x y));
       (* lists *)
       rule (len_t nil_t) zero_t;
       rule (len_t (cons_t x xs)) (succ_t (len_t xs));
