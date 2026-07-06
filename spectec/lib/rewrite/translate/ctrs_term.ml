@@ -137,13 +137,21 @@ let lt_int_t a b = app_t "lt_int" [ a; b ]
 (* Binary (Coq [positive]/[N]-style) magnitude encoding, added alongside the
    Peano nat family above as a separate, disjoint symbol set -- not yet wired
    into anything ([int_pos]/[int_neg] still wrap a Peano [NatV] magnitude; see
-   the binary-encoding plan for the phase that retargets them). [BPos]
-   (nonzero) is canonical by construction: its innermost leaf is always
-   [bone], so [bd0]/[bd1] can never wrap a zero. [bzero] is the only [BNatV]
-   that is not a [BPos]. Digit order matches Coq's [positive]: construction is
-   MSB-first, recursion is LSB-first ([bd0 p] is [2 * val(p)], [bd1 p] is
-   [2 * val(p) + 1]), which is what makes [bsucc]/[badd] structurally
-   recursive and O(log n). *)
+   the binary-encoding plan for the phase that retargets them). Unlike Coq,
+   there is no separate zero-free [positive] SORT here (this codebase's
+   signature-recovery layer, {!Maude_sorts}, supports only one declared
+   signature per symbol name, so [bd0]/[bd1] cannot be typed to statically
+   reject a zero argument the way Coq's [positive] does) -- [bzero]/[bone]/
+   [bd0]/[bd1] all inhabit the single sort [BNatV], and canonicity (every
+   [bd0]/[bd1] chain bottoms out at [bone], NEVER at [bzero] -- [bd0(bzero)]
+   and [bd1(bzero)] would both be non-canonical duplicate spellings of an
+   already-representable value, 0 and 1 respectively) is maintained BY
+   CONSTRUCTION of every rule that builds a [BNatV] term: each rule in
+   {!Prelude} is checked by hand that, given canonical operands, it only ever
+   wraps [bd0]/[bd1] around an already-known-non-[bzero] subterm. Digit order
+   matches Coq's [positive]: construction is MSB-first, recursion is
+   LSB-first ([bd0 p] is [2 * val(p)], [bd1 p] is [2 * val(p) + 1]), which is
+   what makes [bsucc]/[badd] structurally recursive and O(log n). *)
 let bzero_t = app_t "bzero" []
 let bone_t = app_t "bone" []
 let bd0_t p = app_t "bd0" [ p ]
@@ -184,6 +192,13 @@ let beq_kind_t = app_t "beq_kind" []
 let bgt_kind_t = app_t "bgt_kind" []
 let bcompare_cont_t r a b = app_t "bcompare_cont" [ r; a; b ]
 let bcompare_t a b = app_t "bcompare" [ a; b ]
+
+(* [bleq]/[blt] read off a [bcompare] result via a boolean-dispatch auxiliary
+   over the three ground [Bcmp] constants -- the same disjoint-ground-pattern
+   idiom as [div_aux]/[mod_aux] above, rather than compositing through
+   [eq_t] (which is not, and need not be, defined over [Bcmp]). *)
+let ble_of_cmp_t a = app_t "ble_of_cmp" [ a ]
+let blt_of_cmp_t a = app_t "blt_of_cmp" [ a ]
 let bleq_t a b = app_t "bleq" [ a; b ]
 let blt_t a b = app_t "blt" [ a; b ]
 

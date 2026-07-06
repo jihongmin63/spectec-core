@@ -122,27 +122,31 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("lt_int", i2b);
     (* Binary (Coq [positive]/[N]-style) magnitude family, added alongside the
        Peano [add]/[sub]/... above as a separate symbol set -- not yet wired
-       into [int_pos]/[int_neg] (see the binary-encoding plan). [BPos]
-       (nonzero) is a subsort of [BNatV] (declared alongside the analogous
-       [text_subsort] edge in {!To_mfe}/{!To_maude}); [Bmask] is [bsub_mask]'s
-       3-valued truncated-subtraction result, [Bcmp] is [bcompare]'s
-       3-valued relation-so-far, neither has any [BNatV]/[BPos] subsort edge
-       since they are never themselves used as a magnitude. *)
+       into [int_pos]/[int_neg] (see the binary-encoding plan). All four
+       constructors sit in the ONE sort [BNatV] (no separate zero-free
+       [positive] sort: this recovery table holds only one signature per
+       symbol name, so [bd0]/[bd1] cannot be typed to statically reject a
+       zero argument the way Coq's [positive] does -- canonicity is instead a
+       by-construction property of every rule in {!Prelude} that builds a
+       [BNatV] term, see {!Ctrs_term}'s doc comment). [Bmask] is
+       [bsub_mask]'s 3-valued truncated-subtraction result, [Bcmp] is
+       [bcompare]'s 3-valued relation-so-far; neither is ever itself used as
+       a magnitude, so neither has a [BNatV] subsort edge. *)
     ("bzero", ([], "BNatV"));
-    ("bone", ([], "BPos"));
-    ("bd0", ([ "BPos" ], "BPos"));
-    ("bd1", ([ "BPos" ], "BPos"));
-    ("bsucc", ([ "BNatV" ], "BPos"));
+    ("bone", ([], "BNatV"));
+    ("bd0", ([ "BNatV" ], "BNatV"));
+    ("bd1", ([ "BNatV" ], "BNatV"));
+    ("bsucc", ([ "BNatV" ], "BNatV"));
     ("bpred", ([ "BNatV" ], "BNatV"));
-    ("bpred_double", ([ "BPos" ], "BPos"));
+    ("bpred_double", ([ "BNatV" ], "BNatV"));
     ("bis_zero", ([ "BNatV" ], "BoolV"));
     ("badd", ([ "BNatV"; "BNatV" ], "BNatV"));
-    ("badd_carry", ([ "BPos"; "BPos" ], "BPos"));
+    ("badd_carry", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bmask_nul", ([], "Bmask"));
     ("bmask_neg", ([], "Bmask"));
-    ("bmask_pos", ([ "BPos" ], "Bmask"));
+    ("bmask_pos", ([ "BNatV" ], "Bmask"));
     ("bsub_mask", ([ "BNatV"; "BNatV" ], "Bmask"));
-    ("bsub_mask_carry", ([ "BPos"; "BPos" ], "Bmask"));
+    ("bsub_mask_carry", ([ "BNatV"; "BNatV" ], "Bmask"));
     ("bsub", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bmul", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bdiv", ([ "BNatV"; "BNatV" ], "BNatV"));
@@ -150,8 +154,10 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("blt_kind", ([], "Bcmp"));
     ("beq_kind", ([], "Bcmp"));
     ("bgt_kind", ([], "Bcmp"));
-    ("bcompare_cont", ([ "Bcmp"; "BPos"; "BPos" ], "Bcmp"));
+    ("bcompare_cont", ([ "Bcmp"; "BNatV"; "BNatV" ], "Bcmp"));
     ("bcompare", ([ "BNatV"; "BNatV" ], "Bcmp"));
+    ("ble_of_cmp", ([ "Bcmp" ], "BoolV"));
+    ("blt_of_cmp", ([ "Bcmp" ], "BoolV"));
     ("bleq", ([ "BNatV"; "BNatV" ], "BoolV"));
     ("blt", ([ "BNatV"; "BNatV" ], "BoolV"));
     ("bpow_nat", ([ "BNatV"; "NatV" ], "BNatV"));

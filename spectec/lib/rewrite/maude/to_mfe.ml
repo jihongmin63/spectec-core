@@ -136,18 +136,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     then [ ("List", "Text") ]
     else []
   in
-  (* [BPos < BNatV] (the binary magnitude family's nonzero-vs-any split, see
-     {!Ctrs_term}'s doc comment) -- same on/off-by-signature-mention gating as
-     [text_subsort]. Not yet reachable until a later phase wires
-     [int_pos]/[int_neg] to it; declared unconditionally here so this module
-     and {!To_maude} stay in lockstep. *)
-  let bpos_subsort =
-    if
-      List.exists (fun (_, (args, res)) -> List.mem "BPos" (res :: args)) op_sigs
-    then [ ("BPos", "BNatV") ]
-    else []
-  in
-  let inj_subsorts = inj_subsorts @ text_subsort @ bpos_subsort in
+  let inj_subsorts = inj_subsorts @ text_subsort in
   (* Sorts named by op signatures AND the endpoints of every injection edge (a
      union type surfaces only as a subsort super, so list it too). No built-in
      sorts here -- the structural theory imports nothing. *)
