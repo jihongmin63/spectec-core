@@ -67,6 +67,18 @@ let native_replaced_heads : string list =
     "bsucc_double_mask";
     "bsub_of_mask";
     "bsub";
+    "bring0";
+    "bring1";
+    "bquot";
+    "brem";
+    "bdivmod_pos";
+    "bdivmod_step0";
+    "bdivmod_step1";
+    "bdivmod_combine";
+    "bdivmod_dispatch";
+    "bdivmod_base";
+    "bdiv";
+    "bmod";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -111,6 +123,7 @@ let rules ~scalars : R.rule list =
   let x = var_t "x" and y = var_t "y" and xs = var_t "xs" and ys = var_t "ys" in
   let i = var_t "i" and n = var_t "n" and v = var_t "v" in
   let p = var_t "p" and q = var_t "q" and r = var_t "r" in
+  let r2 = var_t "r2" in
   let yes = bool_t ~scalars true and no = bool_t ~scalars false in
   let all =
     [
@@ -421,6 +434,61 @@ let rules ~scalars : R.rule list =
       rule (bsub_of_mask_t bmask_neg_t) bzero_t;
       rule (bsub_of_mask_t (bmask_pos_t p)) p;
       rule (bsub_t x y) (bsub_of_mask_t (bsub_mask_t x y));
+      (* bdiv/bmod: genuine O(log n)-step binary long division, NOT a
+         transliteration of [div_aux]/[mod_aux]'s repeated-subtraction shape
+         (which stays O(x/y) rewrite steps regardless of term size -- see
+         {!Ctrs_term}'s doc comment for the full derivation). [bring0]/
+         [bring1] double-and-append-a-bit in O(1); [bdivmod_pos] recurses on
+         the DIVIDEND's shape, bottoming out at its most-significant bit
+         first, so each level (as the recursion unwinds) brings down one
+         more (less significant) bit, compares against the fixed divisor
+         [y], and conditionally subtracts -- restoring binary long division.
+         [y] is never pattern-matched inside the recursion (only compared/
+         subtracted against), so [bdiv]/[bmod] guard [y = bzero] once at the
+         top (no rule -- stuck, matching [div_t]/[mod_t]'s existing
+         div-by-zero convention) rather than threading the guard through
+         every recursive call. *)
+      rule (bring0_t bzero_t) bzero_t;
+      rule (bring0_t bone_t) (bd0_t bone_t);
+      rule (bring0_t (bd0_t p)) (bd0_t (bd0_t p));
+      rule (bring0_t (bd1_t p)) (bd0_t (bd1_t p));
+      rule (bring1_t bzero_t) bone_t;
+      rule (bring1_t bone_t) (bd1_t bone_t);
+      rule (bring1_t (bd0_t p)) (bd1_t (bd0_t p));
+      rule (bring1_t (bd1_t p)) (bd1_t (bd1_t p));
+      rule (bquot_t (bdivmod_t q r)) q;
+      rule (brem_t (bdivmod_t q r)) r;
+      rule
+        (bdivmod_dispatch_t yes q r2 y)
+        (bdivmod_t (bring0_t q) r2);
+      rule
+        (bdivmod_dispatch_t no q r2 y)
+        (bdivmod_t (bring1_t q) (bsub_t r2 y));
+      rule
+        (bdivmod_combine_t q r2 y)
+        (bdivmod_dispatch_t (blt_t r2 y) q r2 y);
+      rule (bdivmod_base_t yes y) (bdivmod_t bone_t bzero_t);
+      rule (bdivmod_base_t no y) (bdivmod_t bzero_t bone_t);
+      rule (bdivmod_pos_t bzero_t y) (bdivmod_t bzero_t bzero_t);
+      rule (bdivmod_pos_t bone_t y) (bdivmod_base_t (bleq_t y bone_t) y);
+      rule
+        (bdivmod_pos_t (bd0_t p) y)
+        (bdivmod_step0_t (bdivmod_pos_t p y) y);
+      rule
+        (bdivmod_pos_t (bd1_t p) y)
+        (bdivmod_step1_t (bdivmod_pos_t p y) y);
+      rule
+        (bdivmod_step0_t (bdivmod_t q r) y)
+        (bdivmod_combine_t q (bring0_t r) y);
+      rule
+        (bdivmod_step1_t (bdivmod_t q r) y)
+        (bdivmod_combine_t q (bring1_t r) y);
+      rule (bdiv_t x bone_t) (bquot_t (bdivmod_pos_t x bone_t));
+      rule (bdiv_t x (bd0_t q)) (bquot_t (bdivmod_pos_t x (bd0_t q)));
+      rule (bdiv_t x (bd1_t q)) (bquot_t (bdivmod_pos_t x (bd1_t q)));
+      rule (bmod_t x bone_t) (brem_t (bdivmod_pos_t x bone_t));
+      rule (bmod_t x (bd0_t q)) (brem_t (bdivmod_pos_t x (bd0_t q)));
+      rule (bmod_t x (bd1_t q)) (brem_t (bdivmod_pos_t x (bd1_t q)));
       (* lists *)
       rule (len_t nil_t) zero_t;
       rule (len_t (cons_t x xs)) (succ_t (len_t xs));

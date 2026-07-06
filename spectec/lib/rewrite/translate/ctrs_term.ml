@@ -212,7 +212,37 @@ let blt_t a b = app_t "blt" [ a; b ]
 
 (* [bdiv]/[bmod]: truncating binary long division -- O(log n) rewrite steps,
    NOT a transliteration of the nat family's repeated-subtraction [div_aux]/
-   [mod_aux] (which stays O(x/y) steps regardless of term representation). *)
+   [mod_aux] (which stays O(x/y) steps regardless of term representation).
+
+   [bring0]/[bring1] double a [BNatV] and append a low bit (0 or 1) in O(1)
+   -- [bzero] is handled specially so the result never wraps [bd0]/[bd1]
+   around a zero. [bdivmod] pairs a quotient/remainder as one term ([Bdivmod]
+   sort); [bquot]/[brem] project it back out. [bdivmod_pos x y] computes
+   (x / y, x mod y) by structural recursion on [x] (the dividend): the
+   recursion bottoms out at [x]'s MOST significant bit first (Peano-style
+   inward recursion, {!Ctrs_term}'s module doc), so as each recursive call
+   returns, the quotient/remainder for the higher bits are already settled
+   and [bdivmod_step0]/[bdivmod_step1] just bring the next (less
+   significant) bit down, compare against [y], and conditionally subtract --
+   the standard restoring-binary-long-division shape, O(log x) recursion
+   depth times O(log y) per step (the [blt]/[bsub] each cost), i.e.
+   O(log x * log y) total, not O(x) or O(x/y). [y] is never itself
+   pattern-matched inside [bdivmod_pos]/[_step0]/[_step1]/[_combine]/
+   [_dispatch] (only compared/subtracted against), so [bdiv]/[bmod]
+   guard [y = bzero] once at the top (no rule -- stuck, div-by-zero
+   convention) rather than needing the guard threaded through every
+   recursive call. *)
+let bring0_t a = app_t "bring0" [ a ]
+let bring1_t a = app_t "bring1" [ a ]
+let bdivmod_t q r = app_t "bdivmod" [ q; r ]
+let bquot_t a = app_t "bquot" [ a ]
+let brem_t a = app_t "brem" [ a ]
+let bdivmod_pos_t x y = app_t "bdivmod_pos" [ x; y ]
+let bdivmod_step0_t qr y = app_t "bdivmod_step0" [ qr; y ]
+let bdivmod_step1_t qr y = app_t "bdivmod_step1" [ qr; y ]
+let bdivmod_combine_t q r2 y = app_t "bdivmod_combine" [ q; r2; y ]
+let bdivmod_dispatch_t tag q r2 y = app_t "bdivmod_dispatch" [ tag; q; r2; y ]
+let bdivmod_base_t tag y = app_t "bdivmod_base" [ tag; y ]
 let bdiv_t a b = app_t "bdiv" [ a; b ]
 let bmod_t a b = app_t "bmod" [ a; b ]
 

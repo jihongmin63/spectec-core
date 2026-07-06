@@ -152,6 +152,18 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("bsub_of_mask", ([ "Bmask" ], "BNatV"));
     ("bsub", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bmul", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("bring0", ([ "BNatV" ], "BNatV"));
+    ("bring1", ([ "BNatV" ], "BNatV"));
+    ("bdivmod", ([ "BNatV"; "BNatV" ], "Bdivmod"));
+    ("bquot", ([ "Bdivmod" ], "BNatV"));
+    ("brem", ([ "Bdivmod" ], "BNatV"));
+    ("bdivmod_pos", ([ "BNatV"; "BNatV" ], "Bdivmod"));
+    ("bdivmod_step0", ([ "Bdivmod"; "BNatV" ], "Bdivmod"));
+    ("bdivmod_step1", ([ "Bdivmod"; "BNatV" ], "Bdivmod"));
+    ("bdivmod_combine", ([ "BNatV"; "BNatV"; "BNatV" ], "Bdivmod"));
+    ( "bdivmod_dispatch",
+      ([ "BoolV"; "BNatV"; "BNatV"; "BNatV" ], "Bdivmod") );
+    ("bdivmod_base", ([ "BoolV"; "BNatV" ], "Bdivmod"));
     ("bdiv", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("bmod", ([ "BNatV"; "BNatV" ], "BNatV"));
     ("blt_kind", ([], "Bcmp"));
