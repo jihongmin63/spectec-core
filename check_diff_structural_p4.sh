@@ -38,6 +38,15 @@
 # A program hitting this shows up as its own OOM verdict (see classify_text),
 # not as noise contaminating everything else -- resumable, same as Phase B/D.
 #
+# Every Maude invocation also runs with `ulimit -s unlimited` -- caught by an
+# actual run over the real corpus, not anticipated up front: the default 8MB
+# stack is too small for a lot of legitimately-deep (not runaway) reductions,
+# so without this a large share of what should be real STUCK/OK verdicts came
+# back as a native "Fatal error: stack overflow" instead, inflating ERROR.
+# classify_text/classify_chunk still recognize that string as its own
+# STACKOVERFLOW verdict (distinct from OOM/ERROR) for whatever still hits it
+# even unlimited (a genuinely runaway computation, not a stack-size problem).
+#
 # RUN IN A CLEAN ENVIRONMENT (no concurrent dune build, no other Maude job).
 # Maude runs SERIAL. See check_diff_p4.sh's own header for the resumability/
 # TSV-format conventions this mirrors exactly.
@@ -103,6 +112,7 @@ echo "[A] done: $(grep -c $'^PASS\t' "$IPROG") PASS / $(grep -c $'^FAIL\t' "$IPR
 # process failure; OTHER = anything else; TIMEOUT = per-file fallback hit.
 classify_text() {
   if   printf '%s' "$1" | grep -qE "exited with status 1[3-9][0-9]|killed by signal"; then echo OOM
+  elif printf '%s' "$1" | grep -qi "stack overflow"; then echo STACKOVERFLOW
   elif printf '%s' "$1" | grep -q  "FAIL (stuck)"; then echo STUCK
   elif printf '%s' "$1" | grep -qE "^result:";     then echo OK
   elif printf '%s' "$1" | grep -qiE "parse error|syntax error|Sys_error|Failure|exception|Fatal error|^ERROR:"; then echo ERROR
@@ -110,14 +120,14 @@ classify_text() {
 }
 classify_one() {  # one program via its own run (the per-file fallback)
   local f="$1" raw rc
-  raw=$(ulimit -v "$MEMLIMIT_KB"; timeout "$ITIMEOUT" "$EXE" run-structural --p4 "$f" -i "$INC" $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$ITIMEOUT" "$EXE" run-structural --p4 "$f" -i "$INC" $SPEC 2>&1); rc=$?
   if [ "$rc" -eq 124 ]; then printf 'TIMEOUT\t%s\n' "$f"
   else printf '%s\t%s\n' "$(classify_text "$raw")" "$f"; fi
 }
 classify_chunk() {  # a whole chunk in ONE invocation; split per `=== file ===`
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --timeout 0 $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --timeout 0 $SPEC 2>&1); rc=$?
   if [ "$rc" -ne 0 ]; then
     # covers both the shell-level timeout (124) AND the whole batched Maude
     # process dying (OOM or otherwise) -- either way, none of this chunk's
@@ -130,6 +140,7 @@ classify_chunk() {  # a whole chunk in ONE invocation; split per `=== file ===`
     END { if (seen) emit() }
     function emit() {
       if (block ~ /exited with status 1[3-9][0-9]|killed by signal/) print "OOM";
+      else if (block ~ /[Ss]tack overflow/) print "STACKOVERFLOW";
       else if (block ~ /FAIL \(stuck\)/) print "STUCK";
       else if (block ~ /(^|\n)result:/) print "OK";
       else if (block ~ /parse error|syntax error|Sys_error|Failure|exception|Fatal error|(^|\n)ERROR:/) print "ERROR";
@@ -181,7 +192,7 @@ awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        /tmp/check_diff_p4_struc
 resultmatch_chunk() {
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --check-p4 --timeout 0 $SPEC 2>/dev/null); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --check-p4 --timeout 0 $SPEC 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     for f in "${files[@]}"; do printf 'TIMEOUT\n'; done; return
   fi
