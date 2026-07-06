@@ -44,6 +44,23 @@ let native_replaced_heads : string list =
     "pow_int";
     "leq_int";
     "lt_int";
+    (* binary (Coq [positive]/[N]-style) magnitude arithmetic: not yet
+       referenced by [int_pos]/[int_neg] (see the binary-encoding plan), but
+       already Structural-only like the rest of this list, so [Native]'s
+       build stays free of unused equations as each op is added. *)
+    "bsucc";
+    "bpred";
+    "bpred_double";
+    "bis_zero";
+    "badd";
+    "badd_carry";
+    "bmul";
+    "bcompare";
+    "bcompare_cont";
+    "ble_of_cmp";
+    "blt_of_cmp";
+    "bleq";
+    "blt";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -87,6 +104,7 @@ let kept_in_native (r : R.rule) : bool =
 let rules ~scalars : R.rule list =
   let x = var_t "x" and y = var_t "y" and xs = var_t "xs" and ys = var_t "ys" in
   let i = var_t "i" and n = var_t "n" and v = var_t "v" in
+  let p = var_t "p" and q = var_t "q" and r = var_t "r" in
   let yes = bool_t ~scalars true and no = bool_t ~scalars false in
   let all =
     [
@@ -206,6 +224,131 @@ let rules ~scalars : R.rule list =
       rule
         (app_t "mod_int_aux" [ no; x; y ])
         (negate_int_t (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y))));
+      (* Binary (Coq [positive]/[N]-style) magnitude arithmetic, alongside the
+         Peano nat family above -- not yet referenced by [int_pos]/[int_neg]
+         (see the binary-encoding plan; {!Ctrs_term}'s doc comment explains
+         why there is one sort [BNatV] rather than a zero-free subsort).
+         Canonicity ([bd0]/[bd1] must never wrap [bzero], which would be a
+         non-canonical duplicate spelling of 0/1) is verified by hand for
+         every rule below, not enforced by the sort system. *)
+      (* bsucc (Coq [Pos.succ]): never returns [bzero]-shaped, so it is
+         always safe to wrap its result in [bd0]/[bd1]. *)
+      rule (bsucc_t bzero_t) bone_t;
+      rule (bsucc_t bone_t) (bd0_t bone_t);
+      rule (bsucc_t (bd0_t p)) (bd1_t p);
+      rule (bsucc_t (bd1_t p)) (bd0_t (bsucc_t p));
+      rule (bis_zero_t bzero_t) yes;
+      rule (bis_zero_t bone_t) no;
+      rule (bis_zero_t (bd0_t p)) no;
+      rule (bis_zero_t (bd1_t p)) no;
+      (* [bpred_double p] = [2 * val(p) - 1]; only ever called (by [bpred]
+         below) with [p] already known non-[bzero], and never itself
+         returns [bzero]-shaped. *)
+      rule (bpred_double_t bone_t) bone_t;
+      rule (bpred_double_t (bd0_t p)) (bd1_t (bpred_double_t p));
+      rule (bpred_double_t (bd1_t p)) (bd1_t (bd0_t p));
+      (* bpred (Coq [Pos.pred]/[pred_double]): partial at [bzero] -- no
+         defining rule, left stuck, the same convention as nat [div]/[mod] by
+         zero. *)
+      rule (bpred_t bone_t) bzero_t;
+      rule (bpred_t (bd0_t p)) (bpred_double_t p);
+      rule (bpred_t (bd1_t p)) (bd0_t p);
+      (* badd/badd_carry (Coq [Pos.add]/[Pos.add_carry]): a carry-threading
+         mutually recursive pair. Every clause is disjoint on its (x, y)
+         shape pair (16 for [badd], 9 for [badd_carry]), so the whole system
+         is orthogonal -- no critical pairs by construction. Both are
+         invariant-checked to never produce a [bzero]-shaped result when
+         both operands are non-[bzero] (needed since the [bd0 p, bd0 q]/
+         [bd1 p, bd1 q] cases wrap the recursive call in [bd0]/[bd1]). *)
+      rule (badd_t bzero_t bzero_t) bzero_t;
+      rule (badd_t bzero_t bone_t) bone_t;
+      rule (badd_t bzero_t (bd0_t q)) (bd0_t q);
+      rule (badd_t bzero_t (bd1_t q)) (bd1_t q);
+      rule (badd_t bone_t bzero_t) bone_t;
+      rule (badd_t (bd0_t p) bzero_t) (bd0_t p);
+      rule (badd_t (bd1_t p) bzero_t) (bd1_t p);
+      rule (badd_t bone_t bone_t) (bd0_t bone_t);
+      rule (badd_t bone_t (bd0_t q)) (bd1_t q);
+      rule (badd_t bone_t (bd1_t q)) (bd0_t (bsucc_t q));
+      rule (badd_t (bd0_t p) bone_t) (bd1_t p);
+      rule (badd_t (bd0_t p) (bd0_t q)) (bd0_t (badd_t p q));
+      rule (badd_t (bd0_t p) (bd1_t q)) (bd1_t (badd_t p q));
+      rule (badd_t (bd1_t p) bone_t) (bd0_t (bsucc_t p));
+      rule (badd_t (bd1_t p) (bd0_t q)) (bd1_t (badd_t p q));
+      rule (badd_t (bd1_t p) (bd1_t q)) (bd0_t (badd_carry_t p q));
+      rule (badd_carry_t bone_t bone_t) (bd1_t bone_t);
+      rule (badd_carry_t bone_t (bd0_t q)) (bd0_t (bsucc_t q));
+      rule (badd_carry_t bone_t (bd1_t q)) (bd1_t (bsucc_t q));
+      rule (badd_carry_t (bd0_t p) bone_t) (bd0_t (bsucc_t p));
+      rule (badd_carry_t (bd0_t p) (bd0_t q)) (bd1_t (badd_t p q));
+      rule (badd_carry_t (bd0_t p) (bd1_t q)) (bd0_t (badd_carry_t p q));
+      rule (badd_carry_t (bd1_t p) bone_t) (bd1_t (bsucc_t p));
+      rule (badd_carry_t (bd1_t p) (bd0_t q)) (bd0_t (badd_carry_t p q));
+      rule (badd_carry_t (bd1_t p) (bd1_t q)) (bd1_t (badd_carry_t p q));
+      (* bmul (Coq [Pos.mul], double-and-add via [badd]). Every [y] shape is
+         spelled out explicitly rather than left as one generic variable
+         (e.g. [bmul(bd0 p, y) = bd0(bmul p y)]): if [y] were left bare,
+         [bmul(bd0 p, bzero)] would match BOTH the intended [bmul(x, bzero) =
+         bzero] clause AND that generic recursive clause -- producing the
+         non-canonical [bd0(bzero)] from the second -- a genuine
+         non-confluence, not just a style preference. *)
+      rule (bmul_t bzero_t y) bzero_t;
+      rule (bmul_t bone_t bzero_t) bzero_t;
+      rule (bmul_t bone_t bone_t) bone_t;
+      rule (bmul_t bone_t (bd0_t q)) (bd0_t q);
+      rule (bmul_t bone_t (bd1_t q)) (bd1_t q);
+      rule (bmul_t (bd0_t p) bzero_t) bzero_t;
+      rule (bmul_t (bd0_t p) bone_t) (bd0_t p);
+      rule (bmul_t (bd0_t p) (bd0_t q)) (bd0_t (bmul_t p (bd0_t q)));
+      rule (bmul_t (bd0_t p) (bd1_t q)) (bd0_t (bmul_t p (bd1_t q)));
+      rule (bmul_t (bd1_t p) bzero_t) bzero_t;
+      rule (bmul_t (bd1_t p) bone_t) (bd1_t p);
+      rule
+        (bmul_t (bd1_t p) (bd0_t q))
+        (badd_t (bd0_t q) (bd0_t (bmul_t p (bd0_t q))));
+      rule
+        (bmul_t (bd1_t p) (bd1_t q))
+        (badd_t (bd1_t q) (bd0_t (bmul_t p (bd1_t q))));
+      (* bcompare/bcompare_cont (Coq [Pos.compare_cont]): [r] threads the
+         tentative verdict from the lowest bit compared so far; a differing
+         bit overrides it with a fresh verdict, an equal bit passes it
+         through unchanged, so by the time both sides bottom out at [bone]
+         the most-significant differing bit's override is what survives --
+         MSB-first comparison via LSB-first recursion, without a separate
+         bit-length computation. All 16 (x, y) shape pairs are disjoint. *)
+      rule (bcompare_t x y) (bcompare_cont_t beq_kind_t x y);
+      rule (bcompare_cont_t r bzero_t bzero_t) r;
+      rule (bcompare_cont_t r bzero_t bone_t) blt_kind_t;
+      rule (bcompare_cont_t r bzero_t (bd0_t q)) blt_kind_t;
+      rule (bcompare_cont_t r bzero_t (bd1_t q)) blt_kind_t;
+      rule (bcompare_cont_t r bone_t bzero_t) bgt_kind_t;
+      rule (bcompare_cont_t r (bd0_t p) bzero_t) bgt_kind_t;
+      rule (bcompare_cont_t r (bd1_t p) bzero_t) bgt_kind_t;
+      rule (bcompare_cont_t r bone_t bone_t) r;
+      rule (bcompare_cont_t r bone_t (bd0_t q)) blt_kind_t;
+      rule (bcompare_cont_t r bone_t (bd1_t q)) blt_kind_t;
+      rule (bcompare_cont_t r (bd0_t p) bone_t) bgt_kind_t;
+      rule (bcompare_cont_t r (bd1_t p) bone_t) bgt_kind_t;
+      rule (bcompare_cont_t r (bd0_t p) (bd0_t q)) (bcompare_cont_t r p q);
+      rule
+        (bcompare_cont_t r (bd0_t p) (bd1_t q))
+        (bcompare_cont_t blt_kind_t p q);
+      rule
+        (bcompare_cont_t r (bd1_t p) (bd0_t q))
+        (bcompare_cont_t bgt_kind_t p q);
+      rule (bcompare_cont_t r (bd1_t p) (bd1_t q)) (bcompare_cont_t r p q);
+      (* [bleq]/[blt] read off [bcompare]'s result via a boolean-dispatch
+         auxiliary over the 3 ground [Bcmp] constants -- the same disjoint-
+         ground-pattern idiom [div_aux]/[mod_aux] use above, rather than
+         requiring [eq_t] to also cover [Bcmp]. *)
+      rule (ble_of_cmp_t blt_kind_t) yes;
+      rule (ble_of_cmp_t beq_kind_t) yes;
+      rule (ble_of_cmp_t bgt_kind_t) no;
+      rule (blt_of_cmp_t blt_kind_t) yes;
+      rule (blt_of_cmp_t beq_kind_t) no;
+      rule (blt_of_cmp_t bgt_kind_t) no;
+      rule (bleq_t x y) (ble_of_cmp_t (bcompare_t x y));
+      rule (blt_t x y) (blt_of_cmp_t (bcompare_t x y));
       (* lists *)
       rule (len_t nil_t) zero_t;
       rule (len_t (cons_t x xs)) (succ_t (len_t xs));
