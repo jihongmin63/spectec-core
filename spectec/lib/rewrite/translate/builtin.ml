@@ -213,26 +213,29 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       (* the decimal spelling of the int as a char list ([string_of_num]): split
          off the sign, then emit digits high-to-low by recursive div/mod by ten,
          each remainder mapped to its ASCII byte ([chr_48]..[chr_57]). [int_neg x]
-         is -(x+1), so its magnitude is [succ x]; '-' is [chr_45]. *)
+         is -(x+1), so its magnitude is [bsucc x]; '-' is [chr_45]. [n]/[x] here
+         are [int_pos]/[int_neg]'s [BNatV] magnitude (can be P4-bit-width-scale),
+         so [to_nat]'s own recursion is the [BNatV] (bdiv/bmod/blt) family, not
+         the Peano one -- {!Ctrs_term}'s doc comment. *)
       let to_nat = helper "nat" and digit = helper "digit" in
-      let ten = T.nat_lit ~scalars 10 in
+      let ten = T.bnat_lit ~scalars 10 in
       let digit_rules =
         List.init 10 (fun d ->
-            T.rule (T.app_t digit [ T.nat_lit ~scalars d ]) (T.chr_t (48 + d)))
+            T.rule (T.app_t digit [ T.bnat_lit ~scalars d ]) (T.chr_t (48 + d)))
       in
       [
         T.rule (T.app_t sym [ T.int_pos_t n ]) (T.app_t to_nat [ n ]);
         T.rule
           (T.app_t sym [ T.int_neg_t x ])
-          (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.succ_t x ]));
+          (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.bsucc_t x ]));
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cons_t (T.app_t digit [ n ]) T.nil_t)
-          [ (T.lt_t n ten, T.bool_t ~scalars true) ];
+          [ (T.blt_t n ten, T.bool_t ~scalars true) ];
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cat_t
-             (T.app_t to_nat [ T.div_t n ten ])
-             (T.cons_t (T.app_t digit [ T.mod_t n ten ]) T.nil_t))
-          [ (T.lt_t n ten, T.bool_t ~scalars false) ];
+             (T.app_t to_nat [ T.bdiv_t n ten ])
+             (T.cons_t (T.app_t digit [ T.bmod_t n ten ]) T.nil_t))
+          [ (T.blt_t n ten, T.bool_t ~scalars false) ];
       ]
       @ digit_rules
   | "strip_prefix", _, _ ->
@@ -270,10 +273,12 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           let i_max = T.var_t "i_max" and i_min = T.var_t "i_min" in
           let zero_i = T.int_lit ~scalars 0 in
           let one_i = T.int_lit ~scalars 1 in
-          let to_int x = T.app_t (builtin "to_int") [ T.int_pos_t w; x ] in
-          let to_bitstr x =
-            T.app_t (builtin "to_bitstr") [ T.int_pos_t w; x ]
-          in
+          (* [w] is the (Peano) bit-width parameter -- bridged to [BNatV] via
+             [bnat_of_nat] at exactly this int-wrapping point, same as
+             {!To_ctrs}'s [UpCastE] cast site ({!Ctrs_term}'s doc comment). *)
+          let w_int = T.int_pos_t (T.bnat_of_nat_t w) in
+          let to_int x = T.app_t (builtin "to_int") [ w_int; x ] in
+          let to_bitstr x = T.app_t (builtin "to_bitstr") [ w_int; x ] in
           let pow2 n = T.app_t (builtin "pow2") [ n ] in
           (* unsigned [w W i]: the raw sum/difference, clamped to
              [0 .. 2^w - 1] (only the overflowing end can be hit). *)
@@ -360,12 +365,15 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
      [numerics.ml] either -- not covered here, left exactly as unimplemented
      as the interpreter itself leaves it. *)
   | "pow2", _, _ ->
-      (* [pow2 w = 2^w] -- a direct nat power, not hand-rolled doubling:
-         {!Rewrite.Prelude}'s [pow] already has real equations. *)
+      (* [pow2 w = 2^w] -- a direct power, not hand-rolled doubling:
+         {!Rewrite.Prelude}'s [bpow_nat] already has real equations. This is
+         the site the whole binary encoding exists for: [w] (a P4 bit-width,
+         still Peano -- it stays small) is the EXPONENT, but the accumulated
+         RESULT (up to 2^64) is [BNatV], never a Peano tower. *)
       let w = T.var_t "w" in
       [
         T.rule (T.app_t sym [ w ])
-          (T.int_pos_t (T.pow_t (T.nat_lit ~scalars 2) w));
+          (T.int_pos_t (T.bpow_nat_t (T.bnat_lit ~scalars 2) w));
       ]
   | "shl", _, _ ->
       (* [shl v o = v * 2^o] for [o >= 0] -- a single multiplication is exact
@@ -383,31 +391,46 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
   | "shr", _, _ ->
       (* [numerics.ml]'s [shr'] halves [v] (a truncating division) ONE STEP
          AT A TIME, [o] times -- mirrored via structural recursion on [o]'s
-         Peano magnitude rather than a single division by [2^o], since
-         repeated truncation is not always the same value as one truncation
-         by the product. [o <= 0] is the identity, same as [shl]. *)
+         magnitude rather than a single division by [2^o], since repeated
+         truncation is not always the same value as one truncation by the
+         product. [o <= 0] is the identity, same as [shl]. [o]'s magnitude is
+         [BNatV] now, so "is it zero" is a computed [bis_zero] tag rather
+         than a [zero]/[succ] shape match -- dispatched through an auxiliary
+         (the same idiom {!Rewrite.Prelude}'s [div_aux]/[mod_aux] use) so the
+         zero/nonzero cases are disjoint on the TAG, not on a raw side
+         condition sharing the unconditional case's LHS shape (which would be
+         a real, if vacuous, critical-pair overlap for the CRC). *)
       let v = T.var_t "v" and o = T.var_t "o" in
+      let aux = helper "aux" in
       [
-        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t ]) v;
         T.rule
-          (T.app_t sym [ v; T.int_pos_t (T.succ_t o) ])
-          (T.app_t sym [ T.div_int_t v (T.int_lit ~scalars 2); T.int_pos_t o ]);
+          (T.app_t sym [ v; T.int_pos_t o ])
+          (T.app_t aux [ T.bis_zero_t o; v; o ]);
+        T.rule (T.app_t aux [ T.bool_t ~scalars true; v; o ]) v;
+        T.rule
+          (T.app_t aux [ T.bool_t ~scalars false; v; o ])
+          (T.app_t sym
+             [ T.div_int_t v (T.int_lit ~scalars 2); T.int_pos_t (T.bpred_t o) ]);
         T.rule (T.app_t sym [ v; T.int_neg_t o ]) v;
       ]
   | "shr_arith", _, _ ->
       (* Same recursive shape as [shr], but [m] is added back in at EVERY
          halving step (not once at the end) for sign extension -- genuinely
          not a closed form, so [numerics.ml]'s [shr_arith'] recursion is
-         mirrored exactly. *)
+         mirrored exactly (same [bis_zero]-tag-dispatch retarget as [shr]). *)
       let v = T.var_t "v" and o = T.var_t "o" and m = T.var_t "m" in
+      let aux = helper "aux" in
       [
-        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t; m ]) v;
         T.rule
-          (T.app_t sym [ v; T.int_pos_t (T.succ_t o); m ])
+          (T.app_t sym [ v; T.int_pos_t o; m ])
+          (T.app_t aux [ T.bis_zero_t o; v; o; m ]);
+        T.rule (T.app_t aux [ T.bool_t ~scalars true; v; o; m ]) v;
+        T.rule
+          (T.app_t aux [ T.bool_t ~scalars false; v; o; m ])
           (T.app_t sym
              [
                T.add_int_t (T.div_int_t v (T.int_lit ~scalars 2)) m;
-               T.int_pos_t o;
+               T.int_pos_t (T.bpred_t o);
                m;
              ]);
         T.rule (T.app_t sym [ v; T.int_neg_t o; m ]) v;
@@ -480,15 +503,20 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       (* Unlike [bneg], AND/XOR/OR have no such arithmetic identity; this
          only covers NONNEGATIVE operands (matching P4's actual use: `&`/`^`/
          `|` combine already-masked, unsigned bit<w> values) -- decompose
-         both nat magnitudes bit by bit via [div_t]/[mod_t] by 2, recombining
-         with the operator's own single-bit formula. A negative operand
-         doesn't match [int_pos] and is left stuck, same spirit as
-         [bin_satplus]'s arbitrary-precision-operand case above. *)
+         both [BNatV] magnitudes bit by bit via [bdiv_t]/[bmod_t] by 2 (a
+         mechanical retarget of the same recursive shape used against the old
+         Peano magnitude, not a redesign around direct [bd0]/[bd1] matching:
+         [bdiv]/[bmod] are already O(log n), so this stays O(w) recursive
+         levels each costing O(log(current value)), not the exponential
+         blowup a Peano magnitude would have meant here), recombining with the
+         operator's own single-bit formula. A negative operand doesn't match
+         [int_pos] and is left stuck, same spirit as [bin_satplus]'s
+         arbitrary-precision-operand case above. *)
       let combine_bit bl br =
         match id.it with
-        | "band" -> T.mul_t bl br
-        | "bor" -> T.sub_t (T.add_t bl br) (T.mul_t bl br)
-        | _ (* "bxor" *) -> T.mod_t (T.add_t bl br) (T.nat_lit ~scalars 2)
+        | "band" -> T.bmul_t bl br
+        | "bor" -> T.bsub_t (T.badd_t bl br) (T.bmul_t bl br)
+        | _ (* "bxor" *) -> T.bmod_t (T.badd_t bl br) (T.bnat_lit ~scalars 2)
       in
       (* AND's identity is 0 (0 against anything is 0); OR/XOR's is the
          OTHER operand unchanged (0 contributes nothing to either) -- a
@@ -497,28 +525,28 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
          caught by testing band/bor/bxor independently: band(6,3)=2 checked
          out, but a shared zero-base gave bor(6,3)=3 and bxor(6,3)=1 instead
          of the correct 7 and 5). *)
-      let base_rhs other = match id.it with "band" -> T.zero_t | _ -> other in
+      let base_rhs other = match id.it with "band" -> T.bzero_t | _ -> other in
       let nat_sym = helper "nat" in
       let l = T.var_t "l" and r = T.var_t "r" in
-      let two_n = T.nat_lit ~scalars 2 in
+      let two_n = T.bnat_lit ~scalars 2 in
       let bl = T.var_t "bl" and br = T.var_t "br" in
       let ql = T.var_t "ql" and qr = T.var_t "qr" in
       [
         T.rule
           (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
           (T.int_pos_t (T.app_t nat_sym [ l; r ]));
-        T.rule (T.app_t nat_sym [ T.zero_t; r ]) (base_rhs r);
-        T.rule (T.app_t nat_sym [ l; T.zero_t ]) (base_rhs l);
+        T.rule (T.app_t nat_sym [ T.bzero_t; r ]) (base_rhs r);
+        T.rule (T.app_t nat_sym [ l; T.bzero_t ]) (base_rhs l);
         T.rule_cond (T.app_t nat_sym [ l; r ])
-          (T.add_t (combine_bit bl br)
-             (T.mul_t two_n (T.app_t nat_sym [ ql; qr ])))
+          (T.badd_t (combine_bit bl br)
+             (T.bmul_t two_n (T.app_t nat_sym [ ql; qr ])))
           [
-            (T.eq_t l T.zero_t, T.bool_t ~scalars false);
-            (T.eq_t r T.zero_t, T.bool_t ~scalars false);
-            (T.mod_t l two_n, bl);
-            (T.mod_t r two_n, br);
-            (T.div_t l two_n, ql);
-            (T.div_t r two_n, qr);
+            (T.bis_zero_t l, T.bool_t ~scalars false);
+            (T.bis_zero_t r, T.bool_t ~scalars false);
+            (T.bmod_t l two_n, bl);
+            (T.bmod_t r two_n, br);
+            (T.bdiv_t l two_n, ql);
+            (T.bdiv_t r two_n, qr);
           ];
       ]
   | "bitacc", _, _ ->

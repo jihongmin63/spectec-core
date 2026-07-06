@@ -273,6 +273,18 @@ let rec bigint_of_peano (m : mt) : Bigint.t =
   | MApp ("succ", [ n ]) -> Bigint.succ (bigint_of_peano n)
   | _ -> raise (Parse_error "expected a Peano nat (zero/succ)")
 
+(* A binary (Coq [positive]/[N]-style) [BNatV] magnitude -- [int_pos]/
+   [int_neg]'s payload -- as a [Bigint], the decode-side counterpart of
+   {!Ctrs_term.binary_of_bigint}. *)
+let rec bigint_of_binary (m : mt) : Bigint.t =
+  match m with
+  | MApp ("bzero", []) -> Bigint.zero
+  | MApp ("bone", []) -> Bigint.one
+  | MApp ("bd0", [ p ]) -> Bigint.( * ) (Bigint.of_int 2) (bigint_of_binary p)
+  | MApp ("bd1", [ p ]) ->
+      Bigint.succ (Bigint.( * ) (Bigint.of_int 2) (bigint_of_binary p))
+  | _ -> raise (Parse_error "expected a binary BNatV (bzero/bone/bd0/bd1)")
+
 (* A structural char-list text (a [cons]/[nil] spine of [chr_<code>] leaves) as
    its byte codes, innermost first is outermost in the source order (the
    spine is already left-to-right). Reused by the [cons] decode arm below when
@@ -300,10 +312,10 @@ let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
      the [Native] module, so these arms are unreachable there). *)
   | MApp ("zero", []) -> Value.Make.nat (NumT `NatT) Bigint.zero
   | MApp ("succ", [ _ ]) -> Value.Make.nat (NumT `NatT) (bigint_of_peano m)
-  | MApp ("int_pos", [ n ]) -> Value.Make.int (NumT `IntT) (bigint_of_peano n)
+  | MApp ("int_pos", [ n ]) -> Value.Make.int (NumT `IntT) (bigint_of_binary n)
   | MApp ("int_neg", [ n ]) ->
       Value.Make.int (NumT `IntT)
-        (Bigint.neg (Bigint.succ (bigint_of_peano n)))
+        (Bigint.neg (Bigint.succ (bigint_of_binary n)))
   | MApp ("true", []) -> Value.Make.bool BoolT true
   | MApp ("false", []) -> Value.Make.bool BoolT false
   | MNum s -> (

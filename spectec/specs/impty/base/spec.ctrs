@@ -1,8 +1,8 @@
 set include BOOL off .
 
 (mod SPEC is
-  sorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type Val .
-  subsorts BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type < Val .
+  sorts BNatV Bcmp Bmask BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type Val .
+  subsorts BNatV Bcmp Bmask BoolV Command Expr Id IntV List Literal NatV Opt Pair Text Type < Val .
   subsort Id < Expr .
   subsort List < Text .
   subsort Literal < Expr .
@@ -18,15 +18,38 @@ set include BOOL off .
   op Eval-expr : List Expr -> Literal .
   op Eval-prog : Command -> List .
   op Run-prog : Command -> List .
-  op add : NatV NatV -> NatV .
   op add-int : IntV IntV -> IntV .
   op and : BoolV BoolV -> BoolV .
+  op badd : BNatV BNatV -> BNatV .
+  op badd-carry : BNatV BNatV -> BNatV .
+  op bcompare : BNatV BNatV -> Bcmp .
+  op bcompare-cont : Bcmp BNatV BNatV -> Bcmp .
+  op bd0 : BNatV -> BNatV .
+  op bd1 : BNatV -> BNatV .
+  op bdouble-mask : Bmask -> Bmask .
+  op beq-kind : -> Bcmp .
+  op bgt-kind : -> Bcmp .
+  op ble-of-cmp : Bcmp -> BoolV .
+  op bleq : BNatV BNatV -> BoolV .
+  op blt-kind : -> Bcmp .
+  op bmask-neg : -> Bmask .
+  op bmask-nul : -> Bmask .
+  op bmask-pos : BNatV -> Bmask .
+  op bone : -> BNatV .
+  op bpred : BNatV -> BNatV .
+  op bpred-double : BNatV -> BNatV .
+  op bsub : BNatV BNatV -> BNatV .
+  op bsub-mask : BNatV BNatV -> Bmask .
+  op bsub-mask-carry : BNatV BNatV -> Bmask .
+  op bsub-of-mask : Bmask -> BNatV .
+  op bsucc : BNatV -> BNatV .
+  op bsucc-double-mask : Bmask -> Bmask .
+  op bzero : -> BNatV .
   op cons : Val List -> List .
   op eqg : Val Val -> BoolV .
   op false : -> BoolV .
-  op int-neg : NatV -> IntV .
-  op int-pos : NatV -> IntV .
-  op leq : NatV NatV -> BoolV .
+  op int-neg : BNatV -> IntV .
+  op int-pos : BNatV -> IntV .
   op leq-int : IntV IntV -> BoolV .
   op match-command-IF-THEN-ELSE-END-3 : Command -> BoolV .
   op match-command-SKIP-0 : Command -> BoolV .
@@ -53,9 +76,9 @@ set include BOOL off .
   op proj-variant-pair-minus-gt-2-0 : Val -> Val .
   op some : Val -> Opt .
   op sub-int-nat : NatV NatV -> IntV .
+  op sub-int-nat-aux : Val Val Val -> Val .
   op subty-id : Val -> BoolV .
   op subty-literal : Val -> BoolV .
-  op succ : NatV -> NatV .
   op true : -> BoolV .
   op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
   op variant-command-SKIP-0 : -> Command .
@@ -73,29 +96,113 @@ set include BOOL off .
   op variant-pair-minus-gt-2 : Val Val -> Pair .
   op variant-type-BOOL-0 : -> Type .
   op variant-type-INT-0 : -> Type .
-  op zero : -> NatV .
 
   eq not(true) = false .
   eq not(false) = true .
   eq and(true, y:BoolV) = y:BoolV .
   eq and(false, y:BoolV) = false .
-  eq add(zero, y:NatV) = y:NatV .
-  eq add(succ(x:NatV), y:NatV) = succ(add(x:NatV, y:NatV)) .
-  eq leq(zero, y:NatV) = true .
-  eq leq(succ(x:NatV), zero) = false .
-  eq leq(succ(x:NatV), succ(y:NatV)) = leq(x:NatV, y:NatV) .
-  eq sub-int-nat(zero, zero) = int-pos(zero) .
-  eq sub-int-nat(succ(x:NatV), zero) = int-pos(succ(x:NatV)) .
-  eq sub-int-nat(zero, succ(y:NatV)) = int-neg(y:NatV) .
-  eq sub-int-nat(succ(x:NatV), succ(y:NatV)) = sub-int-nat(x:NatV, y:NatV) .
-  eq add-int(int-pos(x:NatV), int-pos(y:NatV)) = int-pos(add(x:NatV, y:NatV)) .
-  eq add-int(int-neg(x:NatV), int-neg(y:NatV)) = int-neg(succ(add(x:NatV, y:NatV))) .
-  eq add-int(int-pos(x:NatV), int-neg(y:NatV)) = sub-int-nat(x:NatV, succ(y:NatV)) .
-  eq add-int(int-neg(x:NatV), int-pos(y:NatV)) = sub-int-nat(y:NatV, succ(x:NatV)) .
-  eq leq-int(int-pos(x:NatV), int-pos(y:NatV)) = leq(x:NatV, y:NatV) .
-  eq leq-int(int-neg(x:NatV), int-neg(y:NatV)) = leq(y:NatV, x:NatV) .
-  eq leq-int(int-pos(x:NatV), int-neg(y:NatV)) = false .
-  eq leq-int(int-neg(x:NatV), int-pos(y:NatV)) = true .
+  eq sub-int-nat(x:NatV, y:NatV) = sub-int-nat-aux(bleq(y:NatV, x:NatV), x:NatV, y:NatV) .
+  eq sub-int-nat-aux(true, x:BNatV, y:BNatV) = int-pos(bsub(x:BNatV, y:BNatV)) .
+  eq sub-int-nat-aux(false, x:BNatV, y:BNatV) = int-neg(bpred(bsub(y:BNatV, x:BNatV))) .
+  eq add-int(int-pos(x:BNatV), int-pos(y:BNatV)) = int-pos(badd(x:BNatV, y:BNatV)) .
+  eq add-int(int-neg(x:BNatV), int-neg(y:BNatV)) = int-neg(bsucc(badd(x:BNatV, y:BNatV))) .
+  eq add-int(int-pos(x:BNatV), int-neg(y:BNatV)) = sub-int-nat(x:BNatV, bsucc(y:BNatV)) .
+  eq add-int(int-neg(x:BNatV), int-pos(y:BNatV)) = sub-int-nat(y:BNatV, bsucc(x:BNatV)) .
+  eq leq-int(int-pos(x:BNatV), int-pos(y:BNatV)) = bleq(x:BNatV, y:BNatV) .
+  eq leq-int(int-neg(x:BNatV), int-neg(y:BNatV)) = bleq(y:BNatV, x:BNatV) .
+  eq leq-int(int-pos(x:BNatV), int-neg(y:BNatV)) = false .
+  eq leq-int(int-neg(x:BNatV), int-pos(y:BNatV)) = true .
+  eq bsucc(bzero) = bone .
+  eq bsucc(bone) = bd0(bone) .
+  eq bsucc(bd0(p:BNatV)) = bd1(p:BNatV) .
+  eq bsucc(bd1(p:BNatV)) = bd0(bsucc(p:BNatV)) .
+  eq bpred-double(bone) = bone .
+  eq bpred-double(bd0(p:BNatV)) = bd1(bpred-double(p:BNatV)) .
+  eq bpred-double(bd1(p:BNatV)) = bd1(bd0(p:BNatV)) .
+  eq bpred(bone) = bzero .
+  eq bpred(bd0(p:BNatV)) = bpred-double(p:BNatV) .
+  eq bpred(bd1(p:BNatV)) = bd0(p:BNatV) .
+  eq badd(bzero, bzero) = bzero .
+  eq badd(bzero, bone) = bone .
+  eq badd(bzero, bd0(q:BNatV)) = bd0(q:BNatV) .
+  eq badd(bzero, bd1(q:BNatV)) = bd1(q:BNatV) .
+  eq badd(bone, bzero) = bone .
+  eq badd(bd0(p:BNatV), bzero) = bd0(p:BNatV) .
+  eq badd(bd1(p:BNatV), bzero) = bd1(p:BNatV) .
+  eq badd(bone, bone) = bd0(bone) .
+  eq badd(bone, bd0(q:BNatV)) = bd1(q:BNatV) .
+  eq badd(bone, bd1(q:BNatV)) = bd0(bsucc(q:BNatV)) .
+  eq badd(bd0(p:BNatV), bone) = bd1(p:BNatV) .
+  eq badd(bd0(p:BNatV), bd0(q:BNatV)) = bd0(badd(p:BNatV, q:BNatV)) .
+  eq badd(bd0(p:BNatV), bd1(q:BNatV)) = bd1(badd(p:BNatV, q:BNatV)) .
+  eq badd(bd1(p:BNatV), bone) = bd0(bsucc(p:BNatV)) .
+  eq badd(bd1(p:BNatV), bd0(q:BNatV)) = bd1(badd(p:BNatV, q:BNatV)) .
+  eq badd(bd1(p:BNatV), bd1(q:BNatV)) = bd0(badd-carry(p:BNatV, q:BNatV)) .
+  eq badd-carry(bone, bone) = bd1(bone) .
+  eq badd-carry(bone, bd0(q:BNatV)) = bd0(bsucc(q:BNatV)) .
+  eq badd-carry(bone, bd1(q:BNatV)) = bd1(bsucc(q:BNatV)) .
+  eq badd-carry(bd0(p:BNatV), bone) = bd0(bsucc(p:BNatV)) .
+  eq badd-carry(bd0(p:BNatV), bd0(q:BNatV)) = bd1(badd(p:BNatV, q:BNatV)) .
+  eq badd-carry(bd0(p:BNatV), bd1(q:BNatV)) = bd0(badd-carry(p:BNatV, q:BNatV)) .
+  eq badd-carry(bd1(p:BNatV), bone) = bd1(bsucc(p:BNatV)) .
+  eq badd-carry(bd1(p:BNatV), bd0(q:BNatV)) = bd0(badd-carry(p:BNatV, q:BNatV)) .
+  eq badd-carry(bd1(p:BNatV), bd1(q:BNatV)) = bd1(badd-carry(p:BNatV, q:BNatV)) .
+  eq bcompare(x:BNatV, y:BNatV) = bcompare-cont(beq-kind, x:BNatV, y:BNatV) .
+  eq bcompare-cont(r:Bcmp, bzero, bzero) = r:Bcmp .
+  eq bcompare-cont(r:Bcmp, bzero, bone) = blt-kind .
+  eq bcompare-cont(r:Bcmp, bzero, bd0(q:BNatV)) = blt-kind .
+  eq bcompare-cont(r:Bcmp, bzero, bd1(q:BNatV)) = blt-kind .
+  eq bcompare-cont(r:Bcmp, bone, bzero) = bgt-kind .
+  eq bcompare-cont(r:Bcmp, bd0(p:BNatV), bzero) = bgt-kind .
+  eq bcompare-cont(r:Bcmp, bd1(p:BNatV), bzero) = bgt-kind .
+  eq bcompare-cont(r:Bcmp, bone, bone) = r:Bcmp .
+  eq bcompare-cont(r:Bcmp, bone, bd0(q:BNatV)) = blt-kind .
+  eq bcompare-cont(r:Bcmp, bone, bd1(q:BNatV)) = blt-kind .
+  eq bcompare-cont(r:Bcmp, bd0(p:BNatV), bone) = bgt-kind .
+  eq bcompare-cont(r:Bcmp, bd1(p:BNatV), bone) = bgt-kind .
+  eq bcompare-cont(r:Bcmp, bd0(p:BNatV), bd0(q:BNatV)) = bcompare-cont(r:Bcmp, p:BNatV, q:BNatV) .
+  eq bcompare-cont(r:Bcmp, bd0(p:BNatV), bd1(q:BNatV)) = bcompare-cont(blt-kind, p:BNatV, q:BNatV) .
+  eq bcompare-cont(r:Bcmp, bd1(p:BNatV), bd0(q:BNatV)) = bcompare-cont(bgt-kind, p:BNatV, q:BNatV) .
+  eq bcompare-cont(r:Bcmp, bd1(p:BNatV), bd1(q:BNatV)) = bcompare-cont(r:Bcmp, p:BNatV, q:BNatV) .
+  eq ble-of-cmp(blt-kind) = true .
+  eq ble-of-cmp(beq-kind) = true .
+  eq ble-of-cmp(bgt-kind) = false .
+  eq bleq(x:BNatV, y:BNatV) = ble-of-cmp(bcompare(x:BNatV, y:BNatV)) .
+  eq bdouble-mask(bmask-nul) = bmask-nul .
+  eq bdouble-mask(bmask-neg) = bmask-neg .
+  eq bdouble-mask(bmask-pos(p:BNatV)) = bmask-pos(bd0(p:BNatV)) .
+  eq bsucc-double-mask(bmask-nul) = bmask-pos(bone) .
+  eq bsucc-double-mask(bmask-neg) = bmask-neg .
+  eq bsucc-double-mask(bmask-pos(p:BNatV)) = bmask-pos(bd1(p:BNatV)) .
+  eq bsub-mask(bzero, bzero) = bmask-nul .
+  eq bsub-mask(bzero, bone) = bmask-neg .
+  eq bsub-mask(bzero, bd0(q:BNatV)) = bmask-neg .
+  eq bsub-mask(bzero, bd1(q:BNatV)) = bmask-neg .
+  eq bsub-mask(bone, bzero) = bmask-pos(bone) .
+  eq bsub-mask(bd0(p:BNatV), bzero) = bmask-pos(bd0(p:BNatV)) .
+  eq bsub-mask(bd1(p:BNatV), bzero) = bmask-pos(bd1(p:BNatV)) .
+  eq bsub-mask(bone, bone) = bmask-nul .
+  eq bsub-mask(bone, bd0(q:BNatV)) = bmask-neg .
+  eq bsub-mask(bone, bd1(q:BNatV)) = bmask-neg .
+  eq bsub-mask(bd0(p:BNatV), bone) = bmask-pos(bpred-double(p:BNatV)) .
+  eq bsub-mask(bd1(p:BNatV), bone) = bmask-pos(bd0(p:BNatV)) .
+  eq bsub-mask(bd0(p:BNatV), bd0(q:BNatV)) = bdouble-mask(bsub-mask(p:BNatV, q:BNatV)) .
+  eq bsub-mask(bd0(p:BNatV), bd1(q:BNatV)) = bsucc-double-mask(bsub-mask-carry(p:BNatV, q:BNatV)) .
+  eq bsub-mask(bd1(p:BNatV), bd0(q:BNatV)) = bsucc-double-mask(bsub-mask(p:BNatV, q:BNatV)) .
+  eq bsub-mask(bd1(p:BNatV), bd1(q:BNatV)) = bdouble-mask(bsub-mask(p:BNatV, q:BNatV)) .
+  eq bsub-mask-carry(bone, bone) = bmask-neg .
+  eq bsub-mask-carry(bone, bd0(q:BNatV)) = bmask-neg .
+  eq bsub-mask-carry(bone, bd1(q:BNatV)) = bmask-neg .
+  eq bsub-mask-carry(bd0(p:BNatV), bone) = bdouble-mask(bsub-mask(p:BNatV, bone)) .
+  eq bsub-mask-carry(bd1(p:BNatV), bone) = bmask-pos(bpred-double(p:BNatV)) .
+  eq bsub-mask-carry(bd0(p:BNatV), bd0(q:BNatV)) = bsucc-double-mask(bsub-mask-carry(p:BNatV, q:BNatV)) .
+  eq bsub-mask-carry(bd0(p:BNatV), bd1(q:BNatV)) = bdouble-mask(bsub-mask-carry(p:BNatV, q:BNatV)) .
+  eq bsub-mask-carry(bd1(p:BNatV), bd0(q:BNatV)) = bdouble-mask(bsub-mask(p:BNatV, q:BNatV)) .
+  eq bsub-mask-carry(bd1(p:BNatV), bd1(q:BNatV)) = bsucc-double-mask(bsub-mask-carry(p:BNatV, q:BNatV)) .
+  eq bsub-of-mask(bmask-nul) = bzero .
+  eq bsub-of-mask(bmask-neg) = bzero .
+  eq bsub-of-mask(bmask-pos(p:BNatV)) = p:BNatV .
+  eq bsub(x:BNatV, y:BNatV) = bsub-of-mask(bsub-mask(x:BNatV, y:BNatV)) .
   eq match-some(some(x:Val)) = true .
   eq match-some(none) = false .
   eq match-cons(cons(x:Val, xs:List)) = true .

@@ -227,10 +227,15 @@ let rec term_of_exp ~scalars (e : exp) : R.term =
   | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
-     projected with [nat_of_int]. *)
+     projected with [nat_of_int]. [recur e1] is always Peano-encoded (every
+     nat-producing path -- [term_of_num], the nat family of
+     [term_of_binop]/[term_of_unop], the prelude's own nat rules -- stays on
+     the untouched Peano [NatV] family), while [int_pos]'s magnitude is
+     [BNatV] ({!Ctrs_term}'s doc comment), so this is the ONE place every
+     nat-to-int cast in the whole spec needs to bridge via [bnat_of_nat]. *)
   | UpCastE (t, e1)
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
-      int_pos_t (recur e1)
+      int_pos_t (bnat_of_nat_t (recur e1))
   | DownCastE (t, e1) when is_nat_typ t.it && is_int_typ e1.note ->
       nat_of_int_t (recur e1)
   | UpCastE (_, e1) | DownCastE (_, e1) -> recur e1

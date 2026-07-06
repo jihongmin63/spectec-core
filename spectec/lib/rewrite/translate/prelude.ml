@@ -44,10 +44,10 @@ let native_replaced_heads : string list =
     "pow_int";
     "leq_int";
     "lt_int";
-    (* binary (Coq [positive]/[N]-style) magnitude arithmetic: not yet
-       referenced by [int_pos]/[int_neg] (see the binary-encoding plan), but
-       already Structural-only like the rest of this list, so [Native]'s
-       build stays free of unused equations as each op is added. *)
+    (* binary (Coq [positive]/[N]-style) magnitude arithmetic backing
+       [int_pos]/[int_neg]'s magnitude (see {!Ctrs_term}'s doc comment):
+       Structural-only, like the rest of this list, since [Native] never
+       constructs a [BNatV] term (it wraps Maude's built-in [Int] directly). *)
     "bsucc";
     "bpred";
     "bpred_double";
@@ -80,6 +80,7 @@ let native_replaced_heads : string list =
     "bdiv";
     "bmod";
     "bpow_nat";
+    "bnat_of_nat";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -171,57 +172,97 @@ let rules ~scalars : R.rule list =
       rule (mod_t x y) (app_t "mod_aux" [ lt_t x y; x; y ]);
       rule (app_t "mod_aux" [ yes; x; y ]) x;
       rule (app_t "mod_aux" [ no; x; y ]) (mod_t (sub_t x y) y);
+      (* [bnat_of_nat]: bridges a Peano [NatV] (list indices, bit-width
+         parameters -- everything the spec ever upcasts to int, see
+         {!Ctrs_term}'s doc comment) to the equal [BNatV] value, so
+         [int_pos]/[int_neg]'s [BNatV] magnitude can be built from a Peano nat
+         at exactly that cast boundary. O(n) in the (always small) Peano
+         input; [bsucc] never returns [bzero]-shaped (Phase 1), so this never
+         constructs a non-canonical term. *)
+      rule (bnat_of_nat_t zero_t) bzero_t;
+      rule (bnat_of_nat_t (succ_t x)) (bsucc_t (bnat_of_nat_t x));
       (* integer helpers: negate / magnitude / sign / projection, and the signed
-         difference of two nats ([sub_int_nat m n] = m - n as an int). All
-         structural over [int_pos]/[int_neg], so they stay canonical. *)
-      rule (negate_int_t (int_pos_t zero_t)) (int_pos_t zero_t);
-      rule (negate_int_t (int_pos_t (succ_t x))) (int_neg_t x);
-      rule (negate_int_t (int_neg_t x)) (int_pos_t (succ_t x));
+         difference of two [BNatV] magnitudes ([sub_int_nat m n] = m - n as an
+         int). All structural over [int_pos]/[int_neg], so they stay canonical.
+         [negate_int]'s [int_pos] case is the one "peel one off the [BNatV]
+         magnitude" site here (mirroring [pow_int] below and [shr]/[shr_arith]
+         in {!Builtin}): since [bd0]/[bd1] give no static zero/nonzero
+         distinction the way Peano [zero]/[succ] did, it dispatches through a
+         boolean tag ([bis_zero]) rather than pattern-matching the shape
+         directly, the same idiom [div_aux]/[mod_aux] use above (a raw
+         [rule_cond] sharing the unconditional [bzero] case's LHS shape would
+         be a genuine, if semantically vacuous, critical-pair overlap for the
+         CRC to prove joinable; the disjoint boolean tag has none at all). *)
+      rule
+        (negate_int_t (int_pos_t x))
+        (app_t "negate_int_pos_aux" [ bis_zero_t x; x ]);
+      rule (app_t "negate_int_pos_aux" [ yes; x ]) (int_pos_t bzero_t);
+      rule
+        (app_t "negate_int_pos_aux" [ no; x ])
+        (int_neg_t (bpred_t x));
+      rule (negate_int_t (int_neg_t x)) (int_pos_t (bsucc_t x));
       (* negation is involutive, so a double negation cancels even when the inner
          operand is still symbolic (e.g. the [negate_int(negate_int(int_pos(n)))]
          of [-(-n)]); the overlap with the structural rules above stays
          confluent. *)
       rule (negate_int_t (negate_int_t x)) x;
       rule (abs_nat_t (int_pos_t x)) x;
-      rule (abs_nat_t (int_neg_t x)) (succ_t x);
+      rule (abs_nat_t (int_neg_t x)) (bsucc_t x);
       rule (nonneg_int_t (int_pos_t x)) yes;
       rule (nonneg_int_t (int_neg_t x)) no;
       rule (nat_of_int_t (int_pos_t x)) x;
-      rule (sub_int_nat_t zero_t zero_t) (int_pos_t zero_t);
-      rule (sub_int_nat_t (succ_t x) zero_t) (int_pos_t (succ_t x));
-      rule (sub_int_nat_t zero_t (succ_t y)) (int_neg_t y);
-      rule (sub_int_nat_t (succ_t x) (succ_t y)) (sub_int_nat_t x y);
+      (* [sub_int_nat] is re-expressed compositionally atop [bleq]/[bsub]/
+         [bpred] (Phases 1-2) rather than ported as a lockstep structural
+         recursion on both magnitudes -- genuinely simpler, not just a
+         retarget: [x >= y] gives the exact difference directly; [x < y]
+         gives [-(y - x)] via [int_neg]'s own [-(n+1)] convention. *)
+      rule (sub_int_nat_t x y) (app_t "sub_int_nat_aux" [ bleq_t y x; x; y ]);
+      rule
+        (app_t "sub_int_nat_aux" [ yes; x; y ])
+        (int_pos_t (bsub_t x y));
+      rule
+        (app_t "sub_int_nat_aux" [ no; x; y ])
+        (int_neg_t (bpred_t (bsub_t y x)));
       (* integers: add (signed by both operands) / sub / mul *)
-      rule (add_int_t (int_pos_t x) (int_pos_t y)) (int_pos_t (add_t x y));
+      rule (add_int_t (int_pos_t x) (int_pos_t y)) (int_pos_t (badd_t x y));
       rule
         (add_int_t (int_neg_t x) (int_neg_t y))
-        (int_neg_t (succ_t (add_t x y)));
-      rule (add_int_t (int_pos_t x) (int_neg_t y)) (sub_int_nat_t x (succ_t y));
-      rule (add_int_t (int_neg_t x) (int_pos_t y)) (sub_int_nat_t y (succ_t x));
+        (int_neg_t (bsucc_t (badd_t x y)));
+      rule
+        (add_int_t (int_pos_t x) (int_neg_t y))
+        (sub_int_nat_t x (bsucc_t y));
+      rule
+        (add_int_t (int_neg_t x) (int_pos_t y))
+        (sub_int_nat_t y (bsucc_t x));
       rule (sub_int_t x y) (add_int_t x (negate_int_t y));
-      rule (mul_int_t (int_pos_t x) (int_pos_t y)) (int_pos_t (mul_t x y));
+      rule (mul_int_t (int_pos_t x) (int_pos_t y)) (int_pos_t (bmul_t x y));
       rule
         (mul_int_t (int_neg_t x) (int_neg_t y))
-        (int_pos_t (mul_t (succ_t x) (succ_t y)));
+        (int_pos_t (bmul_t (bsucc_t x) (bsucc_t y)));
       rule
         (mul_int_t (int_pos_t x) (int_neg_t y))
-        (negate_int_t (int_pos_t (mul_t x (succ_t y))));
+        (negate_int_t (int_pos_t (bmul_t x (bsucc_t y))));
       rule
         (mul_int_t (int_neg_t x) (int_pos_t y))
-        (negate_int_t (int_pos_t (mul_t (succ_t x) y)));
+        (negate_int_t (int_pos_t (bmul_t (bsucc_t x) y)));
       (* integers: leq / lt *)
-      rule (leq_int_t (int_pos_t x) (int_pos_t y)) (leq_t x y);
-      rule (leq_int_t (int_neg_t x) (int_neg_t y)) (leq_t y x);
+      rule (leq_int_t (int_pos_t x) (int_pos_t y)) (bleq_t x y);
+      rule (leq_int_t (int_neg_t x) (int_neg_t y)) (bleq_t y x);
       rule (leq_int_t (int_pos_t x) (int_neg_t y)) no;
       rule (leq_int_t (int_neg_t x) (int_pos_t y)) yes;
       rule (lt_int_t x y) (not_t (leq_int_t y x));
       (* integers: pow (non-negative exponent), and div / mod by magnitudes +
          sign (truncate toward zero). The quotient is negative iff the operands'
-         signs differ; the remainder takes the dividend's sign. *)
-      rule (pow_int_t x (int_pos_t zero_t)) (int_pos_t (succ_t zero_t));
+         signs differ; the remainder takes the dividend's sign. [pow_int]'s own
+         exponent recursion is the other "peel one off a [BNatV] magnitude"
+         site, same [bis_zero]-tag-dispatch idiom as [negate_int] above. *)
       rule
-        (pow_int_t x (int_pos_t (succ_t y)))
-        (mul_int_t x (pow_int_t x (int_pos_t y)));
+        (pow_int_t x (int_pos_t y))
+        (app_t "pow_int_aux" [ bis_zero_t y; x; y ]);
+      rule (app_t "pow_int_aux" [ yes; x; y ]) (int_pos_t bone_t);
+      rule
+        (app_t "pow_int_aux" [ no; x; y ])
+        (mul_int_t x (pow_int_t x (int_pos_t (bpred_t y))));
       (* The signed div/mod also dispatch through a boolean auxiliary (the
          quotient's sign is [equiv(nonneg x, nonneg y)] -- "same sign", computed
          with the boolean [equiv] rather than structural [eq] so the slice does
@@ -233,17 +274,17 @@ let rules ~scalars : R.rule list =
            [ equiv_t (nonneg_int_t x) (nonneg_int_t y); x; y ]);
       rule
         (app_t "div_int_aux" [ yes; x; y ])
-        (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y)));
+        (int_pos_t (bdiv_t (abs_nat_t x) (abs_nat_t y)));
       rule
         (app_t "div_int_aux" [ no; x; y ])
-        (negate_int_t (int_pos_t (div_t (abs_nat_t x) (abs_nat_t y))));
+        (negate_int_t (int_pos_t (bdiv_t (abs_nat_t x) (abs_nat_t y))));
       rule (mod_int_t x y) (app_t "mod_int_aux" [ nonneg_int_t x; x; y ]);
       rule
         (app_t "mod_int_aux" [ yes; x; y ])
-        (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y)));
+        (int_pos_t (bmod_t (abs_nat_t x) (abs_nat_t y)));
       rule
         (app_t "mod_int_aux" [ no; x; y ])
-        (negate_int_t (int_pos_t (mod_t (abs_nat_t x) (abs_nat_t y))));
+        (negate_int_t (int_pos_t (bmod_t (abs_nat_t x) (abs_nat_t y))));
       (* Binary (Coq [positive]/[N]-style) magnitude arithmetic, alongside the
          Peano nat family above -- not yet referenced by [int_pos]/[int_neg]
          (see the binary-encoding plan; {!Ctrs_term}'s doc comment explains
@@ -541,6 +582,26 @@ let rules ~scalars : R.rule list =
       rule (eq_t zero_t (succ_t y)) no;
       rule (eq_t (succ_t x) zero_t) no;
       rule (eq_t (succ_t x) (succ_t y)) (eq_t x y);
+      (* [BNatV] equality, needed now that [int_pos]/[int_neg] wrap a [BNatV]
+         magnitude (below) rather than the Peano family above -- structurally
+         recursive over [bd0]/[bd1] like the Peano case, all 16 shape pairs
+         disjoint. *)
+      rule (eq_t bzero_t bzero_t) yes;
+      rule (eq_t bzero_t bone_t) no;
+      rule (eq_t bzero_t (bd0_t q)) no;
+      rule (eq_t bzero_t (bd1_t q)) no;
+      rule (eq_t bone_t bzero_t) no;
+      rule (eq_t bone_t bone_t) yes;
+      rule (eq_t bone_t (bd0_t q)) no;
+      rule (eq_t bone_t (bd1_t q)) no;
+      rule (eq_t (bd0_t p) bzero_t) no;
+      rule (eq_t (bd0_t p) bone_t) no;
+      rule (eq_t (bd0_t p) (bd0_t q)) (eq_t p q);
+      rule (eq_t (bd0_t p) (bd1_t q)) no;
+      rule (eq_t (bd1_t p) bzero_t) no;
+      rule (eq_t (bd1_t p) bone_t) no;
+      rule (eq_t (bd1_t p) (bd0_t q)) no;
+      rule (eq_t (bd1_t p) (bd1_t q)) (eq_t p q);
       rule (eq_t (int_pos_t x) (int_pos_t y)) (eq_t x y);
       rule (eq_t (int_neg_t x) (int_neg_t y)) (eq_t x y);
       rule (eq_t (int_pos_t x) (int_neg_t y)) no;

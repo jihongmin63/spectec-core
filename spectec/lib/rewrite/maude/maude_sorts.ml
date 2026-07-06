@@ -105,8 +105,8 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow", n2);
     ("leq", n2b);
     ("lt", n2b);
-    ("int_pos", ([ "NatV" ], "IntV"));
-    ("int_neg", ([ "NatV" ], "IntV"));
+    ("int_pos", ([ "BNatV" ], "IntV"));
+    ("int_neg", ([ "BNatV" ], "IntV"));
     ("negate_int", i1);
     ("abs_nat", ([ "IntV" ], "NatV"));
     ("nonneg_int", ([ "IntV" ], "BoolV"));
@@ -120,18 +120,20 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow_int", i2);
     ("leq_int", i2b);
     ("lt_int", i2b);
-    (* Binary (Coq [positive]/[N]-style) magnitude family, added alongside the
-       Peano [add]/[sub]/... above as a separate symbol set -- not yet wired
-       into [int_pos]/[int_neg] (see the binary-encoding plan). All four
-       constructors sit in the ONE sort [BNatV] (no separate zero-free
-       [positive] sort: this recovery table holds only one signature per
-       symbol name, so [bd0]/[bd1] cannot be typed to statically reject a
-       zero argument the way Coq's [positive] does -- canonicity is instead a
-       by-construction property of every rule in {!Prelude} that builds a
-       [BNatV] term, see {!Ctrs_term}'s doc comment). [Bmask] is
-       [bsub_mask]'s 3-valued truncated-subtraction result, [Bcmp] is
-       [bcompare]'s 3-valued relation-so-far; neither is ever itself used as
-       a magnitude, so neither has a [BNatV] subsort edge. *)
+    (* Binary (Coq [positive]/[N]-style) magnitude family backing [int_pos]/
+       [int_neg] above. All four constructors sit in the ONE sort [BNatV]
+       (no separate zero-free [positive] sort: this recovery table holds
+       only one signature per symbol name, so [bd0]/[bd1] cannot be typed to
+       statically reject a zero argument the way Coq's [positive] does --
+       canonicity is instead a by-construction property of every rule in
+       {!Prelude} that builds a [BNatV] term, see {!Ctrs_term}'s doc
+       comment). [Bmask] is [bsub_mask]'s 3-valued truncated-subtraction
+       result, [Bcmp] is [bcompare]'s 3-valued relation-so-far; neither is
+       ever itself used as a magnitude, so neither has a [BNatV] subsort
+       edge. [bnat_of_nat] bridges a Peano [NatV] (list indices, bit-width
+       parameters -- everything upcast to int at {!To_ctrs}'s [UpCastE] site)
+       to the equal [BNatV] value. *)
+    ("bnat_of_nat", ([ "NatV" ], "BNatV"));
     ("bzero", ([], "BNatV"));
     ("bone", ([], "BNatV"));
     ("bd0", ([ "BNatV" ], "BNatV"));

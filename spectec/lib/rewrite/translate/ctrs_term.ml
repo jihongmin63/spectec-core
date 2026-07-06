@@ -112,13 +112,26 @@ let pow_t a b = app_t "pow" [ a; b ]
 let leq_t a b = app_t "leq" [ a; b ]
 let lt_t a b = app_t "lt" [ a; b ]
 
-(* Integers in sign-magnitude form over nat magnitudes, with constructors
-   disjoint from nat ([zero]/[succ]): [int_pos n] is [+n], [int_neg n] is
-   [-(n+1)]. The representation is canonical by construction (no shared [succ]
-   that could sit above a sign), so nat and int never collide -- in particular
-   nat [eq]/[succ] never match an integer term. [sub_int_nat] is the signed
-   difference of two nats; [abs_nat]/[nonneg_int] expose an int's magnitude and
-   sign for [div_int]/[mod_int]; [nat_of_int] projects a known-nonneg int. *)
+(* Integers in sign-magnitude form over BINARY nat magnitudes ([BNatV], not
+   the Peano [NatV] family above), with constructors disjoint from Peano nat
+   ([zero]/[succ]): [int_pos n] is [+n], [int_neg n] is [-(n+1)]. The
+   representation is canonical by construction (no shared [succ]/[bsucc] that
+   could sit above a sign), so Peano nat and int never collide -- in
+   particular Peano nat [eq]/[succ] never match an integer term. [sub_int_nat]
+   is the signed difference of two [BNatV] magnitudes; [abs_nat]/[nonneg_int]
+   expose an int's magnitude and sign for [div_int]/[mod_int]; [nat_of_int]
+   projects a known-nonneg int (as [BNatV]).
+
+   Every nat-typed value the spec ever upcasts to int ({!To_ctrs}'s
+   [UpCastE]/[int_pos_t] cast site) is Peano-encoded (list indices, bit-width
+   parameters, and any other genuinely small nat -- the untouched Peano family
+   above), so it must be bridged to [BNatV] at exactly that cast boundary:
+   [bnat_of_nat] converts a Peano [NatV] to the equal [BNatV] value in O(n)
+   OCaml-independent rewrite steps, correct and cheap for the small nats that
+   ever reach it (a bit-width like 64), and never invoked on the large
+   [BNatV]-native magnitudes (P4 VALUES, as opposed to their bit-WIDTHS) this
+   whole encoding exists to keep off the Peano tower in the first place. *)
+let bnat_of_nat_t a = app_t "bnat_of_nat" [ a ]
 let int_pos_t n = app_t "int_pos" [ n ]
 let int_neg_t n = app_t "int_neg" [ n ]
 let negate_int_t a = app_t "negate_int" [ a ]
@@ -349,26 +362,33 @@ let nat_lit ~scalars (i : int) : R.term =
   | Native -> Maude_theory.nat_t (Bigint.of_int i)
 
 (* An int literal in the current scalar theory: structural sign-magnitude over a
-   Peano magnitude, or the native [int(..)] wrapper. *)
+   BINARY magnitude ([int_pos]/[int_neg]'s domain, see the doc comment above),
+   or the native [int(..)] wrapper. A fresh literal is built directly in binary
+   ([binary_of_int]) rather than via a Peano intermediate -- no bridge needed
+   here, unlike [term_of_exp]'s cast site, since there is no pre-existing Peano
+   term to convert. *)
 let int_lit ~scalars (i : int) : R.term =
   match scalars with
   | Structural ->
-      if i >= 0 then int_pos_t (peano_of_int i)
-      else int_neg_t (peano_of_int (-i - 1))
+      if i >= 0 then int_pos_t (binary_of_int i)
+      else int_neg_t (binary_of_int (-i - 1))
   | Native -> Maude_theory.int_t (Bigint.of_int i)
 
-(* A numeric literal. [Structural]: a non-negative value is a nat magnitude
-   ([peano]); a negative value is intrinsically an integer ([int_neg k] is
-   [-(k+1)], so [-i] is [int_neg (i-1)]); a non-negative literal in an integer
-   position is injected into [int_pos] at its surrounding cast (see
-   [term_of_exp]). [Native]: the ground value goes straight into the [nat]/[int]
-   wrapper (no Peano tower, so no [Bigint] overflow). *)
+(* A numeric literal. [Structural]: a non-negative value is a Peano nat
+   magnitude (it may stay a bare nat, or be injected into [int_pos] at its
+   surrounding cast -- see [term_of_exp] -- which bridges it to [BNatV] via
+   [bnat_of_nat] there, so this stays Peano); a negative value is
+   intrinsically an integer ([int_neg k] is [-(k+1)], so [-i] is
+   [int_neg (i-1)]), built directly in binary like [int_lit] above (no bare-nat
+   ambiguity for a value that is already, unconditionally, an int). [Native]:
+   the ground value goes straight into the [nat]/[int] wrapper (no Peano
+   tower, so no [Bigint] overflow). *)
 let term_of_num ~scalars (n : Xl.Num.t) : R.term =
   let i = Xl.Num.to_int n in
   match scalars with
   | Structural ->
       let i = Bigint.to_int_exn i in
-      if i >= 0 then peano_of_int i else int_neg_t (peano_of_int (-i - 1))
+      if i >= 0 then peano_of_int i else int_neg_t (binary_of_int (-i - 1))
   | Native ->
       if Bigint.compare i Bigint.zero >= 0 then Maude_theory.nat_t i
       else Maude_theory.int_t i

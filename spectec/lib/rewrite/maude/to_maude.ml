@@ -1210,11 +1210,17 @@ let rec peano_of_bigint (n : Bigint.t) : R.term =
    wrapped built-in literals ({!Maude_theory}), so a program identifier is a
    [String] and a numeral never builds a Peano tower (no [Bigint] overflow);
    [Structural] scalars are {!Ctrs_term}'s own Peano/sign-magnitude/char-list
-   encoding (via [peano_of_bigint], not {!Ctrs_term.nat_lit}/[int_lit] -- those
-   take a bounded native [int], but a parsed program's numeral is an unbounded
-   [Bigint]), matching {!To_mfe}'s analysis module vocabulary. [expected] is the
-   type the surrounding position wants, used only to put a numeric leaf in the
-   [int] vs [nat] wrapper/constructor. *)
+   encoding (via [peano_of_bigint]/{!Ctrs_term.binary_of_bigint}, not
+   {!Ctrs_term.nat_lit}/[int_lit] -- those take a bounded native [int], but a
+   parsed program's numeral is an unbounded [Bigint]), matching {!To_mfe}'s
+   analysis module vocabulary. A bare nat leaf stays Peano ([peano_of_bigint]:
+   list indices and other genuinely small nats, the untouched Peano family,
+   {!Ctrs_term}'s doc comment); an [int_pos]/[int_neg]-wrapped leaf is
+   [Ctrs_term.binary_of_bigint] -- this is exactly the encode-time entry point
+   for a real P4 program's ACTUAL VALUES (a [bit<64>] literal, say), the case
+   this whole binary encoding exists to keep off the Peano tower. [expected] is
+   the type the surrounding position wants, used only to put a numeric leaf in
+   the [int] vs [nat] wrapper/constructor. *)
 let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
     R.term =
   let idx = encode_index orig in
@@ -1242,8 +1248,9 @@ let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
             | Native -> Maude_theory.int_t i
             | Structural ->
                 if Bigint.compare i Bigint.zero >= 0 then
-                  T.int_pos_t (peano_of_bigint i)
-                else T.int_neg_t (peano_of_bigint (Bigint.pred (Bigint.neg i))))
+                  T.int_pos_t (T.binary_of_bigint i)
+                else
+                  T.int_neg_t (T.binary_of_bigint (Bigint.pred (Bigint.neg i))))
         | _ -> (
             match scalars with
             | Native -> Maude_theory.nat_t i
