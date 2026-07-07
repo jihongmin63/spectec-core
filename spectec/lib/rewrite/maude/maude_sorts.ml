@@ -108,10 +108,27 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("int_pos", ([ "BNatV" ], "IntV"));
     ("int_neg", ([ "BNatV" ], "IntV"));
     ("negate_int", i1);
-    ("abs_nat", ([ "IntV" ], "NatV"));
+    (* BUG FIX: [abs_nat]/[sub_int_nat] used to be declared over Peano [NatV]
+       (correct back when [int_pos]/[int_neg]'s magnitude WAS Peano); the
+       Phase 4 retype to [BNatV] updated their RULES (in {!Prelude}) but not
+       these two declarations, leaving both silently ill-sorted against
+       their own actual output/argument sort ever since. Unlike [nat_of_int]
+       (a genuine [DownCastE] bridge whose callers throughout the wider spec
+       need real Peano [NatV] back, hence [bnat_to_nat] there), [abs_nat]/
+       [sub_int_nat] are purely internal to this int-family (only ever
+       consumed by [div_int]/[mod_int]/[add_int]'s own rules here, never by
+       {!Builtin} or the wider [.spectec] source, confirmed by grep), and
+       every one of those consumers already correctly expects [BNatV] --
+       so the fix is these two declarations, not a bridging rule. Found via
+       the differential corpus run: any program computing [div_int]/
+       [mod_int] or the [int_pos]/[int_neg] cross-sign [add_int] cases (e.g.
+       [int<n>]-typed negative constant folding, which routes through
+       [add_int]'s [sub_int_nat] case) got permanently stuck one level up,
+       the same failure shape as the [nat_of_int] bug. *)
+    ("abs_nat", ([ "IntV" ], "BNatV"));
     ("nonneg_int", ([ "IntV" ], "BoolV"));
     ("nat_of_int", ([ "IntV" ], "NatV"));
-    ("sub_int_nat", ([ "NatV"; "NatV" ], "IntV"));
+    ("sub_int_nat", ([ "BNatV"; "BNatV" ], "IntV"));
     ("add_int", i2);
     ("sub_int", i2);
     ("mul_int", i2);
