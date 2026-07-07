@@ -251,13 +251,26 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ~(rule_heads : string list)
   | Ok mfe_dir ->
       let bin = resolve_bin maude_bin in
       let mfe_path = absolute (Filename.concat mfe_dir mfe_entry) in
-      (* Drop the [owise] equations before the CRC/ChC. An owise rule fires only
-         where no sibling matched, so its overlaps are infeasible by construction;
-         the checker ignores the [owise] attribute and would flag them as spurious
-         critical pairs. Stripping them is sound for the confluence gate and is
-         confined to the MFE input -- the [--ctrs] dump and any termination view
-         keep the full system. *)
-      let system = Rewrite_system.drop_owise system in
+      (* {!Reflect.owise} replaces every reflectable [owise] marker with an
+         explicit sibling-disjointness guard before the system gets here, so
+         normally no [owise] rule remains. Should one survive (a future spec
+         hitting a reflection Gate), it reaches the checker as-is: the CRC
+         ignores the [owise] attribute and will flag its structurally
+         infeasible sibling overlaps as spurious critical pairs -- a
+         conservative MAYBE, never a false YES. Warn so that regression is
+         attributable instead of silently dropping the rules (the old
+         [drop_owise] fallback). *)
+      let unreflected =
+        List.length
+          (List.filter
+             (fun (r : Rewrite_system.rule) -> r.owise)
+             system.Rewrite_system.rules)
+      in
+      if unreflected > 0 then
+        Printf.eprintf
+          "mfe: WARNING - %d unreflected owise rule(s) reach the MFE input \
+           (spurious critical pairs possible)\n"
+          unreflected;
       let module_text =
         To_mfe.module_of_system ~module_name ~rule_heads orig system
       in
