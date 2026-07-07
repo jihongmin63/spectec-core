@@ -189,9 +189,21 @@ let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
       close_out oc;
       let fd_in = Unix.openfile infile [ Unix.O_RDONLY ] 0 in
       let r_out, w_out = Unix.pipe () in
+      (* Launch through a shell that first lifts the stack limit: the default
+         8MB stack is too small for legitimately-deep (not runaway) CRC
+         critical-pair computations on arithmetic-heavy slices, which
+         otherwise die as a native "Fatal error: stack overflow" and read as
+         a missing verdict -- the same lesson check_diff_structural_p4.sh
+         already encodes for plain reductions (e73fcb44). *)
       let pid =
-        Unix.create_process_env bin [| bin; "-no-banner" |] (child_env bin)
-          fd_in w_out w_out
+        Unix.create_process_env "/bin/sh"
+          [|
+            "/bin/sh";
+            "-c";
+            "ulimit -s unlimited 2>/dev/null; exec \"$0\" -no-banner";
+            bin;
+          |]
+          (child_env bin) fd_in w_out w_out
       in
       Unix.close fd_in;
       Unix.close w_out;
