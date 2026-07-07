@@ -132,8 +132,12 @@ let shared_op_sigs : (string * (string list * string)) list =
        ever itself used as a magnitude, so neither has a [BNatV] subsort
        edge. [bnat_of_nat] bridges a Peano [NatV] (list indices, bit-width
        parameters -- everything upcast to int at {!To_ctrs}'s [UpCastE] site)
-       to the equal [BNatV] value. *)
+       to the equal [BNatV] value; [bnat_to_nat] (built on [double_nat],
+       Peano doubling) is the reverse bridge for [nat_of_int]'s [DownCastE]
+       site. *)
     ("bnat_of_nat", ([ "NatV" ], "BNatV"));
+    ("double_nat", ([ "NatV" ], "NatV"));
+    ("bnat_to_nat", ([ "BNatV" ], "NatV"));
     ("bzero", ([], "BNatV"));
     ("bone", ([], "BNatV"));
     ("bd0", ([ "BNatV" ], "BNatV"));

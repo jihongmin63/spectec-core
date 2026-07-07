@@ -81,6 +81,8 @@ let native_replaced_heads : string list =
     "bmod";
     "bpow_nat";
     "bnat_of_nat";
+    "double_nat";
+    "bnat_to_nat";
     (* nat-membership predicate over both representations *)
     "sub_nat";
     (* list operations recursing over Peano indices *)
@@ -181,6 +183,21 @@ let rules ~scalars : R.rule list =
          constructs a non-canonical term. *)
       rule (bnat_of_nat_t zero_t) bzero_t;
       rule (bnat_of_nat_t (succ_t x)) (bsucc_t (bnat_of_nat_t x));
+      (* [double_nat]/[bnat_to_nat]: the reverse bridge, [BNatV] back to Peano
+         [NatV], for [nat_of_int]'s [DownCastE] site below. [double_nat] just
+         doubles a Peano nat structurally; [bnat_to_nat] walks a [BNatV] from
+         its outermost [bd0]/[bd1]/[bone]/[bzero] constructor inward, mirroring
+         Coq's [Pos.to_nat]. Both only ever run on the same small magnitudes
+         [bnat_of_nat] does (bit-widths, indices), so the O(n) *unary* output
+         size is cheap in practice, same reasoning as [bnat_of_nat] itself. *)
+      rule (double_nat_t zero_t) zero_t;
+      rule (double_nat_t (succ_t x)) (succ_t (succ_t (double_nat_t x)));
+      rule (bnat_to_nat_t bzero_t) zero_t;
+      rule (bnat_to_nat_t bone_t) (succ_t zero_t);
+      rule (bnat_to_nat_t (bd0_t x)) (double_nat_t (bnat_to_nat_t x));
+      rule
+        (bnat_to_nat_t (bd1_t x))
+        (succ_t (double_nat_t (bnat_to_nat_t x)));
       (* integer helpers: negate / magnitude / sign / projection, and the signed
          difference of two [BNatV] magnitudes ([sub_int_nat m n] = m - n as an
          int). All structural over [int_pos]/[int_neg], so they stay canonical.
@@ -219,7 +236,19 @@ let rules ~scalars : R.rule list =
       rule (abs_nat_t (int_neg_t x)) (bsucc_t x);
       rule (nonneg_int_t (int_pos_t x)) yes;
       rule (nonneg_int_t (int_neg_t x)) no;
-      rule (nat_of_int_t (int_pos_t x)) x;
+      (* BUG FIX: this used to be [rule (nat_of_int_t (int_pos_t x)) x], which
+         returned the [BNatV] magnitude directly -- ill-sorted against
+         [nat_of_int]'s declared [IntV -> NatV] signature ({!Maude_sorts}),
+         since [int_pos]'s argument became [BNatV] in the Phase 4 retype.
+         Every consumer of a [DownCastE]-produced nat (list indexing,
+         bit-width parameters) expects genuine Peano [NatV], so silently
+         handing back a [BNatV] term left it permanently stuck one level up
+         wherever a [BIT<n>]-shaped type appeared -- confirmed empirically:
+         every real P4 program using ANY [bit<n>] (even [bit<1>]) got stuck
+         at the very first [Program-ok] step, while programs with no
+         [bit<n>] at all reduced fully. Bridging back via [bnat_to_nat]
+         fixes it. *)
+      rule (nat_of_int_t (int_pos_t x)) (bnat_to_nat_t x);
       (* [sub_int_nat] is re-expressed compositionally atop [bleq]/[bsub]/
          [bpred] (Phases 1-2) rather than ported as a lockstep structural
          recursion on both magnitudes -- genuinely simpler, not just a

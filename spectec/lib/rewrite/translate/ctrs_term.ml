@@ -120,7 +120,10 @@ let lt_t a b = app_t "lt" [ a; b ]
    particular Peano nat [eq]/[succ] never match an integer term. [sub_int_nat]
    is the signed difference of two [BNatV] magnitudes; [abs_nat]/[nonneg_int]
    expose an int's magnitude and sign for [div_int]/[mod_int]; [nat_of_int]
-   projects a known-nonneg int (as [BNatV]).
+   projects a known-nonneg int back to the Peano [NatV] the rest of the spec
+   expects at a [DownCastE] (every consumer of a bare nat -- list indexing,
+   bit-width parameters -- stays on the untouched Peano family, so this must
+   land back there, not stay [BNatV]).
 
    Every nat-typed value the spec ever upcasts to int ({!To_ctrs}'s
    [UpCastE]/[int_pos_t] cast site) is Peano-encoded (list indices, bit-width
@@ -130,8 +133,14 @@ let lt_t a b = app_t "lt" [ a; b ]
    OCaml-independent rewrite steps, correct and cheap for the small nats that
    ever reach it (a bit-width like 64), and never invoked on the large
    [BNatV]-native magnitudes (P4 VALUES, as opposed to their bit-WIDTHS) this
-   whole encoding exists to keep off the Peano tower in the first place. *)
+   whole encoding exists to keep off the Peano tower in the first place.
+   [bnat_to_nat] is the reverse bridge for [nat_of_int]'s [DownCastE] site,
+   built on [double_nat] (Peano doubling); like [bnat_of_nat] it is only ever
+   invoked on the same small magnitudes (never the large values), so its O(n)
+   *output* size (unary!) is just as cheap in practice. *)
 let bnat_of_nat_t a = app_t "bnat_of_nat" [ a ]
+let double_nat_t a = app_t "double_nat" [ a ]
+let bnat_to_nat_t a = app_t "bnat_to_nat" [ a ]
 let int_pos_t n = app_t "int_pos" [ n ]
 let int_neg_t n = app_t "int_neg" [ n ]
 let negate_int_t a = app_t "negate_int" [ a ]
