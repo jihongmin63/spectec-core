@@ -47,6 +47,13 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    tests (turning a guarded multi-clause dispatch, several rules sharing one
    head with disjointness carried only by an opaque [match_*] condition the
    CRC cannot see through, into genuinely disjoint head patterns).
+   {!Reflect.expand_subty_guards} then does the same for membership guards
+   [subty_<S>(v) = true], which name a SET of constructors rather than one:
+   the guarded clause fans out into one clone per member case (exact by
+   subtype totality), its companion conditions partially evaluated against
+   the now-concrete constructor -- placed before [fold_premise_binders] so
+   the fold can still tidy whatever bindings the evaluation left as
+   conditions.
    [fold_premise_binders] also folds any OTHER premise-bound variable (a
    relation/function output, or a field a destructuring extracts) back into
    the rule -- into its rhs or its head pattern -- and drops the guards the
@@ -71,6 +78,9 @@ let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
   let dspec, sys = build_with To_ctrs.Structural spec in
   let sys =
     Reflect.hoist_matchers ~scalars:To_ctrs.Structural ~orig:dspec sys
+  in
+  let sys =
+    Reflect.expand_subty_guards ~scalars:To_ctrs.Structural ~orig:dspec sys
   in
   let sys =
     Rewrite_system.fold_premise_binders

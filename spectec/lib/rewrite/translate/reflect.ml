@@ -321,6 +321,323 @@ let rec ground (t : R.term) : bool =
   match t with R.Var _ -> false | R.App (_, args) -> List.for_all ground args
 
 (* -------------------------------------------------------------------------- *)
+(* (B') subty-guard head specialization: expand a clause guarded by a
+   membership test [subty_<S>(v) = true] on a head-bound variable [v] into one
+   clone per member constructor of [S], substituting [v := K_i(fresh..)]
+   through the whole rule and dropping the guard (keeping the member rule's
+   payload conjunction as a residual condition when it is not literally
+   [true]). Subtype totality makes this exact: the [subty_<S>] rule family
+   enumerates the guard's true-set syntactically -- member cases rewrite to
+   their payload conjunction, non-members to [false] ({!To_ctrs}'s use-based
+   complement) -- so the clones' application set equals the guarded clause's.
+   Unlike {!hoist_matchers} (a 1-rule -> 1-rule respelling for a matcher that
+   names ONE constructor), this is a 1 -> N fan-out, and the substitution runs
+   through companion conditions too, so each clone is partially evaluated:
+   a matcher or subty test applied to the now-concrete constructor decides to
+   [true] (condition dropped), [false]/stuck (clone dead, dropped), or its
+   payload residual; a companion destructuring equation [K(sf..) = K(pats..)]
+   decomposes pointwise and the fresh payload variables are renamed away into
+   the sibling's own binder names (deepening the head pattern exactly like the
+   fold this pass makes unnecessary). Anything the evaluator does not
+   recognize is conservatively kept as a condition for the later passes.
+   Analysis-only, like {!hoist_matchers}/{!owise}; fresh variable names are
+   gensym-numbered ([expand_N]) so they cannot collide with a {!Var_hints} key
+   and inherit their sorts positionally from the constructor signature. *)
+
+(* One [subty_<S>] family, scanned off the translated system itself (the
+   guard's presence keeps the family from being pruned, and scanning avoids
+   re-deriving {!To_ctrs.sub_pred}'s spelling): the member constructors with
+   their payload variables and residual rhs, or a degenerate shape. *)
+type subty_family =
+  | Members of (string * string list * R.term) list
+    (* ctor, payload vars, residual rhs (the payload conjunction) *)
+  | Always_true (* [subty_<S>(x) -> true]: type parameter fallback *)
+  | Opaque of string (* unrecognized shape: do not expand *)
+
+let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
+    : R.t =
+  let tbl = build_tables orig in
+  let mtbl = build_matcher_table orig in
+  let yes = T.bool_t ~scalars true in
+  let no = T.bool_t ~scalars false in
+  let by_head : (string, R.rule) Hashtbl.t = Hashtbl.create 1024 in
+  List.iter
+    (fun (r : R.rule) ->
+      match r.R.lhs with
+      | R.App (f, _) -> Hashtbl.add by_head f r
+      | R.Var _ -> ())
+    sys.R.rules;
+  let rules_of_head f = List.rev (Hashtbl.find_all by_head f) in
+  let is_ctor c =
+    Hashtbl.mem tbl.ctor_types c
+    || List.mem c [ "tuple"; "cons"; "nil"; "none"; "some" ]
+    || has_prefix "struct_" c
+  in
+  (* Family scan, memoized; alias delegation [subty_<S>(x) -> subty_<U>(x)]
+     chases to the target family (cycle-guarded). *)
+  let fam_cache : (string, subty_family) Hashtbl.t = Hashtbl.create 64 in
+  let distinct_vars ps =
+    let vs = List.filter_map (function R.Var v -> Some v | _ -> None) ps in
+    if
+      List.length vs = List.length ps
+      && List.sort_uniq compare vs = List.sort compare vs
+    then Some vs
+    else None
+  in
+  let rec family (seen : string list) (s : string) : subty_family =
+    match Hashtbl.find_opt fam_cache s with
+    | Some f -> f
+    | None ->
+        let f =
+          if List.mem s seen then Opaque "alias cycle"
+          else scan (s :: seen) (rules_of_head s)
+        in
+        Hashtbl.replace fam_cache s f;
+        f
+  and scan seen rules =
+    let step acc (r : R.rule) =
+      match acc with
+      | Opaque _ -> acc
+      | _ when r.R.conds <> [] -> Opaque "conditional subty rule"
+      | _ -> (
+          match (r.R.lhs, r.R.rhs) with
+          | R.App (_, [ R.App (_, _) ]), rhs when rhs = no ->
+              acc (* complement *)
+          | R.App (_, [ R.App (c, ps) ]), rhs -> (
+              match distinct_vars ps with
+              | Some vs
+                when List.for_all (fun v -> List.mem v vs) (term_vars rhs) -> (
+                  match acc with
+                  | Members ms -> Members (ms @ [ (c, vs, rhs) ])
+                  | Always_true -> Opaque "mixed member/fallback"
+                  | Opaque _ -> acc)
+              | _ -> Opaque "non-linear member payload")
+          | R.App (_, [ R.Var _ ]), rhs when rhs = yes -> (
+              match acc with
+              | Members [] -> Always_true
+              | Members _ -> Opaque "mixed member/fallback"
+              | acc -> acc)
+          | R.App (_, [ R.Var x ]), R.App (g, [ R.Var x' ])
+            when x' = x && has_prefix "subty_" g -> (
+              match (acc, family seen g) with
+              | Members [], f -> f
+              | _ -> Opaque "mixed delegation")
+          | _ -> Opaque "unrecognized subty rule shape")
+    in
+    if rules = [] then Opaque "no defining rules"
+    else List.fold_left step (Members []) rules
+  in
+  (* Partial evaluation of one clone's conditions after the [v := K(sf..)]
+     substitution. Returns [None] when a condition is decided unsatisfiable
+     (dead clone): a matcher or subty test on a concrete NON-member
+     constructor either rewrites to [false] (a sibling case) or is stuck
+     (outside the type) -- unsatisfiable either way, since constructors are
+     free (a constructor-headed term never rewrites at the root).
+     [fresh_set] are the variables THIS pass introduced: only those may be
+     renamed away by a decomposed destructuring pair (a general [Var = term]
+     condition is a join test, not a definition). *)
+  let rec app_heads (t : R.term) : string list =
+    match t with
+    | R.Var _ -> []
+    | R.App (f, args) -> f :: List.concat_map app_heads args
+  in
+  let pattern_safe t = List.for_all is_ctor (app_heads t) in
+  let exception Dead in
+  let simplify (fresh_set : (string, unit) Hashtbl.t) (r0 : R.rule) :
+      R.rule option =
+    let subst_rule s (r : R.rule) =
+      {
+        r with
+        R.lhs = subst s r.R.lhs;
+        rhs = subst s r.R.rhs;
+        conds = List.map (fun (l, rr) -> (subst s l, subst s rr)) r.R.conds;
+      }
+    in
+    let rec go fuel (r : R.rule) : R.rule =
+      if fuel = 0 then r
+      else
+        let lhs_vars = term_vars r.R.lhs in
+        (* a condition variable the head does not bind: existentially
+           quantified, so a [w = t] condition on it (t a pure constructor
+           term, no computation to duplicate) is eliminated exactly by
+           substituting [w := t] through the rule *)
+        let existential w t =
+          (not (List.mem w lhs_vars))
+          && (not (List.mem w (term_vars t)))
+          && pattern_safe t
+        in
+        (* one pass: rewrite the first condition a step applies to *)
+        let rec step pre = function
+          | [] -> None
+          | (l, rr) :: rest when l = rr ->
+              Some { r with R.conds = List.rev_append pre rest }
+          | (R.App (m, [ R.App (c, _) ]), rr) :: rest
+            when rr = yes && is_ctor c && Hashtbl.mem mtbl m ->
+              if c = (Hashtbl.find mtbl m).ctor then
+                Some { r with R.conds = List.rev_append pre rest }
+              else raise Dead
+          | ((R.App (s, [ R.App (c, args) ]), rr) as cond) :: rest
+            when rr = yes && has_prefix "subty_" s && is_ctor c -> (
+              match family [] s with
+              | Always_true ->
+                  Some { r with R.conds = List.rev_append pre rest }
+              | Members ms -> (
+                  match List.find_opt (fun (mc, _, _) -> mc = c) ms with
+                  | Some (_, ps, residual)
+                    when List.length ps = List.length args ->
+                      let resid = subst (List.combine ps args) residual in
+                      Some
+                        {
+                          r with
+                          R.conds = List.rev_append pre ((resid, yes) :: rest);
+                        }
+                  | Some _ -> step (cond :: pre) rest
+                  | None -> raise Dead)
+              | Opaque _ -> step (cond :: pre) rest)
+          | (R.App (c1, xs), R.App (c2, ys)) :: rest
+            when is_ctor c1 && is_ctor c2 ->
+              if c1 = c2 && List.length xs = List.length ys then
+                Some
+                  {
+                    r with
+                    R.conds = List.rev_append pre (List.combine xs ys @ rest);
+                  }
+              else raise Dead
+          | (R.Var v, t) :: rest
+            when Hashtbl.mem fresh_set v
+                 && (not (List.mem v (term_vars t)))
+                 && pattern_safe t ->
+              Some
+                (subst_rule
+                   [ (v, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (t, R.Var v) :: rest
+            when Hashtbl.mem fresh_set v
+                 && (not (List.mem v (term_vars t)))
+                 && pattern_safe t ->
+              Some
+                (subst_rule
+                   [ (v, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (R.Var w, t) :: rest when existential w t ->
+              Some
+                (subst_rule
+                   [ (w, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (t, R.Var w) :: rest when existential w t ->
+              Some
+                (subst_rule
+                   [ (w, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | cond :: rest -> step (cond :: pre) rest
+        in
+        match step [] r.R.conds with Some r' -> go (fuel - 1) r' | None -> r
+    in
+    match go 200 r0 with r -> Some r | exception Dead -> None
+  in
+  (* Expansion driver: fan the first qualifying guard out, then recurse into
+     each clone (a residual can itself be a bare membership test on a now
+     head-bound payload variable, and a rule can carry several guards). *)
+  let clauses_expanded = ref 0
+  and clones_kept = ref 0
+  and clones_dead = ref 0
+  and vacuous_dropped = ref 0 in
+  let expand_rule (r0 : R.rule) : R.rule list =
+    let lhs_ok = match r0.R.lhs with R.App _ -> true | R.Var _ -> false in
+    if not lhs_ok then [ r0 ]
+    else
+      let counter = ref 0 in
+      let fresh_set = Hashtbl.create 8 in
+      let fresh () =
+        let v = Printf.sprintf "expand_%d" !counter in
+        incr counter;
+        Hashtbl.replace fresh_set v ();
+        v
+      in
+      let budget = ref 64 in
+      let head_sym = match r0.R.lhs with R.App (f, _) -> f | R.Var v -> v in
+      let skip reason =
+        Printf.eprintf "reflect: no subty expansion for %s (%s)\n" head_sym
+          reason
+      in
+      let pick_guard (r : R.rule) =
+        let lhs_vars = term_vars r.R.lhs in
+        let rec find pre = function
+          | [] -> None
+          | (R.App (s, [ R.Var v ]), rr) :: rest
+            when rr = yes && has_prefix "subty_" s && List.mem v lhs_vars ->
+              Some (List.rev pre, s, v, rest)
+          | c :: rest -> find (c :: pre) rest
+        in
+        find [] r.R.conds
+      in
+      let rec go (r : R.rule) : R.rule list =
+        match pick_guard r with
+        | None -> [ r ]
+        | Some (pre, s, v, rest) -> (
+            match family [] s with
+            | Always_true ->
+                incr vacuous_dropped;
+                go { r with R.conds = pre @ rest }
+            | Opaque reason ->
+                skip (Printf.sprintf "%s: %s" s reason);
+                [ r ]
+            | Members ms ->
+                let n = List.length ms in
+                if n > 16 then (
+                  skip (Printf.sprintf "%s: %d members" s n);
+                  [ r ])
+                else if !budget < n then (
+                  skip (Printf.sprintf "%s: clone budget exhausted" s);
+                  [ r ])
+                else (
+                  budget := !budget - n;
+                  incr clauses_expanded;
+                  ms
+                  |> List.concat_map (fun (c, ps, residual) ->
+                         let sf = List.map (fun _ -> fresh ()) ps in
+                         let theta = [ (v, T.app_t c (List.map T.var_t sf)) ] in
+                         let resid =
+                           subst
+                             (List.combine ps (List.map T.var_t sf))
+                             residual
+                         in
+                         let conds =
+                           List.map
+                             (fun (l, rr) -> (subst theta l, subst theta rr))
+                             (pre @ rest)
+                         in
+                         let conds =
+                           if resid = yes then conds
+                           else conds @ [ (resid, yes) ]
+                         in
+                         let r' =
+                           {
+                             R.lhs = subst theta r.R.lhs;
+                             rhs = subst theta r.R.rhs;
+                             conds;
+                             owise = r.R.owise;
+                           }
+                         in
+                         match simplify fresh_set r' with
+                         | None ->
+                             incr clones_dead;
+                             []
+                         | Some r'' ->
+                             incr clones_kept;
+                             go r'')))
+      in
+      go r0
+  in
+  let rules = List.concat_map expand_rule sys.R.rules in
+  if !clauses_expanded > 0 || !vacuous_dropped > 0 then
+    Printf.eprintf
+      "reflect: subty expansion: %d clause(s) -> %d clone(s) (%d dead, %d \
+       vacuous guard(s) dropped)\n"
+      !clauses_expanded !clones_kept !clones_dead !vacuous_dropped;
+  { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
+
+(* -------------------------------------------------------------------------- *)
 (* Support rules a guard may need: matcher families, struct accessors, and the
    payload projections. Generated once each, only when the system does not
    already define the symbol. *)
