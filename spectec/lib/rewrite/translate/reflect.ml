@@ -85,6 +85,8 @@ type tables = {
   ctor_types : (string, string list) Hashtbl.t; (* variant sym -> type names *)
   funcsigs : (string, typ list * typ) Hashtbl.t; (* $f -> params, result *)
   relsigs : (string, typ list) Hashtbl.t; (* Rel -> input types *)
+  fieldsigs : (string, typ') Hashtbl.t; (* field_<ty>_<a> -> field type *)
+  rel_outs : (string, typ list) Hashtbl.t; (* Rel -> output types *)
 }
 
 let build_tables (orig : spec) : tables =
@@ -94,6 +96,8 @@ let build_tables (orig : spec) : tables =
       ctor_types = Hashtbl.create 256;
       funcsigs = Hashtbl.create 64;
       relsigs = Hashtbl.create 64;
+      fieldsigs = Hashtbl.create 256;
+      rel_outs = Hashtbl.create 64;
     }
   in
   List.iter
@@ -118,6 +122,11 @@ let build_tables (orig : spec) : tables =
                   if not (List.mem synid.it tys) then
                     Hashtbl.replace tbl.ctor_types ctor (tys @ [ synid.it ]))
                 typcases
+          | StructT fields ->
+              List.iter
+                (fun ((a, ft) : typfield) ->
+                  Hashtbl.replace tbl.fieldsigs (T.field_sym synid.it a) ft.it)
+                fields
           | _ -> ())
       | DecD { defid; params; typ; _ } ->
           let exps =
@@ -130,9 +139,11 @@ let build_tables (orig : spec) : tables =
       | RelD { relid; reltyp; _ } ->
           let typs = Mixfix.args (Mode.notation reltyp.it) in
           let idxs = List.init (List.length typs) Fun.id in
-          let ins, _ = Mode.partition reltyp.it idxs in
+          let ins, outs = Mode.partition reltyp.it idxs in
           Hashtbl.replace tbl.relsigs (T.rel_sym relid)
-            (List.map (List.nth typs) ins)
+            (List.map (List.nth typs) ins);
+          Hashtbl.replace tbl.rel_outs (T.rel_sym relid)
+            (List.map (List.nth typs) outs)
       | BuiltinDecD _ -> ())
     orig;
   tbl
@@ -608,15 +619,22 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
   (match unbound l with
   | [] -> ()
   | v :: _ -> raise (Gate (Printf.sprintf "unbound sibling variable %s" v)));
-  (* [l]'s result type, when recoverable: a variable's recorded type, or a
-     function call's declared result. *)
+  (* [l]'s result type, when recoverable: a variable's recorded type, a
+     function call's declared result, a struct field accessor's field type,
+     or a single-output relation's output. *)
   let type_of_l =
     match l with
     | R.Var v -> Option.join (Option.map snd (List.assoc_opt v acc.sub))
     | R.App (f, _) -> (
         match Hashtbl.find_opt tbl.funcsigs f with
         | Some (_, ret) -> Some ret.it
-        | None -> None)
+        | None -> (
+            match Hashtbl.find_opt tbl.fieldsigs f with
+            | Some t -> Some t
+            | None -> (
+                match Hashtbl.find_opt tbl.rel_outs f with
+                | Some [ t ] -> Some t.it
+                | _ -> None)))
   in
   let sl = subst (sub_terms acc) l in
   check_reflectable tbl effectful succ sl;
