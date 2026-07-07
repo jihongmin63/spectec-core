@@ -290,14 +290,15 @@ let iter_helper_prefixes = [ "$iterall"; "$itercollect"; "$iterapply" ]
 let has_prefix p s =
   String.length s >= String.length p && String.sub s 0 (String.length p) = p
 
-(* Reject a guard component that mentions a relation call (Phase 3), an
-   iteration helper not yet in [succ], or a gensym state-threaded symbol. *)
+(* Reject a guard component that mentions a relation call whose success is
+   not reflected (not in [succ]), an iteration helper not yet in [succ], or a
+   gensym state-threaded symbol. *)
 let rec check_reflectable (tbl : tables) (effectful : string list)
     (succ : string list) (t : R.term) : unit =
   match t with
   | R.Var _ -> ()
   | R.App (f, args) ->
-      if Hashtbl.mem tbl.relsigs f then
+      if Hashtbl.mem tbl.relsigs f && not (List.mem f succ) then
         raise (Gate (Printf.sprintf "relation call %s" f));
       if
         (not (List.mem f succ))
@@ -1047,33 +1048,67 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
   and_chain ~scalars (dedup (List.rev acc.tests))
 
 (* -------------------------------------------------------------------------- *)
-(* Judgment reflection: [holds_<R>] for a no-output judgment [R] (its rules
-   all conclude [= true]; failure is stuckness), and [holds_<$iterall..>] for
-   a no-binding iterated premise's helper. [holds_<R>] is ONE unconditional
+(* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
+   "some rule of R applies", built from each rule's lhs patterns and
+   conditions with the rhs ignored, so it covers output-carrying judgments
+   the same way as no-output ones (whose rules all conclude [= true];
+   failure is stuckness either way) -- and [holds_<$iterall..>] for a
+   no-binding iterated premise's helper. [holds_<R>] is ONE unconditional
    or-rule -- "R holds iff some rule applies" is an unordered disjunction --
    so it adds no critical pairs; [holds_<$iterall..>] is the totalized
    and-fold (unconditional step + explicit length-mismatch [false] rules).
-   Negated judgment premises ([R(in) = false], today unsatisfiable because
-   the positive rules only ever produce [true]) become satisfiable
-   [holds_R(in) = false]; positive uses are switched to [holds_R(in) = true]
-   as well, because the CRC treats [R] and [holds_R] as unrelated symbols --
-   only the uniform spelling lets a critical pair's hypotheses collapse an
-   owise guard mentioning [holds_R]. Nothing is lost by the switch: a
-   no-output judgment's own rules all share the rhs [true], so their mutual
-   overlaps were trivially joinable anyway. *)
+   Negated judgment premises ([R(in) = false], today unsatisfiable because a
+   judgment never rewrites to [false]) become satisfiable
+   [holds_R(in) = false] when the [false] cannot be an output value
+   ({!rel_output_kind}); a no-output judgment's positive uses are switched to
+   [holds_R(in) = true] as well, because the CRC treats [R] and [holds_R] as
+   unrelated symbols -- only the uniform spelling lets a critical pair's
+   hypotheses collapse an owise guard mentioning [holds_R]. Nothing is lost
+   by the switch: a no-output judgment's own rules all share the rhs [true],
+   so their mutual overlaps were trivially joinable anyway. An
+   output-carrying judgment's BINDING call sites keep their [:=]-style
+   condition and instead gain an inserted [holds_R(in) = true] test (the
+   same mechanism as the collecting iteration helpers below). *)
 
 let holds_sym (s : string) : string = "holds_" ^ s
 
+(* Which spelling of a [R(in..) = true/false] condition is a satisfiability
+   test (negation-as-failure, respellable to [holds_R]) rather than an output
+   VALUE test: a no-output judgment only ever concludes [true]; a judgment
+   whose output cannot be a bool literal (non-bool single output, or several
+   outputs -- the rhs is then a tuple) can only meet [= false] as a negation;
+   a single bool output is syntactically ambiguous, so it is never
+   respelled. *)
+let rel_output_kind (tbl : tables) (f : string) :
+    [ `No_output | `Non_bool | `Maybe_bool ] =
+  match Hashtbl.find_opt tbl.rel_outs f with
+  | None | Some [] -> `No_output
+  | Some [ t ] -> (
+      match resolve tbl t.it with
+      | BoolT -> `Maybe_bool
+      | VarT { synid; _ } ->
+          if Hashtbl.mem tbl.typdefs synid.it then `Non_bool else `Maybe_bool
+      | _ -> `Non_bool)
+  | Some _ -> `Non_bool
+
 (* Rewrite a [R(in) = true/false] or [$iterall..(args) = true] condition to
    its [holds_] spelling, for the assumed-reflectable set [succ]. Conditions
-   binding an output variable are left alone (none exist for qualified
-   judgments). *)
-let replace_cond ~scalars (succ : string list) ((l, r) : R.cond) : R.cond =
+   binding an output variable are left alone, and a bool-literal rhs is only
+   respelled when {!rel_output_kind} says it cannot be an output value. *)
+let replace_cond ~scalars (tbl : tables) (succ : string list) ((l, r) : R.cond)
+    : R.cond =
   match l with
-  | R.App (f, args)
-    when List.mem f succ
-         && (r = T.bool_t ~scalars true || r = T.bool_t ~scalars false) ->
-      (R.App (holds_sym f, args), r)
+  | R.App (f, args) when List.mem f succ ->
+      let bool_rhs b = r = T.bool_t ~scalars b in
+      let respell =
+        if Hashtbl.mem tbl.relsigs f then
+          match rel_output_kind tbl f with
+          | `No_output -> bool_rhs true || bool_rhs false
+          | `Non_bool -> bool_rhs false
+          | `Maybe_bool -> false
+        else bool_rhs true || bool_rhs false
+      in
+      if respell then (R.App (holds_sym f, args), r) else (l, r)
   | _ -> (l, r)
 
 (* [holds_<R>(x0..xn-1) = or(g_1 .. g_k)]: one g per rule of [R], built by the
@@ -1095,8 +1130,9 @@ let gen_rel_holds ~scalars ~prep (tbl : tables) (sup : support)
   let gs =
     List.map
       (fun (ru : R.rule) ->
-        if ru.R.rhs <> T.bool_t ~scalars true then
-          raise (Gate "output-carrying judgment rule");
+        (* the guard reflects the rule's lhs patterns and conditions only --
+           an output-carrying rule's rhs is simply ignored, which is exactly
+           the existential "some rule applies" reading *)
         sibling_guard ~prep ~scalars tbl sup effectful succ xs argtyps ru)
       rules
   in
@@ -1402,7 +1438,10 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         List.filter_map
           (fun (l, rr) ->
             match l with
-            | R.App (f, _) when is_rel f && rr = T.bool_t ~scalars false ->
+            | R.App (f, _)
+              when is_rel f
+                   && rr = T.bool_t ~scalars false
+                   && rel_output_kind tbl f <> `Maybe_bool ->
                 Some f
             | _ -> None)
           r.R.conds)
@@ -1416,12 +1455,11 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         owise_heads
   in
   let qualified f =
+    (* any judgment with rules gets an existential [holds_]; output-carrying
+       ones included (their rhs is ignored by {!gen_rel_holds}) *)
     match Hashtbl.find_opt by_head f with
-    | Some rs when rs <> [] ->
-        if is_iter_helper f then true
-        else
-          List.for_all (fun (r : R.rule) -> r.R.rhs = T.bool_t ~scalars true) rs
-    | _ -> false
+    | Some rs -> rs <> []
+    | None -> false
   in
   let rec close (acc : string list) (work : string list) : string list =
     match work with
@@ -1440,7 +1478,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
      a gated candidate restarts the attempt without it (the set is tiny). *)
   let rec attempt (cands : string list) : string list * R.rule list =
     let mark = snapshot sup in
-    let prep = replace_cond ~scalars cands in
+    let prep = replace_cond ~scalars tbl cands in
     let failed = ref None in
     let gen =
       try
@@ -1480,12 +1518,13 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   if succ <> [] then
     Printf.eprintf "reflect: judgment reflection for %s\n"
       (String.concat ", " succ);
-  (* [$itercollect]/[$iterapply] never carry a bool rhs of their own (they
-     always bind the collected/applied value), so {!replace_cond} never
-     touches their call sites. Instead, every rule whose conditions bind a
-     success-reflected helper's result -- owise sibling or not, the same
-     insertion applies system-wide -- gains an explicit
-     [holds_<helper>(args) = true] test immediately before that binding.
+  (* [$itercollect]/[$iterapply] -- and output-carrying judgments -- never
+     carry a bool rhs of their own (they bind the collected/applied/output
+     value), so {!replace_cond} never touches their call sites. Instead,
+     every rule whose conditions bind a success-reflected symbol's result --
+     owise sibling or not, the same insertion applies system-wide -- gains an
+     explicit [holds_<sym>(args) = true] test immediately before that
+     binding.
      This is what lets a later owise guard reflecting THIS rule as a sibling
      find the success test already sitting in its conditions (ordinary
      {!ctest} then reflects it like any other condition); {!check_reflectable}
@@ -1514,7 +1553,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         {
           r with
           R.conds =
-            List.map (replace_cond ~scalars succ) r.R.conds
+            List.map (replace_cond ~scalars tbl succ) r.R.conds
             |> insert_success_test succ;
         })
       sys.R.rules
