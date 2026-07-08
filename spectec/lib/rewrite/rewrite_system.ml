@@ -338,12 +338,33 @@ let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
       | None -> r
       | Some ((v, repl), others) ->
           let sub = subst_var v repl in
+          (* [inline] (above) substitutes a dec-function call [repl] straight
+             into the rule because it has no relation head ("deterministic"),
+             but a dec function can still be PARTIAL: stuck when none of its
+             own conditional equations hold (e.g. [$add_var_t]'s "main must be
+             a package" or "no duplicate identifier" premises). Dropping the
+             binder without keeping that check turns a precondition on the
+             ENCLOSING equation firing into an opaque value no caller ever
+             re-inspects, so a program that should be rejected can silently
+             "succeed" instead (confirmed on issue4140.p4/dup-param.p4-shaped
+             cases). Re-adding [isStuckHead(repl) = false] preserves the guard
+             using [repl] itself -- no fresh variable -- so it does not
+             reintroduce the [prod = v] critical-pair problem this pass exists
+             to avoid; a pure-constructor [repl] (not in [defined]) can never
+             get stuck, so this only fires where a real check would otherwise
+             be lost. *)
+          let guard =
+            match repl with
+            | App (f, _) when is_defined f ->
+                [ (App ("isStuckHead", [ repl ]), App ("false", [])) ]
+            | _ -> []
+          in
           loop
             {
               r with
               lhs = sub r.lhs;
               rhs = sub r.rhs;
-              conds = List.map (fun (l, rr) -> (sub l, sub rr)) others;
+              conds = guard @ List.map (fun (l, rr) -> (sub l, sub rr)) others;
             }
     in
     let r = loop r in
