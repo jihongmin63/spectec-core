@@ -440,27 +440,38 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
   merge_gaps (infer_proj_ranges tbl rules);
   (tbl, !subsorts)
 
-(* The signature of [sym] at [arity]: the recovered/prelude one when its arity
-   agrees, otherwise a heuristic for the per-type predicates the CTRS derives
-   ([match_<T>_*]/[subty_<T>]/[holds_*] (the {!Reflect} judgment reflections)
-   decide [BoolV] over a bare-[Val] subject -- [subty_<T>] is totalized over
-   [Val], and a generic matcher may see any value), and finally an all-[Val]
-   fallback. (The iteration helpers
-   [$itermap]/[$unzip]/[$iterall]/[$itercollect] are intentionally left at [Val]:
-   their arg/result sorts vary -- [$iterall] returns a [BoolV], [$itercollect]'s
-   spine sort depends on the body -- so a blanket [List] typing was ill-formed
-   and stuck tuple/sequence programs.) *)
+(* The signature of [sym] at [arity]: for the per-type predicates the CTRS
+   derives ([match_<T>_*]/[subty_<T>]/[holds_*] (the {!Reflect} judgment
+   reflections)/[eqg]), ALWAYS [BoolV] over a bare-[Val] subject -- checked
+   before the recovered/prelude lookup, not merely as its fallback. [subty_<T>]
+   is generated to span its WHOLE encompassing type (every sibling case gets
+   an explicit clause), so recovery already infers a wide domain for it; but
+   [match_<T>_*] ({!Reflect.ensure_matchers}) is generated to discriminate
+   ONLY between [T]'s own handful of cases, so recovery infers [T] itself --
+   the narrowest sort covering just those clauses' own constructors. That is
+   correct when the caller already narrowed its subject to [T] first, but
+   {!Reflect.sibling_guard}'s owise reflection calls a nested variant's
+   [match_] directly on a subject only known to be the OUTER type (e.g.
+   [match_booleanLiteral_TRUE_0] on an [Expression]-sorted subject while
+   reflecting [$name_expression]'s catch-all) -- ill-sorted at that narrow
+   domain, so Maude can never bring the application down to [BoolV] and the
+   whole owise guard is permanently stuck (silently: reflection itself
+   succeeds, since it only checks variable binding, not sort compatibility --
+   this is a run-structural-only failure, invisible as a "no holds_
+   reflection" warning). Recovering the narrow domain first only papers over
+   the equations that happen to agree with it; forcing the wide one
+   unconditionally is what the generator actually relies on. *)
 let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
-  match Hashtbl.find_opt tbl sym with
-  | Some (args, res) when List.length args = arity -> (args, res)
-  | _ ->
-      let has p =
-        String.length sym >= String.length p
-        && String.sub sym 0 (String.length p) = p
-      in
-      if has "match_" || has "subty_" || has "holds_" || sym = "eqg" then
-        (List.init arity (fun _ -> val_sort), "BoolV")
-      else (List.init arity (fun _ -> val_sort), val_sort)
+  let has p =
+    String.length sym >= String.length p
+    && String.sub sym 0 (String.length p) = p
+  in
+  if has "match_" || has "subty_" || has "holds_" || sym = "eqg" then
+    (List.init arity (fun _ -> val_sort), "BoolV")
+  else
+    match Hashtbl.find_opt tbl sym with
+    | Some (args, res) when List.length args = arity -> (args, res)
+    | _ -> (List.init arity (fun _ -> val_sort), val_sort)
 
 (* -------------------------------------------------------------------------- *)
 (* Subsort order (for picking the most specific sort of a variable). *)
