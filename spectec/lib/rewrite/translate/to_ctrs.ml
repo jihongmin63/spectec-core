@@ -1306,11 +1306,21 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
     sub_helper_defs ~scalars orig simplified
     @ sub_complement_defs ~scalars orig simplified
   in
-  (* [extra_defs] (builtin rules) can introduce text bytes of their own, so scan
-     them too, or a produced text could meet a [chr] with no equality rule. *)
+  (* Printable ASCII (union'd with the static scan, for anything outside that
+     range) rather than just the codes the spec's own rule text happens to
+     mention: text data lives in ENCODED START TERMS built at run time from
+     whatever identifiers/string literals the target program actually
+     contains, which this pass cannot see yet -- a byte that never appeared
+     literally in the spec's own text (an ordinary generic type parameter
+     like P4's [T], for instance) previously had its [chr] declared
+     ({!To_mfe}'s matching declaration loop already covers the full 0-255
+     byte range) but not its [eq], silently stranding every relation that
+     needed to prove two such bytes equal. *)
   let char_rules =
-    char_eq_rules ~scalars
-      (char_codes_of_rules (type_rules @ body_rules @ extra_defs))
+    let printable_ascii = List.init 95 (fun i -> i + 32) in
+    let scanned = char_codes_of_rules (type_rules @ body_rules @ extra_defs) in
+    let codes = List.sort_uniq compare (printable_ascii @ scanned) in
+    char_eq_rules ~scalars codes
   in
   let type_rules =
     prune_unused
