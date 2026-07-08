@@ -696,11 +696,44 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
         && List.mem v exactly_bound
     | _ -> false
   in
-  List.iter
-    (fun c ->
-      if not (redundant_membership_test c) then
-        ctest ~scalars tbl sup effectful succ acc (prep c))
-    s.R.conds;
+  (* [s.R.conds] is the CTRS's raw premise order, not guaranteed to bind a
+     variable before a later condition uses it ({!To_maude.print_conds} hits
+     the identical issue and re-sorts by readiness for exactly this reason --
+     "a cast-stripped binding can sit after a test that uses it"). A rule
+     whose iterated sub-pattern is destructured into a fresh list (e.g. a
+     [{name = value}*] field list unzipped into two streams) emits its
+     [isStuckHead(unzip_.. (fresh)) = false] guard ahead of the very
+     destructure that binds [fresh], so a naive left-to-right [ctest] pass
+     gates the whole judgment as unreflectable (seen on [Type_alpha]'s
+     [serializable] case, permanently stranding every negated [Type_alpha]/
+     [Cast_impl] premise -- i.e. every implicit numeric-to-bit cast). Repeat
+     picking whichever remaining condition is already satisfiable (its [l]'s
+     free variables are bound) until none are; whatever is left is fed through
+     in original order so a genuinely unreflectable rule still raises its
+     ordinary [Gate]. *)
+  let is_ready ((l, r) : R.cond) =
+    redundant_membership_test (l, r)
+    || List.for_all (fun v -> List.mem_assoc v acc.sub) (term_vars l)
+  in
+  let rec schedule (remaining : R.cond list) : unit =
+    let rec pick seen = function
+      | [] -> None
+      | c :: rest when is_ready c -> Some (c, List.rev_append seen rest)
+      | c :: rest -> pick (c :: seen) rest
+    in
+    match pick [] remaining with
+    | Some (c, rest) ->
+        if not (redundant_membership_test c) then
+          ctest ~scalars tbl sup effectful succ acc (prep c);
+        schedule rest
+    | None ->
+        List.iter
+          (fun c ->
+            if not (redundant_membership_test c) then
+              ctest ~scalars tbl sup effectful succ acc (prep c))
+          remaining
+  in
+  schedule s.R.conds;
   (* an empty guard means the sibling always applies: the owise is dead;
      drop duplicate conjuncts (a destructure re-tests the matcher the
      sibling's own guard condition already spelled) *)
