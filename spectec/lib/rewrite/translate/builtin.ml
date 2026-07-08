@@ -246,6 +246,25 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           (T.app_t sym [ t; s ])
           (T.take_t t (T.sub_t (T.len_t t) (T.len_t s)));
       ]
+  | "strip_all_whitespace", _, _ ->
+      (* Mirrors {!To_maude}'s native delegation (Maude STRING's [find]/
+         [substr], stripping every ASCII space, [targets/p4/builtins/texts.ml]'s
+         [String.split_on_char ' ' |> concat]) over this theory's [cons]/[nil]
+         char list instead: drop each [chr_32] (space), keep everything else.
+         Reached by every table key ([TableKey_ok]'s
+         [$strip_all_whitespace($name_expression(..))]) -- previously had no
+         rule at all here, so any table with a key block got stuck. *)
+      [
+        T.rule (T.app_t sym [ T.nil_t ]) T.nil_t;
+        T.rule_cond
+          (T.app_t sym [ T.cons_t x xs ])
+          (T.app_t sym [ xs ])
+          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars true) ];
+        T.rule_cond
+          (T.app_t sym [ T.cons_t x xs ])
+          (T.cons_t x (T.app_t sym [ xs ]))
+          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars false) ];
+      ]
   (* ----- saturating fixed-width arithmetic ----- *)
   | ("bin_satplus" | "bin_satminus"), _, _ -> (
       (* Saturating add/sub over fixed-width numbers ([w W i] unsigned, [w S i]
