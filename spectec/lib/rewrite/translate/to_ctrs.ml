@@ -233,6 +233,21 @@ let rec term_of_exp ~scalars (e : exp) : R.term =
      the untouched Peano [NatV] family), while [int_pos]'s magnitude is
      [BNatV] ({!Ctrs_term}'s doc comment), so this is the ONE place every
      nat-to-int cast in the whole spec needs to bridge via [bnat_of_nat]. *)
+  (* A nat subtraction clamps at zero (Peano/BNat monus): computing [ea - eb]
+     in nat first and only then upcasting the (already-clamped) result to int
+     permanently discards the negative case -- confirmed on P4's table-entry
+     priority computation ([n_last - n_delta] under [$ite<int>]), where the
+     third and later implicit-priority entries should go negative and get
+     rejected but instead landed on 0 and the whole table typechecked. Upcast
+     the OPERANDS first and subtract in the int family instead, so a genuine
+     negative result surfaces as [int_neg]; every other nat/int-upcast shape
+     (add/mul/div/mod/pow, or a subtraction not directly under the cast) is
+     unaffected since those operations don't diverge between the two families
+     for non-negative operands. *)
+  | UpCastE (t, ({ it = BinE (`SubOp, _, ea, eb); _ } as e1)) 
+    when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
+      sub_int_t (int_pos_t (bnat_of_nat_t (recur ea)))
+        (int_pos_t (bnat_of_nat_t (recur eb)))
   | UpCastE (t, e1)
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
       int_pos_t (bnat_of_nat_t (recur e1))
