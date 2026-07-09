@@ -26,8 +26,10 @@ module T = Ctrs_term
 (* Lexical layer: the forward table keys must match what Maude prints, so a
    constructor symbol is mangled with the same [_]->[-] map the emitter used
    ({!Rewrite_system.maude_id}, referenced as [R.maude_id] below and shared with
-   both Maude surfaces); the reverse mapping is never needed (we key by the
-   maude-spelled symbol). *)
+   both Maude surfaces). Variant/struct arms key the forward table by that
+   maude-spelled symbol directly; only the scalar arms matching {!Ctrs_term}'s
+   own underscored [chr_<code>]/[int_pos]/[int_neg] spelling undo the mangling
+   first, via {!ctrs_sym}. *)
 
 (* -------------------------------------------------------------------------- *)
 (* The parsed Maude term. *)
@@ -285,6 +287,16 @@ let rec bigint_of_binary (m : mt) : Bigint.t =
       Bigint.succ (Bigint.( * ) (Bigint.of_int 2) (bigint_of_binary p))
   | _ -> raise (Parse_error "expected a binary BNatV (bzero/bone/bd0/bd1)")
 
+(* Undo {!R.maude_id}'s [_]->[-] mangling on a parsed symbol, recovering
+   {!Ctrs_term}'s own spelling. Injective because a CTRS id never contains [-]
+   (see {!R.maude_id}). The scalar arms that match [Ctrs_term]'s underscored
+   [chr_<code>]/[int_pos]/[int_neg] symbols need this because the parser reads
+   the already-mangled ([chr-<code>]/[int-pos]/[int-neg]) spelling Maude prints;
+   the variant/struct arms don't (they key the forward table by that mangled
+   spelling directly). *)
+let ctrs_sym (s : string) : string =
+  String.map (fun c -> if c = '-' then '_' else c) s
+
 (* A structural char-list text (a [cons]/[nil] spine of [chr_<code>] leaves) as
    its byte codes, innermost first is outermost in the source order (the
    spine is already left-to-right). Reused by the [cons] decode arm below when
@@ -293,8 +305,9 @@ let rec bigint_of_binary (m : mt) : Bigint.t =
 let rec char_spine (m : mt) : int list =
   match m with
   | MApp ("nil", []) -> []
-  | MApp ("cons", [ MApp (sym, []); t ]) when T.chr_code_of_sym sym <> None ->
-      Option.get (T.chr_code_of_sym sym) :: char_spine t
+  | MApp ("cons", [ MApp (sym, []); t ])
+    when T.chr_code_of_sym (ctrs_sym sym) <> None ->
+      Option.get (T.chr_code_of_sym (ctrs_sym sym)) :: char_spine t
   | MApp ("cons", [ _; _ ]) ->
       raise (Parse_error "expected a char-list element (chr_<code>)")
   | _ -> raise (Parse_error "malformed char-list spine")
@@ -312,8 +325,9 @@ let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
      the [Native] module, so these arms are unreachable there). *)
   | MApp ("zero", []) -> Value.Make.nat (NumT `NatT) Bigint.zero
   | MApp ("succ", [ _ ]) -> Value.Make.nat (NumT `NatT) (bigint_of_peano m)
-  | MApp ("int_pos", [ n ]) -> Value.Make.int (NumT `IntT) (bigint_of_binary n)
-  | MApp ("int_neg", [ n ]) ->
+  | MApp (sym, [ n ]) when ctrs_sym sym = "int_pos" ->
+      Value.Make.int (NumT `IntT) (bigint_of_binary n)
+  | MApp (sym, [ n ]) when ctrs_sym sym = "int_neg" ->
       Value.Make.int (NumT `IntT)
         (Bigint.neg (Bigint.succ (bigint_of_binary n)))
   | MApp ("true", []) -> Value.Make.bool BoolT true
@@ -344,8 +358,8 @@ let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
       | Some TextT -> Value.Make.text TextT ""
       | _ ->
           Value.Make.list (Option.value expected ~default:(var_typ "anon")) [])
-  | MApp ("cons", [ _; _ ])
-    when Option.map (resolve tbl) expected = Some TextT ->
+  | MApp ("cons", [ _; _ ]) when Option.map (resolve tbl) expected = Some TextT
+    ->
       (* the structural char-list spelling of a non-empty text (the empty
          string is the bare [nil] the arm above already handles, same
          convention as [Native]'s wrapper-vs-bare-nil choice) *)
