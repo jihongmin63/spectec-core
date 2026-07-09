@@ -292,10 +292,10 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           let i_max = T.var_t "i_max" and i_min = T.var_t "i_min" in
           let zero_i = T.int_lit ~scalars 0 in
           let one_i = T.int_lit ~scalars 1 in
-          (* [w] is the (Peano) bit-width parameter -- bridged to [BNatV] via
-             [bnat_of_nat] at exactly this int-wrapping point, same as
-             {!To_ctrs}'s [UpCastE] cast site ({!Ctrs_term}'s doc comment). *)
-          let w_int = T.int_pos_t (T.bnat_of_nat_t w) in
+          (* [w] is the bit-width parameter, now a binary nat (the nat->binary
+             retype), so wrapping it as an int is [int_pos] directly -- no bridge
+             (same simplification as {!To_ctrs}'s [UpCastE] cast site). *)
+          let w_int = T.int_pos_t w in
           let to_int x = T.app_t (builtin "to_int") [ w_int; x ] in
           let to_bitstr x = T.app_t (builtin "to_bitstr") [ w_int; x ] in
           let pow2 n = T.app_t (builtin "pow2") [ n ] in
@@ -470,17 +470,21 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         ]
       in
       [
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.sub_int_t n pow2w ])
           (common @ [ (T.leq_int_t half n, T.bool_t ~scalars true) ]);
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.add_int_t n pow2w ])
           (common
           @ [
               (T.leq_int_t half n, T.bool_t ~scalars false);
               (T.lt_int_t n neg_half, T.bool_t ~scalars true);
             ]);
-        T.rule_cond (T.app_t sym [ w; n ]) n
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          n
           (common
           @ [
               (T.leq_int_t half n, T.bool_t ~scalars false);
@@ -493,16 +497,21 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       let pow2w = T.var_t "pow2w" in
       let common = [ (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w) ] in
       [
-        T.rule_cond (T.app_t sym [ w; n ]) (T.mod_int_t n pow2w)
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          (T.mod_int_t n pow2w)
           (common @ [ (T.leq_int_t pow2w n, T.bool_t ~scalars true) ]);
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.add_int_t n pow2w ])
           (common
           @ [
               (T.leq_int_t pow2w n, T.bool_t ~scalars false);
               (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars true);
             ]);
-        T.rule_cond (T.app_t sym [ w; n ]) n
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          n
           (common
           @ [
               (T.leq_int_t pow2w n, T.bool_t ~scalars false);
@@ -559,7 +568,8 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         [
           T.rule (T.app_t nat_sym [ T.bzero_t; r ]) (base_rhs op r);
           T.rule (T.app_t nat_sym [ l; T.bzero_t ]) (base_rhs op l);
-          T.rule_cond (T.app_t nat_sym [ l; r ])
+          T.rule_cond
+            (T.app_t nat_sym [ l; r ])
             (T.badd_t (combine_bit op bl br)
                (T.bmul_t two_n (T.app_t nat_sym [ ql; qr ])))
             [
@@ -649,7 +659,8 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       let n = T.var_t "n" and m = T.var_t "m" and l = T.var_t "l" in
       let shifted = T.var_t "shifted" and mask = T.var_t "mask" in
       [
-        T.rule_cond (T.app_t sym [ n; m; l ])
+        T.rule_cond
+          (T.app_t sym [ n; m; l ])
           (T.app_t (builtin "band") [ shifted; mask ])
           [
             (T.leq_int_t (T.int_lit ~scalars 0) l, T.bool_t ~scalars true);
@@ -662,7 +673,7 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
               mask );
           ];
       ]
-  | ("sum_nat" | "max_nat" | "min_nat"), _, _ ->
+  | ("sum_nat" | "max_nat" | "min_nat"), _, _ -> (
       (* [$sizeof_minSizeInBits']-style header/struct/tuple size computations
          fold these over a [TypeIR] list, matching [targets/p4/builtins/nats.ml]'s
          [List.fold_left (+/max/min) Bigint.zero] exactly -- including its
@@ -673,8 +684,9 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
          behavior, reproduced verbatim rather than "fixed" here. [sum]/[max]
          don't have this degeneracy: 0 is additive-identity for [sum], and a
          nonempty list's true max is never below the 0 seed. *)
-      let x = T.var_t "x" and xs = T.var_t "xs" in
-      (match id.it with
+      let x = T.var_t "x"
+      and xs = T.var_t "xs" in
+      match id.it with
       | "min_nat" -> [ T.rule (T.app_t sym [ xs ]) T.zero_t ]
       | "sum_nat" ->
           [

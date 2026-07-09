@@ -10,7 +10,7 @@ module T = Ctrs_term
     This is the analysis counterpart of {!To_maude}: it recovers each operator's
     IL sort via the shared {!Maude_sorts} (so the MFE reasons over the spec's
     real sorts instead of one universal [Term], which yields fewer spurious
-    critical pairs), but keeps the {e structural} scalar theory -- own Peano
+    critical pairs), but keeps the {e structural} scalar theory -- own binary
     nats, sign-magnitude ints, char-list texts, own booleans -- because the CTRS
     prelude rules that implement those scalars are present in the analysis
     system (unlike {!To_maude}, which drops them and delegates to Maude's
@@ -172,8 +172,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      [BOOL] import off so they don't clash ("Ambiguous parsing"). *)
   buf_line b "set include BOOL off .";
   buf_line b "";
-  buf_line b
-    ((if full_maude then "(mod " else "mod ") ^ module_name ^ " is");
+  buf_line b ((if full_maude then "(mod " else "mod ") ^ module_name ^ " is");
   let non_val = List.filter (fun s -> s <> MS.val_sort) sorts in
   buf_line b ("  sorts " ^ String.concat " " non_val ^ " " ^ MS.val_sort ^ " .");
   if non_val <> [] then
@@ -253,8 +252,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      in quotes) finds it either way. *)
   if not full_maude then
     buf_line b
-      ("  op " ^ R.maude_id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort
-     ^ " .");
+      ("  op " ^ R.maude_id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort ^ " .");
   (* Execution mode only: EVERY byte value's [chr_<code>] constructor (the
      structural char-list text encoding, {!Ctrs_term.chars_t}), not just the
      ones [used] happens to catch (a rule pattern rarely mentions a literal
@@ -263,14 +261,13 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      contains, which this module-text pass cannot see yet: it runs once,
      before any program is parsed). Harmless when unused (a plain declared
      constant like any other constructor). *)
-  if not full_maude then (
-    let already = List.map fst op_sigs in
-    for code = 0 to 255 do
-      let sym = T.chr_sym code in
-      if not (List.mem sym already) then
-        buf_line b
-          ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " .")
-    done);
+  (if not full_maude then
+     let already = List.map fst op_sigs in
+     for code = 0 to 255 do
+       let sym = T.chr_sym code in
+       if not (List.mem sym already) then
+         buf_line b ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " .")
+     done);
   buf_line b "";
   (* equations first (functions/prelude/constructors), then the relation rules;
      spec order preserved within each. *)
@@ -335,7 +332,6 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   buf_line b (if full_maude then "endm)" else "endm");
   Buffer.contents b
 
-
 (* -------------------------------------------------------------------------- *)
 (* Structural start-term encoding, for a direct (non-reflective) [reduce] of
    the analysis module ({!Maude_run.run_direct}) -- the [Structural] oracle
@@ -349,7 +345,8 @@ let start_app (orig : spec) (system : R.t) (rel : string) (args : value list) :
     string =
   let vs : (string, string) Hashtbl.t = Hashtbl.create 0 in
   let enc (v : value) : string =
-    MS.print_term Structural vs (To_maude.encode_value ~scalars:Structural orig v)
+    MS.print_term Structural vs
+      (To_maude.encode_value ~scalars:Structural orig v)
   in
   let arg_terms = List.map enc args in
   (* Append the gensym seed when [system] threads [rel], exactly as
@@ -357,7 +354,10 @@ let start_app (orig : spec) (system : R.t) (rel : string) (args : value list) :
   let arg_terms =
     if List.mem (R.sanitize rel) (Gensym.effectful_syms system) then
       arg_terms
-      @ [ MS.print_term Structural vs (T.text_t ~scalars:Structural Gensym.seed_text) ]
+      @ [
+          MS.print_term Structural vs
+            (T.text_t ~scalars:Structural Gensym.seed_text);
+        ]
     else arg_terms
   in
   match arg_terms with

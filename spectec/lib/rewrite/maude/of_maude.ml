@@ -264,20 +264,13 @@ let iter_elem (tbl : tables) (expected : typ' option) (iter : iter) :
   | Some (IterT { typ; iter = it }) when it = iter -> Some typ.it
   | _ -> None
 
-(* A structural Peano nat ([zero]/[succ]) as a [Bigint]. Only ever reached
-   decoding {!To_mfe}'s module output (the [Native] module never emits bare
-   [zero]/[succ] -- its nats are the [nat(..)] wrapper around a Maude numeral,
-   {!Ctrs_term.nat_lit}), so no [scalars] flag is needed: the two theories'
-   scalar vocabularies never overlap (see the module doc comment). *)
-let rec bigint_of_peano (m : mt) : Bigint.t =
-  match m with
-  | MApp ("zero", []) -> Bigint.zero
-  | MApp ("succ", [ n ]) -> Bigint.succ (bigint_of_peano n)
-  | _ -> raise (Parse_error "expected a Peano nat (zero/succ)")
-
-(* A binary (Coq [positive]/[N]-style) [BNatV] magnitude -- [int_pos]/
-   [int_neg]'s payload -- as a [Bigint], the decode-side counterpart of
-   {!Ctrs_term.binary_of_bigint}. *)
+(* A binary (Coq [positive]/[N]-style) [BNatV] magnitude as a [Bigint], the
+   decode-side counterpart of {!Ctrs_term.binary_of_bigint}. This is both a bare
+   nat's own encoding (the nat->binary retype) and [int_pos]/[int_neg]'s payload.
+   Only ever reached decoding {!To_mfe}'s module output (the [Native] module
+   wraps nats/ints in [nat(..)]/[int(..)] around a Maude numeral instead), so no
+   [scalars] flag is needed: the two theories' scalar vocabularies never overlap
+   (see the module doc comment). *)
 let rec bigint_of_binary (m : mt) : Bigint.t =
   match m with
   | MApp ("bzero", []) -> Bigint.zero
@@ -320,11 +313,13 @@ let string_of_char_codes (codes : int list) : string =
 let rec decode (tbl : tables) (expected : typ' option) (m : mt) : value =
   match m with
   | MStr s -> Value.Make.text TextT s
-  (* Structural scalar leaves ({!To_mfe}'s module: Peano nats, sign-magnitude
+  (* Structural scalar leaves ({!To_mfe}'s module: binary nats, sign-magnitude
      ints, bare booleans -- {!Ctrs_term}'s own constructors, never emitted by
-     the [Native] module, so these arms are unreachable there). *)
-  | MApp ("zero", []) -> Value.Make.nat (NumT `NatT) Bigint.zero
-  | MApp ("succ", [ _ ]) -> Value.Make.nat (NumT `NatT) (bigint_of_peano m)
+     the [Native] module, so these arms are unreachable there). A bare binary
+     nat ([bzero]/[bone]/[bd0]/[bd1], unwrapped) is a nat; the same digits under
+     an [int_pos]/[int_neg] wrapper are an int. *)
+  | MApp (("bzero" | "bone" | "bd0" | "bd1"), _) ->
+      Value.Make.nat (NumT `NatT) (bigint_of_binary m)
   | MApp (sym, [ n ]) when ctrs_sym sym = "int_pos" ->
       Value.Make.int (NumT `IntT) (bigint_of_binary n)
   | MApp (sym, [ n ]) when ctrs_sym sym = "int_neg" ->

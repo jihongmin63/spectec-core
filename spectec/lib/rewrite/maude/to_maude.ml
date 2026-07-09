@@ -1197,32 +1197,21 @@ let encode_index (orig : spec) : encode_index =
       encode_index_memo := Some (orig, idx);
       idx
 
-(* A Bigint magnitude as a structural Peano tower ([zero]/[succ]).
-   [Native] mode never calls this -- it embeds the Bigint's decimal string
-   directly ({!Maude_theory}, unbounded); this is only reachable for
-   [Structural] encoding, so it stays practical only for small sample values
-   (Peano blows up linearly in the magnitude). *)
-let rec peano_of_bigint (n : Bigint.t) : R.term =
-  if Bigint.compare n Bigint.zero <= 0 then T.zero_t
-  else T.succ_t (peano_of_bigint (Bigint.pred n))
-
 (* Encode a value to a ground term in [scalars]' theory: [Native] scalars become
    wrapped built-in literals ({!Maude_theory}), so a program identifier is a
-   [String] and a numeral never builds a Peano tower (no [Bigint] overflow);
-   [Structural] scalars are {!Ctrs_term}'s own Peano/sign-magnitude/char-list
-   encoding (via [peano_of_bigint]/{!Ctrs_term.binary_of_bigint}, not
-   {!Ctrs_term.nat_lit}/[int_lit] -- those take a bounded native [int], but a
-   parsed program's numeral is an unbounded [Bigint]), matching {!To_mfe}'s
-   analysis module vocabulary. A bare nat leaf stays Peano ([peano_of_bigint]:
-   list indices and other genuinely small nats, the untouched Peano family,
-   {!Ctrs_term}'s doc comment); an [int_pos]/[int_neg]-wrapped leaf is
-   [Ctrs_term.binary_of_bigint] -- this is exactly the encode-time entry point
-   for a real P4 program's ACTUAL VALUES (a [bit<64>] literal, say), the case
-   this whole binary encoding exists to keep off the Peano tower. [expected] is
+   [String] and a numeral is a decimal literal (no [Bigint] overflow);
+   [Structural] scalars are {!Ctrs_term}'s own binary/sign-magnitude/char-list
+   encoding (via {!Ctrs_term.binary_of_bigint}, not {!Ctrs_term.nat_lit}/
+   [int_lit] -- those take a bounded native [int], but a parsed program's numeral
+   is an unbounded [Bigint]), matching {!To_mfe}'s analysis module vocabulary.
+   Both a bare nat leaf and an [int_pos]/[int_neg]-wrapped leaf go through
+   [binary_of_bigint] (naturals are binary-encoded now, the same family as an
+   int's magnitude) -- O(log n) term size, so a real P4 program's ACTUAL VALUES
+   (a [bit<64>] literal, say) encode without any Peano blowup. [expected] is
    the type the surrounding position wants, used only to put a numeric leaf in
    the [int] vs [nat] wrapper/constructor. *)
-let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
-    R.term =
+let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) : R.term
+    =
   let idx = encode_index orig in
   (* The declared field types of the variant case [origin]/[mixop], so a numeric
      leaf can be coerced to the [int]/[nat] the case expects. *)
@@ -1254,7 +1243,7 @@ let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
         | _ -> (
             match scalars with
             | Native -> Maude_theory.nat_t i
-            | Structural -> peano_of_bigint i))
+            | Structural -> T.binary_of_bigint i))
     | TextV s -> T.text_t ~scalars s
     | OptV None -> T.none_t
     | OptV (Some v) -> T.some_t (enc None v)

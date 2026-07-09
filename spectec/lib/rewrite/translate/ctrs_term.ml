@@ -4,7 +4,7 @@ module R = Rewrite_system
 
 (* Which scalar theory a scalar leaf is emitted in -- the one seam at which the
    analysis and Maude pipelines diverge. [Structural] keeps the self-contained
-   Peano/sign-magnitude/char-list/own-bool scalars; [Native] emits Maude's
+   binary/sign-magnitude/char-list/own-bool scalars; [Native] emits Maude's
    built-in wrappers ([nat]/[int]/[bool]/[txt], see {!Maude_theory}) directly at
    the leaf, so the analysis and execution systems are produced by the {e same}
    translation with no separate fold pass. *)
@@ -99,10 +99,13 @@ let and_t a b = app_t "and" [ a; b ]
 let or_t a b = app_t "or" [ a; b ]
 let impl_t a b = app_t "impl" [ a; b ]
 let equiv_t a b = app_t "equiv" [ a; b ]
-let zero_t = app_t "zero" []
-let succ_t a = app_t "succ" [ a ]
 
-(* Natural-number operations (assume non-negative operands). *)
+(* Natural-number operations (assume non-negative operands). Naturals are
+   binary-encoded (the [BNatV] family below), so [zero_t]/[succ_t] are aliases
+   onto [bzero]/[bsucc] and are defined just after that family. The operation
+   heads ([add]/[sub]/...) are kept theory-agnostic here; the [Structural]
+   prelude delegates each to the binary engine ([badd]/[bsub]/...), while
+   [Native] delegates to Maude's built-in arithmetic. *)
 let add_t a b = app_t "add" [ a; b ]
 let sub_t a b = app_t "sub" [ a; b ]
 let mul_t a b = app_t "mul" [ a; b ]
@@ -112,35 +115,16 @@ let pow_t a b = app_t "pow" [ a; b ]
 let leq_t a b = app_t "leq" [ a; b ]
 let lt_t a b = app_t "lt" [ a; b ]
 
-(* Integers in sign-magnitude form over BINARY nat magnitudes ([BNatV], not
-   the Peano [NatV] family above), with constructors disjoint from Peano nat
-   ([zero]/[succ]): [int_pos n] is [+n], [int_neg n] is [-(n+1)]. The
-   representation is canonical by construction (no shared [succ]/[bsucc] that
-   could sit above a sign), so Peano nat and int never collide -- in
-   particular Peano nat [eq]/[succ] never match an integer term. [sub_int_nat]
-   is the signed difference of two [BNatV] magnitudes; [abs_nat]/[nonneg_int]
-   expose an int's magnitude and sign for [div_int]/[mod_int]; [nat_of_int]
-   projects a known-nonneg int back to the Peano [NatV] the rest of the spec
-   expects at a [DownCastE] (every consumer of a bare nat -- list indexing,
-   bit-width parameters -- stays on the untouched Peano family, so this must
-   land back there, not stay [BNatV]).
-
-   Every nat-typed value the spec ever upcasts to int ({!To_ctrs}'s
-   [UpCastE]/[int_pos_t] cast site) is Peano-encoded (list indices, bit-width
-   parameters, and any other genuinely small nat -- the untouched Peano family
-   above), so it must be bridged to [BNatV] at exactly that cast boundary:
-   [bnat_of_nat] converts a Peano [NatV] to the equal [BNatV] value in O(n)
-   OCaml-independent rewrite steps, correct and cheap for the small nats that
-   ever reach it (a bit-width like 64), and never invoked on the large
-   [BNatV]-native magnitudes (P4 VALUES, as opposed to their bit-WIDTHS) this
-   whole encoding exists to keep off the Peano tower in the first place.
-   [bnat_to_nat] is the reverse bridge for [nat_of_int]'s [DownCastE] site,
-   built on [double_nat] (Peano doubling); like [bnat_of_nat] it is only ever
-   invoked on the same small magnitudes (never the large values), so its O(n)
-   *output* size (unary!) is just as cheap in practice. *)
-let bnat_of_nat_t a = app_t "bnat_of_nat" [ a ]
-let double_nat_t a = app_t "double_nat" [ a ]
-let bnat_to_nat_t a = app_t "bnat_to_nat" [ a ]
+(* Integers in sign-magnitude form over the binary nat magnitude family below,
+   which is now ALSO the representation of a bare nat (the nat->binary retype):
+   [int_pos n] is [+n], [int_neg n] is [-(n+1)]. The int constructors
+   ([int_pos]/[int_neg]) are disjoint from the bare-nat constructors
+   ([bzero]/[bone]/[bd0]/[bd1]) -- an int always carries a sign wrapper, a nat
+   never does -- so a nat term and an int term never collide. [sub_int_nat] is
+   the signed difference of two magnitudes; [abs_nat]/[nonneg_int] expose an
+   int's magnitude and sign for [div_int]/[mod_int]; [nat_of_int] projects a
+   known-nonneg int back to a bare nat at a [DownCastE], now just its magnitude
+   unwrapped (no bridge -- nat and magnitude are the same binary family). *)
 let int_pos_t n = app_t "int_pos" [ n ]
 let int_neg_t n = app_t "int_neg" [ n ]
 let negate_int_t a = app_t "negate_int" [ a ]
@@ -156,15 +140,16 @@ let mod_int_t a b = app_t "mod_int" [ a; b ]
 let pow_int_t a b = app_t "pow_int" [ a; b ]
 let leq_int_t a b = app_t "leq_int" [ a; b ]
 let lt_int_t a b = app_t "lt_int" [ a; b ]
-(* Binary (Coq [positive]/[N]-style) magnitude encoding, added alongside the
-   Peano nat family above as a separate, disjoint symbol set -- not yet wired
-   into anything ([int_pos]/[int_neg] still wrap a Peano [NatV] magnitude; see
-   the binary-encoding plan for the phase that retargets them). Unlike Coq,
-   there is no separate zero-free [positive] SORT here (this codebase's
-   signature-recovery layer, {!Maude_sorts}, supports only one declared
-   signature per symbol name, so [bd0]/[bd1] cannot be typed to statically
-   reject a zero argument the way Coq's [positive] does) -- [bzero]/[bone]/
-   [bd0]/[bd1] all inhabit the single sort [BNatV], and canonicity (every
+
+(* Binary (Coq [positive]/[N]-style) nat encoding: THE representation of a
+   natural number ([zero_t]/[succ_t] above are aliases onto [bzero]/[bsucc]),
+   and equally of [int_pos]/[int_neg]'s magnitude -- one binary family serves
+   both. Unlike Coq, there is no separate zero-free [positive] SORT here (this
+   codebase's signature-recovery layer, {!Maude_sorts}, supports only one
+   declared signature per symbol name, so [bd0]/[bd1] cannot be typed to
+   statically reject a zero argument the way Coq's [positive] does) --
+   [bzero]/[bone]/[bd0]/[bd1] all inhabit the single sort [NatV], and canonicity
+   (every
    [bd0]/[bd1] chain bottoms out at [bone], NEVER at [bzero] -- [bd0(bzero)]
    and [bd1(bzero)] would both be non-canonical duplicate spellings of an
    already-representable value, 0 and 1 respectively) is maintained BY
@@ -186,6 +171,15 @@ let bsucc_t a = app_t "bsucc" [ a ]
 let bpred_t a = app_t "bpred" [ a ]
 let bpred_double_t a = app_t "bpred_double" [ a ]
 let bis_zero_t a = app_t "bis_zero" [ a ]
+
+(* Naturals are binary-encoded: [zero]/[succ] are aliases onto the binary
+   [bzero]/[bsucc], so any builder that CONSTRUCTS a nat (list lengths, literal
+   accumulation) stays canonical. Consumers that RECURSE on a nat's structure
+   (list indexing, [bpow_nat]'s exponent) cannot pattern-match [succ] -- a
+   binary index like 2 is [bd0 bone], never [bsucc _] -- and instead dispatch
+   on [bis_zero]/[bpred] (see {!Prelude}). *)
+let zero_t = bzero_t
+let succ_t a = bsucc_t a
 
 (* [badd]/[badd_carry] (Coq [Pos.add]/[Pos.add_carry]): a carry-threading
    mutually recursive pair, every clause disjoint on both arguments -- so the
@@ -268,21 +262,22 @@ let bdivmod_base_t tag y = app_t "bdivmod_base" [ tag; y ]
 let bdiv_t a b = app_t "bdiv" [ a; b ]
 let bmod_t a b = app_t "bmod" [ a; b ]
 
-(* [bpow_nat]: binary-magnitude base, Peano [NatV] exponent -- the exponent is
-   always a small bit-width variable, so reusing the untouched Peano family
-   for it (rather than inventing a binary-exponent variant) needs no new
-   machinery. Structurally identical to [pow_t] above, just producing/
-   threading [BNatV]. *)
+(* [bpow_nat]: binary base and binary exponent (both are nats now). Its
+   [Prelude] rules dispatch on [bis_zero]/[bpred] for the exponent recursion,
+   the same shape as [pow]/[pow_int]; structurally it just produces/threads a
+   binary nat via [bmul]. *)
 let bpow_nat_t a b = app_t "bpow_nat" [ a; b ]
 
 (* Binary encoding of a non-negative OCaml int, O(log n) in both term size and
-   construction time (mirrors [peano_of_int]'s role for the Peano family). *)
+   construction time (the build-time counterpart of the [Prelude]'s binary nat
+   rules). *)
 let rec binary_of_pos (n : int) : R.term =
   if n <= 1 then bone_t
   else if n land 1 = 0 then bd0_t (binary_of_pos (n / 2))
   else bd1_t (binary_of_pos (n / 2))
 
-let binary_of_int (n : int) : R.term = if n <= 0 then bzero_t else binary_of_pos n
+let binary_of_int (n : int) : R.term =
+  if n <= 0 then bzero_t else binary_of_pos n
 
 (* Same, from a [Bigint.t] magnitude (the P4 bit-width literals this encoding
    exists for can exceed native [int] range) -- O(log n) OCaml-side recursion,
@@ -358,16 +353,13 @@ let tuple_t ts = app_t "tuple" ts
 let variant_t origin mixop args = app_t (variant_sym origin mixop) args
 let struct_t typ_name fields = app_t (struct_sym typ_name) fields
 
-(* Peano encoding of a non-negative OCaml int. *)
-let rec peano_of_int (n : int) : R.term =
-  if n <= 0 then zero_t else succ_t (peano_of_int (n - 1))
-
-(* A nat literal in the current scalar theory: structural Peano, or the native
-   [nat(..)] wrapper. (The [peano_of_int]/[succ] literal uses in the generators
-   go through this so they pick the right representation per mode.) *)
+(* A nat literal in the current scalar theory: structural binary
+   ([bzero]/[bone]/[bd0]/[bd1] via [binary_of_int]), or the native [nat(..)]
+   wrapper. Naturals share the binary magnitude encoding with [int]'s domain, so
+   this is [bnat_lit] -- kept as a distinct name for the nat-typed call sites. *)
 let nat_lit ~scalars (i : int) : R.term =
   match scalars with
-  | Structural -> peano_of_int i
+  | Structural -> binary_of_int i
   | Native -> Maude_theory.nat_t (Bigint.of_int i)
 
 (* An int literal in the current scalar theory: structural sign-magnitude over a
@@ -383,21 +375,19 @@ let int_lit ~scalars (i : int) : R.term =
       else int_neg_t (binary_of_int (-i - 1))
   | Native -> Maude_theory.int_t (Bigint.of_int i)
 
-(* A numeric literal. [Structural]: a non-negative value is a Peano nat
-   magnitude (it may stay a bare nat, or be injected into [int_pos] at its
-   surrounding cast -- see [term_of_exp] -- which bridges it to [BNatV] via
-   [bnat_of_nat] there, so this stays Peano); a negative value is
-   intrinsically an integer ([int_neg k] is [-(k+1)], so [-i] is
-   [int_neg (i-1)]), built directly in binary like [int_lit] above (no bare-nat
-   ambiguity for a value that is already, unconditionally, an int). [Native]:
-   the ground value goes straight into the [nat]/[int] wrapper (no Peano
-   tower, so no [Bigint] overflow). *)
+(* A numeric literal. [Structural]: a non-negative value is a bare binary nat
+   magnitude ([binary_of_bigint], directly from the [Bigint] with no [int]
+   round-trip -- a P4 value can exceed native [int] range; it may stay a bare
+   nat, or be injected into [int_pos] at its surrounding cast -- see
+   [term_of_exp]); a negative value is intrinsically an integer ([int_neg k] is
+   [-(k+1)], so [-i] is [int_neg (i-1)]). [Native]: the ground value goes
+   straight into the [nat]/[int] wrapper. *)
 let term_of_num ~scalars (n : Xl.Num.t) : R.term =
   let i = Xl.Num.to_int n in
   match scalars with
   | Structural ->
-      let i = Bigint.to_int_exn i in
-      if i >= 0 then peano_of_int i else int_neg_t (binary_of_int (-i - 1))
+      if Bigint.compare i Bigint.zero >= 0 then binary_of_bigint i
+      else int_neg_t (binary_of_bigint (Bigint.( - ) (Bigint.neg i) Bigint.one))
   | Native ->
       if Bigint.compare i Bigint.zero >= 0 then Maude_theory.nat_t i
       else Maude_theory.int_t i

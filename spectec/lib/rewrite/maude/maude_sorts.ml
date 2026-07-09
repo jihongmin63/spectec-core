@@ -105,8 +105,8 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow", n2);
     ("leq", n2b);
     ("lt", n2b);
-    ("int_pos", ([ "BNatV" ], "IntV"));
-    ("int_neg", ([ "BNatV" ], "IntV"));
+    ("int_pos", ([ "NatV" ], "IntV"));
+    ("int_neg", ([ "NatV" ], "IntV"));
     ("negate_int", i1);
     (* BUG FIX: [abs_nat]/[sub_int_nat] used to be declared over Peano [NatV]
        (correct back when [int_pos]/[int_neg]'s magnitude WAS Peano); the
@@ -125,10 +125,10 @@ let shared_op_sigs : (string * (string list * string)) list =
        [int<n>]-typed negative constant folding, which routes through
        [add_int]'s [sub_int_nat] case) got permanently stuck one level up,
        the same failure shape as the [nat_of_int] bug. *)
-    ("abs_nat", ([ "IntV" ], "BNatV"));
+    ("abs_nat", ([ "IntV" ], "NatV"));
     ("nonneg_int", ([ "IntV" ], "BoolV"));
     ("nat_of_int", ([ "IntV" ], "NatV"));
-    ("sub_int_nat", ([ "BNatV"; "BNatV" ], "IntV"));
+    ("sub_int_nat", ([ "NatV"; "NatV" ], "IntV"));
     ("add_int", i2);
     ("sub_int", i2);
     ("mul_int", i2);
@@ -137,68 +137,62 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow_int", i2);
     ("leq_int", i2b);
     ("lt_int", i2b);
-    (* Binary (Coq [positive]/[N]-style) magnitude family backing [int_pos]/
-       [int_neg] above. All four constructors sit in the ONE sort [BNatV]
-       (no separate zero-free [positive] sort: this recovery table holds
-       only one signature per symbol name, so [bd0]/[bd1] cannot be typed to
-       statically reject a zero argument the way Coq's [positive] does --
-       canonicity is instead a by-construction property of every rule in
-       {!Prelude} that builds a [BNatV] term, see {!Ctrs_term}'s doc
-       comment). [Bmask] is [bsub_mask]'s 3-valued truncated-subtraction
-       result, [Bcmp] is [bcompare]'s 3-valued relation-so-far; neither is
-       ever itself used as a magnitude, so neither has a [BNatV] subsort
-       edge. [bnat_of_nat] bridges a Peano [NatV] (list indices, bit-width
-       parameters -- everything upcast to int at {!To_ctrs}'s [UpCastE] site)
-       to the equal [BNatV] value; [bnat_to_nat] (built on [double_nat],
-       Peano doubling) is the reverse bridge for [nat_of_int]'s [DownCastE]
-       site. *)
-    ("bnat_of_nat", ([ "NatV" ], "BNatV"));
-    ("double_nat", ([ "NatV" ], "NatV"));
-    ("bnat_to_nat", ([ "BNatV" ], "NatV"));
-    ("bzero", ([], "BNatV"));
-    ("bone", ([], "BNatV"));
-    ("bd0", ([ "BNatV" ], "BNatV"));
-    ("bd1", ([ "BNatV" ], "BNatV"));
-    ("bsucc", ([ "BNatV" ], "BNatV"));
-    ("bpred", ([ "BNatV" ], "BNatV"));
-    ("bpred_double", ([ "BNatV" ], "BNatV"));
-    ("bis_zero", ([ "BNatV" ], "BoolV"));
-    ("badd", ([ "BNatV"; "BNatV" ], "BNatV"));
-    ("badd_carry", ([ "BNatV"; "BNatV" ], "BNatV"));
+    (* Binary (Coq [positive]/[N]-style) nat family: the representation of BOTH
+       a bare nat AND [int_pos]/[int_neg]'s magnitude (the nat->binary retype
+       merged the former separate [BNatV] magnitude sort into [NatV]). All four
+       constructors sit in the ONE sort [NatV] (no separate zero-free [positive]
+       sort: this recovery table holds only one signature per symbol name, so
+       [bd0]/[bd1] cannot be typed to statically reject a zero argument the way
+       Coq's [positive] does -- canonicity is instead a by-construction property
+       of every rule in {!Prelude} that builds a nat term, see {!Ctrs_term}'s
+       doc comment). [Bmask] is [bsub_mask]'s 3-valued truncated-subtraction
+       result, [Bcmp] is [bcompare]'s 3-valued relation-so-far; neither is ever
+       itself used as a magnitude, so neither has a [NatV] subsort edge. (The old
+       Peano<->binary bridges [bnat_of_nat]/[bnat_to_nat]/[double_nat] are gone
+       now that a nat IS binary.) *)
+    ("bzero", ([], "NatV"));
+    ("bone", ([], "NatV"));
+    ("bd0", ([ "NatV" ], "NatV"));
+    ("bd1", ([ "NatV" ], "NatV"));
+    ("bsucc", ([ "NatV" ], "NatV"));
+    ("bpred", ([ "NatV" ], "NatV"));
+    ("bpred_double", ([ "NatV" ], "NatV"));
+    ("bis_zero", ([ "NatV" ], "BoolV"));
+    ("badd", ([ "NatV"; "NatV" ], "NatV"));
+    ("badd_carry", ([ "NatV"; "NatV" ], "NatV"));
     ("bmask_nul", ([], "Bmask"));
     ("bmask_neg", ([], "Bmask"));
-    ("bmask_pos", ([ "BNatV" ], "Bmask"));
-    ("bsub_mask", ([ "BNatV"; "BNatV" ], "Bmask"));
-    ("bsub_mask_carry", ([ "BNatV"; "BNatV" ], "Bmask"));
+    ("bmask_pos", ([ "NatV" ], "Bmask"));
+    ("bsub_mask", ([ "NatV"; "NatV" ], "Bmask"));
+    ("bsub_mask_carry", ([ "NatV"; "NatV" ], "Bmask"));
     ("bdouble_mask", ([ "Bmask" ], "Bmask"));
     ("bsucc_double_mask", ([ "Bmask" ], "Bmask"));
-    ("bsub_of_mask", ([ "Bmask" ], "BNatV"));
-    ("bsub", ([ "BNatV"; "BNatV" ], "BNatV"));
-    ("bmul", ([ "BNatV"; "BNatV" ], "BNatV"));
-    ("bring0", ([ "BNatV" ], "BNatV"));
-    ("bring1", ([ "BNatV" ], "BNatV"));
-    ("bdivmod", ([ "BNatV"; "BNatV" ], "Bdivmod"));
-    ("bquot", ([ "Bdivmod" ], "BNatV"));
-    ("brem", ([ "Bdivmod" ], "BNatV"));
-    ("bdivmod_pos", ([ "BNatV"; "BNatV" ], "Bdivmod"));
-    ("bdivmod_step0", ([ "Bdivmod"; "BNatV" ], "Bdivmod"));
-    ("bdivmod_step1", ([ "Bdivmod"; "BNatV" ], "Bdivmod"));
-    ("bdivmod_combine", ([ "BNatV"; "BNatV"; "BNatV" ], "Bdivmod"));
-    ( "bdivmod_dispatch",
-      ([ "BoolV"; "BNatV"; "BNatV"; "BNatV" ], "Bdivmod") );
-    ("bdivmod_base", ([ "BoolV"; "BNatV" ], "Bdivmod"));
-    ("bdiv", ([ "BNatV"; "BNatV" ], "BNatV"));
-    ("bmod", ([ "BNatV"; "BNatV" ], "BNatV"));
+    ("bsub_of_mask", ([ "Bmask" ], "NatV"));
+    ("bsub", ([ "NatV"; "NatV" ], "NatV"));
+    ("bmul", ([ "NatV"; "NatV" ], "NatV"));
+    ("bring0", ([ "NatV" ], "NatV"));
+    ("bring1", ([ "NatV" ], "NatV"));
+    ("bdivmod", ([ "NatV"; "NatV" ], "Bdivmod"));
+    ("bquot", ([ "Bdivmod" ], "NatV"));
+    ("brem", ([ "Bdivmod" ], "NatV"));
+    ("bdivmod_pos", ([ "NatV"; "NatV" ], "Bdivmod"));
+    ("bdivmod_step0", ([ "Bdivmod"; "NatV" ], "Bdivmod"));
+    ("bdivmod_step1", ([ "Bdivmod"; "NatV" ], "Bdivmod"));
+    ("bdivmod_combine", ([ "NatV"; "NatV"; "NatV" ], "Bdivmod"));
+    ("bdivmod_dispatch", ([ "BoolV"; "NatV"; "NatV"; "NatV" ], "Bdivmod"));
+    ("bdivmod_base", ([ "BoolV"; "NatV" ], "Bdivmod"));
+    ("bdiv", ([ "NatV"; "NatV" ], "NatV"));
+    ("bmod", ([ "NatV"; "NatV" ], "NatV"));
     ("blt_kind", ([], "Bcmp"));
     ("beq_kind", ([], "Bcmp"));
     ("bgt_kind", ([], "Bcmp"));
-    ("bcompare_cont", ([ "Bcmp"; "BNatV"; "BNatV" ], "Bcmp"));
-    ("bcompare", ([ "BNatV"; "BNatV" ], "Bcmp"));
+    ("bcompare_cont", ([ "Bcmp"; "NatV"; "NatV" ], "Bcmp"));
+    ("bcompare", ([ "NatV"; "NatV" ], "Bcmp"));
     ("ble_of_cmp", ([ "Bcmp" ], "BoolV"));
     ("blt_of_cmp", ([ "Bcmp" ], "BoolV"));
-    ("bleq", ([ "BNatV"; "BNatV" ], "BoolV"));
-    ("blt", ([ "BNatV"; "BNatV" ], "BoolV"));
-    ("bpow_nat", ([ "BNatV"; "NatV" ], "BNatV"));
+    ("bleq", ([ "NatV"; "NatV" ], "BoolV"));
+    ("blt", ([ "NatV"; "NatV" ], "BoolV"));
+    ("bpow_nat", ([ "NatV"; "NatV" ], "NatV"));
     ("nil", ([], "List"));
     ("cons", ([ val_sort; "List" ], "List"));
     (* [len]/[cat] also work over texts, and [List < Text] makes [Text] the
@@ -227,9 +221,10 @@ let shared_op_sigs : (string * (string list * string)) list =
 
 (* The scalar CONSTRUCTOR signatures, per theory. [Native] wraps Maude's
    built-ins ([nat(3) : NatV], {!Maude_theory}); [Structural] declares the
-   self-contained Peano/sign-magnitude/own-boolean constructors ([zero]/[succ]/
-   [true]/[false]; [int_pos]/[int_neg] already appear in {!shared_op_sigs}, and
-   [chr_<n>] is handled by the {!signature} heuristic). *)
+   self-contained own-boolean constructors ([true]/[false]). Naturals are now
+   binary-encoded: their constructors ([bzero]/[bone]/[bd0]/[bd1] : NatV) and
+   the sign-magnitude int constructors ([int_pos]/[int_neg]) already appear in
+   {!shared_op_sigs}, and [chr_<n>] is handled by the {!signature} heuristic. *)
 let scalar_ctor_sigs : scalar_theory -> (string * (string list * string)) list =
   function
   | Native ->
@@ -239,13 +234,7 @@ let scalar_ctor_sigs : scalar_theory -> (string * (string list * string)) list =
         (Maude_theory.int_wrap_sym, ([ "Int" ], "IntV"));
         (Maude_theory.text_wrap_sym, ([ "String" ], "Text"));
       ]
-  | Structural ->
-      [
-        ("zero", ([], "NatV"));
-        ("succ", ([ "NatV" ], "NatV"));
-        ("true", ([], "BoolV"));
-        ("false", ([], "BoolV"));
-      ]
+  | Structural -> [ ("true", ([], "BoolV")); ("false", ([], "BoolV")) ]
 
 let prelude_sigs (scalars : scalar_theory) :
     (string * (string list * string)) list =
@@ -288,7 +277,8 @@ let infer_ranges (rules : R.rule list) : sigs =
       match (R.defined_head r, r.R.lhs, r.R.rhs) with
       | Some sym, R.App (_, args), R.App (h, _) ->
           let arity, hs =
-            Option.value (Hashtbl.find_opt seen sym)
+            Option.value
+              (Hashtbl.find_opt seen sym)
               ~default:(List.length args, [])
           in
           Hashtbl.replace seen sym (arity, h :: hs)
@@ -326,9 +316,10 @@ let infer_ranges (rules : R.rule list) : sigs =
       | [] -> ()
       | h0 :: rest -> (
           match range_of_head h0 with
-          | Some rng when List.for_all (fun h -> range_of_head h = Some rng) rest
-            ->
-              Hashtbl.replace ranges sym (List.init arity (fun _ -> val_sort), rng)
+          | Some rng
+            when List.for_all (fun h -> range_of_head h = Some rng) rest ->
+              Hashtbl.replace ranges sym
+                (List.init arity (fun _ -> val_sort), rng)
           | _ -> ()))
     seen;
   ranges
@@ -361,8 +352,7 @@ let infer_proj_ranges (tbl : sigs) (rules : R.rule list) : sigs =
           | Some i -> (
               match Hashtbl.find_opt tbl ctor with
               | Some (ctor_args, _) when List.length ctor_args > i ->
-                  Hashtbl.replace ranges sym
-                    ([ val_sort ], List.nth ctor_args i)
+                  Hashtbl.replace ranges sym ([ val_sort ], List.nth ctor_args i)
               | _ -> ())
           | None -> ())
       | _ -> ())
