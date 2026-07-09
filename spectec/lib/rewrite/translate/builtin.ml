@@ -662,6 +662,39 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
               mask );
           ];
       ]
+  | ("sum_nat" | "max_nat" | "min_nat"), _, _ ->
+      (* [$sizeof_minSizeInBits']-style header/struct/tuple size computations
+         fold these over a [TypeIR] list, matching [targets/p4/builtins/nats.ml]'s
+         [List.fold_left (+/max/min) Bigint.zero] exactly -- including its
+         [min]'s degenerate consequence: since every [nat] is already >= 0,
+         seeding the fold at 0 makes [min_nat] return 0 for EVERY list, empty
+         or not (0 is <= every element, so it wins every comparison), not the
+         list's actual minimum. That's the reference interpreter's own
+         behavior, reproduced verbatim rather than "fixed" here. [sum]/[max]
+         don't have this degeneracy: 0 is additive-identity for [sum], and a
+         nonempty list's true max is never below the 0 seed. *)
+      let x = T.var_t "x" and xs = T.var_t "xs" in
+      (match id.it with
+      | "min_nat" -> [ T.rule (T.app_t sym [ xs ]) T.zero_t ]
+      | "sum_nat" ->
+          [
+            T.rule (T.app_t sym [ T.nil_t ]) T.zero_t;
+            T.rule
+              (T.app_t sym [ T.cons_t x xs ])
+              (T.add_t x (T.app_t sym [ xs ]));
+          ]
+      | _ (* "max_nat" *) ->
+          [
+            T.rule (T.app_t sym [ T.nil_t ]) T.zero_t;
+            T.rule_cond
+              (T.app_t sym [ T.cons_t x xs ])
+              x
+              [ (T.leq_t (T.app_t sym [ xs ]) x, T.bool_t ~scalars true) ];
+            T.rule_cond
+              (T.app_t sym [ T.cons_t x xs ])
+              (T.app_t sym [ xs ])
+              [ (T.leq_t (T.app_t sym [ xs ]) x, T.bool_t ~scalars false) ];
+          ])
   | _ -> []
 
 (* The text builtins the Maude backend re-emits as built-in-String delegations
