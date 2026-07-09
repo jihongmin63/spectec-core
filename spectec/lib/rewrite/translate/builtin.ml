@@ -519,23 +519,23 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           (T.negate_int_t (T.add_int_t n (T.int_lit ~scalars 1)));
       ]
   | ("band" | "bxor" | "bor"), _, _ ->
-      (* Unlike [bneg], AND/XOR/OR have no such arithmetic identity; this
-         only covers NONNEGATIVE operands (matching P4's actual use: `&`/`^`/
-         `|` combine already-masked, unsigned bit<w> values) -- decompose
-         both [BNatV] magnitudes bit by bit via [bdiv_t]/[bmod_t] by 2 (a
+      (* Unlike [bneg], AND/XOR/OR have no single arithmetic identity that
+         covers every sign combination directly, so this decomposes both
+         [BNatV] magnitudes bit by bit via [bdiv_t]/[bmod_t] by 2 (a
          mechanical retarget of the same recursive shape used against the old
          Peano magnitude, not a redesign around direct [bd0]/[bd1] matching:
          [bdiv]/[bmod] are already O(log n), so this stays O(w) recursive
          levels each costing O(log(current value)), not the exponential
-         blowup a Peano magnitude would have meant here), recombining with the
-         operator's own single-bit formula. A negative operand doesn't match
-         [int_pos] and is left stuck, same spirit as [bin_satplus]'s
-         arbitrary-precision-operand case above. *)
-      let combine_bit bl br =
-        match id.it with
-        | "band" -> T.bmul_t bl br
-        | "bor" -> T.bsub_t (T.badd_t bl br) (T.bmul_t bl br)
-        | _ (* "bxor" *) -> T.bmod_t (T.badd_t bl br) (T.bnat_lit ~scalars 2)
+         blowup a Peano magnitude would have meant here) for NONNEGATIVE
+         operands, then reaches negative operands through the standard
+         infinite-two's-complement identities below -- matching
+         [Bigint.bit_and]/[bit_or]/[bit_xor] ([targets/p4/builtins/numerics.ml]),
+         the reference interpreter's own arbitrary-precision semantics. *)
+      let combine_bit op bl br =
+        match op with
+        | `And -> T.bmul_t bl br
+        | `Or -> T.bsub_t (T.badd_t bl br) (T.bmul_t bl br)
+        | `Xor -> T.bmod_t (T.badd_t bl br) (T.bnat_lit ~scalars 2)
       in
       (* AND's identity is 0 (0 against anything is 0); OR/XOR's is the
          OTHER operand unchanged (0 contributes nothing to either) -- a
@@ -544,30 +544,103 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
          caught by testing band/bor/bxor independently: band(6,3)=2 checked
          out, but a shared zero-base gave bor(6,3)=3 and bxor(6,3)=1 instead
          of the correct 7 and 5). *)
-      let base_rhs other = match id.it with "band" -> T.bzero_t | _ -> other in
+      let base_rhs op other = match op with `And -> T.bzero_t | _ -> other in
+      (* The recursive bit-decomposition rules for one BNat-level bitwise
+         [op] over two NONNEGATIVE magnitudes, defining [nat_sym]. Every
+         top-level operator needs its own shape (AND for [$band], OR for
+         [$bor], XOR for [$bxor]) as its PRIMARY nat helper; AND and OR each
+         also need the OTHER's shape as a CROSS helper, for the De Morgan
+         identities their negative-operand cases reduce through below. *)
+      let nat_op_rules op nat_sym =
+        let l = T.var_t "l" and r = T.var_t "r" in
+        let two_n = T.bnat_lit ~scalars 2 in
+        let bl = T.var_t "bl" and br = T.var_t "br" in
+        let ql = T.var_t "ql" and qr = T.var_t "qr" in
+        [
+          T.rule (T.app_t nat_sym [ T.bzero_t; r ]) (base_rhs op r);
+          T.rule (T.app_t nat_sym [ l; T.bzero_t ]) (base_rhs op l);
+          T.rule_cond (T.app_t nat_sym [ l; r ])
+            (T.badd_t (combine_bit op bl br)
+               (T.bmul_t two_n (T.app_t nat_sym [ ql; qr ])))
+            [
+              (T.bis_zero_t l, T.bool_t ~scalars false);
+              (T.bis_zero_t r, T.bool_t ~scalars false);
+              (T.bmod_t l two_n, bl);
+              (T.bmod_t r two_n, br);
+              (T.bdiv_t l two_n, ql);
+              (T.bdiv_t r two_n, qr);
+            ];
+        ]
+      in
+      let op = match id.it with "band" -> `And | "bor" -> `Or | _ -> `Xor in
       let nat_sym = helper "nat" in
+      let primary_rules = nat_op_rules op nat_sym in
+      let cross_sym = helper "nat_cross" in
+      let cross_rules =
+        match op with
+        | `And -> nat_op_rules `Or cross_sym
+        | `Or -> nat_op_rules `And cross_sym
+        | `Xor -> []
+      in
+      (* Sign cases beyond (nonneg, nonneg) all follow from writing a negative
+         operand [int_neg m] as the two's-complement identity [~m] (recall
+         [int_neg m] itself already represents [-(m+1)], i.e. [bneg]'s [~m] --
+         {!Ctrs_term}'s [int_neg_t]), then pushing the NOT through the
+         operator via De Morgan for AND/OR ([~a & b = b - (a & b)],
+         [~a & ~b = ~(a | b)], and symmetrically for OR) or through XOR's own
+         NOT-cancellation ([~a ^ b = ~(a ^ b)], [~a ^ ~b = a ^ b]). Every
+         subtraction here is a proper bit subset of its minuend by
+         construction, so [bsub_t]'s monus never clamps. *)
       let l = T.var_t "l" and r = T.var_t "r" in
-      let two_n = T.bnat_lit ~scalars 2 in
-      let bl = T.var_t "bl" and br = T.var_t "br" in
-      let ql = T.var_t "ql" and qr = T.var_t "qr" in
-      [
-        T.rule
-          (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
-          (T.int_pos_t (T.app_t nat_sym [ l; r ]));
-        T.rule (T.app_t nat_sym [ T.bzero_t; r ]) (base_rhs r);
-        T.rule (T.app_t nat_sym [ l; T.bzero_t ]) (base_rhs l);
-        T.rule_cond (T.app_t nat_sym [ l; r ])
-          (T.badd_t (combine_bit bl br)
-             (T.bmul_t two_n (T.app_t nat_sym [ ql; qr ])))
-          [
-            (T.bis_zero_t l, T.bool_t ~scalars false);
-            (T.bis_zero_t r, T.bool_t ~scalars false);
-            (T.bmod_t l two_n, bl);
-            (T.bmod_t r two_n, br);
-            (T.bdiv_t l two_n, ql);
-            (T.bdiv_t r two_n, qr);
-          ];
-      ]
+      let sign_rules =
+        match op with
+        | `And ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.bsub_t r (T.app_t nat_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_pos_t (T.bsub_t l (T.app_t nat_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t cross_sym [ l; r ]));
+            ]
+        | `Or ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_neg_t (T.bsub_t l (T.app_t cross_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.bsub_t r (T.app_t cross_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t cross_sym [ l; r ]));
+            ]
+        | `Xor ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_neg_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+            ]
+      in
+      primary_rules @ cross_rules @ sign_rules
   | "bitacc", _, _ ->
       (* [n[m:l]] masks the low [(m - l + 1)] bits of [n >> l]; validity
          ([l >= 0], [m >= l]) is a guard, not a computed default -- an
