@@ -85,6 +85,8 @@ type tables = {
   ctor_types : (string, string list) Hashtbl.t; (* variant sym -> type names *)
   funcsigs : (string, typ list * typ) Hashtbl.t; (* $f -> params, result *)
   relsigs : (string, typ list) Hashtbl.t; (* Rel -> input types *)
+  fieldsigs : (string, typ') Hashtbl.t; (* field_<ty>_<a> -> field type *)
+  rel_outs : (string, typ list) Hashtbl.t; (* Rel -> output types *)
 }
 
 let build_tables (orig : spec) : tables =
@@ -94,6 +96,8 @@ let build_tables (orig : spec) : tables =
       ctor_types = Hashtbl.create 256;
       funcsigs = Hashtbl.create 64;
       relsigs = Hashtbl.create 64;
+      fieldsigs = Hashtbl.create 256;
+      rel_outs = Hashtbl.create 64;
     }
   in
   List.iter
@@ -118,6 +122,11 @@ let build_tables (orig : spec) : tables =
                   if not (List.mem synid.it tys) then
                     Hashtbl.replace tbl.ctor_types ctor (tys @ [ synid.it ]))
                 typcases
+          | StructT fields ->
+              List.iter
+                (fun ((a, ft) : typfield) ->
+                  Hashtbl.replace tbl.fieldsigs (T.field_sym synid.it a) ft.it)
+                fields
           | _ -> ())
       | DecD { defid; params; typ; _ } ->
           let exps =
@@ -130,9 +139,11 @@ let build_tables (orig : spec) : tables =
       | RelD { relid; reltyp; _ } ->
           let typs = Mixfix.args (Mode.notation reltyp.it) in
           let idxs = List.init (List.length typs) Fun.id in
-          let ins, _ = Mode.partition reltyp.it idxs in
+          let ins, outs = Mode.partition reltyp.it idxs in
           Hashtbl.replace tbl.relsigs (T.rel_sym relid)
-            (List.map (List.nth typs) ins)
+            (List.map (List.nth typs) ins);
+          Hashtbl.replace tbl.rel_outs (T.rel_sym relid)
+            (List.map (List.nth typs) outs)
       | BuiltinDecD _ -> ())
     orig;
   tbl
@@ -279,14 +290,15 @@ let iter_helper_prefixes = [ "$iterall"; "$itercollect"; "$iterapply" ]
 let has_prefix p s =
   String.length s >= String.length p && String.sub s 0 (String.length p) = p
 
-(* Reject a guard component that mentions a relation call (Phase 3), an
-   iteration helper not yet in [succ], or a gensym state-threaded symbol. *)
+(* Reject a guard component that mentions a relation call whose success is
+   not reflected (not in [succ]), an iteration helper not yet in [succ], or a
+   gensym state-threaded symbol. *)
 let rec check_reflectable (tbl : tables) (effectful : string list)
     (succ : string list) (t : R.term) : unit =
   match t with
   | R.Var _ -> ()
   | R.App (f, args) ->
-      if Hashtbl.mem tbl.relsigs f then
+      if Hashtbl.mem tbl.relsigs f && not (List.mem f succ) then
         raise (Gate (Printf.sprintf "relation call %s" f));
       if
         (not (List.mem f succ))
@@ -308,6 +320,323 @@ let rec subst (s : (string * R.term) list) (t : R.term) : R.term =
 
 let rec ground (t : R.term) : bool =
   match t with R.Var _ -> false | R.App (_, args) -> List.for_all ground args
+
+(* -------------------------------------------------------------------------- *)
+(* (B') subty-guard head specialization: expand a clause guarded by a
+   membership test [subty_<S>(v) = true] on a head-bound variable [v] into one
+   clone per member constructor of [S], substituting [v := K_i(fresh..)]
+   through the whole rule and dropping the guard (keeping the member rule's
+   payload conjunction as a residual condition when it is not literally
+   [true]). Subtype totality makes this exact: the [subty_<S>] rule family
+   enumerates the guard's true-set syntactically -- member cases rewrite to
+   their payload conjunction, non-members to [false] ({!To_ctrs}'s use-based
+   complement) -- so the clones' application set equals the guarded clause's.
+   Unlike {!hoist_matchers} (a 1-rule -> 1-rule respelling for a matcher that
+   names ONE constructor), this is a 1 -> N fan-out, and the substitution runs
+   through companion conditions too, so each clone is partially evaluated:
+   a matcher or subty test applied to the now-concrete constructor decides to
+   [true] (condition dropped), [false]/stuck (clone dead, dropped), or its
+   payload residual; a companion destructuring equation [K(sf..) = K(pats..)]
+   decomposes pointwise and the fresh payload variables are renamed away into
+   the sibling's own binder names (deepening the head pattern exactly like the
+   fold this pass makes unnecessary). Anything the evaluator does not
+   recognize is conservatively kept as a condition for the later passes.
+   Analysis-only, like {!hoist_matchers}/{!owise}; fresh variable names are
+   gensym-numbered ([expand_N]) so they cannot collide with a {!Var_hints} key
+   and inherit their sorts positionally from the constructor signature. *)
+
+(* One [subty_<S>] family, scanned off the translated system itself (the
+   guard's presence keeps the family from being pruned, and scanning avoids
+   re-deriving {!To_ctrs.sub_pred}'s spelling): the member constructors with
+   their payload variables and residual rhs, or a degenerate shape. *)
+type subty_family =
+  | Members of (string * string list * R.term) list
+    (* ctor, payload vars, residual rhs (the payload conjunction) *)
+  | Always_true (* [subty_<S>(x) -> true]: type parameter fallback *)
+  | Opaque of string (* unrecognized shape: do not expand *)
+
+let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
+    : R.t =
+  let tbl = build_tables orig in
+  let mtbl = build_matcher_table orig in
+  let yes = T.bool_t ~scalars true in
+  let no = T.bool_t ~scalars false in
+  let by_head : (string, R.rule) Hashtbl.t = Hashtbl.create 1024 in
+  List.iter
+    (fun (r : R.rule) ->
+      match r.R.lhs with
+      | R.App (f, _) -> Hashtbl.add by_head f r
+      | R.Var _ -> ())
+    sys.R.rules;
+  let rules_of_head f = List.rev (Hashtbl.find_all by_head f) in
+  let is_ctor c =
+    Hashtbl.mem tbl.ctor_types c
+    || List.mem c [ "tuple"; "cons"; "nil"; "none"; "some" ]
+    || has_prefix "struct_" c
+  in
+  (* Family scan, memoized; alias delegation [subty_<S>(x) -> subty_<U>(x)]
+     chases to the target family (cycle-guarded). *)
+  let fam_cache : (string, subty_family) Hashtbl.t = Hashtbl.create 64 in
+  let distinct_vars ps =
+    let vs = List.filter_map (function R.Var v -> Some v | _ -> None) ps in
+    if
+      List.length vs = List.length ps
+      && List.sort_uniq compare vs = List.sort compare vs
+    then Some vs
+    else None
+  in
+  let rec family (seen : string list) (s : string) : subty_family =
+    match Hashtbl.find_opt fam_cache s with
+    | Some f -> f
+    | None ->
+        let f =
+          if List.mem s seen then Opaque "alias cycle"
+          else scan (s :: seen) (rules_of_head s)
+        in
+        Hashtbl.replace fam_cache s f;
+        f
+  and scan seen rules =
+    let step acc (r : R.rule) =
+      match acc with
+      | Opaque _ -> acc
+      | _ when r.R.conds <> [] -> Opaque "conditional subty rule"
+      | _ -> (
+          match (r.R.lhs, r.R.rhs) with
+          | R.App (_, [ R.App (_, _) ]), rhs when rhs = no ->
+              acc (* complement *)
+          | R.App (_, [ R.App (c, ps) ]), rhs -> (
+              match distinct_vars ps with
+              | Some vs
+                when List.for_all (fun v -> List.mem v vs) (term_vars rhs) -> (
+                  match acc with
+                  | Members ms -> Members (ms @ [ (c, vs, rhs) ])
+                  | Always_true -> Opaque "mixed member/fallback"
+                  | Opaque _ -> acc)
+              | _ -> Opaque "non-linear member payload")
+          | R.App (_, [ R.Var _ ]), rhs when rhs = yes -> (
+              match acc with
+              | Members [] -> Always_true
+              | Members _ -> Opaque "mixed member/fallback"
+              | acc -> acc)
+          | R.App (_, [ R.Var x ]), R.App (g, [ R.Var x' ])
+            when x' = x && has_prefix "subty_" g -> (
+              match (acc, family seen g) with
+              | Members [], f -> f
+              | _ -> Opaque "mixed delegation")
+          | _ -> Opaque "unrecognized subty rule shape")
+    in
+    if rules = [] then Opaque "no defining rules"
+    else List.fold_left step (Members []) rules
+  in
+  (* Partial evaluation of one clone's conditions after the [v := K(sf..)]
+     substitution. Returns [None] when a condition is decided unsatisfiable
+     (dead clone): a matcher or subty test on a concrete NON-member
+     constructor either rewrites to [false] (a sibling case) or is stuck
+     (outside the type) -- unsatisfiable either way, since constructors are
+     free (a constructor-headed term never rewrites at the root).
+     [fresh_set] are the variables THIS pass introduced: only those may be
+     renamed away by a decomposed destructuring pair (a general [Var = term]
+     condition is a join test, not a definition). *)
+  let rec app_heads (t : R.term) : string list =
+    match t with
+    | R.Var _ -> []
+    | R.App (f, args) -> f :: List.concat_map app_heads args
+  in
+  let pattern_safe t = List.for_all is_ctor (app_heads t) in
+  let exception Dead in
+  let simplify (fresh_set : (string, unit) Hashtbl.t) (r0 : R.rule) :
+      R.rule option =
+    let subst_rule s (r : R.rule) =
+      {
+        r with
+        R.lhs = subst s r.R.lhs;
+        rhs = subst s r.R.rhs;
+        conds = List.map (fun (l, rr) -> (subst s l, subst s rr)) r.R.conds;
+      }
+    in
+    let rec go fuel (r : R.rule) : R.rule =
+      if fuel = 0 then r
+      else
+        let lhs_vars = term_vars r.R.lhs in
+        (* a condition variable the head does not bind: existentially
+           quantified, so a [w = t] condition on it (t a pure constructor
+           term, no computation to duplicate) is eliminated exactly by
+           substituting [w := t] through the rule *)
+        let existential w t =
+          (not (List.mem w lhs_vars))
+          && (not (List.mem w (term_vars t)))
+          && pattern_safe t
+        in
+        (* one pass: rewrite the first condition a step applies to *)
+        let rec step pre = function
+          | [] -> None
+          | (l, rr) :: rest when l = rr ->
+              Some { r with R.conds = List.rev_append pre rest }
+          | (R.App (m, [ R.App (c, _) ]), rr) :: rest
+            when rr = yes && is_ctor c && Hashtbl.mem mtbl m ->
+              if c = (Hashtbl.find mtbl m).ctor then
+                Some { r with R.conds = List.rev_append pre rest }
+              else raise Dead
+          | ((R.App (s, [ R.App (c, args) ]), rr) as cond) :: rest
+            when rr = yes && has_prefix "subty_" s && is_ctor c -> (
+              match family [] s with
+              | Always_true ->
+                  Some { r with R.conds = List.rev_append pre rest }
+              | Members ms -> (
+                  match List.find_opt (fun (mc, _, _) -> mc = c) ms with
+                  | Some (_, ps, residual)
+                    when List.length ps = List.length args ->
+                      let resid = subst (List.combine ps args) residual in
+                      Some
+                        {
+                          r with
+                          R.conds = List.rev_append pre ((resid, yes) :: rest);
+                        }
+                  | Some _ -> step (cond :: pre) rest
+                  | None -> raise Dead)
+              | Opaque _ -> step (cond :: pre) rest)
+          | (R.App (c1, xs), R.App (c2, ys)) :: rest
+            when is_ctor c1 && is_ctor c2 ->
+              if c1 = c2 && List.length xs = List.length ys then
+                Some
+                  {
+                    r with
+                    R.conds = List.rev_append pre (List.combine xs ys @ rest);
+                  }
+              else raise Dead
+          | (R.Var v, t) :: rest
+            when Hashtbl.mem fresh_set v
+                 && (not (List.mem v (term_vars t)))
+                 && pattern_safe t ->
+              Some
+                (subst_rule
+                   [ (v, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (t, R.Var v) :: rest
+            when Hashtbl.mem fresh_set v
+                 && (not (List.mem v (term_vars t)))
+                 && pattern_safe t ->
+              Some
+                (subst_rule
+                   [ (v, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (R.Var w, t) :: rest when existential w t ->
+              Some
+                (subst_rule
+                   [ (w, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | (t, R.Var w) :: rest when existential w t ->
+              Some
+                (subst_rule
+                   [ (w, t) ]
+                   { r with R.conds = List.rev_append pre rest })
+          | cond :: rest -> step (cond :: pre) rest
+        in
+        match step [] r.R.conds with Some r' -> go (fuel - 1) r' | None -> r
+    in
+    match go 200 r0 with r -> Some r | exception Dead -> None
+  in
+  (* Expansion driver: fan the first qualifying guard out, then recurse into
+     each clone (a residual can itself be a bare membership test on a now
+     head-bound payload variable, and a rule can carry several guards). *)
+  let clauses_expanded = ref 0
+  and clones_kept = ref 0
+  and clones_dead = ref 0
+  and vacuous_dropped = ref 0 in
+  let expand_rule (r0 : R.rule) : R.rule list =
+    let lhs_ok = match r0.R.lhs with R.App _ -> true | R.Var _ -> false in
+    if not lhs_ok then [ r0 ]
+    else
+      let counter = ref 0 in
+      let fresh_set = Hashtbl.create 8 in
+      let fresh () =
+        let v = Printf.sprintf "expand_%d" !counter in
+        incr counter;
+        Hashtbl.replace fresh_set v ();
+        v
+      in
+      let budget = ref 64 in
+      let head_sym = match r0.R.lhs with R.App (f, _) -> f | R.Var v -> v in
+      let skip reason =
+        Printf.eprintf "reflect: no subty expansion for %s (%s)\n" head_sym
+          reason
+      in
+      let pick_guard (r : R.rule) =
+        let lhs_vars = term_vars r.R.lhs in
+        let rec find pre = function
+          | [] -> None
+          | (R.App (s, [ R.Var v ]), rr) :: rest
+            when rr = yes && has_prefix "subty_" s && List.mem v lhs_vars ->
+              Some (List.rev pre, s, v, rest)
+          | c :: rest -> find (c :: pre) rest
+        in
+        find [] r.R.conds
+      in
+      let rec go (r : R.rule) : R.rule list =
+        match pick_guard r with
+        | None -> [ r ]
+        | Some (pre, s, v, rest) -> (
+            match family [] s with
+            | Always_true ->
+                incr vacuous_dropped;
+                go { r with R.conds = pre @ rest }
+            | Opaque reason ->
+                skip (Printf.sprintf "%s: %s" s reason);
+                [ r ]
+            | Members ms ->
+                let n = List.length ms in
+                if n > 16 then (
+                  skip (Printf.sprintf "%s: %d members" s n);
+                  [ r ])
+                else if !budget < n then (
+                  skip (Printf.sprintf "%s: clone budget exhausted" s);
+                  [ r ])
+                else (
+                  budget := !budget - n;
+                  incr clauses_expanded;
+                  ms
+                  |> List.concat_map (fun (c, ps, residual) ->
+                         let sf = List.map (fun _ -> fresh ()) ps in
+                         let theta = [ (v, T.app_t c (List.map T.var_t sf)) ] in
+                         let resid =
+                           subst
+                             (List.combine ps (List.map T.var_t sf))
+                             residual
+                         in
+                         let conds =
+                           List.map
+                             (fun (l, rr) -> (subst theta l, subst theta rr))
+                             (pre @ rest)
+                         in
+                         let conds =
+                           if resid = yes then conds
+                           else conds @ [ (resid, yes) ]
+                         in
+                         let r' =
+                           {
+                             R.lhs = subst theta r.R.lhs;
+                             rhs = subst theta r.R.rhs;
+                             conds;
+                             owise = r.R.owise;
+                           }
+                         in
+                         match simplify fresh_set r' with
+                         | None ->
+                             incr clones_dead;
+                             []
+                         | Some r'' ->
+                             incr clones_kept;
+                             go r'')))
+      in
+      go r0
+  in
+  let rules = List.concat_map expand_rule sys.R.rules in
+  if !clauses_expanded > 0 || !vacuous_dropped > 0 then
+    Printf.eprintf
+      "reflect: subty expansion: %d clause(s) -> %d clone(s) (%d dead, %d \
+       vacuous guard(s) dropped)\n"
+      !clauses_expanded !clones_kept !clones_dead !vacuous_dropped;
+  { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
 
 (* -------------------------------------------------------------------------- *)
 (* Support rules a guard may need: matcher families, struct accessors, and the
@@ -608,15 +937,22 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
   (match unbound l with
   | [] -> ()
   | v :: _ -> raise (Gate (Printf.sprintf "unbound sibling variable %s" v)));
-  (* [l]'s result type, when recoverable: a variable's recorded type, or a
-     function call's declared result. *)
+  (* [l]'s result type, when recoverable: a variable's recorded type, a
+     function call's declared result, a struct field accessor's field type,
+     or a single-output relation's output. *)
   let type_of_l =
     match l with
     | R.Var v -> Option.join (Option.map snd (List.assoc_opt v acc.sub))
     | R.App (f, _) -> (
         match Hashtbl.find_opt tbl.funcsigs f with
         | Some (_, ret) -> Some ret.it
-        | None -> None)
+        | None -> (
+            match Hashtbl.find_opt tbl.fieldsigs f with
+            | Some t -> Some t
+            | None -> (
+                match Hashtbl.find_opt tbl.rel_outs f with
+                | Some [ t ] -> Some t.it
+                | _ -> None)))
   in
   let sl = subst (sub_terms acc) l in
   check_reflectable tbl effectful succ sl;
@@ -745,33 +1081,67 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
   and_chain ~scalars (dedup (List.rev acc.tests))
 
 (* -------------------------------------------------------------------------- *)
-(* Judgment reflection: [holds_<R>] for a no-output judgment [R] (its rules
-   all conclude [= true]; failure is stuckness), and [holds_<$iterall..>] for
-   a no-binding iterated premise's helper. [holds_<R>] is ONE unconditional
+(* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
+   "some rule of R applies", built from each rule's lhs patterns and
+   conditions with the rhs ignored, so it covers output-carrying judgments
+   the same way as no-output ones (whose rules all conclude [= true];
+   failure is stuckness either way) -- and [holds_<$iterall..>] for a
+   no-binding iterated premise's helper. [holds_<R>] is ONE unconditional
    or-rule -- "R holds iff some rule applies" is an unordered disjunction --
    so it adds no critical pairs; [holds_<$iterall..>] is the totalized
    and-fold (unconditional step + explicit length-mismatch [false] rules).
-   Negated judgment premises ([R(in) = false], today unsatisfiable because
-   the positive rules only ever produce [true]) become satisfiable
-   [holds_R(in) = false]; positive uses are switched to [holds_R(in) = true]
-   as well, because the CRC treats [R] and [holds_R] as unrelated symbols --
-   only the uniform spelling lets a critical pair's hypotheses collapse an
-   owise guard mentioning [holds_R]. Nothing is lost by the switch: a
-   no-output judgment's own rules all share the rhs [true], so their mutual
-   overlaps were trivially joinable anyway. *)
+   Negated judgment premises ([R(in) = false], today unsatisfiable because a
+   judgment never rewrites to [false]) become satisfiable
+   [holds_R(in) = false] when the [false] cannot be an output value
+   ({!rel_output_kind}); a no-output judgment's positive uses are switched to
+   [holds_R(in) = true] as well, because the CRC treats [R] and [holds_R] as
+   unrelated symbols -- only the uniform spelling lets a critical pair's
+   hypotheses collapse an owise guard mentioning [holds_R]. Nothing is lost
+   by the switch: a no-output judgment's own rules all share the rhs [true],
+   so their mutual overlaps were trivially joinable anyway. An
+   output-carrying judgment's BINDING call sites keep their [:=]-style
+   condition and instead gain an inserted [holds_R(in) = true] test (the
+   same mechanism as the collecting iteration helpers below). *)
 
 let holds_sym (s : string) : string = "holds_" ^ s
 
+(* Which spelling of a [R(in..) = true/false] condition is a satisfiability
+   test (negation-as-failure, respellable to [holds_R]) rather than an output
+   VALUE test: a no-output judgment only ever concludes [true]; a judgment
+   whose output cannot be a bool literal (non-bool single output, or several
+   outputs -- the rhs is then a tuple) can only meet [= false] as a negation;
+   a single bool output is syntactically ambiguous, so it is never
+   respelled. *)
+let rel_output_kind (tbl : tables) (f : string) :
+    [ `No_output | `Non_bool | `Maybe_bool ] =
+  match Hashtbl.find_opt tbl.rel_outs f with
+  | None | Some [] -> `No_output
+  | Some [ t ] -> (
+      match resolve tbl t.it with
+      | BoolT -> `Maybe_bool
+      | VarT { synid; _ } ->
+          if Hashtbl.mem tbl.typdefs synid.it then `Non_bool else `Maybe_bool
+      | _ -> `Non_bool)
+  | Some _ -> `Non_bool
+
 (* Rewrite a [R(in) = true/false] or [$iterall..(args) = true] condition to
    its [holds_] spelling, for the assumed-reflectable set [succ]. Conditions
-   binding an output variable are left alone (none exist for qualified
-   judgments). *)
-let replace_cond ~scalars (succ : string list) ((l, r) : R.cond) : R.cond =
+   binding an output variable are left alone, and a bool-literal rhs is only
+   respelled when {!rel_output_kind} says it cannot be an output value. *)
+let replace_cond ~scalars (tbl : tables) (succ : string list) ((l, r) : R.cond)
+    : R.cond =
   match l with
-  | R.App (f, args)
-    when List.mem f succ
-         && (r = T.bool_t ~scalars true || r = T.bool_t ~scalars false) ->
-      (R.App (holds_sym f, args), r)
+  | R.App (f, args) when List.mem f succ ->
+      let bool_rhs b = r = T.bool_t ~scalars b in
+      let respell =
+        if Hashtbl.mem tbl.relsigs f then
+          match rel_output_kind tbl f with
+          | `No_output -> bool_rhs true || bool_rhs false
+          | `Non_bool -> bool_rhs false
+          | `Maybe_bool -> false
+        else bool_rhs true || bool_rhs false
+      in
+      if respell then (R.App (holds_sym f, args), r) else (l, r)
   | _ -> (l, r)
 
 (* [holds_<R>(x0..xn-1) = or(g_1 .. g_k)]: one g per rule of [R], built by the
@@ -793,8 +1163,9 @@ let gen_rel_holds ~scalars ~prep (tbl : tables) (sup : support)
   let gs =
     List.map
       (fun (ru : R.rule) ->
-        if ru.R.rhs <> T.bool_t ~scalars true then
-          raise (Gate "output-carrying judgment rule");
+        (* the guard reflects the rule's lhs patterns and conditions only --
+           an output-carrying rule's rhs is simply ignored, which is exactly
+           the existential "some rule applies" reading *)
         sibling_guard ~prep ~scalars tbl sup effectful succ xs argtyps ru)
       rules
   in
@@ -1100,7 +1471,10 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         List.filter_map
           (fun (l, rr) ->
             match l with
-            | R.App (f, _) when is_rel f && rr = T.bool_t ~scalars false ->
+            | R.App (f, _)
+              when is_rel f
+                   && rr = T.bool_t ~scalars false
+                   && rel_output_kind tbl f <> `Maybe_bool ->
                 Some f
             | _ -> None)
           r.R.conds)
@@ -1114,12 +1488,11 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         owise_heads
   in
   let qualified f =
+    (* any judgment with rules gets an existential [holds_]; output-carrying
+       ones included (their rhs is ignored by {!gen_rel_holds}) *)
     match Hashtbl.find_opt by_head f with
-    | Some rs when rs <> [] ->
-        if is_iter_helper f then true
-        else
-          List.for_all (fun (r : R.rule) -> r.R.rhs = T.bool_t ~scalars true) rs
-    | _ -> false
+    | Some rs -> rs <> []
+    | None -> false
   in
   let rec close (acc : string list) (work : string list) : string list =
     match work with
@@ -1138,7 +1511,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
      a gated candidate restarts the attempt without it (the set is tiny). *)
   let rec attempt (cands : string list) : string list * R.rule list =
     let mark = snapshot sup in
-    let prep = replace_cond ~scalars cands in
+    let prep = replace_cond ~scalars tbl cands in
     let failed = ref None in
     let gen =
       try
@@ -1178,12 +1551,13 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   if succ <> [] then
     Printf.eprintf "reflect: judgment reflection for %s\n"
       (String.concat ", " succ);
-  (* [$itercollect]/[$iterapply] never carry a bool rhs of their own (they
-     always bind the collected/applied value), so {!replace_cond} never
-     touches their call sites. Instead, every rule whose conditions bind a
-     success-reflected helper's result -- owise sibling or not, the same
-     insertion applies system-wide -- gains an explicit
-     [holds_<helper>(args) = true] test immediately before that binding.
+  (* [$itercollect]/[$iterapply] -- and output-carrying judgments -- never
+     carry a bool rhs of their own (they bind the collected/applied/output
+     value), so {!replace_cond} never touches their call sites. Instead,
+     every rule whose conditions bind a success-reflected symbol's result --
+     owise sibling or not, the same insertion applies system-wide -- gains an
+     explicit [holds_<sym>(args) = true] test immediately before that
+     binding.
      This is what lets a later owise guard reflecting THIS rule as a sibling
      find the success test already sitting in its conditions (ordinary
      {!ctest} then reflects it like any other condition); {!check_reflectable}
@@ -1212,7 +1586,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
         {
           r with
           R.conds =
-            List.map (replace_cond ~scalars succ) r.R.conds
+            List.map (replace_cond ~scalars tbl succ) r.R.conds
             |> insert_success_test succ;
         })
       sys.R.rules

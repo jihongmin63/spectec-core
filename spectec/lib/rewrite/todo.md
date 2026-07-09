@@ -6,9 +6,11 @@
 (`To_maude`/`Maude_run`/`Of_maude`), confluence 게이트(`Mfe`)가 모두 구현·컴파일되고
 동작합니다. **M2(실행)·M3(오라클)도 완료** — `run --imp/--p4/--check-p4` 실행 배선과
 same-spec differential(전체 corpus; completeness 0 / soundness 1(알려진 issue1944) /
-Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. 남은 일은 *새 번역 로직*이 아니라
-**(a) 분석 confluence 잔여 MAYBE 해소(match/subty 가드), (b) subtype struct 처리 +
-문서 정리**입니다.
+Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. **분석 confluence의 subty-가드
+MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_guards`), owise
+반사 72/72 달성 + `drop_owise` 폴백 제거, holds_R output-carrying 일반화까지 완료
+(아래 2026-07-07 항목). 남은 일은 아래 "남은 작업" 블록(구조적 differential의
+binary 수 인코딩 트랙, termination sweep, 대형-슬라이스/match-가드 잔여 MAYBE)입니다.
 알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
 [CLAUDE.md](CLAUDE.md) 참고.
 
@@ -135,6 +137,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     `subty_*`는 RHS가 리터럴이 아니라 discriminator가 아님 → 단순 폴드로 **안 됨**.
     subty 절 disjointness 증명이라는 별도 메커니즘 필요(미설계).
   ⇒ (A)+(B)로 11/18 해소 가능, 나머지 7은 subty-disjointness 신규 작업.
+  **(2026-07-07: B′ 7개 전부 해소 — `Reflect.expand_subty_guards`, 아래 권장 순서
+  섹션의 2026-07-07 항목 참조.)**
 
   ChC는 (출력이 나온 모든 경우) YES — p4 분석 모듈도 `rl`/`crl` 0개라 vacuous.
   **비합류(MAYBE) 33건은 두 원인으로 갈린다(둘 다 분석 표면 근사, 번역 버그 아님 —
@@ -275,6 +279,9 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
         환경(WSL 메모리/디스크) 점검 또는 다른 머신에서 `verify --symbol
         '$un_op'`/`'$inherit_i'`/`'$is_lpm_key_prime'`/impty `'$lookup'`
         재실행해 MAYBE→YES 전환과 무회귀를 확인.
+        **(2026-07-07 해소: 차단은 옛 WSL 환경 고유 문제 — 현 dev 컨테이너에서
+        `$lookup` 1초 YES/YES, `$inherit_i` YES/YES. `$un_op`은 슬라이스 크기
+        문제로 재분류. 권장 순서 섹션의 2026-07-07 항목 참조.)**
   - [x] **(A) MFE 입력에서 owise 규칙 drop (구현·검증 완료 — 옛 "owise-보완 번역"안 대체).**
     `$is_lpm_key'`/`$requires_priority'` 류는 `= true if text="lpm"` + `= false [owise]`인데
     CRC가 owise를 임계쌍 생성에서 무시해 `false=true if text="lpm"` 충돌. **단순 confluence
@@ -776,7 +783,12 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
     프로세스별 메모리 상한을 걸었으며 분류기에 OOM 카테고리 추가. 4/12개 표본으로
     스모크 테스트 통과 후, 전체 1568개 corpus 대상 실행을 tmux 세션
     (`spectec-structural-diff`, 로그: `check_diff_structural_p4.log`)으로 백그라운드
-    시작함 — 진행 중, 결과 미확인.
+    시작함 — **완주 확인(2026-07-07, `RESUMED_RUN_DONE_EXIT=0`): RESULT-VALUE
+    3 MATCH / 0 MISMATCH, 나머지 179는 DECODE_ERR/NOCOMP/INTERP_FAIL/TIMEOUT/
+    UNKNOWN(예측된 Peano 스케일 한계 계열; wall-clock 구조 14h vs interp 16m).
+    MISMATCH 0 = 반사 패스 의미-보존의 실행 기반 확인이라는 원래 목표는 소형
+    표본에서 달성; 커버리지 확대는 binary 수 인코딩 트랙(별도 체크아웃
+    `spectec-core-binenc`에서 진행 중)의 몫.**
 
 ## Native 직접 생성 리팩토링 (B) — ✅ 완료
 
@@ -937,12 +949,97 @@ effectful 집합에 속하냐"만 보고 무조건 막던 2줄 삭제). `gensym.
 gensym 심볼(`$compat_table_exact_optional_key`)을 잡아 정상적으로 계속 게이트되는 것도
 확인 — 안전장치가 실전에서도 정확히 작동함을 보여줌.)
 
+(추가 완료 2026-07-07: **MFE 환경 차단 해제 확인 + (B) 실측 완주 + B′ subty-가드
+확장 + owise 72/72(ambiguous matcher 해소) + holds_R output-carrying 일반화 +
+`drop_owise` 폴백 제거.** 상세:)
+
+- **환경: 차단은 옛 WSL 환경 문제였고 현 dev 컨테이너(RAM 121GB/32코어, cgroup
+  무제한)에서는 재현 안 됨** — impty `$lookup` 대조군 `--timeout 120` → **YES/YES
+  1초**(과거 ~1.4s 수준 복원). p4 verify는 회당 ~110s의 translate 고정비 + CRC.
+  과거 "심볼당 ~4분/TIMEOUT" 메모는 이 환경에는 적용되지 않음.
+- **(B) MFE 실측 완주**: `$inherit_i`(10규칙) **YES/YES**, `$un_op`(287규칙)은
+  환경이 아니라 슬라이스 크기가 원인으로 재분류(baseline `--timeout 600` TIMEOUT;
+  subty 가드가 subty/보완 가족을 슬라이스로 끌어옴). impty `$lookup` 대조군 YES/YES.
+  B′ 확장 후 `$un_op` 슬라이스는 287→**87규칙**으로 줄었는데, CRC가 이번엔 Peano
+  산술 재귀 규칙군($int_to_bitstr/$bitstr_to_int류)의 임계쌍 계산에서 **maude
+  native "Fatal error: stack overflow"로 사망**(verdict 없음으로 관측) —
+  check_diff_structural_p4.sh가 이미 배운 것과 같은 교훈(e73fcb44, 기본 8MB 스택은
+  정상적으로-깊은 계산에 부족)이라 [mfe.ml](mfe.ml) `run_mfe`가 maude를
+  `ulimit -s unlimited` 셸 래핑으로 spawn하도록 수정. 무제한 스택에서는 크래시
+  없이 계산이 지속됨(수동 재현 15분+ 생존, 8MB에서는 ~5분에 사망) — 잔여 장애물은
+  스택이 아니라 87규칙 산술 슬라이스의 순수 CRC 임계쌍 비용 — 무제한 스택 재검에서
+  **CRC 완주(~15분): verdict MAYBE + sort-decreasing**. 잔여 임계쌍(ccp SPEC100)은
+  `$un_bnot`의 `$bneg(i)=i'` 출력 바인더가 rhs `$ite(..i'..i'..)`에 2회 쓰여
+  `fold_premise_binders`의 중복-방지 게이트(`uses=1 || alias`)에 걸려 남은
+  premise-witness 쌍 — **원인 1(전제-only 바인더)의 알려진 잔여 계열**, B′와 무관.
+  baseline TIMEOUT 대비 "판정 가능"으로 개선.
+- **owise 72/72 (kept 0)**: 마지막 kept `$find_local_return_type_t`의
+  `Gate "ambiguous matcher"`는 `ctest`의 `type_of_l`이 struct 필드 접근자 체인의
+  결과 타입을 복구하지 못해 `matcher_type`이 `ctor_types` 3-타입 폴백으로 떨어진
+  것이 원인 — `tables`에 `fieldsigs`(struct 필드 타입)·`rel_outs`(relation 출력
+  타입) 추가, `type_of_l`을 funcsigs → fieldsigs → 단일-출력 rel_outs 순 폴백으로
+  확장([translate/reflect.ml](translate/reflect.ml)). 결과: owise 절이 union 타입
+  `localKind`의 total matcher 가족(4 matcher × 9 케이스 지원규칙)으로 반사.
+  p4 `--ctrs` diff는 정확히 그 owise 절 + 지원규칙뿐, impty 골든·실행 표면
+  byte-identical.
+- **(B′) subty-가드 확장 — `Reflect.expand_subty_guards` 구현·배선·실측 완료.**
+  분석 파이프라인에서 `hoist_matchers` 뒤·`fold_premise_binders` 앞. `subty_S(v)=true`
+  가드(v가 head-bound)를 CTRS 스캔으로 얻은 S의 멤버 생성자별로 **1규칙→N규칙
+  팬아웃**(θ=[v:=K_i(expand_j..)] 전체 치환, 멤버 residual은 잔여 조건으로),
+  클론별 **부분평가**: 콘크리트 ctor 위 matcher/subty 평가(true→조건 제거,
+  false/stuck→클론 폐기 — 생성자는 free라 둘 다 unsatisfiable), 동반 destructure
+  `K(sf..)=K(pats..)` 점별 분해, fresh-변수 rename(head 패턴 심화), head 밖
+  존재변수의 `w=t`(t는 순수 ctor 항) 제거. alias 위임 체이싱, 타입파라미터
+  `subty_T(x)->true`는 vacuous drop. 게이트: 멤버 >16 또는 규칙당 클론 budget
+  64 초과 시 skip+stderr(`subty_expression` 31멤버 등 대형 variant가 이에 걸림 —
+  의도된 보수성). fresh 이름 `expand_%d`는 Var_hints 키와 서로소(sort는 ctor
+  시그니처에서 위치 복구).
+  - p4: **1738절 → 2496클론(956 dead, vacuous 48)**, 실행 표면(native emit)
+    sha256 불변. impty 골든은 의도된 개선으로 재생성(6절 → 6클론+4 dead;
+    `Check-expr`/`Eval-expr`의 literal 절들이 무조건 `eq`로, id 절은 head 특수화 +
+    존재변수 제거로 `$lookup(..)=some(t)` 한 줄로 접힘; `spec.maude` 불변).
+  - **의미 보존 실측**: run-structural impty 8/8 `result: true`, p4
+    `issue1301.p4` `--check-p4` **result: MATCH**.
+  - **MFE 실측 (post-A, `--timeout 600`, B′ 7심볼 전부 + 회귀 표본):**
+
+    | symbol | 착수 전 | after | 비고 |
+    |---|---|---|---|
+    | `$flatten_constOpt` | YES | **YES** (116s) | 기존 패스로 이미 해소돼 있었음 |
+    | `$tableCustomName` | YES (425s) | **YES** (118s) | 슬라이스 축소로 3.6× 가속 |
+    | `$name` | TIMEOUT@600 | **YES** (121s) | 343규칙 → 수십 규칙급 |
+    | `$prefixedTypeName` | TIMEOUT@600 | **YES** (125s) | |
+    | `$prefixedNonTypeName` | TIMEOUT@600 | **YES** (133s) | |
+    | `$invalidate_value` | MAYBE | **YES** (213s) | 잔여 payload 가드 남아도 head 서로소화로 discharge |
+    | `$invalidate_headerUnion` | MAYBE | **YES** (210s) | |
+    | `$is_lpm_key_prime` (회귀) | YES | YES | 무회귀 |
+    | `$inherit_i` (회귀) | YES | YES | 무회귀 |
+    | `$join_ctk` (회귀) | MAYBE | MAYBE | 무회귀 — subty 아닌 match-가드 잔여((B)의 companion-destructure 게이트 케이스) |
+
+    **B′ 7/7 YES — "남은 7 MAYBE(subty-disjointness)" 완전 해소.**
+- **holds_R output-carrying 일반화 (negation-as-false-value 확장) 구현 완료,
+  현 코퍼스에서는 휴면(byte-identical).** `gen_rel_holds`의
+  `Gate "output-carrying judgment rule"` 제거(가드는 lhs 패턴+조건만 반사 —
+  출력 무시가 곧 존재성 의미), `check_reflectable`의 relation Gate를 `succ` 미포함
+  시로 완화, `qualified`를 "규칙 있는 모든 judgment"로 완화. 부정 respell은
+  신설 `rel_output_kind`(rel_outs 기반)로 게이트: `No_output`(양/음 모두 respell),
+  `Non_bool`(출력이 bool 리터럴일 수 없음 — `=false`만 respell),
+  `Maybe_bool`(단일 bool 출력 — 출력값 false와 부정을 구문으로 구별 불가,
+  **respell 금지**). 바인딩 call site는 기존 `insert_success_test`가 자동 커버
+  (succ 포함 + 비-bool rhs 기준이라 코드 무변경). **p4/impty `--ctrs`
+  byte-identical + succ 집합 47 불변으로 무회귀 확정** — p4에는 부정된
+  output-carrying relation 조건이 0건(사전 스캔)이라 예측대로 소비자 없음.
+  미래 spec에서 `~R(in)` (output relation)이 나타나면 즉시 동작.
+- **`drop_owise` 폴백 제거 ([mfe.ml](mfe.ml)).** 72/72 반사로 no-op이 된 drop을
+  제거하고, 대신 MFE 입력에 owise 규칙이 남아 있으면(미래 spec의 반사 Gate 회귀)
+  `mfe: WARNING - N unreflected owise rule(s) reach the MFE input` stderr 경고 —
+  침묵 false MAYBE 대신 원인이 로그로 드러남. CRC엔 보수적(허상 임계쌍 = MAYBE,
+  false YES 불가). `Rewrite_system.drop_owise` 함수 자체는 유지(다른 소비자).
+  p4/impty에서 경고 미출력(vacuous) 확인, impty verify YES/YES.
+
 남은 작업:
 
 ```
-  → (B) MFE 실측 — p4 $un_op/$inherit_i MAYBE→YES + 무회귀 재검      [환경 차단, 2026-07-03 재확인: impty $lookup 대조군 --timeout 280도 TIMEOUT — 여전히 미회복, 원인 불명(RAM/OOM 이상 없음)]
-  → (B′) subty-가드 확장 — B의 discriminator fold를 subty_*까지     [위 M1 "B′" 7개; totality 기반, 미설계]
-  → owise 제거 + relation R? 반사 (negation-as-false-value 확장)    [subty totality가 기반]
-  → CTRS(구조적) differential — 인터프리터/Native 오라클과 대조      [M3 옆; 반사 패스 실행-기반 검증; 2026-07-04: run-structural로 실측 시작 — 3개 실행 전용 버그 발견/수정(8d161af8/a3e9c271/2583c31f), 작은 bit-width는 Program_ok 완전 해결, bit<32+>는 Peano 인코딩 OOM으로 별도 트랙, check_diff_structural_p4.sh로 전체 corpus 실행 진행 중]
-  → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)         [CRC 보완; timeout 재보정]
+  → CTRS(구조적) differential의 binary 수 인코딩 — Peano가 bit<32+>에서 OOM   [전체 corpus 1차 완주(2026-07-07 확인): RESULT 3 MATCH / 0 MISMATCH / 179 other(OOM/TIMEOUT/DECODE_ERR 등 — Peano 스케일 한계); 별도 체크아웃 spectec-core-binenc에서 binary-encoding 트랙 진행 중]
+  → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)                    [CRC 보완; 환경 회복됐으니 재측정 가능]
+  → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
 ```

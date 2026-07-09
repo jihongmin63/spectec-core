@@ -189,20 +189,20 @@ let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
       close_out oc;
       let fd_in = Unix.openfile infile [ Unix.O_RDONLY ] 0 in
       let r_out, w_out = Unix.pipe () in
-      (* Through a shell, not a direct exec, so [ulimit -s unlimited] can run
-         first: the CRC's critical-pair search recurses deeply enough on a
-         large/complex slice (observed on this codebase's own p4 spec) to hit
-         a native "Fatal error: stack overflow" in Maude itself under
-         whatever small default stack size the shell that launched THIS
-         process inherited -- the same root cause (and fix) as
-         [check_diff_structural_p4.sh]'s identically-named bug for the
-         ground-execution oracle, just never applied to the CRC path before.
-         ["$0"] becomes [bin] (the argument right after the [-c] script, per
-         POSIX [sh -c command name args...]), so [exec "$0" -no-banner]
-         reproduces the exact argv the direct [create_process_env] call used. *)
+      (* Launch through a shell that first lifts the stack limit: the default
+         8MB stack is too small for legitimately-deep (not runaway) CRC
+         critical-pair computations on arithmetic-heavy slices, which
+         otherwise die as a native "Fatal error: stack overflow" and read as
+         a missing verdict -- the same lesson check_diff_structural_p4.sh
+         already encodes for plain reductions (e73fcb44). *)
       let pid =
         Unix.create_process_env "/bin/sh"
-          [| "/bin/sh"; "-c"; "ulimit -s unlimited; exec \"$0\" -no-banner"; bin |]
+          [|
+            "/bin/sh";
+            "-c";
+            "ulimit -s unlimited 2>/dev/null; exec \"$0\" -no-banner";
+            bin;
+          |]
           (child_env bin) fd_in w_out w_out
       in
       Unix.close fd_in;
@@ -263,13 +263,26 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ~(rule_heads : string list)
   | Ok mfe_dir ->
       let bin = resolve_bin maude_bin in
       let mfe_path = absolute (Filename.concat mfe_dir mfe_entry) in
-      (* Drop the [owise] equations before the CRC/ChC. An owise rule fires only
-         where no sibling matched, so its overlaps are infeasible by construction;
-         the checker ignores the [owise] attribute and would flag them as spurious
-         critical pairs. Stripping them is sound for the confluence gate and is
-         confined to the MFE input -- the [--ctrs] dump and any termination view
-         keep the full system. *)
-      let system = Rewrite_system.drop_owise system in
+      (* {!Reflect.owise} replaces every reflectable [owise] marker with an
+         explicit sibling-disjointness guard before the system gets here, so
+         normally no [owise] rule remains. Should one survive (a future spec
+         hitting a reflection Gate), it reaches the checker as-is: the CRC
+         ignores the [owise] attribute and will flag its structurally
+         infeasible sibling overlaps as spurious critical pairs -- a
+         conservative MAYBE, never a false YES. Warn so that regression is
+         attributable instead of silently dropping the rules (the old
+         [drop_owise] fallback). *)
+      let unreflected =
+        List.length
+          (List.filter
+             (fun (r : Rewrite_system.rule) -> r.owise)
+             system.Rewrite_system.rules)
+      in
+      if unreflected > 0 then
+        Printf.eprintf
+          "mfe: WARNING - %d unreflected owise rule(s) reach the MFE input \
+           (spurious critical pairs possible)\n"
+          unreflected;
       let module_text =
         To_mfe.module_of_system ~module_name ~rule_heads orig system
       in

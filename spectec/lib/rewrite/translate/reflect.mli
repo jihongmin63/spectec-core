@@ -33,3 +33,23 @@ val hoist_matchers :
   orig:Lang.Il.spec ->
   Rewrite_system.t ->
   Rewrite_system.t
+
+(** (B') subty-guard head specialization: expand a clause guarded by a
+    membership test [subty_<S>(v) = true] on a head-bound variable [v] into one
+    clone per member constructor of [S] (substituting [v := K(fresh..)] through
+    the whole rule, dropping the guard, and keeping the member's payload
+    conjunction as a residual condition when it is not literally [true]), so
+    sibling clauses dispatching on the same subject get genuinely disjoint head
+    patterns instead of overlapping variable heads whose disjointness the CRC
+    cannot see. Exact by subtype totality: the [subty_<S>] rule family (member
+    cases -> payload conjunction, use-based complement -> [false]) enumerates
+    the guard's true-set syntactically. Companion conditions are partially
+    evaluated per clone (matcher/subty tests on the now-concrete constructor
+    decide or kill the clone; destructuring equations decompose pointwise);
+    unrecognized shapes are conservatively kept. Analysis-only, like {!owise}.
+*)
+val expand_subty_guards :
+  scalars:Ctrs_term.scalar_theory ->
+  orig:Lang.Il.spec ->
+  Rewrite_system.t ->
+  Rewrite_system.t
