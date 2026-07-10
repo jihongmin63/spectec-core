@@ -77,16 +77,37 @@ MPROG=${MPROG:-check_diff_p4_structural_maude.tsv}
 COMP=${COMP:-check_diff_p4_structural_completeness.tsv}
 SOUND=${SOUND:-check_diff_p4_structural_soundness.tsv}
 RESMATCH=${RESMATCH:-check_diff_p4_structural_resultmatch.tsv}
-RESCHUNK=${RESCHUNK:-10}
+RESCHUNK=${RESCHUNK:-50}
 ITIMEOUT=${ITIMEOUT:-60}
-CHUNK=${CHUNK:-10}
+CHUNK=${CHUNK:-50}
 BATCH_TIMEOUT=${BATCH_TIMEOUT:-600}
 MEMLIMIT_KB=${MEMLIMIT_KB:-4000000}   # ~4GB virtual memory per Maude invocation
+# Per-program Maude reduction cap (the run-structural --timeout, applied to each
+# start term INSIDE a batch, not to the whole invocation). Default 0 = unbounded
+# so every reduction runs to a real normal form -- required for a trustworthy
+# result-value comparison (a clipped reduction would report a spurious
+# STUCK/MISMATCH). Speed instead comes from a large CHUNK/RESCHUNK: the ~1min
+# module-load fixed cost is paid once per batch and amortized over many programs.
+# Set a finite value only to bound a batch against a genuinely non-terminating
+# program (BATCH_TIMEOUT is the outer guard either way).
+REDUCE_TIMEOUT=${REDUCE_TIMEOUT:-0}
+# Phase C's join scratch file. Made overridable so several instances (each on a
+# disjoint CORPUS_LIST shard, with its own MPROG/RESMATCH/COMP/SOUND) can run in
+# parallel without clobbering each other's cross-tab.
+JOINED=${JOINED:-/tmp/check_diff_p4_structural_joined.tsv}
 
 [ -x "$EXE" ] || { echo "build first: (cd spectec && opam exec --switch=spectecx -- dune build bin/main.exe)" >&2; exit 1; }
 
 CORPUS=$(mktemp)
-cat <(ls "$SAMPLES"/*.p4) <(ls "$ERRORS"/*.p4) | sort -u > "$CORPUS"
+# CORPUS_LIST lets a caller restrict the run to a preselected set of programs
+# (e.g. only the interp-PASS files, for a fast result-value-match-first pass, or
+# only the interp-FAIL files, for the soundness leg) instead of the whole
+# corpus. The default is the full samples+errors set, sorted-unique.
+if [ -n "${CORPUS_LIST:-}" ]; then
+  sort -u "$CORPUS_LIST" > "$CORPUS"
+else
+  cat <(ls "$SAMPLES"/*.p4) <(ls "$ERRORS"/*.p4) | sort -u > "$CORPUS"
+fi
 total=$(wc -l < "$CORPUS")
 
 fmt_dur() { local s=$1; printf '%dh %02dm %02ds' $((s/3600)) $((s%3600/60)) $((s%60)); }
@@ -120,14 +141,14 @@ classify_text() {
 }
 classify_one() {  # one program via its own run (the per-file fallback)
   local f="$1" raw rc
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$ITIMEOUT" "$EXE" run-structural --p4 "$f" -i "$INC" $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$ITIMEOUT" "$EXE" run-structural --p4 "$f" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
   if [ "$rc" -eq 124 ]; then printf 'TIMEOUT\t%s\n' "$f"
   else printf '%s\t%s\n' "$(classify_text "$raw")" "$f"; fi
 }
 classify_chunk() {  # a whole chunk in ONE invocation; split per `=== file ===`
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --timeout 0 $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
   if [ "$rc" -ne 0 ]; then
     # covers both the shell-level timeout (124) AND the whole batched Maude
     # process dying (OOM or otherwise) -- either way, none of this chunk's
@@ -181,9 +202,9 @@ echo "[B] done: $(wc -l < "$MPROG") / $total classified [$(fmt_dur $dur_B)]" >&2
 # --- Phase C: cross-tabulate ---
 join -t$'\t' -1 2 -2 2 \
   <(sort -t$'\t' -k2 "$IPROG") <(sort -t$'\t' -k2 "$MPROG") \
-  > /tmp/check_diff_p4_structural_joined.tsv
-awk -F'\t' '$2=="PASS" && $4!="OK" { print $4 "\t" $1 }' /tmp/check_diff_p4_structural_joined.tsv | sort > "$COMP"
-awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        /tmp/check_diff_p4_structural_joined.tsv | sort > "$SOUND"
+  > "$JOINED"
+awk -F'\t' '$2=="PASS" && $4!="OK" { print $4 "\t" $1 }' "$JOINED" | sort > "$COMP"
+awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        "$JOINED" | sort > "$SOUND"
 
 # --- Phase D: result-value match (PASS & OK intersection) ---
 # Same idea as check_diff_p4.sh's Phase D, but over the (likely much smaller)
@@ -192,7 +213,7 @@ awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        /tmp/check_diff_p4_struc
 resultmatch_chunk() {
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --check-p4 --timeout 0 $SPEC 2>/dev/null); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --check-p4 --timeout "$REDUCE_TIMEOUT" $SPEC 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     for f in "${files[@]}"; do printf 'TIMEOUT\n'; done; return
   fi
@@ -207,10 +228,10 @@ resultmatch_chunk() {
 }
 
 touch "$RESMATCH"
-mapfile -t dtodo < <(awk -F'\t' '$2=="PASS" && $4=="OK" { print $1 }' /tmp/check_diff_p4_structural_joined.tsv | sort | while IFS= read -r f; do
+mapfile -t dtodo < <(awk -F'\t' '$2=="PASS" && $4=="OK" { print $1 }' "$JOINED" | sort | while IFS= read -r f; do
   awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$RESMATCH" || echo "$f"
 done)
-dtotal=$(awk -F'\t' '$2=="PASS" && $4=="OK"' /tmp/check_diff_p4_structural_joined.tsv | wc -l)
+dtotal=$(awk -F'\t' '$2=="PASS" && $4=="OK"' "$JOINED" | wc -l)
 echo "[D] result-value match over PASS&OK ($dtotal): $(( dtotal - ${#dtodo[@]} )) done, ${#dtodo[@]} to run (RESCHUNK=$RESCHUNK) ..." >&2
 tD0=$(date +%s)
 di=0

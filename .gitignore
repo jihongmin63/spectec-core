@@ -33,3 +33,13 @@ spectec/.hook-check
 # The harness (check_diff_p4.sh) and reference suite (p4_typecheck_suite.txt)
 # stay tracked; only the generated result files are ignored.
 /check_diff_p4_*
+
+# check_diff_structural_p4.sh (structural-backend differential) outputs: run
+# logs and the PASS&OK shard list. The harness itself stays tracked; the result
+# TSVs it writes are already covered by /check_diff_p4_* above.
+/check_diff_structural_*.log
+/pass_ok.txt
+
+# Personal research notes (not part of the spec/docs; see todo.md/CORE_LOGIC.md
+# for the tracked design docs).
+/RESEARCH_NOTES.md

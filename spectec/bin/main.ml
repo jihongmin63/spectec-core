@@ -575,8 +575,8 @@ let run_structural_command =
   and p4 =
     flag "--p4" (listed string)
       ~doc:
-        "FILE parse a P4 program and reduce it structurally through \
-         Program_ok (repeat to batch several through one Maude invocation)"
+        "FILE parse a P4 program and reduce it structurally through Program_ok \
+         (repeat to batch several through one Maude invocation)"
   and includes =
     flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
   and task =
