@@ -210,13 +210,16 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       ]
   (* ----- text (a byte [cons]/[nil] list) ----- *)
   | "int_to_text", _, _ ->
-      (* the decimal spelling of the int as a char list ([string_of_num]): split
-         off the sign, then emit digits high-to-low by recursive div/mod by ten,
-         each remainder mapped to its ASCII byte ([chr_48]..[chr_57]). [int_neg x]
-         is -(x+1), so its magnitude is [bsucc x]; '-' is [chr_45]. [n]/[x] here
-         are [int_pos]/[int_neg]'s [BNatV] magnitude (can be P4-bit-width-scale),
-         so [to_nat]'s own recursion is the [BNatV] (bdiv/bmod/blt) family, not
-         the Peano one -- {!Ctrs_term}'s doc comment. *)
+      (* the decimal spelling of the int as a char list ([string_of_num]): an
+         explicit sign then digits high-to-low by recursive div/mod by ten, each
+         remainder mapped to its ASCII byte ([chr_48]..[chr_57]). A signed [int]
+         always prints its sign (the interpreter's [Xl.Num.string_of_num], and
+         {!To_maude}'s Native [$int_to_text] delegation, both do): '+' ([chr_43])
+         for non-negative [int_pos n], '-' ([chr_45]) for [int_neg x] (which is
+         -(x+1), so its magnitude is [bsucc x]). [n]/[x] here are [int_pos]/
+         [int_neg]'s [BNatV] magnitude (can be P4-bit-width-scale), so [to_nat]'s
+         own recursion is the [BNatV] (bdiv/bmod/blt) family, not the Peano one --
+         {!Ctrs_term}'s doc comment. *)
       let to_nat = helper "nat" and digit = helper "digit" in
       let ten = T.bnat_lit ~scalars 10 in
       let digit_rules =
@@ -224,7 +227,9 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
             T.rule (T.app_t digit [ T.bnat_lit ~scalars d ]) (T.chr_t (48 + d)))
       in
       [
-        T.rule (T.app_t sym [ T.int_pos_t n ]) (T.app_t to_nat [ n ]);
+        T.rule
+          (T.app_t sym [ T.int_pos_t n ])
+          (T.cons_t (T.chr_t 43) (T.app_t to_nat [ n ]));
         T.rule
           (T.app_t sym [ T.int_neg_t x ])
           (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.bsucc_t x ]));
