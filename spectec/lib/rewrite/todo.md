@@ -9,8 +9,10 @@ same-spec differential(전체 corpus; completeness 0 / soundness 1(알려진 iss
 Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. **분석 confluence의 subty-가드
 MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_guards`), owise
 반사 72/72 달성 + `drop_owise` 폴백 제거, holds_R output-carrying 일반화까지 완료
-(아래 2026-07-07 항목). 남은 일은 아래 "남은 작업" 블록(구조적 differential의
-binary 수 인코딩 트랙, termination sweep, 대형-슬라이스/match-가드 잔여 MAYBE)입니다.
+(아래 2026-07-07 항목). **구조적 CTRS differential**(binary nat 이론, Phase D
+1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [recalibration.md](../../../recalibration.md))도
+완료됐습니다. 남은 일은 아래 "남은 작업" 블록(`$bitstr_to_int` w=0 비종료,
+search/modelCheck 메타 성질 검증, SCC, 잔여 MAYBE)입니다.
 알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
 [CLAUDE.md](CLAUDE.md) 참고.
 
@@ -698,7 +700,9 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   P4 타입시스템이 `bit<0>`/`int<0>` 산술을 막는가? → 막으면 도달불가 `w≥1` 불변식(문서화로 종결),
   안 막으면 numerics.ml+CTRS **공유 실행 버그**(builtin.ml w=0 처리 수정). 영향: 고정폭 W/S decode
   op 전부(lt/le/gt/ge, plus/minus/mul, un_minus-S, band/bxor/bor-W/S, nat_of_integerValue, satplus/satminus, shl/shr).
-- [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
+- [x] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거 (완료 — 어트리뷰트는 이미
+  소스에 없고 `dune build bin/main.exe`가 경고 없이 통과. 빌더 레이어가 전부
+  참조된다는 뜻).
 - **⛔ `$iterproj` 제거(수집 헬퍼 통일 1단계) — 보류, 정합성 벽 (2026-07-02).**
   다중 출력 iterated relation을 "출력별 무조건 map"으로 바꾸려던 안은 **gensym과
   충돌**한다: p4의 multi-output `$iterapply` 3개(`TableEntry_ok`,
@@ -733,7 +737,16 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   [check_diff_p4.sh](../../../check_diff_p4.sh)로 전체 corpus 교차 검사. 결과:
   completeness gap 0, soundness gap 1(알려진 issue1944), Phase D 결과-VALUE
   오라클 1227/1227 MATCH. 상세는 [CLAUDE.md](CLAUDE.md) "회귀/divergence 측정" 절.
-- [ ] **CTRS(구조적) differential — 별도, 미착수.** 위 differential은 인터프리터
+- [x] **CTRS(구조적) differential — 완료 (2026-07-10, `92618dc2`).**
+  [check_diff_structural_p4.sh](../../../check_diff_structural_p4.sh)가 인터프리터
+  vs **구조적 CTRS**를 전체 corpus에서 교차 검증한다(Phase A/B/C/D, resumable,
+  `CORPUS_LIST`/`MPROG`/`RESMATCH` 샤딩). 이진 nat 이론 위에서 `$int_to_text`
+  부호 수정(`5e1c3ea1`) 후 **Phase D 1227/1227 MATCH / 0 MISMATCH**
+  ([spectec-structural-completeness-soundness.md](../../../spectec-structural-completeness-soundness.md)).
+  ⇒ `Reflect.owise`/`fold_premise_binders`의 의미 보존이 처음으로 **실행 기반**으로
+  뒷받침됨. 아래는 착수 당시의 설계 메모(이력).
+
+  위 differential은 인터프리터
   vs **Native 실행 모듈**(`To_maude`, 내장 Bool/Nat/Int/String 위임)만
   교차 검증한다. **구조적 CTRS**(`Reflect.owise`/`Rewrite_system.
   fold_premise_binders`/`prune_unused`를 거친 분석 표면 —
@@ -900,13 +913,124 @@ elaborator가 정적으로 처리, 런타임 검사 시점엔 정적 타입이 �
   유의미해짐. 실행 표면의 To_maude owise complement는 잔여 head 흡수용으로 유지
   (명시 규칙이 선점, 의미 불변).
 
-**termination(생성·재기록):**
-- 재귀/상호재귀 타입: 헬퍼 생성은 `Helper_defs.mem`/`require` 메모이즈로 타입당 1회 →
-  생성 종료. 재기록은 구조적으로 더 작은 항으로 내려가 종료. (확인만; 상호재귀 타입
-  표본으로 헬퍼 누락/중복 없는지 점검.)
+**termination(생성·재기록) — ✅ 확인 완료 (2026-07-10, p4 `--ctrs` 전수 실측):**
+- **상호재귀는 실제로 존재한다**: 방출된 `subty_*` 호출 그래프에 크기>1 SCC가 **11개**
+  (최대 26심볼 — `subty_expressionIR` ↔ `subty_argumentIR` ↔ `subty_callableTargetIR` …;
+  그 외 `expression` 계열 17, `statementIR`/`blockStatementIR` 계열 8, `statement` 계열 6).
+- **생성 종료**: `require`가 compound 타입(`TupleT`/`IterT`)에 대해 **먼저 `Helper_defs.add`
+  하고 나서** 성분으로 재귀하고, 명명 타입은 `VarT` leaf라 재귀를 끊는다(규칙은
+  `defs_of_typ`가 spec의 `TypD` 리스트를 1회 순회하며 방출) ⇒ SCC가 있어도 fixpoint.
+  실측: `op subty-*` 중복 선언 0건, `eq subty-*` 완전중복 0건(7,310 등식).
+- **재기록 종료**: 생성자 패턴 lhs의 재귀 호출은 전부 패턴 변수(진부분항)를 인자로 받는다 —
+  실측으로 **lhs 인자 전체를 그대로 다시 `subty_*`에 넘기는 규칙 0건**. 유일한 비-하강
+  형태는 alias 위임 `subty_T(x) -> subty_U(x)`(bare 변수 lhs, 71개)인데 이 위임 그래프는
+  **비순환**(SCC 없음)이라 유한 체인 뒤 반드시 구조 하강 규칙에 도달. ⇒ 서브텀 순서 +
+  비순환 alias 체인의 사전식 조합으로 종료.
+
+## SCC (Sufficient Completeness Checker) — 현재 환경에선 **못 돌림** (2026-07-10 조사)
+
+MFE 3.5.1 배포본에 SCC 2b는 들어 있고(`tools/mfe/src/SCC/scc.maude`, 배너에도 뜸)
+`(select tool SCC .)` 까진 되지만, 실제 검사는 안 된다:
+
+```
+MFE> (select tool SCC .)   →  The SCC has been set as current tool.
+MFE> (scc SPEC .)          →  Warning: The sufficient completeness checker is not
+                              fully available. Please use the trust command ...
+```
+
+**원인 — CETA 훅 미바인딩.** SCC의 핵심 연산은 트리 오토마타 공허성 판정
+`op test-emptiness : Module ~> EmptinessResult [special (id-hook CetaSymbol ...)]`
+(`tools/mfe/src/SCC/scc.maude:792`)인데, 이건 **CETA 라이브러리를 링크해 빌드한
+Maude(Maude++)** 에만 있는 빌트인이다. 우리 바이너리 둘 다 없음
+(`strings maude | grep -ci ceta` → 0):
+
+| 바이너리 | ceta | TerminationCheckerSymbol |
+|---|---|---|
+| `tools/maude/maude` (stock 3.5.1) | 0 | 0 |
+| `tools/maude271-hooks/maude` (v2.7.1-ext-hooks) | **0** | 2 |
+| `maude-2.7-hooks-linux` (v2.7-ext-hooks 릴리스 에셋) | **111** | 2 |
+
+주의: `v2.7.1-ext-hooks` 릴리스 **제목**은 "CETA library and MTT hooks"라고 하지만,
+그 리눅스 에셋에는 CETA가 실제로 안 들어 있다(MTT 훅만). CETA가 들어 있는 건
+한 세대 **아래**인 `v2.7-ext-hooks`의 `maude-2.7-hooks-linux.zip` 뿐이다. 구형
+스택(`maude271-hooks` + `mfe271`, SCC 2a 번들)으로 돌려도 같은 warning이 난다 —
+즉 MFE 버전 문제가 아니라 **바이너리 문제**.
+
+**돌리려면:** `maude-2.7-hooks-linux.zip`(v2.7-ext-hooks)을 받아
+`tools/maude27-ceta/`에 두고 `MAUDE_LIB`을 거기로 잡은 뒤, 구형
+`tools/mfe271/MFE-mfe-2.7.1/src/mfe.maude`(SCC 2a 번들)로 `(scc SPEC .)`.
+termination 경로(`run-termination.sh`)가 이미 쓰는 것과 **같은 모양의 구형-스택
+패턴**이라 헤더 변환(`(mod`→`(fmod`, `set include BOOL[-OPS] off .` 커맨드화)과
+`prune_slice_signature.py` 를 그대로 재사용할 수 있다. 이번 세션에선 에이전트가
+받은 외부 바이너리 실행이 권한 거부되어 여기까지만 확인.
+
+**돌아가더라도 결과 해석에 큰 함정 둘:**
+1. **`[ctor]` 선언이 없다.** `to_mfe.ml`은 op 선언에 ctor 속성을 전혀 안 붙인다
+   (`grep -c ctor` → 0). SCC는 Σ를 constructor/defined 로 나눠야 하므로, ctor 표시가
+   없으면 판정이 무의미하다. `il_constructor_syms`(이미 `to_mfe.ml`이 계산 중)
+   + 구조적 스칼라 생성자(`zero`/`succ`/`int_pos`/`int_neg`/`nil`/`cons`/`none`/`some`/
+   `true`/`false`/`chr_*`)에 `[ctor]`를 방출하는 작업이 선행되어야 한다.
+2. **조건부 방정식이 조용히 버려진다.** `CC-CONFIG`의 `drop-bad-eqs = true`
+   (`tools/mfe/src/SCC/scc.maude:16`)는 **conditional 또는 non-left-linear 방정식을
+   검사 전에 드롭**한다. 우리 분석 표면은 `ceq`가 압도적이라(프리미스=조건) 남는 건
+   극히 일부. 그 상태의 "not sufficiently complete" 반례는 전부 위양성이다. CRC
+   MAYBE 트리아지와 같은 교훈: **판정보다 witness를 봐야 한다.**
 
 **할 일:**
-- [ ] 상호재귀 타입 표본으로 생성·재기록 종료 확인.
+- [ ] (선행) `to_mfe.ml` op 선언에 `[ctor]` 방출 — SCC 없이도 signature 문서화 가치 있음.
+- [ ] `tools/maude27-ceta/` 설치 + `run-scc.sh` (run-termination.sh 패턴 복제).
+- [ ] 작은 unconditional 슬라이스(예: 프리루드 `badd`/`bmul`, 리스트 연산)부터 SCC 시범.
+
+## `search` / `modelCheck` — P4 언어의 메타 성질 검증 (신규, 미착수)
+
+**동기.** 지금까지 Maude는 두 축으로만 쓰였다: (1) **실행 엔진**(`reduce` — 프로그램
+하나의 타입검사 결과), (2) **분석 게이트**(CRC/ChC/termination — 재작성 시스템 자체의
+성질). 어느 쪽도 "**P4 언어의 메타 성질**"(결정성·progress·preservation·parser 도달성
+등)을 묻지 않는다. `search`(도달 가능 상태공간 탐색)와 `modelCheck`(LTL 모델 검사)는
+세 번째 축 — 성질의 **반례를 기계적으로 찾거나**, 유한 모델에서 성립을 확인한다.
+
+**전제 조건 (배선부터 필요).**
+
+- [ ] **(P1) `Maude_run.Search` 일반화.** 현재는 디버깅용 근사다
+  ([maude_run.ml:148-152](maude/maude_run.ml#L148-L152)):
+  `metaSearch(M, start, 'R:Val, nil, '!, unbounded, N)` — **패턴이 bare 변수, 조건 `nil`,
+  화살표 `'!`(`=>!`) 고정, 깊이 unbounded**, 해는 인덱스 `0..cap-1` 순차 열거
+  (`search_cap = 100`). 메타 성질 검증엔 다음이 필요: 임의 **search pattern** +
+  **`such that` 조건**(metaSearch의 3·4번째 인자), 화살표 `=>*`/`=>+`/`=>1` 선택,
+  **깊이 bound**, 그리고 반례를 읽으려면 `metaSearchPath`(전이 경로). "반례 없음"은
+  기존 `NoSolution`을 그대로 쓸 수 있다.
+- [ ] **(P2) 선택적 `rl` 모드.** p4 모듈은 relation이 전부 input-moded라 **`rl`이 0개**
+  (그래서 ChC가 vacuous하다). `--relations-as-rules`는 *모든* relation을 rl로 바꿔
+  상태공간을 무의미하게 키운다. 필요한 건 **동적 의미론의 step relation만** rl로 두는
+  선택적 플래그(`--rules-for R1,R2` 같은 것). 시작항도 `Program_ok(..)` 판정 호출이
+  아니라 **전이할 상태**여야 한다.
+- [ ] **(P3) `modelCheck` 배선 (미구현).** `MODEL-CHECKER` 모듈 protecting + 상태 sort를
+  `State`로 subsort + 원자명제 sort `Prop`과 `op _|=_ : State Prop -> Bool`. **설계의
+  핵심 질문은 "명제를 스펙에서 어떻게 얻는가"** — 유력 후보는 `Reflect`가 이미 만드는
+  **`holds_R`**(무출력 judgment의 성공 반사, 무조건 규칙 1개, BoolV 시그니처)를 그대로
+  원자명제로 쓰는 것. 결과 디코딩(`true` vs `counterexample(...)`)엔 `Of_maude`에
+  전이-경로 파서가 필요하다.
+  **⚠️ 유한성 제약**: P4 타입검사의 상태공간은 항 크기가 무제한이라 무한하다 —
+  modelCheck는 **고정 프로그램 + 고정 입력에 대한 동적 의미론**에서만 의미가 있다.
+  반면 search는 깊이 bound로 유한화하면 (반증 도구로서) 무한 상태공간에서도 유효.
+
+**검증 대상 후보 (메타 성질).** 전부 **반증 지향** — 해가 나오면 진짜 결함, 해가 없으면
+(bound 안에서) 반례 부재.
+
+- [ ] **결정성**: `search P =>! X`의 해가 정확히 1개. CRC(등식 층의 합류성)와 상보적 —
+  search는 **rl 층 + 실제 도달 가능한 상태만** 본다.
+- [ ] **progress (무-stuck)**: well-typed 프로그램에서
+  `search init =>! S such that isStuckHead(S)`가 해 없음. 현재의 `Stuck` 판정을 프로그램
+  하나가 아니라 **상태공간 전체**로 확장하는 셈.
+- [ ] **preservation**: `search init =>* S such that holds_Type_ok(S) = false`가 해 없음.
+- [ ] **parser 상태기계**: P4 parser는 루프 가능 — `accept`/`reject` 도달성, 무한 루프
+  검출(`modelCheck(init, <> accept)` 또는 depth-bounded search).
+- [ ] **header validity 안전성**: invalid header를 읽지 않는다 — LTL `[] ~ readInvalid`.
+- [ ] **table entry 우선순위 결정성**: 같은 키에 매칭되는 두 엔트리의 우선순위가 동률이면
+  적용 순서가 비결정 — search로 반례 탐색.
+
+**권장 착수 순서**: (P1) → (P2) → 결정성/progress를 기존 corpus 위에서 search로
+(differential 하니스의 자연스러운 확장, modelCheck 없이 가능) → (P3) → LTL 성질.
 
 ## 권장 순서
 
@@ -1102,7 +1226,11 @@ in-flight 결과 손상, 과거에도 겪음):
 남은 작업:
 
 ```
-  → CTRS(구조적) differential의 binary 수 인코딩 — Peano가 bit<32+>에서 OOM   [별도 체크아웃 spectec-core-binenc(origin 대비 10 commit)에서 BNatV 이진 인코딩 Phase 0-4 전부 완료·스위치 전환 완료(69023118) + 실 corpus에서 드러난 버그 3개 순차 수정(최신 06b05760, 2026-07-07); 현재 미커밋 char-eq completeness 수정 아래 전체 1568-corpus 재실행 진행 중(2026-07-08 시작, ~90/1568) — 결과 미확정, 완주 후 재확인 필요. 이 체크아웃/잡은 병행 세션 사용 중이니 건드리지 말 것]
-  → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)                    [CRC 보완; 환경 회복됐으니 재측정 가능]
+  → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
+  → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
+  → SCC (sufficient completeness)                                             [CETA 훅 있는 maude-2.7-hooks 필요 + to_mfe에 [ctor] 방출 선행]
   → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
+
+  (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
+         termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md)
 ```
