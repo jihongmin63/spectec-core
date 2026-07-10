@@ -227,13 +227,10 @@ let rec term_of_exp ~scalars (e : exp) : R.term =
   | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
-     projected with [nat_of_int]. [recur e1] is always Peano-encoded (every
-     nat-producing path -- [term_of_num], the nat family of
-     [term_of_binop]/[term_of_unop], the prelude's own nat rules -- stays on
-     the untouched Peano [NatV] family), while [int_pos]'s magnitude is
-     [BNatV] ({!Ctrs_term}'s doc comment), so this is the ONE place every
-     nat-to-int cast in the whole spec needs to bridge via [bnat_of_nat]. *)
-  (* A nat subtraction clamps at zero (Peano/BNat monus): computing [ea - eb]
+     projected with [nat_of_int]. Naturals now share [int_pos]'s binary [BNatV]
+     magnitude representation (the nat->binary retype), so a nat-to-int upcast
+     just wraps the (already binary) nat in [int_pos] directly -- no bridge. *)
+  (* A nat subtraction clamps at zero (BNat monus): computing [ea - eb]
      in nat first and only then upcasting the (already-clamped) result to int
      permanently discards the negative case -- confirmed on P4's table-entry
      priority computation ([n_last - n_delta] under [$ite<int>]), where the
@@ -244,13 +241,12 @@ let rec term_of_exp ~scalars (e : exp) : R.term =
      (add/mul/div/mod/pow, or a subtraction not directly under the cast) is
      unaffected since those operations don't diverge between the two families
      for non-negative operands. *)
-  | UpCastE (t, ({ it = BinE (`SubOp, _, ea, eb); _ } as e1)) 
+  | UpCastE (t, ({ it = BinE (`SubOp, _, ea, eb); _ } as e1))
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
-      sub_int_t (int_pos_t (bnat_of_nat_t (recur ea)))
-        (int_pos_t (bnat_of_nat_t (recur eb)))
+      sub_int_t (int_pos_t (recur ea)) (int_pos_t (recur eb))
   | UpCastE (t, e1)
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
-      int_pos_t (bnat_of_nat_t (recur e1))
+      int_pos_t (recur e1)
   | DownCastE (t, e1) when is_nat_typ t.it && is_int_typ e1.note ->
       nat_of_int_t (recur e1)
   | UpCastE (_, e1) | DownCastE (_, e1) -> recur e1

@@ -1,7 +1,7 @@
 (** Which scalar theory the emitted rules target (defined in {!Ctrs_term}, where
     the mode-aware scalar leaf builders live).
 
-    - [Structural]: self-contained scalars (Peano nats, sign-magnitude ints,
+    - [Structural]: self-contained scalars (binary nats, sign-magnitude ints,
       char-list texts, own booleans) with their hand-written prelude rules, for
       the analysis pipeline.
     - [Native]: scalar leaves are emitted directly as Maude's built-in wrappers
