@@ -193,6 +193,51 @@ it runs externally via a Maude 2.7.1 + MTT + AProVE(Z3) stack
 (`spectec/tools/mfe/run-termination.sh <symbol>`) — see
 [tools/mfe/README.md](spectec/tools/mfe/README.md) for setup.
 
+## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
+
+MAYBE/TIMEOUT means *unproven*, not *defective*. A real defect needs a witness:
+a feasible non-joinable critical pair (CRC), or an actual infinite rewrite
+(termination). A 2026-07-10 sweep over all 153 ≤500-rule symbols produced 41
+MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
+
+**Spurious CRC MAYBE/TIMEOUT.**
+- Fall-through/default clause guarded by `or(all match-Xs) = false` — infeasible
+  once any specific matcher fires (`$join_ctk`, `$assignop_as_binop`).
+- Mutually-exclusive sign/range splits the checker can't discharge (`$bin_shr`:
+  `i<0` arithmetic-shift vs `i≥0` logical; `$bin_satplus`: `sum>0` vs `sum≤0`).
+- CRC TIMEOUT is usually the shared arithmetic library (`badd`/`bmul`, 13–16
+  rules) exploding in critical pairs, not an own-layer overlap — that library is
+  confluent (`$bin_div`/`$bin_mod` are YES).
+
+**Spurious termination MAYBE/TIMEOUT.**
+- Structural recursion whose decreasing argument is destructured in a *premise*
+  (`xs = cons(h,t)`, recurse on `t`) — AProVE's dependency-pair analysis can't
+  certify the descent. Not a loop. (list / flatten / invalidate / write_value)
+- Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
+  (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
+- Acyclic call graph + large slice → pure tool-budget TIMEOUT.
+
+**The one real family — binenc zero-width / zero-value boundary.**
+`$write_value_from_bits'` at `integerValue.V, n_var = 0`: two order-sensitive
+`def` clauses share the `V` constructor, but the general clause carries no
+`n_var ≠ 0` guard and no owise, so both fire at `n_var = 0` with different
+results (keep the original field vs overwrite with `$int_to_bitstr(0, …)`) — a
+latent non-confluence masked only by rule order. This is the root cause of all
+five `write_value*` CRC MAYBEs, and the same family as the
+`$bitstr_to_int` / `$int_to_bitstr` w=0 non-termination. **Lesson: when
+translating order-sensitive `def` clauses that share a constructor, preserve the
+disambiguating guard (or owise); always check the 0-width / 0-value boundary.**
+
+**Surfaces differ.** CRC/termination run on the `rewrite --ctrs` *analysis*
+surface (owise dropped, `isStuckHead` ruleless); confirm a real
+non-confluence/non-termination on the *executable* surface (`main.exe rewrite`
+without `--ctrs`, i.e. `to_maude`).
+
+**Confirming a suspect pair fast.** Build a minimal module (full signature
+preamble + only the two suspect rules + `endm)`) and run CRC — it reports just
+that pair in seconds, instead of re-running the whole slice. Always
+`ulimit -s unlimited` (large-slice CRC dies on stack overflow with no verdict).
+
 ## Same-spec interp-vs-Maude oracle
 
 Since Maude runs the same `specs/p4` the interpreter does, any divergence is a
