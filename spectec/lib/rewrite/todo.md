@@ -682,8 +682,22 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   WST 전략의 레거시 yices-1.x 호출은 곱게 abort하므로 **라이선스 게이트 yices 불필요**
   (산술 무거운 슬라이스만 느려짐). 검증: `FOO`·`$empty_map`·`$is_lpm_key_prime` → YES.
   전부 gitignore(`tools/{maude271-hooks,mfe271,aprove,yices,z3}/`), 셋업 상세는
-  [tools/mfe/README.md](../../tools/mfe/README.md). 남은 일: tractable 150 슬라이스
-  Z3 sweep으로 CRC 표 옆 termination 열 채우기(작은/중간=verdict, 산술=MAYBE/TIMEOUT).
+  [tools/mfe/README.md](../../tools/mfe/README.md). **종합 스윕(153심볼 CRC+termination) +
+  모듈러(A/B) 분해 완료 (2026-07-09)** — 결과·수정 합성 정리는 저장소 루트
+  `spectec-crc-termination-recalibration.md`. full-mode의 고정폭 산술 TIMEOUT은 도구 예산이
+  아니라 폭-정규화 헬퍼로 국소화됨: **모듈러 (B) 분해(`tools/mfe/prune_modular.py`, 산술을
+  종료 블랙박스로 추상)로 11개 산술 + 3개 비트와이즈 슬라이스가 전부 수초 YES**,
+  sum/max/min_nat·strip_all_whitespace(eq-theory abstract, 50634→5규칙)도 YES.
+  **단 하나의 진짜 잔여물 = `$bitstr_to_int` w=0 실행 비종료**(아래 신규 이슈). termination
+  verdict는 **analysis 표면 한정**(owise drop + isStuckHead ruleless)이라 executable 인증은 후속.
+- [ ] **⚠️ `$bitstr_to_int` w=0 실행 비종료 (신규 2026-07-09, termination 재캘리브레이션에서 발견).**
+  `builtin.ml:457-489`의 two's-complement decode가 `w=0`이면 목표 구간 `[-2^(w-1),2^(w-1))`가
+  공집합이 되어 `n:0→-1→0` 진동 루프(규칙1 `n≥0`→`n-1`, 규칙2 `n<0`→`n+1`, base 도달 불가).
+  참조 `numerics.ml:51-56 bitstr_to_int'`도 구조 동일 → w=0에서 같은 루프(**번역은 faithful**,
+  differential MATCH와 부합). 실무 종료는 오직 `w≥1` 호출 덕분(구간 비어있지 않아 수렴). **규명 필요**:
+  P4 타입시스템이 `bit<0>`/`int<0>` 산술을 막는가? → 막으면 도달불가 `w≥1` 불변식(문서화로 종결),
+  안 막으면 numerics.ml+CTRS **공유 실행 버그**(builtin.ml w=0 처리 수정). 영향: 고정폭 W/S decode
+  op 전부(lt/le/gt/ge, plus/minus/mul, un_minus-S, band/bxor/bor-W/S, nat_of_integerValue, satplus/satminus, shl/shr).
 - [ ] `to_ctrs.ml` 상단 `[@@@warning "-32-69"]` 제거(빌더 레이어가 다시 쓰이면).
 - **⛔ `$iterproj` 제거(수집 헬퍼 통일 1단계) — 보류, 정합성 벽 (2026-07-02).**
   다중 출력 iterated relation을 "출력별 무조건 map"으로 바꾸려던 안은 **gensym과
@@ -1036,10 +1050,59 @@ gensym 심볼(`$compat_table_exact_optional_key`)을 잡아 정상적으로 계�
   false YES 불가). `Rewrite_system.drop_owise` 함수 자체는 유지(다른 소비자).
   p4/impty에서 경고 미출력(vacuous) 확인, impty verify YES/YES.
 
+(binary 수 인코딩 트랙 진행 상황 갱신 2026-07-08 — 별도 체크아웃
+`/home/spectec-core-binenc`, `origin/new-rewrite` 대비 10 commit 전진.
+**이 체크아웃/잡은 병행 세션이 사용 중이니 건드리지 말 것**(빌드/재실행 겹치면
+in-flight 결과 손상, 과거에도 겪음):
+
+- **Phase 0–3 (BNatV 이진 인코딩 기본기) 완료.** `bzero`/`bone`/`bd0`/`bd1`
+  스캐폴딩(`50d2abdc`) — 처음엔 `BPos<BNatV` 서브소트로 설계했다가
+  `Maude_sorts`가 심볼당 시그니처 1개만 지원해 서브소트가 안 먹혀 **단일
+  `BNatV` 소트로 축소**(`835d1537`) → `bsucc`/`bpred`/`badd`/`bmul`/
+  `bcompare`/`bleq`/`blt`(`b84dfb59`) → 절단 뺄셈 `bsub`(3치 마스크, Coq
+  `Pos.sub_mask` 스타일, `d8ca81a7`) → **O(log n) 이진 장제법** `bdiv`/`bmod`
+  (`99266995`, naive 반복뺄셈 대비 결정적 승리 — `2^64/10`이 1133 rewrite로
+  끝남, 반복뺄셈이면 ~1.8e18 스텝) → `bpow_nat`(`397be13c`). 전부
+  unreferenced 상태에서 단독 MFE confluence 확인 후 착륙(impty/p4 골든
+  no-op 검증 포함).
+- **Phase 4 "스위치 전환" 완료(`69023118`).** `int_pos`/`int_neg`의
+  magnitude를 Peano `NatV`→`BNatV`로 retype, 동시에 `builtin.ml`
+  (`shr`/`shr_arith`/`pow2`/`band`/`bxor`/`bor`/`int_to_text`)까지 같이
+  리타겟(분리 불가 — 안 그러면 두 커밋 사이 기간에 tree가 ill-sorted). 이
+  시점부터 실제 P4 int가 이진 인코딩으로 실행됨.
+- **스위치 전환 후 실 corpus 실행에서 버그 3개 순차 발견·수정**(전부
+  impty/synthetic 골든은 못 잡던 것 — 실 corpus 최초 실행에서만 드러남):
+  1. `negate_int`의 involution 단축 규칙이 BNatV에서 CRC MAYBE 유발 →
+     제거 + CRC용 `ulimit -s unlimited` 배선(`mfe.ml`/
+     `Maude_run.run_process`) — `59b5e10c`.
+  2. `nat_of_int`가 옛 Peano 시절 규칙(`rule (nat_of_int_t (int_pos_t x)) x`)을
+     그대로 갖고 있어 `bit<n>` 있는 프로그램이 전부 첫 스텝에서 stuck →
+     `bnat_to_nat` 역브릿지 추가로 수정(`fc01f90c`). **커밋 메시지가 명시:
+     이 수정 전에 수집된 binary-encoded 구조적 corpus differential 결과는
+     전부 무효, 재실행 필요.**
+  3. `abs_nat`/`sub_int_nat`가 `maude_sorts.ml`에 여전히 Peano `NatV`
+     시그니처로 선언돼 있어(규칙 자체는 맞았음) 음수 상수 폴딩류 프로그램이
+     stuck → 시그니처만 `BNatV`로 수정(`06b05760`, 2026-07-07, 현재 최신
+     커밋).
+- **진행 중(미커밋, working tree).** `to_ctrs.ml`의 `char_rules` 생성을
+  스펙 텍스트 정적 스캔 결과에서 **printable ASCII 전체(32–126) 유니온**으로
+  확장 — 인코딩된 시작항은 대상 P4 프로그램의 식별자/문자열 리터럴을
+  담는데, 정적 스캔은 스펙 자체의 규칙 텍스트만 보므로 스펙에 안 나온
+  바이트(예: 제네릭 파라미터 이름 `T`)는 `chr`는 선언되면서 `eq`가 안 생겨
+  stuck. 이 수정 아래 **전체 1568개 corpus 재실행이 진행 중**(로그
+  `check_diff_structural_p4_charfix.log`, 2026-07-08 02:56 시작, 확인 시점
+  기준 90/1568 완료, 10개 배치당 ~4분 → 완주까지 대략 10시간+ 예상) — 결과
+  미확정.
+- **참고**: 아래 남은 작업 목록의 "Peano가 bit<32+>에서 OOM" 항목이 가리키던
+  원래 기준선(2026-07-07, 메인 체크아웃 Peano 인코딩으로 RESULT 3 MATCH /
+  0 MISMATCH / 179 other)은 이 binenc 트랙의 **출발점**이었을 뿐, binenc
+  자체의 현재 결과가 아님 — binenc의 첫 실제 결과는 위 진행 중인 재실행이
+  끝나야 나옴.)
+
 남은 작업:
 
 ```
-  → CTRS(구조적) differential의 binary 수 인코딩 — Peano가 bit<32+>에서 OOM   [전체 corpus 1차 완주(2026-07-07 확인): RESULT 3 MATCH / 0 MISMATCH / 179 other(OOM/TIMEOUT/DECODE_ERR 등 — Peano 스케일 한계); 별도 체크아웃 spectec-core-binenc에서 binary-encoding 트랙 진행 중]
+  → CTRS(구조적) differential의 binary 수 인코딩 — Peano가 bit<32+>에서 OOM   [별도 체크아웃 spectec-core-binenc(origin 대비 10 commit)에서 BNatV 이진 인코딩 Phase 0-4 전부 완료·스위치 전환 완료(69023118) + 실 corpus에서 드러난 버그 3개 순차 수정(최신 06b05760, 2026-07-07); 현재 미커밋 char-eq completeness 수정 아래 전체 1568-corpus 재실행 진행 중(2026-07-08 시작, ~90/1568) — 결과 미확정, 완주 후 재확인 필요. 이 체크아웃/잡은 병행 세션 사용 중이니 건드리지 말 것]
   → termination 열 채우기 (tractable 150 슬라이스 Z3 sweep)                    [CRC 보완; 환경 회복됐으니 재측정 가능]
   → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
 ```
