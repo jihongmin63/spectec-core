@@ -189,21 +189,30 @@ let variant_case (tbl : tables) (ty : string) (ctor : string) :
    see through) into genuinely disjoint head patterns. Whether the fold
    actually fires is otherwise entirely [fold_premise_binders]'s call.
 
-   The "no other condition mentions [v]" guard mirrors
-   [fold_premise_binders]'s own "not used elsewhere" gate for a reason: a
-   clause whose head-bound [v] ALSO feeds a companion destructuring condition
-   (e.g. a [let K(x, y) = v] alongside the [matches K] guard SpecTec's
-   elaborator emits as two separate premises) already blocks that
-   companion's own fold today (used-elsewhere), and unconditionally
-   respelling [match_K(v) = true] into a SECOND, differently-named
-   [v = K(fresh..)] would not unblock it (both conditions still mention [v])
-   -- it would only replace one inert opaque condition with an equally inert
-   but noisier structural one carrying dead fresh variables. Skipping the
-   respelling in that case leaves the original (harmless, already-inert)
-   [match_*] condition untouched, matching today's output exactly. Runs over
-   the FLAT rule list {!To_ctrs} produced, so a matcher condition nested
-   inside an [IterPr] helper's step rule is covered the same way, with no
-   separate recursive scan. *)
+   A clause whose head-bound [v] ALSO feeds a companion destructuring
+   condition (the [let K(x, y) = v] SpecTec's elaborator emits alongside the
+   [matches K] guard as two separate premises) cannot be respelled that way:
+   both conditions would still mention [v], so the fresh [v = K(fresh..)]
+   would be inert and [fold_premise_binders] would keep refusing the
+   companion (used-elsewhere). The two passes deadlock on each other's
+   leftover, and the head stays a bare variable -- costing the fold's two
+   payoffs at once: disjoint head patterns (CRC) and a syntactically
+   decreasing recursive argument (termination; the descent lives only in the
+   premise, where a dependency-pair analysis cannot see it).
+
+   So for that shape the matcher is DROPPED instead ([restated_by_destructure]):
+   [match_K(v) = true] is implied by [v = K(..)] naming the same [K], so
+   removing it preserves the clause's applicability while freeing the
+   companion to fold into the head -- where the pattern [K(..)] then states
+   the disjointness the matcher used to carry. Families still holding an
+   [owise] rule are exempt ([owise_head_syms]): there the CRC refutes the
+   negation guard {!owise} emits only by rewriting it with a sibling's
+   IDENTICAL guard term, so dropping that sibling's matcher would strip the
+   very hypothesis the discharge rests on (impty's [$lookup]).
+
+   Runs over the FLAT rule list {!To_ctrs} produced, so a matcher condition
+   nested inside an [IterPr] helper's step rule is covered the same way, with
+   no separate recursive scan. *)
 
 type matcher = { ctor : string; arity : int }
 
@@ -237,10 +246,25 @@ let build_matcher_table (orig : spec) : (string, matcher) Hashtbl.t =
     ];
   tbl
 
+(* The head symbols whose clause family still carries an [owise] rule. Such a
+   family's disjointness is discharged by {!owise}'s negation guard, which the
+   CRC only refutes when a sibling states the SAME guard term it can rewrite
+   with -- so a sibling there keeps its matcher (see [drop_restated_matcher]). *)
+let owise_head_syms (sys : R.t) : string list =
+  List.filter_map
+    (fun (r : R.rule) ->
+      match (r.R.owise, r.R.lhs) with true, R.App (f, _) -> Some f | _ -> None)
+    sys.R.rules
+  |> R.dedup_stable
+
+let head_sym (t : R.term) : string option =
+  match t with R.App (f, _) -> Some f | R.Var _ -> None
+
 let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
     =
   let tbl = build_matcher_table orig in
   let yes = T.bool_t ~scalars true in
+  let owise_heads = owise_head_syms sys in
   let hoist_rule (r : R.rule) : R.rule =
     let n = ref 0 in
     let fresh () =
@@ -248,25 +272,52 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
       incr n;
       Printf.sprintf "hoist_%d" i
     in
+    let guarded_family =
+      match head_sym r.R.lhs with
+      | Some f -> List.mem f owise_heads
+      | None -> true
+    in
     let orig_conds = Array.of_list r.R.conds in
-    let mentioned_elsewhere i (v : string) : bool =
+    let mentions (v : string) ((l, rr) : R.cond) : bool =
+      R.count_var v l > 0 || R.count_var v rr > 0
+    in
+    let others i (v : string) : R.cond list =
       Array.to_list orig_conds
       |> List.filteri (fun j _ -> j <> i)
-      |> List.exists (fun (l, rr) ->
-             R.count_var v l > 0 || R.count_var v rr > 0)
+      |> List.filter (mentions v)
     in
-    let hoist_cond i ((l, r) : R.cond) : R.cond =
+    (* [v]'s ONLY other occurrence destructures it against the very constructor
+       the matcher tests, so [match_K(v) = true] restates what [v = K(..)]
+       already says: dropping it loses nothing and frees
+       {!Rewrite_system.fold_premise_binders} (whose "used in no other
+       condition" gate the matcher itself was tripping) to fold the destructure
+       into the head. *)
+    let restated_by_destructure i (v : string) (ctor : string) : bool =
+      match others i v with
+      | [ (R.Var u, R.App (f, _)) ] | [ (R.App (f, _), R.Var u) ] ->
+          u = v && f = ctor
+      | _ -> false
+    in
+    let hoist_cond i ((l, r) : R.cond) : R.cond option =
       match l with
-      | R.App (msym, [ R.Var v ]) when r = yes && not (mentioned_elsewhere i v)
-        -> (
+      | R.App (msym, [ R.Var v ]) when r = yes -> (
           match Hashtbl.find_opt tbl msym with
+          | None -> Some (l, r)
           | Some { ctor; arity } ->
-              ( R.Var v,
-                T.app_t ctor (List.init arity (fun _ -> T.var_t (fresh ()))) )
-          | None -> (l, r))
-      | _ -> (l, r)
+              if others i v = [] then
+                Some
+                  ( R.Var v,
+                    T.app_t ctor (List.init arity (fun _ -> T.var_t (fresh ())))
+                  )
+              else if (not guarded_family) && restated_by_destructure i v ctor
+              then None
+              else Some (l, r))
+      | _ -> Some (l, r)
     in
-    { r with R.conds = List.mapi hoist_cond (Array.to_list orig_conds) }
+    let conds =
+      List.mapi hoist_cond (Array.to_list orig_conds) |> List.filter_map Fun.id
+    in
+    { r with R.conds }
   in
   let rules = List.map hoist_rule sys.R.rules in
   { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
