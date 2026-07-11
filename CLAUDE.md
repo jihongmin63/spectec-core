@@ -164,7 +164,8 @@ become CTRS conditions; the result/output becomes the rhs.
   program (repeatable — batches through one Maude invocation, amortizing
   module internalization); `--emit` just prints the module. `--check-p4` also
   typechecks each `--p4` program with the interpreter and diffs the RESULT
-  value against Maude's (`Of_maude`) — the Phase D oracle.
+  value against Maude's (`Of_maude`) — the Phase D oracle. `--timeout` defaults
+  to 0 (no limit); see "Performance notes" for why a fixed default cannot work.
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
@@ -301,8 +302,25 @@ real costs:
    object-level grammar with a small fixed meta-syntax — eliminates the
    per-program parse cost (was the dominant cost, ~7s/program on P4 modules).
 2. **Batched invocations** (`Maude_run.run_batch`, CLI: repeat `--imp`/`--p4`)
-   amortize module load + first-metaReduce internalization (~10s) across every
-   program in one Maude invocation (~4ms/program after the first).
+   amortize module load + first-metaReduce internalization across every program
+   in one Maude invocation.
+
+**Current measured cost on `specs/p4`** (2026-07-11; the module is ~78k lines /
+~74k equations, and it has been this size since well before the binary-nat
+merge — earlier "~10s internalization, ~4ms/program" figures here were measured
+before the 5,425 subty-complement equations landed and are long stale):
+
+| phase | cost |
+|---|---|
+| IL → Maude translation (`run --emit`) | ~10s |
+| Maude module internalization (fixed, once per invocation) | **~80s** |
+| per program after that | ~6.5s |
+
+The fixed ~80s is why **`run`/`run-structural` default to `--timeout 0` (no
+limit)**: any fixed default below it turns a perfectly good run into a `TIMEOUT`
+before the first program even starts (this silently broke `check_diff_p4.sh`'s
+per-file fallback path). Bound the run from the caller instead — as the harness
+already does with a shell `timeout`.
 
 To break down a slow `run` invocation into startup/module-parse/rewrite phases,
 use `tools/maude/rewrite-time.sh` — **not present on `new-rewrite`**, restore it

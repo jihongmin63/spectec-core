@@ -363,8 +363,12 @@ let run_command =
     flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
   and timeout =
     flag "--timeout"
-      (optional_with_default 30 int)
-      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
+      (optional_with_default 0 int)
+      ~doc:
+        "S kill Maude after S seconds (0 = no limit, the default: a real \
+         spec's module costs ~80s to internalize before the first program even \
+         starts, so any fixed default silently turns a working run into a \
+         TIMEOUT -- bound the run from the caller instead)"
   and check_p4 =
     flag "--check-p4" no_arg
       ~doc:
@@ -595,8 +599,10 @@ let run_structural_command =
     flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
   and timeout =
     flag "--timeout"
-      (optional_with_default 30 int)
-      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
+      (optional_with_default 0 int)
+      ~doc:
+        "S kill Maude after S seconds (0 = no limit, the default -- see \
+         [run]'s --timeout)"
   in
   fun () ->
     (match (imp, p4, emit) with

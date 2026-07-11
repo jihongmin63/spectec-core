@@ -977,7 +977,10 @@ termination 경로(`run-termination.sh`)가 이미 쓰는 것과 **같은 모양
    MAYBE 트리아지와 같은 교훈: **판정보다 witness를 봐야 한다.**
 
 **할 일:**
-- [ ] (선행) `to_mfe.ml` op 선언에 `[ctor]` 방출 — SCC 없이도 signature 문서화 가치 있음.
+- [x] (선행) op 선언에 `[ctor]` 방출 — **완료 2026-07-11**, `to_mfe`(분석)·`to_maude`
+  (실행) 두 표면 모두. 생성자 집합은 `Maude_sorts.is_ctor`/`ctor_attr`(이론별 스칼라 +
+  컨테이너 + `il_ctor_syms`), 방정식을 가진 심볼이 생성자로 선언되는 걸 막는 데모션
+  가드 포함. 위 권장 순서의 2026-07-11 항목 참조.
 - [ ] `tools/maude27-ceta/` 설치 + `run-scc.sh` (run-termination.sh 패턴 복제).
 - [ ] 작은 unconditional 슬라이스(예: 프리루드 `badd`/`bmul`, 리스트 연산)부터 SCC 시범.
 
@@ -1223,12 +1226,40 @@ in-flight 결과 손상, 과거에도 겪음):
   자체의 현재 결과가 아님 — binenc의 첫 실제 결과는 위 진행 중인 재실행이
   끝나야 나옴.)
 
+(추가 완료 2026-07-11: **`[ctor]` 방출 (SCC 선행 작업) + `run`의 타임아웃 기본값 제거.**
+
+- **`[ctor]`**: `Maude_sorts`가 생성자/정의된-심볼 분할을 갖게 됨 — `il_ctor_syms`
+  (variant 케이스 + struct 생성자; 필드 접근자/갱신자는 **정의된 심볼**이라 제외,
+  선언 커버리지용 `il_declared_syms`와 분리), `shared_ctor_syms`(컨테이너),
+  이론별 `scalar_ctor_syms`, 그리고 공유 `ctor_attr`. **이론별 분리가 핵심**:
+  `int_pos`/`int_neg`는 Structural에선 생성자지만 Native에선 Maude 내장 `int(_)`로
+  가는 **브리지 방정식을 가진 정의된 심볼**이다(데모션 가드가 실제로 잡아냄).
+  `To_mfe`(분석)·`To_maude`(실행) 두 표면 모두 방출. 가드: 생성자로 등록됐는데
+  방정식이 있으면 `[ctor]`를 떼고 stderr 경고(거짓 주장 방지). p4/impty 양쪽 경고
+  0건, impty 실행 8/8 정상, `$lookup` CRC/ChC YES 무회귀. 골든 `spec.ctrs`/
+  `spec.maude` 재생성. **SCC 선행 조건 1(= `[ctor]` 방출) 완료** — 남은 건 CETA
+  훅 바이너리.
+- **`spec.maude` 골든의 matcher-sort "회귀"는 회귀가 아니었음**: `1874d212`
+  (match_/subty_/holds_/eqg 도메인을 무조건 Val로 넓힘 — 좁은 도메인이면
+  `Reflect.sibling_guard`가 바깥 타입 주어에 중첩 variant의 matcher를 불러 ill-sorted,
+  owise 가드가 영구 stuck)가 **골든을 재생성하지 않았을 뿐**. `spec.ctrs`는 이후
+  커밋들이 우연히 따라잡았고 `spec.maude`만 stale로 남아 있었다 — 이번에 갱신.
+- **`run`/`run-structural`의 `--timeout` 기본값 30초 → 0(무제한)**. p4 native 실행
+  실측(2026-07-11): 번역 ~10s + **Maude 모듈 내부화 고정비 ~80s** + 프로그램당 ~6.5s
+  (1개 91.6s vs 3개 배치 104.7s로 분리). 고정비가 기본 타임아웃보다 커서 `run --p4`가
+  **첫 프로그램을 시작하기도 전에 항상 TIMEOUT**났고, 그 탓에 `check_diff_p4.sh`의
+  per-file fallback 경로(`--timeout 0`을 안 넘김)가 조용히 전부 무효였다. 실행 자체는
+  정상이었음(타임아웃 늘리면 3/3 `result: MATCH`). 모듈 규모(~78k줄/~74k eq)는
+  binenc 병합 이전 커밋(`199c72eb`)에서도 동일 — 최근 회귀 아님, CLAUDE.md의
+  "~10s 내부화 / ~4ms per program" 수치가 stale이었던 것(subty 보완 5,425 eq 이전 값).
+  CLAUDE.md 성능 절도 실측표로 갱신.)
+
 남은 작업:
 
 ```
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
-  → SCC (sufficient completeness)                                             [CETA 훅 있는 maude-2.7-hooks 필요 + to_mfe에 [ctor] 방출 선행]
+  → SCC (sufficient completeness)                                             [[ctor] 방출은 완료(2026-07-11). 남은 건 CETA 훅 있는 maude-2.7-hooks 바이너리 + run-scc.sh; drop-bad-eqs=true라 ceq는 검사 전 드롭되니 무조건부 슬라이스부터]
   → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
