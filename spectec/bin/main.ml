@@ -193,6 +193,12 @@ let rewrite_command =
       ~doc:
         " keep relations as Maude rules (rl/crl) instead of equations for \
          input-moded ones"
+  and unconditional =
+    flag "--unconditional" no_arg
+      ~doc:
+        " with --ctrs, over-approximate for the SCC: drop rule conditions and \
+         linearize non-left-linear lhs (counterexamples stay sound; a \
+         'complete' verdict for a transformed symbol proves nothing)"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -207,6 +213,11 @@ let rewrite_command =
         match symbol with
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
         | None -> system
+      in
+      let system =
+        if unconditional then
+          Rewrite.Rewrite_system.(linearize_lhs (drop_conds system))
+        else system
       in
       Ok
         (Rewrite.To_mfe.module_of_system
