@@ -20,52 +20,52 @@ mod SPEC is
   op Run-prog : Command -> List .
   op add-int : IntV IntV -> IntV .
   op and : BoolV BoolV -> BoolV .
-  op bool : Bool -> BoolV .
-  op cons : Val List -> List .
-  op int : Int -> IntV .
+  op bool : Bool -> BoolV [ctor] .
+  op cons : Val List -> List [ctor] .
+  op int : Int -> IntV [ctor] .
   op isStuckHead : Val -> Bool .
   op leq-int : IntV IntV -> BoolV .
-  op match-command-IF-THEN-ELSE-END-3 : Command -> BoolV .
-  op match-command-SKIP-0 : Command -> BoolV .
-  op match-command-WHILE-DO-END-2 : Command -> BoolV .
-  op match-command-eq-2 : Command -> BoolV .
-  op match-command-eq-3 : Command -> BoolV .
-  op match-command-semi-2 : Command -> BoolV .
-  op match-cons : List -> BoolV .
-  op match-expr-amp-amp-2 : Expr -> BoolV .
-  op match-expr-bang-1 : Expr -> BoolV .
-  op match-expr-lt-eq-2 : Expr -> BoolV .
-  op match-expr-plus-2 : Expr -> BoolV .
-  op match-literal-BOOL-1 : Literal -> BoolV .
-  op match-literal-NUM-1 : Literal -> BoolV .
-  op match-nil : List -> BoolV .
-  op match-some : Opt -> BoolV .
-  op match-type-BOOL-0 : Type -> BoolV .
-  op match-type-INT-0 : Type -> BoolV .
-  op nat : Nat -> NatV .
-  op nil : -> List .
-  op none : -> Opt .
+  op match-command-IF-THEN-ELSE-END-3 : Val -> BoolV .
+  op match-command-SKIP-0 : Val -> BoolV .
+  op match-command-WHILE-DO-END-2 : Val -> BoolV .
+  op match-command-eq-2 : Val -> BoolV .
+  op match-command-eq-3 : Val -> BoolV .
+  op match-command-semi-2 : Val -> BoolV .
+  op match-cons : Val -> BoolV .
+  op match-expr-amp-amp-2 : Val -> BoolV .
+  op match-expr-bang-1 : Val -> BoolV .
+  op match-expr-lt-eq-2 : Val -> BoolV .
+  op match-expr-plus-2 : Val -> BoolV .
+  op match-literal-BOOL-1 : Val -> BoolV .
+  op match-literal-NUM-1 : Val -> BoolV .
+  op match-nil : Val -> BoolV .
+  op match-some : Val -> BoolV .
+  op match-type-BOOL-0 : Val -> BoolV .
+  op match-type-INT-0 : Val -> BoolV .
+  op nat : Nat -> NatV [ctor] .
+  op nil : -> List [ctor] .
+  op none : -> Opt [ctor] .
   op not : BoolV -> BoolV .
-  op some : Val -> Opt .
+  op some : Val -> Opt [ctor] .
   op subty-id : Val -> BoolV .
   op subty-literal : Val -> BoolV .
-  op txt : String -> Text .
-  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
-  op variant-command-SKIP-0 : -> Command .
-  op variant-command-WHILE-DO-END-2 : Expr Command -> Command .
-  op variant-command-eq-2 : Id Expr -> Command .
-  op variant-command-eq-3 : Type Id Expr -> Command .
-  op variant-command-semi-2 : Command Command -> Command .
-  op variant-expr-amp-amp-2 : Expr Expr -> Expr .
-  op variant-expr-bang-1 : Expr -> Expr .
-  op variant-expr-lt-eq-2 : Expr Expr -> Expr .
-  op variant-expr-plus-2 : Expr Expr -> Expr .
-  op variant-id-ID-1 : Text -> Id .
-  op variant-literal-BOOL-1 : BoolV -> Literal .
-  op variant-literal-NUM-1 : IntV -> Literal .
-  op variant-pair-minus-gt-2 : Val Val -> Pair .
-  op variant-type-BOOL-0 : -> Type .
-  op variant-type-INT-0 : -> Type .
+  op txt : String -> Text [ctor] .
+  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command [ctor] .
+  op variant-command-SKIP-0 : -> Command [ctor] .
+  op variant-command-WHILE-DO-END-2 : Expr Command -> Command [ctor] .
+  op variant-command-eq-2 : Id Expr -> Command [ctor] .
+  op variant-command-eq-3 : Type Id Expr -> Command [ctor] .
+  op variant-command-semi-2 : Command Command -> Command [ctor] .
+  op variant-expr-amp-amp-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-bang-1 : Expr -> Expr [ctor] .
+  op variant-expr-lt-eq-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-plus-2 : Expr Expr -> Expr [ctor] .
+  op variant-id-ID-1 : Text -> Id [ctor] .
+  op variant-literal-BOOL-1 : BoolV -> Literal [ctor] .
+  op variant-literal-NUM-1 : IntV -> Literal [ctor] .
+  op variant-pair-minus-gt-2 : Val Val -> Pair [ctor] .
+  op variant-type-BOOL-0 : -> Type [ctor] .
+  op variant-type-INT-0 : -> Type [ctor] .
 
   eq match-some(some(x:Val)) = bool(true) .
   eq match-some(none) = bool(false) .
@@ -223,23 +223,23 @@ mod SPEC is
   eq isStuckHead(add-int(V0:IntV, V1:IntV)) = true .
   eq isStuckHead(and(V0:BoolV, V1:BoolV)) = true .
   eq isStuckHead(leq-int(V0:IntV, V1:IntV)) = true .
-  eq isStuckHead(match-command-IF-THEN-ELSE-END-3(V0:Command)) = true .
-  eq isStuckHead(match-command-SKIP-0(V0:Command)) = true .
-  eq isStuckHead(match-command-WHILE-DO-END-2(V0:Command)) = true .
-  eq isStuckHead(match-command-eq-2(V0:Command)) = true .
-  eq isStuckHead(match-command-eq-3(V0:Command)) = true .
-  eq isStuckHead(match-command-semi-2(V0:Command)) = true .
-  eq isStuckHead(match-cons(V0:List)) = true .
-  eq isStuckHead(match-expr-amp-amp-2(V0:Expr)) = true .
-  eq isStuckHead(match-expr-bang-1(V0:Expr)) = true .
-  eq isStuckHead(match-expr-lt-eq-2(V0:Expr)) = true .
-  eq isStuckHead(match-expr-plus-2(V0:Expr)) = true .
-  eq isStuckHead(match-literal-BOOL-1(V0:Literal)) = true .
-  eq isStuckHead(match-literal-NUM-1(V0:Literal)) = true .
-  eq isStuckHead(match-nil(V0:List)) = true .
-  eq isStuckHead(match-some(V0:Opt)) = true .
-  eq isStuckHead(match-type-BOOL-0(V0:Type)) = true .
-  eq isStuckHead(match-type-INT-0(V0:Type)) = true .
+  eq isStuckHead(match-command-IF-THEN-ELSE-END-3(V0:Val)) = true .
+  eq isStuckHead(match-command-SKIP-0(V0:Val)) = true .
+  eq isStuckHead(match-command-WHILE-DO-END-2(V0:Val)) = true .
+  eq isStuckHead(match-command-eq-2(V0:Val)) = true .
+  eq isStuckHead(match-command-eq-3(V0:Val)) = true .
+  eq isStuckHead(match-command-semi-2(V0:Val)) = true .
+  eq isStuckHead(match-cons(V0:Val)) = true .
+  eq isStuckHead(match-expr-amp-amp-2(V0:Val)) = true .
+  eq isStuckHead(match-expr-bang-1(V0:Val)) = true .
+  eq isStuckHead(match-expr-lt-eq-2(V0:Val)) = true .
+  eq isStuckHead(match-expr-plus-2(V0:Val)) = true .
+  eq isStuckHead(match-literal-BOOL-1(V0:Val)) = true .
+  eq isStuckHead(match-literal-NUM-1(V0:Val)) = true .
+  eq isStuckHead(match-nil(V0:Val)) = true .
+  eq isStuckHead(match-some(V0:Val)) = true .
+  eq isStuckHead(match-type-BOOL-0(V0:Val)) = true .
+  eq isStuckHead(match-type-INT-0(V0:Val)) = true .
   eq isStuckHead(not(V0:BoolV)) = true .
   eq isStuckHead(subty-id(V0:Val)) = true .
   eq isStuckHead(subty-literal(V0:Val)) = true .

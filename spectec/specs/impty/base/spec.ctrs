@@ -24,18 +24,18 @@ set include BOOL off .
   op badd-carry : NatV NatV -> NatV .
   op bcompare : NatV NatV -> Bcmp .
   op bcompare-cont : Bcmp NatV NatV -> Bcmp .
-  op bd0 : NatV -> NatV .
-  op bd1 : NatV -> NatV .
+  op bd0 : NatV -> NatV [ctor] .
+  op bd1 : NatV -> NatV [ctor] .
   op bdouble-mask : Bmask -> Bmask .
-  op beq-kind : -> Bcmp .
-  op bgt-kind : -> Bcmp .
+  op beq-kind : -> Bcmp [ctor] .
+  op bgt-kind : -> Bcmp [ctor] .
   op ble-of-cmp : Bcmp -> BoolV .
   op bleq : NatV NatV -> BoolV .
-  op blt-kind : -> Bcmp .
-  op bmask-neg : -> Bmask .
-  op bmask-nul : -> Bmask .
-  op bmask-pos : NatV -> Bmask .
-  op bone : -> NatV .
+  op blt-kind : -> Bcmp [ctor] .
+  op bmask-neg : -> Bmask [ctor] .
+  op bmask-nul : -> Bmask [ctor] .
+  op bmask-pos : NatV -> Bmask [ctor] .
+  op bone : -> NatV [ctor] .
   op bpred : NatV -> NatV .
   op bpred-double : NatV -> NatV .
   op bsub : NatV NatV -> NatV .
@@ -44,12 +44,12 @@ set include BOOL off .
   op bsub-of-mask : Bmask -> NatV .
   op bsucc : NatV -> NatV .
   op bsucc-double-mask : Bmask -> Bmask .
-  op bzero : -> NatV .
-  op cons : Val List -> List .
+  op bzero : -> NatV [ctor] .
+  op cons : Val List -> List [ctor] .
   op eqg : Val Val -> BoolV .
-  op false : -> BoolV .
-  op int-neg : NatV -> IntV .
-  op int-pos : NatV -> IntV .
+  op false : -> BoolV [ctor] .
+  op int-neg : NatV -> IntV [ctor] .
+  op int-pos : NatV -> IntV [ctor] .
   op isStuckHead : Val -> Val .
   op leq-int : IntV IntV -> BoolV .
   op match-command-IF-THEN-ELSE-END-3 : Val -> BoolV .
@@ -69,34 +69,34 @@ set include BOOL off .
   op match-some : Val -> BoolV .
   op match-type-BOOL-0 : Val -> BoolV .
   op match-type-INT-0 : Val -> BoolV .
-  op nil : -> List .
-  op none : -> Opt .
+  op nil : -> List [ctor] .
+  op none : -> Opt [ctor] .
   op not : BoolV -> BoolV .
   op or : BoolV BoolV -> BoolV .
   op proj-cons-0 : Val -> Val .
   op proj-variant-pair-minus-gt-2-0 : Val -> Val .
-  op some : Val -> Opt .
+  op some : Val -> Opt [ctor] .
   op sub-int-nat : NatV NatV -> IntV .
   op sub-int-nat-aux : Val Val Val -> Val .
   op subty-id : Val -> BoolV .
   op subty-literal : Val -> BoolV .
-  op true : -> BoolV .
-  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
-  op variant-command-SKIP-0 : -> Command .
-  op variant-command-WHILE-DO-END-2 : Expr Command -> Command .
-  op variant-command-eq-2 : Id Expr -> Command .
-  op variant-command-eq-3 : Type Id Expr -> Command .
-  op variant-command-semi-2 : Command Command -> Command .
-  op variant-expr-amp-amp-2 : Expr Expr -> Expr .
-  op variant-expr-bang-1 : Expr -> Expr .
-  op variant-expr-lt-eq-2 : Expr Expr -> Expr .
-  op variant-expr-plus-2 : Expr Expr -> Expr .
-  op variant-id-ID-1 : Text -> Id .
-  op variant-literal-BOOL-1 : BoolV -> Literal .
-  op variant-literal-NUM-1 : IntV -> Literal .
-  op variant-pair-minus-gt-2 : Val Val -> Pair .
-  op variant-type-BOOL-0 : -> Type .
-  op variant-type-INT-0 : -> Type .
+  op true : -> BoolV [ctor] .
+  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command [ctor] .
+  op variant-command-SKIP-0 : -> Command [ctor] .
+  op variant-command-WHILE-DO-END-2 : Expr Command -> Command [ctor] .
+  op variant-command-eq-2 : Id Expr -> Command [ctor] .
+  op variant-command-eq-3 : Type Id Expr -> Command [ctor] .
+  op variant-command-semi-2 : Command Command -> Command [ctor] .
+  op variant-expr-amp-amp-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-bang-1 : Expr -> Expr [ctor] .
+  op variant-expr-lt-eq-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-plus-2 : Expr Expr -> Expr [ctor] .
+  op variant-id-ID-1 : Text -> Id [ctor] .
+  op variant-literal-BOOL-1 : BoolV -> Literal [ctor] .
+  op variant-literal-NUM-1 : IntV -> Literal [ctor] .
+  op variant-pair-minus-gt-2 : Val Val -> Pair [ctor] .
+  op variant-type-BOOL-0 : -> Type [ctor] .
+  op variant-type-INT-0 : -> Type [ctor] .
 
   eq not(true) = false .
   eq not(false) = true .

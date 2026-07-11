@@ -75,9 +75,9 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
   let sg sym arity = MS.signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, plus all IL
-     constructors (so a start term can be formed even when no rule mentions the
-     case). Structural scalar constructors already occur in the prelude rules, so
-     [symbol_arities] covers them. *)
+     constructors and struct accessors (so a start term can be formed even when
+     no rule mentions the case). Structural scalar constructors already occur in
+     the prelude rules, so [symbol_arities] covers them. *)
   let used = MS.symbol_arities Structural sys.R.rules in
   let ctor_arities =
     List.filter_map
@@ -85,7 +85,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
         match Hashtbl.find_opt tbl s with
         | Some (a, _) -> Some (s, List.length a)
         | None -> None)
-      (MS.il_constructor_syms orig)
+      (MS.il_declared_syms orig)
   in
   let ops = MS.dedup (used @ ctor_arities) in
   (* Execution mode ([full_maude = false]) additionally needs
@@ -216,13 +216,17 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      matcher trick, since the module text is free-form here (unlike
      {!Rewrite_system}'s CTRS layer, which has no attribute to express it):
      print the mirror equations explicitly instead, below, and drop [comm]. *)
+  (* The constructor/defined split ({!Maude_sorts.ctor_attr}). [or]/[and] are
+     defined symbols, so the two attributes below never compete for the same
+     declaration (Maude would need them in one bracket group if they did). *)
+  let ctor_attr = MS.ctor_attr Structural orig ~defined:defined_heads in
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
       let attr =
         if (not full_maude) && (sym = "or" || sym = "and") then
           " [strat (1 0 2 0)]"
-        else ""
+        else ctor_attr sym
       in
       buf_line b
         ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ attr ^ " ."))
@@ -266,7 +270,8 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      for code = 0 to 255 do
        let sym = T.chr_sym code in
        if not (List.mem sym already) then
-         buf_line b ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " .")
+         buf_line b
+           ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
      done);
   buf_line b "";
   (* equations first (functions/prelude/constructors), then the relation rules;

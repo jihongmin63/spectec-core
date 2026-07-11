@@ -568,10 +568,10 @@ let rec print_term scalars vs (t : R.term) : string =
 (* -------------------------------------------------------------------------- *)
 (* Symbol collection for op declarations. *)
 
-(* Sorts and constructors that must be declared even if the spec's rules never
-   mention them, so concrete start terms (built by a language encoder) can be
-   formed: every variant case and struct constructor/accessor from [orig]. *)
-let il_constructor_syms (orig : spec) : string list =
+(* The spec's own data constructors: every variant case and every struct
+   constructor. Struct field accessors/updaters are NOT here -- they are defined
+   symbols (equations rewrite them away), see {!il_declared_syms}. *)
+let il_ctor_syms (orig : spec) : string list =
   List.concat_map
     (fun def ->
       match def.it with
@@ -581,13 +581,115 @@ let il_constructor_syms (orig : spec) : string list =
               let origin, mixop = case_origin_mixop tc in
               T.variant_sym origin mixop)
             typcases
-      | TypD { synid = t; deftyp = { it = StructT fields; _ }; _ } ->
-          T.struct_sym t.it
-          :: List.concat_map
-               (fun (a, _) -> [ T.field_sym t.it a; T.upd_field_sym t.it a ])
-               fields
+      | TypD { synid = t; deftyp = { it = StructT _; _ }; _ } ->
+          [ T.struct_sym t.it ]
       | _ -> [])
     orig
+
+(* Symbols that must be declared even if the spec's rules never mention them, so
+   concrete start terms (built by a language encoder) can be formed: the spec's
+   constructors, plus each struct's field accessors and updaters. *)
+let il_declared_syms (orig : spec) : string list =
+  il_ctor_syms orig
+  @ List.concat_map
+      (fun def ->
+        match def.it with
+        | TypD { synid = t; deftyp = { it = StructT fields; _ }; _ } ->
+            List.concat_map
+              (fun (a, _) -> [ T.field_sym t.it a; T.upd_field_sym t.it a ])
+              fields
+        | _ -> [])
+      orig
+
+(* The theory's own data constructors -- the symbols a normal form is BUILT from,
+   as opposed to the defined symbols the rules compute away. Maude spells this
+   split with the [ctor] operator attribute, and a tool that must know what a
+   normal form looks like needs it: the Sufficient Completeness Checker asks
+   whether every ground term reduces to a constructor term, which says nothing at
+   all if the signature never says which symbols those are.
+
+   Must track {!shared_op_sigs} and {!Prelude}: a constructor added there but
+   missing here merely goes unmarked (a tool then reads it as defined --
+   conservative, never unsound), whereas a DEFINED symbol listed here would be a
+   false claim. {!To_mfe} guards against exactly that by re-checking this set
+   against the rules' actual defined heads. *)
+let shared_ctor_syms : string list =
+  (* containers: lists (also the char-list spelling of a structural text),
+     options, tuples -- the same constructors in either theory *)
+  [ "nil"; "cons"; "none"; "some"; "tuple" ]
+
+(* The scalar constructors, per theory -- the value half of {!scalar_ctor_sigs}.
+   The split is not cosmetic: the sign-magnitude [int_pos]/[int_neg] BUILD an int
+   in the structural theory, but in the native one they are bridges INTO Maude's
+   built-in [int(_)] and carry equations, i.e. defined symbols there. Same for
+   the binary-nat family, which the native theory replaces outright. *)
+let scalar_ctor_syms : scalar_theory -> string list = function
+  | Native ->
+      [
+        Maude_theory.bool_wrap_sym;
+        Maude_theory.nat_wrap_sym;
+        Maude_theory.int_wrap_sym;
+        Maude_theory.text_wrap_sym;
+      ]
+  | Structural ->
+      [
+        "true";
+        "false";
+        (* binary nat, and the sign-magnitude wrappers that make it an int *)
+        "bzero";
+        "bone";
+        "bd0";
+        "bd1";
+        "int_pos";
+        "int_neg";
+        (* the result sorts of the binary arithmetic: [bsub_mask]'s 3-valued
+           truncated-subtraction mask, [bcompare]'s 3-valued comparison, and
+           [bdivmod]'s quotient/remainder pair (its [bquot]/[brem] projections
+           are defined symbols; this pairing constructor is not) *)
+        "bmask_nul";
+        "bmask_neg";
+        "bmask_pos";
+        "blt_kind";
+        "beq_kind";
+        "bgt_kind";
+        "bdivmod";
+      ]
+
+(* Is [sym] a constructor of the module emitted for [scalars] and [orig]? The
+   [chr_<n>] characters (the structural spelling of a text) are a constructor
+   family recognized by shape: one member per byte value, generated on demand
+   rather than declared anywhere. *)
+let is_ctor (scalars : scalar_theory) (orig : spec) : string -> bool =
+  let tbl = Hashtbl.create 512 in
+  List.iter
+    (fun s -> Hashtbl.replace tbl s ())
+    (scalar_ctor_syms scalars @ shared_ctor_syms @ il_ctor_syms orig);
+  fun sym -> Hashtbl.mem tbl sym || Option.is_some (T.chr_code_of_sym sym)
+
+(* The [ctor] attribute for [sym]'s [op] declaration ([""] when it is a defined
+   symbol), for an emitted module whose rules define [defined].
+
+   Maude itself does not reduce differently for [ctor], but a tool that must know
+   what a normal form looks like cannot work without it -- the Sufficient
+   Completeness Checker asks precisely whether every ground term reduces to a
+   constructor term, which says nothing at all if the signature never says which
+   symbols those are.
+
+   A nominal constructor that turns out to carry equations is not one: declare it
+   plain rather than let the module state a falsehood, and say so -- a data
+   constructor being rewritten away is a translation smell worth seeing, not
+   worth silently papering over. *)
+let ctor_attr (scalars : scalar_theory) (orig : spec) ~(defined : string list) :
+    string -> string =
+  let is_ctor = is_ctor scalars orig in
+  fun sym ->
+    if not (is_ctor sym) then ""
+    else if List.mem sym defined then (
+      prerr_endline
+        ("maude_sorts: WARNING - constructor " ^ sym
+       ^ " has defining equations; declaring it without [ctor]");
+      "")
+    else " [ctor]"
 
 (* The distinct (symbol, arity) pairs that occur as application heads anywhere in
    the rules. A symbol used at several arities (the generic [tuple] constructor

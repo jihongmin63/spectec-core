@@ -842,14 +842,13 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       ("nil", 0);
     ]
   in
-  let ctor_syms = il_constructor_syms orig in
   let ctor_arities =
     List.filter_map
       (fun s ->
         match Hashtbl.find_opt tbl s with
         | Some (a, _) -> Some (s, List.length a)
         | None -> None)
-      ctor_syms
+      (il_declared_syms orig)
   in
   let ops = dedup (used @ delegated @ wrapper_arities @ ctor_arities) in
   let has_op sym = List.exists (fun (s, _) -> s = sym) ops in
@@ -932,11 +931,17 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     (fun (sub, super) -> buf_line b ("  subsort " ^ sub ^ " < " ^ super ^ " ."))
     (dedup inj_subsorts);
   buf_line b "";
-  (* op declarations, sorted for stable output *)
+  (* op declarations, sorted for stable output. [ctor] marks the constructors
+     ({!Maude_sorts.ctor_attr}); [defined_heads] here already includes the
+     delegated operators, whose equations live in Maude's built-ins rather than
+     in [sys], so a delegated symbol can never be mistaken for a constructor. *)
+  let ctor_attr = ctor_attr Native orig ~defined:defined_heads in
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
-      buf_line b ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
+      buf_line b
+        ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ ctor_attr sym
+       ^ " ."))
     (List.sort compare op_sigs);
   buf_line b "";
   (* rules: equations first (functions/prelude/constructors), then relation
