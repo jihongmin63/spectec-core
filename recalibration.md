@@ -2,6 +2,20 @@
 
 종합 스윕: ≤500규칙 153심볼. CRC/ChC = Church-Rosser/Coherence, term = 모듈러(B) 종료.
 
+**term 열 재측정 (2026-07-12, `fix(rewrite): drop matcher guards a companion
+destructure already implies`).** 그 커밋이 `match_K(v)=true`를 동반 destructure
+`v = K(..)`에 흡수시켜 하강 인자를 head 패턴으로 올린 결과, 종료 MAYBE 18개 중
+**13개가 YES**로, TIMEOUT이던 `$write_value_field_from_bits_prime`도 YES로 바뀌었다
+(dependency-pair 분석이 전제 안에 숨은 구조적 하강을 이제 볼 수 있다):
+`$concat_text` `$exists` `$forall` `$filter` `$flatten_p4program` `$flatten_nameList`
+`$flatten_typeParameterList` `$flatten_typeParameterListOpt` `$lvalue_as_expression`
++ `$write_value*` 5형제. 잔여 MAYBE 5: `$join_text`,
+`$set_priorities_of_tableEntryListIR{,_prime}` (슬라이스는 바뀌었으나 미해소),
+`$invalidate_value`/`$invalidate_headerUnion` (fix가 슬라이스를 전혀 바꾸지 않음 —
+접을 destructure-동반 matcher가 없다). `$bitacc_*`/`$write_bits_from_value`의 TIMEOUT은
+그대로지만 이 머신에선 모듈러(B) 한 건이 15~25분 걸려(대조군 `$bitacc_range_replace_op`
+= YES, 25분) 예산 문제와 구분되지 않는다. CRC/ChC 열은 이번에 재측정하지 않았다.
+
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
 | `$annotationList_of_parameterIR` | 1 | YES | YES | YES |  |
@@ -59,9 +73,9 @@
 | `$dom_map` | 5 | YES | YES | YES |  |
 | `$enter_path_i` | 5 | YES | YES | YES |  |
 | `$join_tableEntryState` | 5 | YES | YES | YES |  |
-| `$concat_text` | 6 | YES | YES | MAYBE |  |
+| `$concat_text` | 6 | YES | YES | YES |  |
 | `$empty_typingContext` | 6 | YES | YES | YES |  |
-| `$exists` | 6 | YES | YES | MAYBE |  |
+| `$exists` | 6 | YES | YES | YES |  |
 | `$flatten_blockElementStatementList` | 6 | YES | YES | YES |  |
 | `$flatten_controlLocalDeclarationList` | 6 | YES | YES | YES |  |
 | `$flatten_externConstructorOrMethodPrototypeList` | 6 | YES | YES | YES |  |
@@ -75,7 +89,7 @@
 | `$flatten_tableKeyList` | 6 | YES | YES | YES |  |
 | `$flatten_tablePropertyList` | 6 | YES | YES | YES |  |
 | `$flatten_typeFieldList` | 6 | YES | YES | YES |  |
-| `$forall` | 6 | YES | YES | MAYBE |  |
+| `$forall` | 6 | YES | YES | YES |  |
 | `$is_tableActionsProperty` | 6 | YES | YES | YES |  |
 | `$is_tableKeysProperty` | 6 | YES | YES | YES |  |
 | `$join_flow` | 6 | YES | YES | YES |  |
@@ -86,7 +100,7 @@
 | `$enter_t` | 7 | YES | YES | YES |  |
 | `$exit_i` | 7 | YES | YES | YES |  |
 | `$exit_t` | 7 | YES | YES | YES |  |
-| `$filter` | 7 | YES | YES | MAYBE |  |
+| `$filter` | 7 | YES | YES | YES |  |
 | `$requires_priority_prime` | 7 | YES | YES | YES |  |
 | `$set_priority_of_tableEntryIR` | 7 | YES | YES | YES |  |
 | `$empty_instContext` | 8 | YES | YES | YES |  |
@@ -98,7 +112,7 @@
 | `$inherit_i` | 10 | YES | YES | YES |  |
 | `$name` | 10 | YES | YES | YES |  |
 | `$callableId_IR` | 11 | YES | YES | YES |  |
-| `$flatten_p4program` | 11 | YES | YES | MAYBE |  |
+| `$flatten_p4program` | 11 | YES | YES | YES |  |
 | `$objectId_ends_with` | 11 | YES | YES | YES |  |
 | `$callableId_of_externConstructorPrototypeIR` | 12 | YES | YES | YES |  |
 | `$resolve_constraint` | 13 | YES | YES | YES |  |
@@ -111,15 +125,15 @@
 | `$optional_annotation_of_parameterIR_prime_prime` | 20 | YES | YES | YES |  |
 | `$strip_prefix_rec` | 20 | YES | YES | YES |  |
 | `$strip_suffix_rec` | 23 | YES | YES | YES |  |
-| `$flatten_nameList` | 24 | YES | YES | MAYBE |  |
-| `$flatten_typeParameterList` | 24 | YES | YES | MAYBE |  |
-| `$flatten_typeParameterListOpt` | 28 | YES | YES | MAYBE |  |
+| `$flatten_nameList` | 24 | YES | YES | YES |  |
+| `$flatten_typeParameterList` | 24 | YES | YES | YES |  |
+| `$flatten_typeParameterListOpt` | 28 | YES | YES | YES |  |
 | `$prefixedNonTypeName` | 28 | YES | YES | YES |  |
 | `$typedLvalueIR_as_typedExpressionIR` | 36 | YES | YES | YES |  |
 | `$isValid_header` | 78 | YES | YES | YES |  |
 | `$invalidate_headerUnion` | 89 | YES | YES | MAYBE |  |
 | `$invalidate_value` | 89 | YES | YES | MAYBE |  |
-| `$lvalue_as_expression` | 97 | YES | YES | MAYBE |  |
+| `$lvalue_as_expression` | 97 | YES | YES | YES |  |
 | `$write_bits_from_value` | 105 | TIMEOUT | - | TIMEOUT |  |
 | `$bin_mod` | 109 | YES | YES | YES | bsub bmod negate-int |
 | `$bin_div` | 113 | YES | YES | YES | bsub bdiv negate-int |
@@ -148,11 +162,11 @@
 | `$bin_shr` | 217 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod bpow-nat negate-int |
 | `$set_priorities_of_tableEntryListIR` | 243 | YES | YES | MAYBE | badd bmul bsub bdiv negate-int nat-of-int |
 | `$name_annotation_opt` | 249 | YES | YES | YES | bsub bdiv bmod |
-| `$write_value_field_from_bits_prime` | 278 | MAYBE | YES | TIMEOUT | badd bmul bsub bmod negate-int |
-| `$write_value_fields_from_bits_prime` | 278 | MAYBE | YES | MAYBE | badd bmul bsub bmod negate-int |
-| `$write_value_from_bits_prime` | 278 | MAYBE | YES | MAYBE | badd bmul bsub bmod negate-int |
-| `$write_values_from_bits_prime` | 278 | MAYBE | YES | MAYBE | badd bmul bsub bmod negate-int |
-| `$write_value_from_bits` | 281 | MAYBE | YES | MAYBE | badd bmul bsub bmod negate-int |
+| `$write_value_field_from_bits_prime` | 278 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
+| `$write_value_fields_from_bits_prime` | 278 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
+| `$write_value_from_bits_prime` | 278 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
+| `$write_values_from_bits_prime` | 278 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
+| `$write_value_from_bits` | 281 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
 | `$bitacc_range_op` | 294 | TIMEOUT | - | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
 | `$bitacc_offset_op` | 296 | TIMEOUT | - | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
 | `$bitacc_range_replace_op` | 396 | TIMEOUT | - | YES | badd bmul bsub bdiv negate-int |
