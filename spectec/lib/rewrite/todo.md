@@ -927,7 +927,18 @@ elaborator가 정적으로 처리, 런타임 검사 시점엔 정적 타입이 �
   **비순환**(SCC 없음)이라 유한 체인 뒤 반드시 구조 하강 규칙에 도달. ⇒ 서브텀 순서 +
   비순환 alias 체인의 사전식 조합으로 종료.
 
-## SCC (Sufficient Completeness Checker) — 현재 환경에선 **못 돌림** (2026-07-10 조사)
+## SCC (Sufficient Completeness Checker) — 배관 완료, CETA 바이너리만 남음 (2026-07-11)
+
+**"빠진 케이스 = stuck 후보"를 정적으로 사냥하는 축.** `check_diff_p4.sh`의
+completeness gap(Maude가 stuck → under-accept)을 1568개 프로그램의 경험칙이 아니라
+**모든 항에 대해** 묻는 것이 sufficient completeness다. `subty_*` totality(사용-기반
+false-보완으로 손수 닫은 것)도 이 성질의 국소 버전.
+
+현재 상태: `[ctor]` 방출(선행)·`--unconditional` 변환·`run-scc.sh` 배선이 전부 끝났고
+`badd` 슬라이스로 end-to-end 검증됨(프루닝 737→7 ops, `[ctor]` 보존, verdict 파싱).
+**남은 건 CETA 링크 바이너리 하나** — 그게 없으면 SCC가 `ERROR-NO-CETA`로 정직하게 거절한다.
+
+### 원인 — CETA 훅 미바인딩
 
 MFE 3.5.1 배포본에 SCC 2b는 들어 있고(`tools/mfe/src/SCC/scc.maude`, 배너에도 뜸)
 `(select tool SCC .)` 까진 되지만, 실제 검사는 안 된다:
@@ -956,33 +967,107 @@ Maude(Maude++)** 에만 있는 빌트인이다. 우리 바이너리 둘 다 없�
 스택(`maude271-hooks` + `mfe271`, SCC 2a 번들)으로 돌려도 같은 warning이 난다 —
 즉 MFE 버전 문제가 아니라 **바이너리 문제**.
 
-**돌리려면:** `maude-2.7-hooks-linux.zip`(v2.7-ext-hooks)을 받아
-`tools/maude27-ceta/`에 두고 `MAUDE_LIB`을 거기로 잡은 뒤, 구형
+**설치·구동 (완료 2026-07-11).** `maude-2.7-hooks-linux.zip`(v2.7-ext-hooks)을
+`tools/maude27-ceta/`에 풀고(gitignore됨) `MAUDE_LIB`을 거기로, 구형
 `tools/mfe271/MFE-mfe-2.7.1/src/mfe.maude`(SCC 2a 번들)로 `(scc SPEC .)`.
-termination 경로(`run-termination.sh`)가 이미 쓰는 것과 **같은 모양의 구형-스택
-패턴**이라 헤더 변환(`(mod`→`(fmod`, `set include BOOL[-OPS] off .` 커맨드화)과
-`prune_slice_signature.py` 를 그대로 재사용할 수 있다. 이번 세션에선 에이전트가
-받은 외부 바이너리 실행이 권한 거부되어 여기까지만 확인.
+[tools/mfe/run-scc.sh](../../tools/mfe/run-scc.sh)가 `run-termination.sh` 패턴을
+그대로 복제(슬라이스 덤프 → `prune_slice_signature.py` → 헤더 변환 `(mod`→`(fmod` →
+구형 MFE). **버전 스큐 주의**: 구형 Full Maude가 Maude 2.7 아래서 자기 소스에 대해
+무해한 `no parse` 경고를 뿜는다 — verdict를 먼저 파싱해야 하고, 안 그러면 판정이 난
+실행을 ERROR로 덮는다.
 
-**돌아가더라도 결과 해석에 큰 함정 둘:**
-1. **`[ctor]` 선언이 없다.** `to_mfe.ml`은 op 선언에 ctor 속성을 전혀 안 붙인다
-   (`grep -c ctor` → 0). SCC는 Σ를 constructor/defined 로 나눠야 하므로, ctor 표시가
-   없으면 판정이 무의미하다. `il_constructor_syms`(이미 `to_mfe.ml`이 계산 중)
-   + 구조적 스칼라 생성자(`zero`/`succ`/`int_pos`/`int_neg`/`nil`/`cons`/`none`/`some`/
-   `true`/`false`/`chr_*`)에 `[ctor]`를 방출하는 작업이 선행되어야 한다.
-2. **조건부 방정식이 조용히 버려진다.** `CC-CONFIG`의 `drop-bad-eqs = true`
-   (`tools/mfe/src/SCC/scc.maude:16`)는 **conditional 또는 non-left-linear 방정식을
-   검사 전에 드롭**한다. 우리 분석 표면은 `ceq`가 압도적이라(프리미스=조건) 남는 건
-   극히 일부. 그 상태의 "not sufficiently complete" 반례는 전부 위양성이다. CRC
-   MAYBE 트리아지와 같은 교훈: **판정보다 witness를 봐야 한다.**
+### 판정 읽는 법 (극성이 전부다)
 
-**할 일:**
+**1. `ceq`→`eq` 변환이 전제.** `CC-CONFIG`의 `drop-bad-eqs = true`
+([scc.maude:941-944](../../tools/mfe/src/SCC/scc.maude))가 **조건부·비선형 방정식을
+검사 전에 드롭**하므로, 그냥 먹이면 그 심볼의 규칙이 통째로 사라져 판정이 무의미해진다.
+그래서 `rewrite --ctrs --unconditional`(=`Rewrite_system.drop_conds`+`linearize_lhs`,
+커밋 f1b979c1)로 우리가 먼저 변환해 드롭될 게 없게 만든다. SCC는 오토마타 전이를
+**`lhs(Eq)`에서만** 만들므로(`sca-eq-rules`) rhs는 봐도 그만 — 조건 제거로 rhs가
+unbound가 되는 규칙(p4 1,164건)은 rhs를 lhs로 대체한다(`nonexec`가 되면 SCC의
+`is-exec?`가 도로 드롭).
+
+**2. 그래서 반례만 신뢰한다.** 조건 제거·선형화는 **매칭 과대 근사** → 빠진 케이스를
+가릴 순 있어도 없는 걸 만들어내진 못한다. ⇒ **COUNTEREXAMPLE은 건전**(변환 여부 무관),
+**COMPLETE는 변환 안 된 심볼(`exact`)에서만 증명**. run-scc.sh가 fidelity 열로 구분한다.
+
+**3. 규모 실측 (2026-07-11, p4 분석 표면).** 예전 이 절에 있던 "우리 표면은 `ceq`가
+압도적"이라는 서술은 **틀렸다**: 실제로는 `eq` 72,518 / `ceq` 2,511. 심볼 기준
+2,403개 중 **무조건-only 1,722**(= SCC가 규칙 전부를 보는 `exact` 심볼: `subty_*` 486,
+`match_*` 465, 함수 435, relation·프리루드 285, `holds_*` 51), 혼재 394, `ceq`-only 287
+(전부 함수·relation — 의미론 본체). ⇒ 본체는 여전히 `approx`지만, **`subty_*`/`match_*`/
+산술 프리루드는 온전히 검사된다** — 마침 우리가 totality를 손수 넣은 바로 그 가족들.
+
+### 실측 결과 — 산술 프리루드 (2026-07-11, 전부 `exact`, SCC 자기 분석도 `complete+sound`)
+
+| 심볼 | verdict | witness |
+|---|---|---|
+| `bsucc` | **COMPLETE** | — (total) |
+| `badd` / `bmul` | COUNTEREXAMPLE | `badd_carry(bzero, bzero)` |
+| `bsub` | COUNTEREXAMPLE | `bpred_double(bzero)` |
+| `bdiv` / `bmod` | COUNTEREXAMPLE | `bdiv(bone, bzero)` / `bmod(bone, bzero)` |
+
+**트리아지 — 둘 다 진짜 gap이 아니라 이미 알고 있던 두 성질의 기계적 재발견.**
+
+- **canonicity 불변식** (`badd_carry(bzero,·)`, `bpred_double(bzero)`): `bd0`/`bd1`은
+  절대 `bzero`를 감싸지 않는다는 이진 인코딩의 불변식 때문에 도달 불가. [prelude.ml:294-297]
+  (translate/prelude.ml)이 **"verified by hand for every rule below, not enforced by the
+  sort system"** 이라고 명시한 바로 그것 — SCC가 그 문장을 기계적으로 확인해 준 셈이다.
+  `BPos < BNatV` 서브소트를 넣으면 COMPLETE로 떨어지는데, 그 서브소트는 `Maude_sorts`가
+  심볼당 시그니처 1개만 지원해서 포기했던 것(835d1537). **⇒ SCC가 그 설계 타협의 비용을
+  정확히 정량화한다: 불변식이 깨져도 타입 시스템이 안 잡고 조용히 stuck된다.**
+- **의도적 부분성** (`bdiv`/`bmod`의 0 제수): 제수 패턴이 `bone`/`bd0`/`bd1`뿐 — 0으로
+  나눈 값은 없다. 인터프리터는 에러, Maude는 stuck ⇒ 양쪽 다 거부라 differential 정합
+  (completeness gap 0과 모순 없음). `eqg`의 대각 밖 stuck과 같은 부류: 고칠 게 아니라
+  문서화할 것.
+
+### 실측 결과 — `subty_*`/`match_*` 표본 (2026-07-11, 3개만 시범)
+
+| 심볼 | verdict | witness |
+|---|---|---|
+| `subty_typeIR` | COUNTEREXAMPLE | `subty_list_fieldValue(bone)` |
+| `subty_value` | COUNTEREXAMPLE | `subty_value(bone)` |
+| `match_typeIR_BOOL_0` | COUNTEREXAMPLE | `match_typeIR_BOOL_0(false)` |
+
+**셋 다 같은 원인 — op 도메인이 `Val`로 너무 넓다 (⇒ 협소화가 선행 과제).**
+`op subty-typeIR : Val -> BoolV`, `op match-typeIR-BOOL-0 : Val -> BoolV`로 선언돼
+있어서 `bone`(NatV < Val)·`false`(BoolV < Val) 같은 **엉뚱한 타입의 인자가 sort상
+합법**이 되고, 당연히 어떤 규칙도 안 덮으니 반례가 된다. 실제 호출은 언제나 선언된
+IL 타입의 값이라 **전부 도달 불가** — CRC MAYBE 트리아지와 같은 "witness를 보라"의
+전형이다.
+
+⇒ **이 가족이 SCC의 최고가치 타겟인데, 지금 그대로는 판정이 의미가 없다.**
+`subty_<T>`/`match_<T>_<K>`의 도메인을 `Val`이 아니라 실제 IL 타입 sort(`TypeIR`
+등)로 좁혀야 비로소 "COMPLETE = usage-based totality의 기계 증명"이 성립한다.
+
+**⚠️ 단, 그냥 좁히면 안 된다 — `Val`-wide는 의도적이다.** `1874d212`가 정확히
+그 반대 방향으로 갔다: matcher/subty/holds/eqg 도메인을 **무조건 `Val`로 넓힌** 이유가
+"좁은 도메인이면 `Reflect.sibling_guard`가 바깥 타입 주어에 중첩 variant의 matcher를
+불러 ill-sorted가 되고, owise 가드가 영구 stuck"이기 때문(48e59d5f의 협소화를 되돌린
+것). ⇒ SCC를 위한 협소화는 **그 반사 가드까지 같이 리타입**하거나, SCC-facing
+표면에만(=`--unconditional`처럼 소비자 한정) 적용하되 가드 항의 sort 정합을 별도로
+보장해야 한다. **한 줄짜리 되돌리기가 아니라 설계 작업**이다.
+
+### 할 일
 - [x] (선행) op 선언에 `[ctor]` 방출 — **완료 2026-07-11**, `to_mfe`(분석)·`to_maude`
   (실행) 두 표면 모두. 생성자 집합은 `Maude_sorts.is_ctor`/`ctor_attr`(이론별 스칼라 +
   컨테이너 + `il_ctor_syms`), 방정식을 가진 심볼이 생성자로 선언되는 걸 막는 데모션
-  가드 포함. 위 권장 순서의 2026-07-11 항목 참조.
-- [ ] `tools/maude27-ceta/` 설치 + `run-scc.sh` (run-termination.sh 패턴 복제).
-- [ ] 작은 unconditional 슬라이스(예: 프리루드 `badd`/`bmul`, 리스트 연산)부터 SCC 시범.
+  가드 포함(p4에서 발화 0건).
+- [x] `tools/maude27-ceta/` 설치 + `run-scc.sh` — **완료 2026-07-11** (커밋 7e88a68c).
+- [x] 산술 프리루드 + `subty_*`/`match_*` **최소 시범** — 완료 (위 두 표).
+- [ ] **(P1, 선행) `subty_*`/`match_*` op 도메인 협소화** (`Val` → 선언 IL 타입).
+  이게 없으면 아래 스윕의 이 가족 반례가 전부 위양성이라 판정이 무의미하다.
+- [ ] **(P2) 전체 스윕** — 세 갈래로 나눠서:
+  (a) `exact` 심볼(무조건-only 1,722개: `subty_*` 486 / `match_*` 465 / 함수 435 /
+  relation·프리루드 285 / `holds_*` 51) — COMPLETE가 실제 증명이 되는 유일한 집합,
+  **P1 이후에** 돌릴 것;
+  (b) `approx` 심볼(혼재 394 + `ceq`-only 287 = 의미론 본체) — COMPLETE는 무시하고
+  **COUNTEREXAMPLE만** 수확 → 실제 stuck 후보 목록;
+  (c) 슬라이스 크기순(`verify --list-symbols --sizes`)으로 tractable한 것부터.
+  비용 실측: 심볼당 ~1.5분(대부분 p4 스펙 번역 고정비, SCC 자체는 수십 ms).
+  → 슬라이스 덤프를 한 번만 하고 재사용하도록 배치 드라이버를 짜면 대폭 단축 가능.
+- [ ] (선택) `BPos < BNatV` 서브소트 — `Maude_sorts`의 심볼당-단일-시그니처 제약을
+  풀어야 함. 풀면 canonicity 반례 3개가 COMPLETE로 떨어지고, 불변식이 sort로 강제된다.
 
 ## `search` / `modelCheck` — P4 언어의 메타 성질 검증 (신규, 미착수)
 
@@ -1259,7 +1344,7 @@ in-flight 결과 손상, 과거에도 겪음):
 ```
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
-  → SCC (sufficient completeness)                                             [[ctor] 방출은 완료(2026-07-11). 남은 건 CETA 훅 있는 maude-2.7-hooks 바이너리 + run-scc.sh; drop-bad-eqs=true라 ceq는 검사 전 드롭되니 무조건부 슬라이스부터]
+  → SCC (sufficient completeness)                                             [배관 완주(2026-07-11): [ctor]+CETA 바이너리+--unconditional+run-scc.sh, 산술/subty 최소 시범까지. 남은 건 (P1) subty_*/match_* 도메인 협소화(Val-wide라 반례가 전부 위양성 — 단 1874d212와 충돌하니 설계 필요) → (P2) 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만)]
   → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2

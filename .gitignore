@@ -24,6 +24,9 @@ spectec/tools/mfe271/
 spectec/tools/aprove/
 spectec/tools/yices/
 spectec/tools/yices1/
+# Sufficient-completeness backend: the CETA-linked Maude 2.7 (v2.7-ext-hooks),
+# the only Linux binary that binds the SCC's test-emptiness hook.
+spectec/tools/maude27-ceta/
 spectec/tools/z3/
 spectec/log.txt
 spectec/term_sweep.tsv

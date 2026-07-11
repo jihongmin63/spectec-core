@@ -106,6 +106,53 @@ So the gate can pair **CRC local confluence** with an **MTT/AProVE(Z3) terminati
 proof** for full Church-Rosser. Standalone, the CRC still stands alone as local
 confluence + sort-decreasingness (the CTRS assumed terminating).
 
+## SCC (Sufficient Completeness Checker) — the CETA-linked Maude 2.7 stack
+
+`./run-scc.sh <symbol> [timeout]` checks one analysis-CTRS slice for **sufficient
+completeness**: does every ground term reduce to a constructor term, or does some
+defined symbol get stuck for want of a matching rule? That is the static form of
+the completeness gap `check_diff_p4.sh` hunts empirically.
+
+Two components, both gitignored, both obtained on demand:
+
+1. **`tools/maude27-ceta/`** — Maude 2.7 built against the **CETA** library (tree
+   automata modulo equational theories), which is what binds the SCC's
+   `test-emptiness` hook. Release `v2.7-ext-hooks` of `maude-team/maude`, asset
+   `maude-2.7-hooks-linux.zip`, unpacked flat. **This is the only Linux binary that
+   has it** — despite its title, `v2.7.1-ext-hooks` ships the MTT hooks only
+   (`strings maude | grep -ci ceta` → 0 for it and for stock 3.5.1, 111 here).
+   Without CETA the SCC loads and selects fine, then refuses the check.
+2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the same old MFE the termination path uses;
+   its `src/SCC/scc.maude` is the SCC 2a bundle.
+
+`SCC_MAUDE=<path>` overrides the binary — point it at the CETA-less
+`tools/maude271-hooks/maude` to exercise the whole pipeline and get
+`ERROR-NO-CETA`, which is how to smoke-test the plumbing.
+
+### Reading a verdict
+
+`run-scc.sh` prints `<symbol> <verdict> <fidelity> [witness]`, and **the fidelity
+column decides what the verdict is worth**:
+
+- The SCC's `drop-bad-eqs` silently discards conditional and non-left-linear
+  equations, which on our surface would throw the slice away. So the script feeds
+  `rewrite --ctrs --unconditional`, which drops conditions and linearizes patterns
+  first. That **over-approximates matching**: it can hide a missing case, never
+  invent one.
+- ⇒ **COUNTEREXAMPLE is sound either way** (the witness names a constructor case no
+  rule's lhs covers), while **COMPLETE only proves something for an `exact` slice**
+  — one the transform did not have to touch.
+- The `analysis:` half of the column is the SCC's own report on its abstraction
+  (`complete+sound`), which it prints per run.
+
+A sound witness is still not automatically a bug: it may be **unreachable**. Triage
+it exactly like a CRC MAYBE — confirm a real call site can build the term. Two
+recurring unreachable classes are documented in
+[lib/rewrite/todo.md](../../lib/rewrite/todo.md): the binary-encoding canonicity
+invariant (`bd0`/`bd1` never wrap `bzero` — hand-verified, not enforced by the
+sorts), and predicates declared over the top sort `Val` (so a `NatV` argument is
+well-sorted but never actually passed).
+
 ## Calibration (observed against the real MFE)
 
 The earlier best-effort constants in [mfe.ml](../../lib/rewrite/mfe.ml) were

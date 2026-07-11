@@ -89,19 +89,38 @@ PY
 # split across lines: collapse whitespace before matching (as mfe.ml does).
 out=$(timeout "$tmo" "$M2" -no-banner < "$tmp/in.txt" 2>&1 | tr -s ' \t\n' ' ')
 
+# The MFE's object loop reports the check as
+#
+#   Sufficient completeness check for SPEC
+#   Completeness counter-examples: badd-carry(bzero,bzero) with sort NatV
+#   Freeness counter-examples: none were found
+#   Analysis: it is complete and it is sound
+#
+# and it is the "Analysis:" line that says how to read the rest: a SOUND
+# analysis means a reported counterexample is real, a COMPLETE analysis means
+# the absence of one is a proof. Both are reported per run, so pass them
+# through rather than hard-coding an assumption.
+#
+# ORDER MATTERS. A Maude without the CETA library bound refuses with "Warning:
+# The sufficient completeness checker is not fully available. Please use the
+# trust command to assume that module SPEC IS SUFFICIENTLY COMPLETE." -- match
+# a bare 'sufficiently complete' and you read that refusal as a proof. And the
+# old Full Maude emits benign "no parse" warnings from its own source while
+# loading under Maude 2.7, so an unscoped 'error|no parse' grep reports ERROR
+# over a run that actually produced a verdict: test for the verdict FIRST.
 witness=""
-# ORDER MATTERS, and the success phrase must be anchored on "Success:". A Maude
-# without the CETA library bound reports "Warning: The sufficient completeness
-# checker is not fully available. Please use the trust command to assume that
-# module SPEC IS SUFFICIENTLY COMPLETE." -- a bare 'is sufficiently complete'
-# match reads that refusal as a proof.
-if   grep -q 'not fully available'               <<<"$out"; then v=ERROR-NO-CETA
-elif grep -q 'Success:.*is sufficiently complete' <<<"$out"; then v=COMPLETE
-elif grep -q 'Failure: The term'                 <<<"$out"; then
+analysis=$(sed -n 's/.*Analysis: it is \([a-z]*\) and it is \([a-z]*\).*/\1+\2/p' <<<"$out" | head -1)
+if   grep -q 'not fully available'                          <<<"$out"; then v=ERROR-NO-CETA
+elif grep -q 'Completeness counter-examples: none were found' <<<"$out"; then v=COMPLETE
+elif grep -q 'Completeness counter-examples:'                <<<"$out"; then
   v=COUNTEREXAMPLE
-  witness=$(sed -n 's/.*Failure: The term \(.*\) is an irreducible term.*/\1/p' <<<"$out")
-elif grep -q 'may still not be sufficiently'     <<<"$out"; then v=MAYBE
-elif grep -qi 'no parse\|error'                  <<<"$out"; then v=ERROR
+  witness=$(sed -n 's/.*Completeness counter-examples: \(.*\)with sort \([A-Za-z0-9]*\) Freeness.*/\1: \2/p' <<<"$out")
+elif grep -qiE 'no parse for [^ ]*SPEC|error'                <<<"$out"; then v=ERROR
 else v=TIMEOUT; fi
+
+# The transform fidelity (does the SCC see our rules verbatim?) and the SCC's
+# own analysis fidelity (is its abstraction sound/complete here?) are separate
+# caveats; report both.
+[ -n "$analysis" ] && fidelity="$fidelity/analysis:${analysis// /-}"
 
 printf '%s\t%s\t%s\t%s\n' "$sym" "$v" "$fidelity" "$witness"
