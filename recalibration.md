@@ -31,6 +31,46 @@ destructure already implies`).** 그 커밋이 `match_K(v)=true`를 동반 destr
 CRC/ChC YES/YES 유지를 확인했다(7~10분/건). 즉 이 커밋의 순이익은 termination
 쪽에만 나타난다.
 
+**CRC 열 후속 — 상보 비교 가드 정렬 (2026-07-13, `feat(rewrite): align
+complementary comparison/negation guards for the CRC`, a290977b).** 분석 전용
+패스 `Reflect.align_guards`가 조건 위치의 `lt`/`lt_int`(및 선두 `not`)을 정준
+`leq`/`leq_int` 술어의 반대 극성으로 재철자한다. `i<0`(arith shift) vs
+`i>=0`(logical shift)로 갈리는 형제 절이 번역 후 갖던 서로 다른 subject
+(`lt_int(X,0)=true` vs swapped `leq_int(0,X)=true`)를 **같은 subject
+`leq_int(0,X)`의 true/false 극성**으로 통일해, CRC가 가설 재작성으로 임계쌍을
+discharge한다.
+
+**대상은 상보 비교쌍을 가진 3심볼뿐**(전 p4 표면 pairscan): `$bin_satplus`
+(CRC **MAYBE**), `$bin_satminus`(이미 **YES**), `$bin_shr`(CRC **TIMEOUT**). 표의
+다른 비-YES 행(`$join_ctk`/`$assignop_as_binop` = match fall-through,
+`$bin_shl`/`$bin_concat`/`$write_*`/`$bitacc_*` = 산술 CP 폭발 TIMEOUT 또는 별
+원인)은 sign-split이 아니므로 이 패스와 무관하다.
+
+**실측 (시그니처-축소 슬라이스 CRC, `ulimit -s unlimited`, Maude 3.5.1a/CRC 3t).**
+`$bin_shr` 자기-레이어 12절: 재철자 전 **MAYBE(6 임계쌍)** → 후 **YES(0)**;
+`$bin_satplus` 축소 슬라이스 **YES**. `$bin_satminus`는 동형(같은 상보 형태)이나
+축소 CRC가 산술 라이브러리 무게로 완주 미측정.
+
+**근본 원인 규명 — 왜 기존 bridge가 이걸 못 고쳤나.** prelude에는 이미
+`lt_int(x,y)=not(leq_int(y,x))` bridge가 있는데도 sign-split이 살아남았다. 이유는
+sort다: 여기서 `X=$bitstr_to_int(..)`의 복원 sort가 최상위 `Val`인데 bridge는
+하위 sort `IntV`에 선언돼 있어 **이 항에 발화하지 못한다**(bridge 있는 채로도 6
+임계쌍 생존 실측). align_guards는 `leq_int` 심볼을 직접 써 sort와 무관하게
+정렬하므로 우회한다. (이 `Val`-wide 도메인 문제는 아래 표의 여러 산술/판정
+심볼에 공통이며, todo.md의 "subty_*/match_* op 도메인 협소화(P1)" 항목과 같은
+뿌리다.)
+
+**⚠️ 표 verdict는 이 커밋 기준으로 재측정하지 않았다.** 표는 **전체 슬라이스**
+CRC 측정값이고, 위 실측은 **축소 슬라이스**다 — 서로 다른 측정이다. 전체 슬라이스
+CRC는 이 심볼들에서 산술 라이브러리(`badd`/`bmul`) 임계쌍 폭발이 지배적이라
+(`$bin_shr` = TIMEOUT), align_guards가 sign-split MAYBE의 **원인은 제거해도**
+전체 슬라이스 verdict(특히 `$bin_shr`의 TIMEOUT)는 산술 무게 때문에 그대로 남을
+공산이 크다. `$bin_satplus`(전체 MAYBE)만 재측정 시 YES로 떨어질 후보이며, 이
+불안정한 WSL 환경에서 전체 슬라이스 CRC 완주가 반복 실패(장시간 실행 중 프로세스
+소멸)해 미확정으로 둔다 — 다음 안정 환경에서 `verify --symbol '$bin_satplus'`
+재측정 필요. 아래 표의 `$bin_satplus`/`$bin_shr` CRC 열은 그 전까지 옛 값을
+유지한다.
+
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
 | `$annotationList_of_parameterIR` | 1 | YES | YES | YES |  |
