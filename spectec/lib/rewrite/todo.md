@@ -1339,13 +1339,58 @@ in-flight 결과 손상, 과거에도 겪음):
   "~10s 내부화 / ~4ms per program" 수치가 stale이었던 것(subty 보완 5,425 eq 이전 값).
   CLAUDE.md 성능 절도 실측표로 갱신.)
 
+(추가 완료 2026-07-11: **동반 destructure에 함의된 잉여 매처 가드 제거 —
+termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premise_binders`가
+**서로를 막고 있었다**: 절 하나가 `match_K(v) = true`와 `v = K(..)`를 둘 다 들고 있으면
+(SpecTec 엘라보레이터가 `matches K` 가드와 `let K(x,y) = v`를 별개 전제로 내보내므로 흔한
+모양), hoist는 "v가 다른 조건(destructure)에도 나온다"고 skip하고, fold는 "v가 다른
+조건(매처 가드)에도 나온다"고 skip한다. 결과적으로 둘 다 남고 **head가 맨 변수로 굳는다**.
+
+- **증상**: 리스트/구조 재귀의 감소 인자가 head가 아니라 **전제에만** 존재
+  (`ceq $f(v) = ..$f(v_t).. if match_cons(v)=true /\ v = cons(v_h,v_t)`). AProVE의
+  dependency-pair 분석은 `v_t < v`를 세우지 못해 MAYBE — 루프가 아니라 **증명 실패**.
+  [recalibration.md](../../../recalibration.md)의 term MAYBE 18건 중 14건이 이 모양
+  (`$concat_text`/`$exists`/`$forall`/`$filter`/`$join_text`/`$flatten_*`/`$invalidate_*`/
+  `$lvalue_as_expression`/`$set_priorities_*`).
+- **수정** ([translate/reflect.ml](translate/reflect.ml)): `match_K(v)=true`의 **유일한**
+  다른 등장이 같은 K로 destructure하는 조건일 때 그 매처를 **삭제**한다
+  (`restated_by_destructure`). `v = K(..)`가 이미 함의하므로 절의 적용 조건은 불변이고,
+  v가 더는 "다른 조건"에 안 나오니 기존 `fold_premise_binders`가 **자기 게이트를 그대로 지킨 채**
+  destructure를 head로 접는다. 접힌 head `K(..)`가 매처가 지고 있던 disjointness를 그대로 진다.
+- **owise 계열은 제외** (`owise_head_syms`) — 거기선 CRC가 `Reflect.owise`의 부정 가드를
+  형제의 **동일한 가드 항**으로 재작성해야만 반박하므로(같은-subject 정렬), 형제의 매처를
+  지우면 discharge 근거가 사라져 impty `$lookup`이 YES→MAYBE로 역행한다. 실측으로 확인함.
+- **실측 (같은 기기, before = 변경 전 바이너리 / after = 이 커밋)**:
+
+  | 측정 | before | after |
+  |---|---|---|
+  | `$concat_text` termination | MAYBE (237s) | **YES (98s)** |
+  | `$flatten_nameList` termination | MAYBE (240s) | **YES (101s)** |
+  | `$lookup` CRC/ChC (impty, owise 계열) | YES/YES | YES/YES (무회귀) |
+  | `$filter` CRC | TIMEOUT (397s) | TIMEOUT — **회귀 아님**(변경 전에도 TIMEOUT; 이 기기 MFE 성능. recalibration의 YES는 더 빠른 환경 값) |
+
+  의미 보존: 실행(native) 표면 **sha256 불변**(분석 표면 전용), impty `run-structural` 8/8
+  `result: true`, p4 `run-structural --check-p4` 표본 **12/12 MATCH / 0 MISMATCH**.
+  impty 골든(`spec.ctrs`)은 `Check-expr`/`Check-command`/`Eval-expr`/`Eval-command` 20절이
+  head-패턴으로 접히는 **의도된 개선**이라 재생성; `$lookup` 정의 규칙은 byte-identical.
+- **남은 것**: `$join_ctk`/`$assignop_as_binop`의 CRC MAYBE는 이 수정 범위 밖 — 원인이 다르다
+  (owise 반사 가드 + **패턴형** 형제). MFE 원출력으로 확인: `ccp SPEC1`의 조건이 완전히 ground인
+  `or(match_ctk_*(CTK)..) = false`인데, **CRC는 임계쌍 조건을 모듈 등식으로 정규화하지 않아**
+  `true = false`(무모순 불가)를 못 본다. 형제가 가드형이면 그 가드 항으로 재작성돼 discharge되지만
+  ($is_lpm_key' 등 YES), 패턴형 형제는 밀어줄 hypothesis가 없다. → owise 절을 멤버 생성자로
+  fan-out(`expand_subty_guards`와 동일 기법, ctk 3멤버/assignop 13멤버로 ≤16 게이트 통과)하면
+  head가 서로소가 되어 임계쌍 자체가 사라진다.)
+
 남은 작업:
 
 ```
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
   → SCC (sufficient completeness)                                             [배관 완주(2026-07-11): [ctor]+CETA 바이너리+--unconditional+run-scc.sh, 산술/subty 최소 시범까지. 남은 건 (P1) subty_*/match_* 도메인 협소화(Val-wide라 반례가 전부 위양성 — 단 1874d212와 충돌하니 설계 필요) → (P2) 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만)]
-  → 잔여 MAYBE: match-가드 companion-destructure 케이스($join_ctk류) + rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
+  → owise 절 생성자 fan-out                                                    [$join_ctk/$assignop_as_binop CRC MAYBE 2건; CRC가 ccp 조건을 정규화 안 하는 게 원인이라 가드→head 패턴으로 옮기면 해소. expand_subty_guards 재사용]
+  → $write_value_from_bits' n_var=0 경계                                       [CRC MAYBE 5의 뿌리이자 유일한 진짜 비합류: 2.1.2-value-aux.spectec:147-153의 두 절이 n_var=0에서 동시에 발화. 원 스펙의 절 순서가 지던 disambiguation을 번역이 잃음 → n_var≠0 가드(또는 owise) 복원 필요. (term 쪽은 fold 이후 5심볼 전부 YES — 3fbbe1d6)]
+  → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
+                (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
          termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md)
