@@ -14,7 +14,22 @@ destructure already implies`).** 그 커밋이 `match_K(v)=true`를 동반 destr
 `$invalidate_value`/`$invalidate_headerUnion` (fix가 슬라이스를 전혀 바꾸지 않음 —
 접을 destructure-동반 matcher가 없다). `$bitacc_*`/`$write_bits_from_value`의 TIMEOUT은
 그대로지만 이 머신에선 모듈러(B) 한 건이 15~25분 걸려(대조군 `$bitacc_range_replace_op`
-= YES, 25분) 예산 문제와 구분되지 않는다. CRC/ChC 열은 이번에 재측정하지 않았다.
+= YES, 25분) 예산 문제와 구분되지 않는다.
+
+**CRC/ChC 열 재측정 (2026-07-13, 같은 커밋) — 변화 없음.** 같은 fold가 head를
+서로소화하니 CRC도 움직일 것으로 봤지만, 열의 값은 하나도 바뀌지 않았다.
+① CRC가 YES가 아니던 행 중 `$join_ctk` `$assignop_as_binop` `$bin_satplus`
+`$bin_concat` `$bin_shl` `$bin_shr` `$write_bits_from_value`는 fold 전/후 분석
+슬라이스가 **바이트 동일**하다(접을 destructure-동반 matcher가 없다) — verdict가
+움직일 수 없으므로 재측정 대상이 아니다. ② 슬라이스가 실제로 바뀐 비-YES 행은
+`$write_value*` 5개(MAYBE)와 `$bitacc_*` 4개(TIMEOUT)뿐인데, `$write_value*`는 이
+머신에서 CRC가 아예 판정을 못 낸다(1800s 4× TIMEOUT, 단독 5400s 예산에서도 74분
+뒤 verdict 없이 ERROR) — 표의 MAYBE는 더 빠른 환경의 옛 측정값이라 그대로 둔다.
+③ **회귀 없음**: fold로 슬라이스가 바뀐 기존 YES 8개(`$concat_text` `$exists`
+`$forall` `$filter` `$flatten_p4program` `$flatten_nameList`
+`$flatten_typeParameterListOpt` `$lvalue_as_expression`)를 다시 돌려 전부
+CRC/ChC YES/YES 유지를 확인했다(7~10분/건). 즉 이 커밋의 순이익은 termination
+쪽에만 나타난다.
 
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
