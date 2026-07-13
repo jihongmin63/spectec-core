@@ -60,16 +60,23 @@ sort다: 여기서 `X=$bitstr_to_int(..)`의 복원 sort가 최상위 `Val`인�
 심볼에 공통이며, todo.md의 "subty_*/match_* op 도메인 협소화(P1)" 항목과 같은
 뿌리다.)
 
-**⚠️ 표 verdict는 이 커밋 기준으로 재측정하지 않았다.** 표는 **전체 슬라이스**
-CRC 측정값이고, 위 실측은 **축소 슬라이스**다 — 서로 다른 측정이다. 전체 슬라이스
-CRC는 이 심볼들에서 산술 라이브러리(`badd`/`bmul`) 임계쌍 폭발이 지배적이라
-(`$bin_shr` = TIMEOUT), align_guards가 sign-split MAYBE의 **원인은 제거해도**
-전체 슬라이스 verdict(특히 `$bin_shr`의 TIMEOUT)는 산술 무게 때문에 그대로 남을
-공산이 크다. `$bin_satplus`(전체 MAYBE)만 재측정 시 YES로 떨어질 후보이며, 이
-불안정한 WSL 환경에서 전체 슬라이스 CRC 완주가 반복 실패(장시간 실행 중 프로세스
-소멸)해 미확정으로 둔다 — 다음 안정 환경에서 `verify --symbol '$bin_satplus'`
-재측정 필요. 아래 표의 `$bin_satplus`/`$bin_shr` CRC 열은 그 전까지 옛 값을
-유지한다.
+**전체 슬라이스 재측정 결과 (2026-07-13, 같은 날) — 표 CRC 열 변화 없음.** 위
+실측은 **축소 슬라이스**이고 표는 **전체 슬라이스** 측정값이라 서로 다른 측정이다.
+CRC=MAYBE인 재측정 가능 3행을 전체 슬라이스로 다시 돌렸다(`verify --symbol`):
+- `$bin_satplus` → **CRC TIMEOUT**(과거 MAYBE에서 이 WSL 환경 악화로 완주 실패;
+  1900s 예산 소진). align_guards가 sign-split MAYBE의 **원인은 제거**했음이 축소
+  슬라이스로 확인됐으나, 전체 202규칙 슬라이스는 산술 라이브러리(`badd`/`bmul`)
+  임계쌍 폭발이 지배적이라 verdict가 그 아래 가린다.
+- `$join_ctk` → **MAYBE**, `$assignop_as_binop` → **MAYBE** (둘 다 무변화). 이
+  둘은 sign-split이 아니라 match fall-through라 애초에 align_guards 대상이 아니며,
+  YES→MAYBE 역행이 없음(무회귀)도 이 재측정으로 확인됐다.
+- `$write_value*` 5행은 이 환경에서 CRC가 완주하지 못해(1800s 다중 TIMEOUT)
+  재측정 불가.
+
+⇒ **align_guards의 순이익은 축소 슬라이스 CRC(sign-split 원인 제거)에서만 실측되고,
+전체 슬라이스 CRC verdict로는 산술 CP 폭발/환경 악화에 가려 드러나지 않는다.** 표의
+`$bin_satplus`/`$bin_shr` CRC 열은 더 빠른 환경의 옛 측정값을 유지한다(위
+`$write_value*`와 같은 처리) — 다음 안정 환경에서 재측정 필요.
 
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
