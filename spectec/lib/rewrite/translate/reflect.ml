@@ -323,6 +323,59 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
   { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
 
 (* -------------------------------------------------------------------------- *)
+(* Comparison / negation guard alignment.
+
+   The CRC discharges a conditional critical pair's infeasibility only when two
+   of its conditions reduce to the SAME subject term equated to [true] versus
+   [false] (it rewrites the conditions as mutual hypotheses; it does not narrow
+   the subject). Sibling clauses that split on complementary comparisons -- e.g.
+   [$bin_shr]'s arithmetic shift ([i < 0]) versus logical shift ([i >= 0]) --
+   translate to [lt_int(X, 0) = true] in one and [leq_int(0, X) = true] in the
+   other, because {!Ctrs_term.term_of_cmpop} normalizes [>=] to a swapped [leq].
+   Those are two different subject terms, so the CRC keeps the pair as a
+   spurious [MAYBE]. The prelude's [lt_int(x,y) = not(leq_int(y,x))] bridge does
+   NOT repair it: here [X] is a [$bitstr_to_int(..)] whose recovered sort is the
+   top [Val], while the bridge is declared over [IntV] (a subsort), so it never
+   fires on [X] -- measured, the sign split survives as 6 critical pairs.
+
+   This pass respells each top-level comparison guard to the canonical
+   [leq]/[leq_int] predicate at inverted polarity, so the two siblings end up
+   stating the SAME [leq_int(0, X)] term and the CRC discharges the pair by
+   hypothesis (measured: 6 pairs -> 0). A leading [not(..)] guard is flattened
+   the same way, lining a negated [match_K]/subtype/boolean-function test up
+   with its positive twin.
+
+   Satisfiability-equivalent in the structural prelude: [lt(a,b) ->* true] iff
+   [leq(b,a) ->* false] (both read the same total [bcompare]; the [leq_int] sign
+   rules are likewise total), and [not(X) ->* true] iff [X ->* false]. The swap
+   preserves the variable set. Analysis-only, like {!owise} -- the executable
+   surface keeps the original guards. *)
+let align_guards ~(scalars : T.scalar_theory) (sys : R.t) : R.t =
+  let tru = T.bool_t ~scalars true in
+  let fls = T.bool_t ~scalars false in
+  let flip b = if b then fls else tru in
+  (* One rewrite step toward canonical form; [None] when nothing applies. *)
+  let step ((l, r) : R.cond) : R.cond option =
+    let polarity =
+      if r = tru then Some true else if r = fls then Some false else None
+    in
+    match (l, polarity) with
+    | R.App ("not", [ x ]), Some p -> Some (x, flip p)
+    | R.App ("lt", [ a; b ]), Some p -> Some (T.leq_t b a, flip p)
+    | R.App ("lt_int", [ a; b ]), Some p -> Some (T.leq_int_t b a, flip p)
+    | _ -> None
+  in
+  let rec normalize (c : R.cond) : R.cond =
+    match step c with Some c' -> normalize c' | None -> c
+  in
+  let rules =
+    List.map
+      (fun (r : R.rule) -> { r with R.conds = List.map normalize r.R.conds })
+      sys.R.rules
+  in
+  { sys with R.rules }
+
+(* -------------------------------------------------------------------------- *)
 (* Skip conditions. *)
 
 exception Gate of string

@@ -34,6 +34,20 @@ val hoist_matchers :
   Rewrite_system.t ->
   Rewrite_system.t
 
+(** Respell each top-level comparison / negation guard to the canonical
+    [leq]/[leq_int] predicate at inverted polarity: [lt(a,b) = true] becomes
+    [leq(b,a) = false] (and the [_int] and [false]-polarity variants likewise),
+    and a leading [not(x) = b] guard is flattened to [x = not b]. Sibling
+    clauses split on complementary comparisons ([i < 0] vs [i >= 0], which
+    translation had spelled as [lt_int(X,0)] vs the swapped [leq_int(0,X)]) then
+    state the SAME subject term, so the CRC discharges their otherwise-spurious
+    critical pair by hypothesis rewriting -- the prelude's [lt_int]/[not] bridge
+    cannot, because [X]'s recovered sort is the top [Val] rather than the
+    bridge's [IntV]. Satisfiability-equivalent over the total structural
+    predicates; preserves the variable set. Analysis-only, like {!owise}. *)
+val align_guards :
+  scalars:Ctrs_term.scalar_theory -> Rewrite_system.t -> Rewrite_system.t
+
 (** (B') subty-guard head specialization: expand a clause guarded by a
     membership test [subty_<S>(v) = true] on a head-bound variable [v] into one
     clone per member constructor of [S] (substituting [v := K(fresh..)] through

@@ -1175,6 +1175,33 @@ effectful 집합에 속하냐"만 보고 무조건 막던 2줄 삭제). `gensym.
 gensym 심볼(`$compat_table_exact_optional_key`)을 잡아 정상적으로 계속 게이트되는 것도
 확인 — 안전장치가 실전에서도 정확히 작동함을 보여줌.)
 
+(추가 완료 2026-07-13: **`Reflect.align_guards` — 상보 비교/부정 가드 정렬로
+sign-split MAYBE 해소**(`reflect.ml`, `pipeline.ml`의 `ctrs_of_spec`에서
+`fold_premise_binders` 뒤·`owise` 앞). 조건 위치의 `lt(a,b)=true`를
+`leq(b,a)=false`로(그리고 `_int`/`false`-극성 변형, 선두 `not(x)=b`는 `x=¬b`로)
+재철자해, `i<0`(arith shift) vs `i>=0`(logical shift)로 갈리는 형제 절이 번역
+후 갖게 되는 서로 다른 subject(`lt_int(X,0)=true` vs swapped `leq_int(0,X)=true`)를
+**같은 subject `leq_int(0,X)`의 true/false 극성**으로 통일 → CRC가 가설 재작성으로
+임계쌍을 discharge.
+**근본 원인 규명**: prelude의 기존 bridge `lt_int(x,y)=not(leq_int(y,x))`가
+이 쌍을 못 고쳤던 이유는 — 여기서 `X=$bitstr_to_int(..)`의 복원 sort가 최상위
+`Val`인데 bridge는 하위 sort `IntV`에 선언돼 있어 **발화하지 못하기** 때문
+(축소 슬라이스 CRC 실측: bridge 있는 채로도 6 임계쌍 생존). align_guards는
+`leq_int` 심볼을 직접 써 sort와 무관하게 정렬하므로 이 문제를 우회.
+**실측**(`ulimit -s unlimited` + 시그니처-축소 슬라이스 CRC, CRC 3t/Maude 3.5.1a):
+`$bin_shr` 자기-레이어 12절 — 재철자 전 MAYBE(6 ccp) → 후 **YES(0 ccp)**;
+`$bin_satplus` **YES**; `$bin_satminus`는 동형(같은 상보 형태)이나 축소 CRC가
+산술 라이브러리 무게로 완주 미측정(sign-split 해소는 동일). 미니모듈 e1~e9로
+CRC 판정 법칙 재확인 — "same-subject true/false 극성 충돌만 discharge, not()/
+bridge 사슬은 sort가 맞을 때만 통과"(메모리 `mfe-crc-hypothesis-rewriting` v2).
+**무회귀**: impty/base 골든 byte-identical(impty엔 `lt`/`not` 조건 없음), p4
+전체 `--ctrs` 재철자 정합(조건 위치 `lt`/`lt-int`/최상위 `not(` 0건, subty·함수
+부정은 `= false`로 평탄화), owise 반사 72 reflected/0 kept·subty expansion 정상
+(align_guards가 뒤따르는 owise 반사를 안 깨뜨림 — 오히려 평탄화된 `not`을 owise가
+정상 처리). 실행 표면 무영향(패스는 `ctrs_of_spec` 전용). CLAUDE.md의
+"spurious CRC MAYBE — `$bin_shr`/`$bin_satplus` sign/range split" 트리아지 항목은
+이 패스로 해소됨 — 갱신 필요.)
+
 (추가 완료 2026-07-07: **MFE 환경 차단 해제 확인 + (B) 실측 완주 + B′ subty-가드
 확장 + owise 72/72(ambiguous matcher 해소) + holds_R output-carrying 일반화 +
 `drop_owise` 폴백 제거.** 상세:)
