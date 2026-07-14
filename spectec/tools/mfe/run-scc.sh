@@ -119,14 +119,25 @@ elif grep -q 'Completeness counter-examples:'                <<<"$out"; then
 elif grep -qiE 'no parse for [^ ]*SPEC|error'                <<<"$out"; then v=ERROR
 else v=TIMEOUT; fi
 
-# A COUNTEREXAMPLE is only as meaningful as the domain of the symbol it names.
-# Most operators are declared over their real IL sort (Maude_sorts.predicate_
-# domains recovers even the match_/subty_/holds_ ones from use), and a witness
-# there is a genuinely reachable subject -- chase it. But the erased container/
-# scalar polymorphism leaves some symbols at the top sort Val (a list element, a
-# tuple slot, sub_nat's Int-or-Nat subject), and the SCC then enumerates EVERY
-# constructor of the module for that argument: `subty_value(bone)` is not a gap,
-# it is a term no call site can build. Report which kind this is.
+# A COUNTEREXAMPLE is only as meaningful as the domain of the symbol it names,
+# and the erasure of the CTRS's polymorphism shows up in exactly two places.
+#
+#   dom:Val-wide   the witness's symbol is declared over the top sort, so the SCC
+#                  enumerated EVERY constructor of the module for that argument.
+#                  A tuple slot or an unresolved type parameter lands here.
+#                  `subty_value(bone)` is not a gap, it is a term no call site can
+#                  build. Suspect first, chase last.
+#   dom:elem-erased  the witness's symbol takes a List/Opt, and the container
+#                  sorts carry no element type. `subty_list_fieldValue` accepts
+#                  only fieldValue elements (Maude_sorts narrows the cons head to
+#                  the element predicate's domain, which is what buys that
+#                  predicate a real sort in the first place), so over the
+#                  element-agnostic List it is genuinely not total -- yet no call
+#                  site can hand it a list of anything else. True about the sorts,
+#                  unreachable in the system.
+#   dom:narrow     the witness's symbol is declared over its real IL sort. Nothing
+#                  discounts this one: it names a subject the type system permits
+#                  and no rule covers. THIS is the finding to chase.
 #
 # COMPLETE needs no such caveat: proving totality over a WIDER domain is a
 # stronger statement, not a weaker one.
@@ -134,9 +145,10 @@ domain=""
 if [ "$v" = COUNTEREXAMPLE ]; then
   head_sym=${witness%%(*}; head_sym=$(tr -d ' ' <<<"$head_sym")
   dom=$(sed -n "s/^\s*op ${head_sym} : \(.*\)-> .*/\1/p" "$tmp/slice.mod" | head -1)
-  if   [ -z "$dom" ];              then domain="dom:?"
-  elif grep -qw Val <<<"$dom";     then domain="dom:Val-wide"
-  else                                  domain="dom:narrow"; fi
+  if   [ -z "$dom" ];                     then domain="dom:?"
+  elif grep -qw Val <<<"$dom";            then domain="dom:Val-wide"
+  elif grep -qwE 'List|Opt' <<<"$dom";    then domain="dom:elem-erased"
+  else                                         domain="dom:narrow"; fi
 fi
 
 # The transform fidelity (does the SCC see our rules verbatim?), the SCC's own

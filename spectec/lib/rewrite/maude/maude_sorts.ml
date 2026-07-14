@@ -25,6 +25,18 @@ type scalar_theory = Ctrs_term.scalar_theory = Structural | Native
 
 (* The universal supersort every other sort sits under. *)
 let val_sort = "Val"
+
+(* The common supersort of the two scalar number sorts, [NatV] and [IntV].
+   It exists for one operator: [sub_nat], the [e <: nat] membership test, which
+   {!Prelude} defines over BOTH representations (the binary nats [bzero]/[bone]/
+   [bd0]/[bd1] and the sign-magnitude ints [int_pos]/[int_neg]; the [Native]
+   theory delegates it over Maude's own [nat(_)]/[int(_)] just as widely). With
+   no supersort of its own it could only be declared over [Val], which reads as
+   "any value at all" and makes the operator look partial to a sufficient-
+   completeness checker -- every constructor of every sort becomes a legal
+   argument, and naturally no rule covers a struct. Over [NumV] its six rules
+   are exactly total. *)
+let num_sort = "NumV"
 let dedup xs = List.sort_uniq compare xs
 
 let has_prefix p sym =
@@ -228,7 +240,9 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("upd_slice", ([ "List"; "NatV"; "NatV"; "List" ], "List"));
     ("none", ([], "Opt"));
     ("some", ([ val_sort ], "Opt"));
-    ("sub_nat", ([ val_sort ], "BoolV"));
+    (* the one nat-OR-int operator: over [Val] it would look partial to the SCC
+       (see {!num_sort}) *)
+    ("sub_nat", ([ num_sort ], "BoolV"));
     (* the list/option matchers decide a [BoolV] over a spine of their own sort *)
     ("match_some", ([ "Opt" ], "BoolV"));
     ("match_none", ([ "Opt" ], "BoolV"));
@@ -448,6 +462,23 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
           add (T.func_sym id) (argsorts, sort_of ret.it)
       | BuiltinDecD _ -> ())
     orig;
+  (* [NumV] ({!num_sort}) is inhabited only through [sub_nat], so declare its
+     edges only when the spec reaches that operator -- an unused edge would
+     declare a sort no term of this module can have. *)
+  let mentions_sub_nat =
+    let rec go t =
+      match t with
+      | R.Var _ -> false
+      | R.App (f, args) -> f = "sub_nat" || List.exists go args
+    in
+    List.exists
+      (fun (r : R.rule) ->
+        go r.R.lhs || go r.R.rhs
+        || List.exists (fun (a, b) -> go a || go b) r.R.conds)
+      rules
+  in
+  if mentions_sub_nat then
+    subsorts := ("NatV", num_sort) :: ("IntV", num_sort) :: !subsorts;
   (* FILLS GAPS, never overrides a real declared type -- and never types a
      predicate, whose all-[Val] argument list here would be read as a declared
      seed and pin {!predicate_domains}' fixpoint at the top sort forever. Their
