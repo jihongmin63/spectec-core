@@ -387,7 +387,6 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
                     ~start ())
                 starts)
 
-
 (* -------------------------------------------------------------------------- *)
 (* Direct (non-reflective) object-syntax execution: the {!Structural} start-term
    path. No meta wrapper is written (nothing reflects the module), so [start] is
