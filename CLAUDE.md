@@ -333,6 +333,40 @@ see [todo.md](spectec/lib/rewrite/todo.md) for the procedure. Use the current
 spec's own path (`main.exe p4 typecheck -p FILE -i INC`), never
 `--spec-dir specs/p4-old`, when re-checking a file with the interpreter.
 
+## Verified baselines — which commit measured what
+
+The three checks (differential, CRC/ChC, termination) each cost hours, so each
+is measured once at a point in history and then *carried forward* over commits
+that are argued not to affect it. **No single commit has all three measured on
+its own tree** — so before calling any tree "green", read what its anchor
+actually proves.
+
+| anchor | date | measured **on that exact tree** | carried over |
+|---|---|---|---|
+| `92618dc2` | 2026-07-10 | **differential**, full corpus, both surfaces: native completeness 0 / soundness 1 (issue1944) / Phase D 1227/1227 MATCH, and structural Phase D 1227/1227 MATCH / 0 MISMATCH ([spectec-structural-completeness-soundness.md](spectec-structural-completeness-soundness.md)) | CRC/term |
+| `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([recalibration.md](recalibration.md)) | differential |
+
+**`5647b883` is the bisect anchor**: its analysis columns are current, and the
+only *executable*-surface commit separating it from the differential-verified
+tree is `95ddd9b3` (`[ctor]` attributes) — everything else in that window is
+analysis-only (`reflect.ml`) or CLI. That one commit is therefore also the
+entire bisect window for the two programs (`const.p4`, `issue1717.p4`) that a
+2026-07-14 spot check found STUCK at `08dfe4ed`: they are the reason
+"completeness 0" is **not** established past `92618dc2`.
+
+Stale beyond the anchors, in commit order:
+
+- `a290977b` (`align_guards`, 07-13) changed the analysis surface *after* the
+  termination column was measured. Only the CRC column was re-measured
+  (`3302d75d`/`08dfe4ed` — no column changes); **termination is carried, not
+  measured**, from `08dfe4ed` on.
+- `3327881f`/`381c6bd0` (07-14, predicate-domain narrowing + `NumV`) change
+  **both** surfaces, so all three checks are stale at HEAD. The pending
+  full-corpus differential re-run is tracked in [todo.md](spectec/lib/rewrite/todo.md).
+- The `check_diff_p4_*.tsv` sitting in the repo root are **not** HEAD's numbers.
+  The driver is resumable and silently skips every file already recorded, so a
+  re-run over a stale TSV validates nothing — move them aside first.
+
 ## Build & run
 
 **Build only `bin/main.exe`** — a full `dune build` drags in the P4 parser etc.
