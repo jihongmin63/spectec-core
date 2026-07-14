@@ -360,9 +360,11 @@ Stale beyond the anchors, in commit order:
   termination column was measured. Only the CRC column was re-measured
   (`3302d75d`/`08dfe4ed` — no column changes); **termination is carried, not
   measured**, from `08dfe4ed` on.
-- `3327881f`/`381c6bd0` (07-14, predicate-domain narrowing + `NumV`) change
-  **both** surfaces, so all three checks are stale at HEAD. The pending
-  full-corpus differential re-run is tracked in [todo.md](spectec/lib/rewrite/todo.md).
+- `3327881f`/`381c6bd0`/`3cde77b4` (07-14, predicate-domain narrowing, `NumV`,
+  ambiguous-join tie-break) change **both** surfaces, so all three checks are
+  stale at HEAD. They are one family of change — re-measure once, after the
+  last of them. The pending full-corpus differential re-run is tracked in
+  [todo.md](spectec/lib/rewrite/todo.md).
 - The `check_diff_p4_*.tsv` sitting in the repo root are **not** HEAD's numbers.
   The driver is resumable and silently skips every file already recorded, so a
   re-run over a stale TSV validates nothing — move them aside first.
