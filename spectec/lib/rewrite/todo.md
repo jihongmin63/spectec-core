@@ -1806,9 +1806,30 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   fan-out(`expand_subty_guards`와 동일 기법, ctk 3멤버/assignop 13멤버로 ≤16 게이트 통과)하면
   head가 서로소가 되어 임계쌍 자체가 사라진다.)
 
+### ⚠️ 전수 differential 재실행 필요 (2026-07-14, 미완)
+
+**`check_diff_p4_*.tsv`의 "completeness 0 / soundness 1 / Phase D 1227/1227"은 현재 HEAD의
+수치가 아니다.** 술어 도메인 협소화(위 SCC P1) 검증 중에 드러났다:
+
+- `check_diff_p4.sh`는 **resumable**이라 TSV에 기록된 프로그램을 건너뛴다. 즉 **옛 바이너리로
+  만든 TSV가 남아 있으면 재실행이 아무것도 검증하지 않는다**(`1568 done, 0 to run`).
+  ⇒ 회귀 게이트로 쓰기 전에 반드시 TSV를 baseline으로 옮기고 지울 것.
+- 그렇게 지우고 새로 돌린 부분 실행(Phase B 1140/1568)에서 **`const.p4`/`issue1717.p4`가
+  기존 TSV의 `OK`와 달리 `STUCK`** 으로 나왔다. 협소화 회귀를 의심했으나 —
+  **변경 직전 커밋(08dfe4ed)의 바이너리로도 똑같이 STUCK**임을 워크트리로 확인했다
+  (`--wide-predicate-domains`에서도 STUCK). ⇒ **이번 변경의 회귀가 아니라, 그 이전 어느
+  커밋에서 이미 생긴 completeness gap 2건**이거나, 기존 TSV 자체가 낡은 바이너리 산물이다.
+- 이번 변경의 무회귀는 **50개 표본으로 확인**(baseline TSV와 50/50 일치; 1874d212가 고쳤던
+  cross-type matcher 케이스 `issue122.p4`/`key-name.p4` 포함).
+
+**할 일**: 깨끗한 환경에서 `check_diff_p4.sh` **전수 재실행**(~8시간) → 진짜 completeness/
+soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실제 gap이면 어느 커밋에서
+생겼는지 이분 탐색(둘 다 `Program_ok`가 stuck).
+
 남은 작업:
 
 ```
+  → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조]
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → LTL 모델 검사로 P4 시간적 성질 검증                                        [신규 축; (P1) 선택적 rl 모드(= Kripke 전이, 유일한 하드 블로커) → (P2) modelCheck 배선(holds_R을 원자명제로) → header validity `[] ~ readInvalid` → parser/progress/preservation → (P3) 보조 search 일반화]
   → SCC (sufficient completeness)                                             [P1 도메인 협소화 완료(2026-07-14, predicate_domains = 쓰이는 주어들의 join 고정점; 가족의 86%가 진짜 sort, match_typeIR_BOOL_0이 위양성 반례 → COMPLETE). 남은 건 (P2) --slice-dir 배치 덤프(심볼당 50초 재번역 → 24시간이라 스윕 전 필수) → 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만; dom: 열로 1차 분류) → (P3) sub_nat의 Val 도메인]
