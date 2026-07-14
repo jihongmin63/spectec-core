@@ -256,8 +256,7 @@ let chc_verdict ~(timed_out : bool) (norm : string) : verdict =
   else if timed_out then Timeout
   else Error "could not find a coherence verdict in the MFE output"
 
-let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules
-    ~(rule_heads : string list) (orig : Lang.Il.spec)
+let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules (orig : Lang.Il.spec)
     (system : Rewrite_system.t) : result =
   match resolve_mfe_dir mfe_dir with
   | Error msg -> { church_rosser = Error msg; coherence = Error msg }
@@ -285,7 +284,7 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules
            (spurious critical pairs possible)\n"
           unreflected;
       let module_text =
-        To_mfe.module_of_system ~module_name ?sig_rules ~rule_heads orig system
+        To_mfe.module_of_system ~module_name ?sig_rules orig system
       in
       (* [load mfe.maude] starts the object loop; the module (already prefixed
          with [set include BOOL off .]) and the tool-selecting checks follow. *)

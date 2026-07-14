@@ -20,9 +20,10 @@ LTL 모델 검사, SCC, 잔여 MAYBE)입니다.
 
 - ✅ 빌드됨·온전: `Rewrite_system`(`{vars;rules}` + `string_of_term`·질의·`slice` +
   `string_of_system_maude`/`ops_of_system`), `To_ctrs` 심볼/빌더 레이어 + thin 질의
-  (`def_symbols`·`input_moded_rel_syms`·`rule_head_syms`), `pipeline`/`rewrite`,
-  `Mfe`(CRC+ChC 브리지), **CLI 배선**(`bin/main.ml` `rewrite`/`verify`/`run` +
-  `bin/dune`에 `spectec.rewrite`).
+  (`def_symbols`·`input_moded_rel_syms`·`rule_head_syms` — 뒤 둘은 2026-07-14
+  삭제: 모든 SpecTecx 관계가 입력-모드라 각각 "전 관계"/∅ 상수였다),
+  `pipeline`/`rewrite`, `Mfe`(CRC+ChC 브리지), **CLI 배선**(`bin/main.ml`
+  `rewrite`/`verify`/`run` + `bin/dune`에 `spectec.rewrite`).
 - ✅ 복구됨(지원 패스, `rewrite` 브랜치에서): `exp_map`(IL 얕은 traversal),
   `defunctionalize`(def-인자 specialization), `gensym`(`$fresh` 상태 스레딩),
   `builtin`(P4 컬렉션 builtin 규칙). `pipeline`이 두 경로(Structural/Native)에서
@@ -64,7 +65,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   - `run` — 현재 **모듈 emit만**(실행/`--imp`/`--p4`/`--check-p4`는 M2: `Maude_run`·
     `Of_maude`·targets `maude_start_term` 복귀 시).
   `Mfe.check`/maude 표면이 받는 `rule_heads`(= 비입력-moded relation)는
-  `To_ctrs.rule_head_syms`로 계산(`input_moded_rel_syms`의 여집합). 세 커맨드 모두
+  `To_ctrs.rule_head_syms`로 계산(`input_moded_rel_syms`의 여집합 — 이 `rule_heads`
+  배선은 항상 ∅이어서 2026-07-14 통째로 삭제됨, 분석 표면은 순수 등식). 세 커맨드 모두
   컴파일·dispatch 확인 — 호출 시 각 백엔드 스텁(M1 `of_spec`/`Simplify`, M2
   `To_maude`)의 `failwith`에 도달하며, 스텁을 채우면 즉시 동작.
 
@@ -1522,6 +1524,14 @@ sort에 남아 있지 않아서** 생기는 구조적 잔재로, 규칙 2(원소
   relation만** rl로 두는 선택적 플래그(`--rules-for R1,R2` 같은 것). 시작항도
   `Program_ok(..)` 판정 호출이 아니라 **전이할 상태**여야 한다. 이게 LTL의 유일한
   하드 블로커다.
+  **⚠️ 2026-07-14 삭제 주의**: 모드-힌트 기반 rl 선택 기계 —
+  `To_ctrs.rule_head_syms`/`input_moded_rel_syms`, `To_mfe`/`Mfe.check`/
+  `fold_premise_binders`의 `~rule_heads` 배선, 그리고 `To_maude.rule_relation_syms`의
+  **ceq-는-`=>`-조건-불가 fixpoint**(eq로 남은 관계의 조건이 rl 관계를 호출하면 그
+  관계도 crl로 강등) — 는 모든 관계가 입력-모드라 사어여서 삭제됐다(이 항목 작성
+  당시에도 `rule_head_syms`는 ∅). `--rules-for` 구현 시 (a) 선택 집합 배선과 (b) 그
+  fixpoint 적법성 제약을 다시 들여와야 한다. 복원 참조: `git log -S rule_relation_syms`
+  직전 트리(삭제 커밋 부모)에서 — 기존 삭제-모듈 관례와 동일.
 - [ ] **(P2) `modelCheck` 배선.** `MODEL-CHECKER` 모듈 protecting + step relation의 상태
   sort를 `State`로 subsort + `Prop` 선언 + `_|=_` 등식. **설계의 핵심 질문은 "원자명제를
   스펙에서 어떻게 얻는가"** — 유력 후보는 `Reflect`가 이미 만드는 **`holds_R`**(무출력

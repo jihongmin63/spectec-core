@@ -1611,26 +1611,3 @@ let def_symbols (spec : spec) : string list =
       | RelD { relid = id; _ } -> Some (rel_sym id)
       | TypD _ | BuiltinDecD _ -> None)
     spec
-
-(* Relations that declare a non-empty input mode (`hint(input ...)`): functional,
-   so they may be emitted as Maude equations rather than rules. *)
-let input_moded_rel_syms (spec : spec) : string list =
-  List.filter_map
-    (fun def ->
-      match def.it with
-      | RelD { relid = id; reltyp; _ } when Mode.inputs reltyp.it <> [] ->
-          Some (rel_sym id)
-      | _ -> None)
-    spec
-
-(* Relations with an empty input mode: the complement of [input_moded_rel_syms].
-   Being non-deterministic, they are emitted as Maude rules (rl/crl) rather than
-   equations. *)
-let rule_head_syms (spec : spec) : string list =
-  List.filter_map
-    (fun def ->
-      match def.it with
-      | RelD { relid = id; reltyp; _ } when Mode.inputs reltyp.it = [] ->
-          Some (rel_sym id)
-      | _ -> None)
-    spec

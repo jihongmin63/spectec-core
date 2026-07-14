@@ -232,7 +232,6 @@ let rewrite_command =
          that actually runs -- and an SCC verdict about that domain would be
          about a system nobody executes. *)
       let sig_rules = system.rules in
-      let rule_heads = Rewrite.To_ctrs.rule_head_syms spec_il in
       (* the module text, and whether [--unconditional] had to over-approximate
          this slice to get it past the SCC's drop-bad-eqs filter (a COMPLETE
          verdict proves nothing when it did) *)
@@ -243,8 +242,7 @@ let rewrite_command =
           else sys
         in
         let fidelity = if sys' = sys then "exact" else "approx" in
-        ( Rewrite.To_mfe.module_of_system ~predicates ~sig_rules ~rule_heads
-            spec_il sys',
+        ( Rewrite.To_mfe.module_of_system ~predicates ~sig_rules spec_il sys',
           fidelity )
       in
       match slice_dir with
@@ -283,9 +281,8 @@ let rewrite_command =
 (* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
    the Maude Formal Environment. [Rewrite.rewrite_spec] builds the structural
    CTRS, [--symbol] optionally slices it to one definition's dependency closure,
-   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation;
-   non-input-moded relations ([Rewrite.To_ctrs.rule_head_syms]) are the rules,
-   everything else equations. *)
+   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation; the
+   module is purely equational (every SpecTecx relation is input-moded). *)
 let verify_command =
   Core.Command.basic
     ~summary:
@@ -357,9 +354,7 @@ let verify_command =
         | None -> system
       in
       let result : Rewrite.Mfe.result =
-        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules
-          ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-          spec_il system
+        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il system
       in
       let verdict = Rewrite.Mfe.string_of_verdict in
       let line =
@@ -709,9 +704,8 @@ let run_structural_command =
       else Rewrite.Maude_sorts.Narrow
     in
     let module_text =
-      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates
-        ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-        spec_il system
+      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates spec_il
+        system
     in
     if emit then Ok (module_text, false)
     else

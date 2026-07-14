@@ -38,27 +38,21 @@ let string_of_cond vs ((l, r) : R.cond) : string =
 let string_of_conds vs (conds : R.cond list) : string =
   String.concat " /\\ " (List.map (string_of_cond vs) conds)
 
-(* One rule as [eq]/[ceq] (equational fragment) or [rl]/[crl] (the [rule_heads]
-   relations). [owise] (SpecTec [ElsePr]) is an equation attribute; a relation
-   rule cannot carry it, so it is dropped there (as the single-sort surface did). *)
-let print_rule vs (is_rel : bool) (r : R.rule) : string =
+(* One rule as [eq]/[ceq] -- the analysis surface is purely equational (every
+   SpecTecx relation is input-moded, hence functional). [owise] renders
+   SpecTec's [ElsePr] as the equation attribute. *)
+let print_rule vs (r : R.rule) : string =
   let lhs = MS.print_term Structural vs r.R.lhs
   and rhs = MS.print_term Structural vs r.R.rhs in
-  let arrow = if is_rel then " => " else " = " in
-  let kw =
-    if is_rel then if r.R.conds = [] then "rl" else "crl"
-    else if r.R.conds = [] then "eq"
-    else "ceq"
-  in
-  let attr = if r.R.owise && not is_rel then " [owise]" else "" in
-  let head = kw ^ " " ^ lhs ^ arrow ^ rhs in
+  let kw = if r.R.conds = [] then "eq" else "ceq" in
+  let attr = if r.R.owise then " [owise]" else "" in
+  let head = kw ^ " " ^ lhs ^ " = " ^ rhs in
   match r.R.conds with
   | [] -> head ^ attr ^ " ."
   | cs -> head ^ " if " ^ string_of_conds vs cs ^ attr ^ " ."
 
 (* Emit the order-sorted analysis module. [orig] is the elaborated IL spec (for
-   sort recovery); [sys] is the structural CTRS ({!Rewrite.rewrite_spec}); the
-   symbols in [rule_heads] print as [rl]/[crl], the rest as [eq]/[ceq].
+   sort recovery); [sys] is the structural CTRS ({!Rewrite.rewrite_spec}).
    [full_maude] (default [true], {!Mfe.check}'s use) wraps the module in Full
    Maude's [(mod ... endm)] parens, needed for the MFE's CRC/ChC loop to accept
    it as a term. [false] emits it as a plain STOCK-Maude module ([mod ... endm
@@ -66,8 +60,7 @@ let print_rule vs (is_rel : bool) (r : R.rule) : string =
    (non-reflective) execution path, which runs a bare [maude] binary with
    nothing loaded -- Full Maude's parenthesized form is not valid input there. *)
 let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
-    ?(predicates = MS.Narrow) ?sig_rules ~(rule_heads : string list)
-    (orig : spec) (sys : R.t) : string =
+    ?(predicates = MS.Narrow) ?sig_rules (orig : spec) (sys : R.t) : string =
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form. *)
   let orig = Defunctionalize.defunctionalize orig in
@@ -157,11 +150,6 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
       @ edge_sorts)
   in
   let sorts = MS.dedup (MS.val_sort :: mentioned) in
-  let is_rel r =
-    match R.defined_head r with
-    | Some h -> List.mem h rule_heads
-    | None -> false
-  in
   (* Execution mode only: the symbols that reduce away, and (for those with a
      known arity from [used]) their [{!To_maude.stuck_head_sym}] equations --
      see the [op_sigs] comment above. *)
@@ -278,26 +266,20 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
            ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
      done);
   buf_line b "";
-  (* equations first (functions/prelude/constructors), then the relation rules;
-     spec order preserved within each. *)
-  let eqs, rls = List.partition (fun r -> not (is_rel r)) sys.R.rules in
   let emit r =
     let vs = MS.infer_var_sorts edges sg (hint r) r in
     let line =
-      if full_maude then print_rule vs (is_rel r) r
+      if full_maude then print_rule vs r
       else
         (* [Structural]: the operational [:=]/[=>] scheduling {!To_maude} built
            for the [Native] execution module, reused as-is -- see that
            function's doc comment for why analysis mode's plain [l = r] cannot
            be [reduce]d directly. *)
-        To_maude.print_rule ~scalars:Structural vs rule_heads defined_heads
-          (is_rel r) r
+        To_maude.print_rule ~scalars:Structural vs [] defined_heads false r
     in
     buf_line b ("  " ^ line)
   in
-  List.iter emit eqs;
-  if rls <> [] then buf_line b "";
-  List.iter emit rls;
+  List.iter emit sys.R.rules;
   if (not full_maude) && stuck_arities <> [] then (
     buf_line b "";
     List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities));

@@ -261,27 +261,17 @@ let rec is_ctor_pattern (is_defined : string -> bool) = function
    threading (run before this) binds a [tuple(out, state)], not a bare [Var], so a
    threaded binder is skipped. Analysis-surface only: {!To_maude} keeps the [:=]
    matching condition its stuck-head guard relies on. *)
-let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
+let fold_premise_binders (t : t) : t =
   let defined = Hashtbl.create 512 in
   List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
   let is_defined h = Hashtbl.mem defined h in
-  let rules_set = Hashtbl.create 64 in
-  List.iter (fun h -> Hashtbl.replace rules_set h ()) rule_heads;
   let fold_rule (r : rule) : rule =
     (* The variable a condition binds and the term to fold it to, if any. *)
     let binding lhs_vars ~rhs ~others ((a, b) : cond) : (string * term) option =
-      (* inline: [v] a non-head output bound to deterministic [prod]. *)
+      (* inline: [v] a non-head output bound to [prod] -- deterministic, since
+         every SpecTecx relation is input-moded. *)
       let inline v prod =
-        let deterministic =
-          match prod with
-          | App (f, _) -> not (Hashtbl.mem rules_set f)
-          | Var _ -> true
-        in
-        if
-          List.mem v lhs_vars
-          || List.mem v (vars_of_term prod)
-          || not deterministic
-        then None
+        if List.mem v lhs_vars || List.mem v (vars_of_term prod) then None
         else
           let is_alias = match prod with Var _ -> true | _ -> false in
           let uses =

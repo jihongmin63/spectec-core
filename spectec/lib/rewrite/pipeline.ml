@@ -88,11 +88,7 @@ let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
   let sys =
     Reflect.expand_subty_guards ~scalars:To_ctrs.Structural ~orig:dspec sys
   in
-  let sys =
-    Rewrite_system.fold_premise_binders
-      ~rule_heads:(To_ctrs.rule_head_syms spec)
-      sys
-  in
+  let sys = Rewrite_system.fold_premise_binders sys in
   let sys = Reflect.align_guards ~scalars:To_ctrs.Structural sys in
   Reflect.owise ~scalars:To_ctrs.Structural ~orig:dspec
     ~effectful:(Gensym.effectful_syms sys)

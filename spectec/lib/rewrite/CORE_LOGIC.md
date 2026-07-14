@@ -73,10 +73,11 @@ type rule = { lhs : term; rhs : term; conds : cond list; owise : bool }
 type t = { vars : string list; rules : rule list }
 ```
 
-**텍스트 표면은 하나** — `string_of_system_maude ~rule_heads`(**Full Maude 시스템 모듈**,
-단일 sort `Term`): 등식 fragment는 `eq`/`ceq`, `rule_heads`(비입력-moded relation,
-`To_ctrs.rule_head_syms`)는 `rl`/`crl`. MFE의 CRC(등식 confluence)/ChC(rl coherence)가
-소비(§6.5).
+**텍스트 표면은 하나** — `To_mfe.module_of_system`(**Full Maude 시스템 모듈**,
+order-sorted): 전부 `eq`/`ceq`. 모든 SpecTecx 관계는 입력-모드(`hint(input …)`)라
+함수적이고, 따라서 분석 표면은 순수 등식이다(`rl`/`crl` 없음 — 비입력-모드 관계를
+`rl`로 가르던 `rule_heads` 배선은 항상-∅ 사어여서 삭제됨, 2026-07-14). MFE의
+CRC(등식 confluence)/ChC가 소비(§6.5).
 
 > 옛 COPS(`string_of_system`)·TPDB(`string_of_system_tpdb`) 표면과 `ctype`/`comment`
 > 메타데이터·`is_unconditional`은 **삭제**됐다(소비자였던 CoCoWeb·AProVE·MuTerm 전부
@@ -348,7 +349,9 @@ prelude/타입유도 규칙 중 body 규칙에서 도달 불가능한 정의 규
 골격은 **심볼/빌더 레이어 전체**(`sanitize`·`*_sym`·`*_t`·`rule`/`rule_cond`·
 `single_case_ctor`/`case_ctor` 등)와 **thin 질의**(`def_symbols`·
 `input_moded_rel_syms`·`rule_head_syms`·`split_inputs`·`native_replaced_heads`)가
-이미 온전하다. 채울 것은 *번역 본체* 둘뿐. 권위 있는 참조는 `rewrite` 브랜치:
+이미 온전하다. (이 중 `input_moded_rel_syms`·`rule_head_syms`는 2026-07-14 삭제 —
+모든 SpecTecx 관계가 입력-모드라 각각 "전 관계"/∅ 상수였다. §3.x "텍스트 표면"
+참조.) 채울 것은 *번역 본체* 둘뿐. 권위 있는 참조는 `rewrite` 브랜치:
 `git show rewrite:spectec/lib/rewrite/to_ctrs.ml` (총 1966줄; 아래 줄번호는 그 파일).
 
 **`var_type_hints`** (참조 1850–1886; 쉬움, 먼저) — `scalars`/`Simplify` 무관.
@@ -512,14 +515,15 @@ Maude normal form을 IL value로 역번역(spec에서 읽은 forward 테이블; 
 ### 6.5 confluence/coherence 게이트 — `Mfe` (Maude Formal Environment; 골격에 유지)
 
 confluence 게이트는 CoCoWeb(웹 POST) **대신 `Mfe`**(Full Maude + CRC + ChC, 로컬
-`maude`)로 바뀌었다. `Rewrite_system.string_of_system_maude ~rule_heads`가 분석
-시스템(구조적 스칼라)을 **단일 sort 시스템 모듈**로 내는데, 등식 fragment는 `eq`/`ceq`,
-`rule_heads`(비입력-moded relation = `To_ctrs.rule_head_syms` = `input_moded_rel_syms`의
-여집합)는 `rl`/`crl`로 가른다. `Mfe.check`가 MFE를 로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
+`maude`)로 바뀌었다. `To_mfe.module_of_system`이 분석 시스템(구조적 스칼라)을
+**order-sorted 시스템 모듈**로 내는데, 표면은 순수 등식(`eq`/`ceq`)이다 — 모든
+SpecTecx 관계가 입력-모드(함수적)라서, 비입력-모드 관계를 `rl`/`crl`로 가르던
+`rule_heads` 배선은 항상-∅ 사어였고 삭제됐다(2026-07-14). `Mfe.check`가 MFE를
+로컬 maude에 로드해 **한 invocation**에 두 검사를 돌리고
 `{ church_rosser; coherence }`를 돌려준다:
 - **CRC** — 등식 fragment의 Church-Rosser. "`reduce`가 well-defined인가" = 등식이 결정적.
-- **ChC** — `rl`이 등식에 coherent한가. 등식 환원이 규칙 redex를 숨기지 않아 `search`가
-  등식 mod로 완전.
+- **ChC** — `rl`이 등식에 coherent한가. 표면에 `rl`이 없으니 현재는 자명하게 통과하는
+  형식적 검사다(실행 모듈을 `--relations-as-rules`로 낼 때만 `rl`이 생긴다).
 둘은 직교한 well-formedness 조건이고 Maude가 *실행 중엔 검사 안 하고 가정만* 한다 — 그래서
 오프라인 게이트로 따로 검증한다. MFE는 repo 미체크인(다운로드·경로 해소·미설치 시 깨끗한
 `Error`): [tools/mfe/README.md](../../tools/mfe/README.md).
