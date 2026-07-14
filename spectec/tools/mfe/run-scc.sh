@@ -55,9 +55,20 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 # discards every conditional or non-left-linear equation before building its
 # automaton). Its stderr reports what it had to transform: no transformation
 # means the SCC sees the rules verbatim, so the verdict is exact.
-"$BIN" rewrite --ctrs --unconditional --symbol "$sym" $P4 \
-  > "$tmp/slice.raw.mod" 2> "$tmp/xform.log"
-if grep -q '^unconditional:' "$tmp/xform.log"; then fidelity=approx; else fidelity=exact; fi
+#
+# Translating specs/p4 takes ~50s and dwarfs the check itself, so a sweep dumps
+# every slice once (`rewrite --ctrs --unconditional --slice-dir DIR`) and points
+# SCC_SLICE_DIR here; the transform log is then per-sweep, not per-symbol.
+if [ -n "${SCC_SLICE_DIR:-}" ]; then
+  cp "$SCC_SLICE_DIR/$sym.mod" "$tmp/slice.raw.mod" 2>/dev/null || {
+    printf '%s\tERROR-NO-SLICE\t-\n' "$sym"; exit 0; }
+  fidelity=$(awk -F'\t' -v s="$sym" '$1==s{print $2}' "$SCC_SLICE_DIR/_fidelity.tsv")
+  fidelity=${fidelity:-exact}
+else
+  "$BIN" rewrite --ctrs --unconditional --symbol "$sym" $P4 \
+    > "$tmp/slice.raw.mod" 2> "$tmp/xform.log"
+  if grep -q '^unconditional:' "$tmp/xform.log"; then fidelity=approx; else fidelity=exact; fi
+fi
 
 if [ "$(grep -cE '^\s*c?eq |^\s*c?rl ' "$tmp/slice.raw.mod")" -eq 0 ]; then
   printf '%s\tDEGENERATE\t%s\n' "$sym" "$fidelity"; exit 0

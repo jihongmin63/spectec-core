@@ -205,6 +205,12 @@ let rewrite_command =
         " declare the match_/subty_/holds_/eqg predicates over the top sort \
          Val instead of the domain recovered from their use (the pre-fixpoint \
          behaviour; to bisect a regression back to that pass)"
+  and slice_dir =
+    flag "--slice-dir" (optional string)
+      ~doc:
+        "DIR with --ctrs, write EVERY symbol's slice to DIR/<symbol>.mod in \
+         one translation instead of dumping one to stdout (the whole-spec \
+         translation is the per-symbol cost of a sweep: ~50s each on p4)"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -226,20 +232,50 @@ let rewrite_command =
          that actually runs -- and an SCC verdict about that domain would be
          about a system nobody executes. *)
       let sig_rules = system.rules in
-      let system =
-        match symbol with
-        | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
-        | None -> system
+      let rule_heads = Rewrite.To_ctrs.rule_head_syms spec_il in
+      (* the module text, and whether [--unconditional] had to over-approximate
+         this slice to get it past the SCC's drop-bad-eqs filter (a COMPLETE
+         verdict proves nothing when it did) *)
+      let emit sys =
+        let sys' =
+          if unconditional then
+            Rewrite.Rewrite_system.(linearize_lhs (drop_conds sys))
+          else sys
+        in
+        let fidelity = if sys' = sys then "exact" else "approx" in
+        ( Rewrite.To_mfe.module_of_system ~predicates ~sig_rules ~rule_heads
+            spec_il sys',
+          fidelity )
       in
-      let system =
-        if unconditional then
-          Rewrite.Rewrite_system.(linearize_lhs (drop_conds system))
-        else system
-      in
-      Ok
-        (Rewrite.To_mfe.module_of_system ~predicates ~sig_rules
-           ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-           spec_il system)
+      match slice_dir with
+      | Some dir ->
+          (* every symbol the rules define, not just [def_symbols] (the spec's
+             own functions/relations): the SCC's most valuable targets are the
+             DERIVED predicates -- subty_<T>, match_<T>_<K>, holds_<R> -- which
+             no [DecD]/[RelD] declares. *)
+          let syms = Rewrite.Rewrite_system.defined_heads system in
+          let fid = open_out (Filename.concat dir "_fidelity.tsv") in
+          Fun.protect
+            ~finally:(fun () -> Out_channel.close fid)
+            (fun () ->
+              List.iter
+                (fun s ->
+                  let sys = Rewrite.Rewrite_system.slice system ~roots:[ s ] in
+                  let text, fidelity = emit sys in
+                  let oc = open_out (Filename.concat dir (s ^ ".mod")) in
+                  Fun.protect
+                    (fun () -> Out_channel.output_string oc text)
+                    ~finally:(fun () -> Out_channel.close oc);
+                  Printf.fprintf fid "%s\t%s\n" s fidelity)
+                syms);
+          Ok (Printf.sprintf "%d slices written to %s" (List.length syms) dir)
+      | None ->
+          let system =
+            match symbol with
+            | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
+            | None -> system
+          in
+          Ok (fst (emit system))
     else
       Ok
         (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
