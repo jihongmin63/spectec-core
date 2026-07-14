@@ -79,6 +79,14 @@ order-sorted): 전부 `eq`/`ceq`. 모든 SpecTecx 관계는 입력-모드(`hint(
 `rl`로 가르던 `rule_heads` 배선은 항상-∅ 사어여서 삭제됨, 2026-07-14). MFE의
 CRC(등식 confluence)/ChC가 소비(§6.5).
 
+> **입력-모드 불변식은 엘라보레이터가 강제한다**
+> (`elaborate.ml`의 `fetch_rel_input_dirs`): `hint(input)` 없는 관계는
+> `elab/relation-no-input-hint` 경고와 함께 **전-입력**(= 출력 없는 술어, rhs
+> `true`)으로 기본화되고, 빈 입력 힌트(`hint(input)`에 인덱스 0개)는 하드
+> 오류다. 그래서 IL 레벨에 빈-입력 관계는 인자 0개짜리 퇴화 케이스 밖에 있을
+> 수 없고, 번역기는 별도 가드 없이 이 불변식에 기대도 된다 — 힌트를 지워 봐도
+> 자유 rhs 변수를 가진 등식은 만들어지지 않는다(전-입력 술어가 될 뿐).
+
 > 옛 COPS(`string_of_system`)·TPDB(`string_of_system_tpdb`) 표면과 `ctype`/`comment`
 > 메타데이터·`is_unconditional`은 **삭제**됐다(소비자였던 CoCoWeb·AProVE·MuTerm 전부
 > 제거). 분석 confluence는 이제 MFE 한 경로뿐.
