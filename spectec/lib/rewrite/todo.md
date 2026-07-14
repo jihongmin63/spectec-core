@@ -1423,6 +1423,49 @@ IL 타입의 값이라 **전부 도달 불가** — CRC MAYBE 트리아지와 �
 더 강한 진술). 신뢰도 캐비엇이 필요한 건 **COUNTEREXAMPLE 쪽뿐**이고, 그건 이제 `dom:` 열이
 자동으로 알려준다.
 
+### 전수 스윕 결과 — `subty_`/`match_` 951심볼 (2026-07-14)
+
+`--slice-dir`로 2,403개 슬라이스를 **한 번의 번역**(30분, 2.7G)으로 덤프하고
+`run-scc-sweep.sh '^(subty|match)_'`로 951개 전부를 검사했다. **951/951이 `exact`
+fidelity + `analysis:complete+sound`** — 즉 SCC가 우리 규칙을 그대로 보았고 자기 분석도
+sound하다고 선언했으므로, 아래 판정은 전부 액면 그대로 읽어도 된다.
+
+| verdict | 수 | 내역 |
+|---|---|---|
+| **COMPLETE** | **503** | `match_` 464/465 + `subty_` 39 — **totality의 기계 증명** |
+| COUNTEREXAMPLE | 448 | `dom:Val-wide` 405 / `dom:elem-erased` 43 |
+| **`dom:narrow`** | **0** | — |
+
+**`dom:narrow` 반례가 하나도 없다** = 이 가족에서 SCC가 찾아낸 **진짜 빠진 케이스는 0건**.
+2026-07-11에 위양성이던 `match_*` 465개는 이제 464개가 COMPLETE다(유일한 예외 `match_cons`도
+`dom:Val-wide`).
+
+**반례 448건의 정체 — 448건 중 407건은 검사 대상 심볼이 아니라 그 의존성을 가리킨다.**
+witness의 head를 세면 `subty-boolTypeIR` 77 / `subty-name` 59 / `subty-expression` 58 / …
+— **아직 `Val`로 남은 소수의 `subty_` 심볼 하나가 그것을 쓰는 모든 슬라이스를 오염시킨다.**
+따라서 잔여 `Val`을 지우는 것이 곧 반례를 지우는 것이다.
+
+**그 중 절반은 join의 모호성이었다(해소, `3cde77b4`).** `BoolTypeIR`의 상위는
+`BaseTypeIR`/`TypeIR`/`TypedefIR` 셋으로 **비교 불가** — p4의 union이 겹치므로 관측 주어들의
+최소 상계가 여럿이고 join이 아예 없다. `lub`가 그때 `Val`로 후퇴했는데, **공통 상계는 어느
+것이든 정의상 well-sorted**(모든 관측 주어를 지배)이므로 그 중 **최소·최협소인 것을
+결정적으로** 고르면 된다. → `subty_` 도메인 366/486 → **404/486**, `subty_boolTypeIR`은
+`Val` → `TypeIR`이 되고 SCC 판정이 **COUNTEREXAMPLE → COMPLETE**로 뒤집혔다
+(`match_` 464/465·`holds_` 39/51 무변화, impty 골든 무변화, p4 `--check-p4` 6/6 MATCH).
+
+**남은 82개 `subty_`의 `Val`은 다른 원인 — 보완(complement) 절이 무관한 소스 타입까지 넘나든다.**
+`subty_name`의 주어를 세면 `Name` 변수 외에 `nameList`·`typeParameterList`(리스트 타입!)
+생성자가 섞여 있고, `subty_expression`의 반례 witness는 `setValue`(**Value** 생성자)다.
+리스트 sort와 `Name`의 공통 상위는 `Val`뿐이라 join이 진짜로 `Val`이다. 즉 `sub_complement_defs`가
+"타깃 `T`에 대해 어딘가에서 소스로 등장한 **모든** 타입"의 생성자에 `= false` 절을 다는 탓에,
+서로 무관한 union을 가로질러 도메인이 벌어진다. **후속(P3)**: 보완 절을 실제로 검사되는
+(소스, 타깃) 쌍으로 제한하거나, 타깃별이 아니라 (소스,타깃)별 술어로 쪼갠다. 이걸 닫으면
+`dom:Val-wide` 405건이 대부분 COMPLETE로 떨어질 것으로 본다.
+
+`dom:elem-erased` 43건(`subty_list_value`/`subty_list_fieldValue` 등)은 **원소 타입이 `List`
+sort에 남아 있지 않아서** 생기는 구조적 잔재로, 규칙 2(원소 변수 협소화)의 대가이자 호출부가
+만들 수 없는 항이다 — 고칠 대상이 아니라 보고할 대상.
+
 ### 할 일
 - [x] (선행) op 선언에 `[ctor]` 방출 — **완료 2026-07-11**, `to_mfe`(분석)·`to_maude`
   (실행) 두 표면 모두. 생성자 집합은 `Maude_sorts.is_ctor`/`ctor_attr`(이론별 스칼라 +
@@ -1436,20 +1479,22 @@ IL 타입의 값이라 **전부 도달 불가** — CRC MAYBE 트리아지와 �
   **내부 노드를 keep**하도록(p4에 2단 체인 286개 — `BaseType < RealTypeArgument <
   TypeArgument`). 도메인이 전부 `Val`이던 동안엔 모든 sort가 `< Val` 직결이라 무해했지만,
   좁힌 도메인은 실제 격자에 의존하므로 중간 sort가 잘리면 슬라이스가 ill-sorted가 된다.
-- [ ] **(P2, 선행) `--slice-dir` 배치 덤프.** 지금은 심볼당 `rewrite --ctrs --symbol`이
-  p4를 통째로 재번역한다 — **실측 49.9초/심볼**(순수 번역 고정비; SCC 자체는 수십 ms~수 초).
-  1,722개 exact 심볼이면 **24시간**. `bin/main.ml`의 `rewrite`에 `--slice-dir DIR`(한 번
-  번역해 `def_symbols` 전부를 심볼별 모듈로 방출)를 추가하고 `run-scc.sh`가 그 파일을
-  소비하게 하면 번역 1회로 끝난다. **스윕 전에 이걸 먼저.**
-- [ ] **(P2) 전체 스윕** — 세 갈래로 나눠서:
-  (a) `exact` 심볼(무조건-only 1,722개: `subty_*` 486 / `match_*` 465 / 함수 435 /
-  relation·프리루드 285 / `holds_*` 51) — COMPLETE가 실제 증명이 되는 집합;
-  (b) `approx` 심볼(혼재 394 + `ceq`-only 287 = 의미론 본체) — COMPLETE는 무시하고
-  **COUNTEREXAMPLE만** 수확 → 실제 stuck 후보 목록;
-  (c) 슬라이스 크기순(`verify --list-symbols --sizes`)으로 tractable한 것부터.
-  반례는 `dom:` 열로 1차 분류(`Val-wide`면 도달 불가 의심, `narrow`면 진짜 후보).
-- [ ] **(P3) `sub_nat`의 Val 도메인 해소** — 위 표의 잔여 반례 뿌리. `sub_pred`가 주어의
-  정적 타입이 이미 nat이면 호출 자체를 생략하는 쪽이 근본(합성 `Scalar` sort는 차선).
+- [x] **(P2, 선행) `--slice-dir` 배치 덤프** — **완료 2026-07-14** (`b97afab3`). 심볼당
+  49.9초 재번역(=24시간)이 **한 번의 번역**(2,403 슬라이스, 30분)으로. `run-scc.sh`가
+  `SCC_SLICE_DIR`로 소비하고, `run-scc-sweep.sh`가 작은 슬라이스부터 resumable하게 돈다.
+- [x] **(P2) `subty_`/`match_` 전수 스윕** — **완료 2026-07-14** (951/951, 위 절).
+  503 COMPLETE / 448 COUNTEREXAMPLE, **`dom:narrow` 0건**.
+- [x] **(P3) `sub_nat`의 Val 도메인 해소** — **완료 2026-07-14** (`381c6bd0`). `NatV`,`IntV`
+  `< NumV` 상위 sort를 (스펙이 `sub_nat`에 실제 도달할 때만) 선언 → 6개 규칙이 도메인을
+  총망라, 반례 소멸. impty 골든은 byte-identical.
+- [x] **(P3) 모호한 join의 `Val` 후퇴 해소** — **완료 2026-07-14** (`3cde77b4`). 최소 상계가
+  여럿일 때 `Val`이 아니라 그 중 최협소한 것을 결정적으로 선택.
+- [ ] **(P3, 다음) 잔여 82개 `subty_`의 `Val`** — 원인은 보완 절이 무관한 소스 타입을
+  넘나드는 것(위 절). 보완을 실제 검사되는 (소스,타깃) 쌍으로 제한 → `dom:Val-wide` 405건
+  대부분이 COMPLETE로 떨어질 전망.
+- [ ] **(P2) 나머지 심볼 스윕** — 함수 435 / relation·프리루드 285 / `holds_*` 51, 그리고
+  `approx` 756개(COMPLETE는 무시하고 **COUNTEREXAMPLE만** 수확 → 진짜 stuck 후보 목록).
+  슬라이스는 이미 덤프돼 있으니 `run-scc-sweep.sh <pattern>`만 돌리면 된다.
 - [ ] (선택) `BPos < BNatV` 서브소트 — `Maude_sorts`의 심볼당-단일-시그니처 제약을
   풀어야 함. 풀면 canonicity 반례 3개가 COMPLETE로 떨어지고, 불변식이 sort로 강제된다.
 
