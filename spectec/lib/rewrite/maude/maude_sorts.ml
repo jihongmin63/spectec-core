@@ -678,13 +678,37 @@ let supersort_closure edges (sorts : string list) : (string, SSet.t) Hashtbl.t =
     sorts;
   tbl
 
-(* The least sort above [ss]: [Val] when the upper bounds have no least element
-   (an ambiguous join carries no information, so say nothing). *)
-let lub (sup : (string, SSet.t) Hashtbl.t) (ss : string list) : string =
+(* How many sorts each sort dominates -- the narrowness measure [lub] breaks
+   ambiguous joins with. *)
+let subsort_counts (sup : (string, SSet.t) Hashtbl.t) : (string, int) Hashtbl.t
+    =
+  let tbl = Hashtbl.create 512 in
+  Hashtbl.iter
+    (fun _ supers ->
+      SSet.iter
+        (fun c ->
+          Hashtbl.replace tbl c
+            (1 + Option.value (Hashtbl.find_opt tbl c) ~default:0))
+        supers)
+    sup;
+  tbl
+
+(* The narrowest sort above [ss].
+
+   P4's unions overlap, so a join often does not exist: [BoolTypeIR] sits under
+   [BaseTypeIR], [TypeIR] AND [TypedefIR] at once, and the sorts a [subty_] rule
+   set observes have several incomparable minimal upper bounds. Answering [Val]
+   there would throw the signature away over a tie -- yet EVERY common upper
+   bound is a well-sorted domain by construction (it dominates every observed
+   subject), so take a minimal one. Ties break on the narrowest, then the name,
+   so the pick is deterministic. *)
+let lub (sup : (string, SSet.t) Hashtbl.t) (below : (string, int) Hashtbl.t)
+    (ss : string list) : string =
   let supers s =
     Option.value (Hashtbl.find_opt sup s)
       ~default:(SSet.of_list [ s; val_sort ])
   in
+  let width c = Option.value (Hashtbl.find_opt below c) ~default:max_int in
   match dedup ss with
   | [] -> val_sort
   | [ s ] -> s
@@ -692,15 +716,22 @@ let lub (sup : (string, SSet.t) Hashtbl.t) (ss : string list) : string =
       let uppers =
         List.fold_left (fun acc s -> SSet.inter acc (supers s)) (supers s0) rest
       in
-      let least =
+      let is_minimal c =
+        not (SSet.exists (fun d -> d <> c && SSet.mem c (supers d)) uppers)
+      in
+      (* SSet.fold runs in name order and only a strictly narrower candidate
+         displaces the incumbent, so equal-width minimals resolve by name. *)
+      let best =
         SSet.fold
           (fun c acc ->
-            match acc with
-            | Some _ -> acc
-            | None -> if SSet.subset uppers (supers c) then Some c else None)
+            if not (is_minimal c) then acc
+            else
+              match acc with
+              | Some (w, _) when w <= width c -> acc
+              | _ -> Some (width c, c))
           uppers None
       in
-      Option.value least ~default:val_sort
+      Option.fold ~none:val_sort ~some:snd best
 
 (* Recover each predicate's argument domain into [tbl] (its range is [BoolV] by
    construction, {!signature}).
@@ -747,6 +778,7 @@ let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
              @ List.concat_map (fun (a, b) -> [ a; b ]) edges))
       in
       let sup = supersort_closure edges sorts in
+      let below = subsort_counts sup in
       let sg s n = signature tbl s n in
       (* per symbol, per argument index: every sort seen in that position *)
       let seen : (string, SSet.t array) Hashtbl.t = Hashtbl.create 64 in
@@ -765,7 +797,8 @@ let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
         Hashtbl.iter
           (fun f a ->
             let dom =
-              Array.to_list (Array.map (fun s -> lub sup (SSet.elements s)) a)
+              Array.to_list
+                (Array.map (fun s -> lub sup below (SSet.elements s)) a)
             in
             Hashtbl.replace tbl f (dom, "BoolV"))
           seen
