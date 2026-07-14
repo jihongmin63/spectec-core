@@ -17,8 +17,12 @@ type result = { church_rosser : verdict; coherence : verdict }
 
 val string_of_verdict : verdict -> string
 
-(** [check ?timeout ?maude_bin ?mfe_dir ~rule_heads orig system]. [orig] is the
-    elaborated IL spec, from which {!To_mfe} recovers each operator's sort.
+(** [check ?timeout ?maude_bin ?mfe_dir ?sig_rules ~rule_heads orig system].
+    [orig] is the elaborated IL spec, from which {!To_mfe} recovers each
+    operator's sort. [sig_rules] are the rules the signature is recovered from
+    (default: [system]'s own): pass the WHOLE system when [system] is a slice,
+    so the slice declares the same predicate domains the full module does
+    ({!Maude_sorts.predicate_domains}).
 
     [rule_heads] are the CTRS symbols emitted as Maude rules ([rl]) rather than
     equations -- the non-input-moded relations (the complement of
@@ -32,6 +36,7 @@ val check :
   ?timeout:int ->
   ?maude_bin:string ->
   ?mfe_dir:string ->
+  ?sig_rules:Rewrite_system.rule list ->
   rule_heads:string list ->
   Lang.Il.spec ->
   Rewrite_system.t ->

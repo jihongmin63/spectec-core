@@ -66,13 +66,23 @@ let print_rule vs (is_rel : bool) (r : R.rule) : string =
    (non-reflective) execution path, which runs a bare [maude] binary with
    nothing loaded -- Full Maude's parenthesized form is not valid input there. *)
 let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
-    ~(rule_heads : string list) (orig : spec) (sys : R.t) : string =
+    ?(predicates = MS.Narrow) ?sig_rules ~(rule_heads : string list)
+    (orig : spec) (sys : R.t) : string =
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form. *)
   let orig = Defunctionalize.defunctionalize orig in
   let tenv = MS.type_env orig in
-  let tbl, inj_subsorts = MS.recover ~rules:sys.R.rules Structural orig tenv in
+  (* Signatures are recovered from [sig_rules] -- the WHOLE system, even when
+     [sys] is a slice: a predicate's domain is the join of its call sites
+     ({!Maude_sorts.predicate_domains}), and a slice keeps only the callees, so
+     recovering it from the slice would declare a narrower domain than the
+     system it is a slice OF. *)
+  let sig_rules = Option.value sig_rules ~default:sys.R.rules in
+  let tbl, inj_subsorts = MS.recover ~rules:sig_rules Structural orig tenv in
+  let edges = MS.inference_edges inj_subsorts in
   let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
+  let hint = MS.var_hint_fn tenv var_hints in
+  MS.predicate_domains ~mode:predicates ~edges ~hint tbl sig_rules;
   let sg sym arity = MS.signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, plus all IL
      constructors and struct accessors (so a start term can be formed even when
@@ -145,12 +155,6 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     MS.dedup
       (List.concat_map (fun (_, (args, res)) -> res :: args) op_sigs
       @ edge_sorts)
-  in
-  let edges =
-    inj_subsorts
-    @ List.filter_map
-        (fun s -> if s = MS.val_sort then None else Some (s, MS.val_sort))
-        mentioned
   in
   let sorts = MS.dedup (MS.val_sort :: mentioned) in
   let is_rel r =
@@ -278,15 +282,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      spec order preserved within each. *)
   let eqs, rls = List.partition (fun r -> not (is_rel r)) sys.R.rules in
   let emit r =
-    let hint_types =
-      match R.defined_head r with
-      | Some h -> Option.value (Hashtbl.find_opt var_hints h) ~default:[]
-      | None -> []
-    in
-    let hint v =
-      Option.map (MS.sort_of_typ tenv) (List.assoc_opt v hint_types)
-    in
-    let vs = MS.infer_var_sorts edges sg hint r in
+    let vs = MS.infer_var_sorts edges sg (hint r) r in
     let line =
       if full_maude then print_rule vs (is_rel r) r
       else
@@ -304,7 +300,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   List.iter emit rls;
   if (not full_maude) && stuck_arities <> [] then (
     buf_line b "";
-    List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities sg));
+    List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities));
   (* Execution mode only: [eqg] ({!Reflect.ensure_eqg}) is deliberately given
      only its reflexive equation [eqg(x, x) = true] -- analysis mode discharges
      an off-diagonal [eqg] entirely through the CRC's critical-pair UNIFIER

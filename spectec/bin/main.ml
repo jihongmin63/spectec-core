@@ -199,16 +199,33 @@ let rewrite_command =
         " with --ctrs, over-approximate for the SCC: drop rule conditions and \
          linearize non-left-linear lhs (counterexamples stay sound; a \
          'complete' verdict for a transformed symbol proves nothing)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (the pre-fixpoint \
+         behaviour; to bisect a regression back to that pass)"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     if simplified then
       Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
+      (* The signature is recovered from the WHOLE system even when the dump is
+         a slice or condition-dropped: a predicate's domain is the join of its
+         call sites, and both transforms delete call sites, so recovering from
+         the transformed rules would declare a narrower domain than the module
+         that actually runs -- and an SCC verdict about that domain would be
+         about a system nobody executes. *)
+      let sig_rules = system.rules in
       let system =
         match symbol with
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
@@ -220,10 +237,12 @@ let rewrite_command =
         else system
       in
       Ok
-        (Rewrite.To_mfe.module_of_system
+        (Rewrite.To_mfe.module_of_system ~predicates ~sig_rules
            ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
            spec_il system)
-    else Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
+    else
+      Ok
+        (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
 
 (* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
    the Maude Formal Environment. [Rewrite.rewrite_spec] builds the structural
@@ -293,13 +312,16 @@ let verify_command =
             false )
     else
       let system = Rewrite.rewrite_spec spec_il in
+      (* see the [rewrite --ctrs] path: a sliced module still declares the whole
+         system's predicate domains *)
+      let sig_rules = system.rules in
       let system =
         match symbol with
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
         | None -> system
       in
       let result : Rewrite.Mfe.result =
-        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir
+        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules
           ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
           spec_il system
       in
@@ -367,6 +389,12 @@ let run_command =
       ~doc:
         " keep relations as Maude rules (rl/crl) instead of equations for \
          input-moded ones (pair with --search to explore non-determinism)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (to bisect a \
+         regression back to that pass)"
   and bound =
     flag "--bound" (optional int)
       ~doc:"N cap the number of search solutions explored"
@@ -448,8 +476,12 @@ let run_command =
           | Error e -> (label, kind, Error (resolve_error_msg e)))
         sources
     in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     let module_text =
-      Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il
+      Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il
     in
     if emit then Ok (module_text, false)
     else
@@ -587,6 +619,12 @@ let run_structural_command =
       ~doc:
         "FILE parse an impty program and reduce it structurally (repeat to \
          batch several through one Maude invocation)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (to bisect a \
+         regression back to that pass)"
   and p4 =
     flag "--p4" (listed string)
       ~doc:
@@ -630,8 +668,12 @@ let run_structural_command =
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     let system = Rewrite.rewrite_spec spec_il in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     let module_text =
-      Rewrite.To_mfe.module_of_system ~full_maude:false
+      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates
         ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
         spec_il system
     in

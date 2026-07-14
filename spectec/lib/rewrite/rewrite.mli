@@ -2,6 +2,7 @@ module Rewrite_system = Rewrite_system
 module To_ctrs = To_ctrs
 module Simplify = Simplify
 module To_maude = To_maude
+module Maude_sorts = Maude_sorts
 module To_mfe = To_mfe
 module Maude_run = Maude_run
 module Of_maude = Of_maude
