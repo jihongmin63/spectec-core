@@ -21,7 +21,8 @@
 # case, never invent one. So the witness term is the thing to chase -- it names
 # a constructor case no rule's lhs covers. Triage it like a CRC MAYBE: confirm
 # the term is reachable before calling it a bug (a sort-correct witness outside
-# any real call site is not a defect).
+# any real call site is not a defect). The [dom:] field automates the first
+# question of that triage -- see below.
 #
 # Prereqs (all under spectec/tools/, gitignored -- see spectec/tools/mfe/README.md):
 #   - tools/maude27-ceta/maude     (v2.7-ext-hooks, asset maude-2.7-hooks-linux.zip:
@@ -118,9 +119,31 @@ elif grep -q 'Completeness counter-examples:'                <<<"$out"; then
 elif grep -qiE 'no parse for [^ ]*SPEC|error'                <<<"$out"; then v=ERROR
 else v=TIMEOUT; fi
 
-# The transform fidelity (does the SCC see our rules verbatim?) and the SCC's
-# own analysis fidelity (is its abstraction sound/complete here?) are separate
-# caveats; report both.
+# A COUNTEREXAMPLE is only as meaningful as the domain of the symbol it names.
+# Most operators are declared over their real IL sort (Maude_sorts.predicate_
+# domains recovers even the match_/subty_/holds_ ones from use), and a witness
+# there is a genuinely reachable subject -- chase it. But the erased container/
+# scalar polymorphism leaves some symbols at the top sort Val (a list element, a
+# tuple slot, sub_nat's Int-or-Nat subject), and the SCC then enumerates EVERY
+# constructor of the module for that argument: `subty_value(bone)` is not a gap,
+# it is a term no call site can build. Report which kind this is.
+#
+# COMPLETE needs no such caveat: proving totality over a WIDER domain is a
+# stronger statement, not a weaker one.
+domain=""
+if [ "$v" = COUNTEREXAMPLE ]; then
+  head_sym=${witness%%(*}; head_sym=$(tr -d ' ' <<<"$head_sym")
+  dom=$(sed -n "s/^\s*op ${head_sym} : \(.*\)-> .*/\1/p" "$tmp/slice.mod" | head -1)
+  if   [ -z "$dom" ];              then domain="dom:?"
+  elif grep -qw Val <<<"$dom";     then domain="dom:Val-wide"
+  else                                  domain="dom:narrow"; fi
+fi
+
+# The transform fidelity (does the SCC see our rules verbatim?), the SCC's own
+# analysis fidelity (is its abstraction sound/complete here?), and the witness
+# symbol's domain (is the witness even reachable?) are separate caveats; report
+# all three.
 [ -n "$analysis" ] && fidelity="$fidelity/analysis:${analysis// /-}"
+[ -n "$domain" ]   && fidelity="$fidelity/$domain"
 
 printf '%s\t%s\t%s\t%s\n' "$sym" "$v" "$fidelity" "$witness"

@@ -67,12 +67,35 @@ needed_sorts.add("Val")  # top sort always kept
 if mode == "ops":
     keep_sorts = set(all_sorts)
 else:
-    # Keep only sorts named by used ops' signatures + rule sort-annotations + Val.
-    # Do NOT close over subsort edges: every sort is `< Val`, so any closure that
-    # touches Val re-expands to the whole lattice. Well-formedness is preserved
-    # because every retained subsort edge / op decl references only these sorts,
-    # and terms are only ever formed by the retained ops.
-    keep_sorts = needed_sorts
+    # Keep the sorts named by used ops' signatures + rule sort-annotations + Val,
+    # PLUS every sort that lies on a subsort path between two of them.
+    #
+    # Do NOT close over subsort edges wholesale: every sort is `< Val`, so any
+    # closure that touches Val re-expands to the whole lattice. But dropping the
+    # interior of a path does break well-formedness, now that the predicates are
+    # declared over a recovered domain instead of Val (Maude_sorts.predicate_
+    # domains): a rule may pass a `BaseType` term to a `TypeArgument` position
+    # via `BaseType < RealTypeArgument < TypeArgument`, and pruning the middle
+    # sort leaves `BaseType` unrelated to `TypeArgument` -- the slice then parses
+    # ill-sorted (`no parse` / ERROR) where the full module is fine. P4 has 286
+    # such two-step chains.
+    edges = [(a, b) for a, b, _ in subsort1 if b != "Val"]
+    edges += [(a, b) for al, b, _ in subsortN if b != "Val" for a in al]
+    up, down = {}, {}
+    for a, b in edges:
+        up.setdefault(a, set()).add(b)     # a < b
+        down.setdefault(b, set()).add(a)
+    def reach(starts, adj):
+        seen, stack = set(), list(starts)
+        while stack:
+            x = stack.pop()
+            for y in adj.get(x, ()):
+                if y not in seen:
+                    seen.add(y); stack.append(y)
+        return seen
+    above = reach(needed_sorts, up)     # sorts reachable UP from a kept sort
+    below = reach(needed_sorts, down)   # sorts from which a kept sort is reachable
+    keep_sorts = needed_sorts | (above & below)
 
 # emit
 out = []
