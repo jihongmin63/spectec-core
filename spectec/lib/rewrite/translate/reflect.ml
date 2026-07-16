@@ -1096,26 +1096,16 @@ let and_chain ~scalars (ts : R.term list) : R.term =
   | [] -> T.bool_t ~scalars true
   | t :: ts -> List.fold_left (fun a b -> T.and_t a b) t ts
 
-(* "sibling [s] applies", as one total boolean term over the owise rule's own
-   variables. [ow_args] are the owise rule's head arguments (the subjects);
-   [argtyps] the declared argument types when the spec gives them. [prep]
-   pre-rewrites each condition (the judgment reflection substitutes
-   [holds_<R>] heads before the reflectability check sees the raw relation). *)
-let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
-    (effectful : string list) (succ : string list) (ow_args : R.term list)
-    (argtyps : typ' option list) (s : R.rule) : R.term =
-  let s_args =
-    match s.R.lhs with
-    | R.App (_, args) -> args
-    | R.Var _ -> raise (Gate "variable lhs")
-  in
-  if List.length s_args <> List.length ow_args then
-    raise (Gate "sibling/owise arity mismatch");
-  let acc = { tests = []; sub = [] } in
-  List.iteri
-    (fun j p ->
-      ptest ~scalars tbl sup acc (List.nth ow_args j) (List.nth argtyps j) p)
-    s_args;
+(* Reflect the sibling's own conditions under a pre-seeded substitution
+   [acc], returning the conjunction of [acc]'s accumulated tests and the
+   conditions'. Shared by {!sibling_guard} (which seeds [acc] by ptest-ing
+   every head position) and the complement-enumeration path (whose clause
+   heads already select the constructors, so it seeds enum positions by
+   direct substitution instead -- keeping ground matcher constants out of
+   the guard). *)
+let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables)
+    (sup : support) (effectful : string list) (succ : string list) (acc : acc)
+    (s : R.rule) : R.term =
   (* variables the rule's OWN conditions bind to an exact constructor
      application, by either side of the condition *)
   let exactly_bound =
@@ -1183,6 +1173,28 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
       [] ts
   in
   and_chain ~scalars (dedup (List.rev acc.tests))
+
+(* "sibling [s] applies", as one total boolean term over the owise rule's own
+   variables. [ow_args] are the owise rule's head arguments (the subjects);
+   [argtyps] the declared argument types when the spec gives them. [prep]
+   pre-rewrites each condition (the judgment reflection substitutes
+   [holds_<R>] heads before the reflectability check sees the raw relation). *)
+let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
+    (effectful : string list) (succ : string list) (ow_args : R.term list)
+    (argtyps : typ' option list) (s : R.rule) : R.term =
+  let s_args =
+    match s.R.lhs with
+    | R.App (_, args) -> args
+    | R.Var _ -> raise (Gate "variable lhs")
+  in
+  if List.length s_args <> List.length ow_args then
+    raise (Gate "sibling/owise arity mismatch");
+  let acc = { tests = []; sub = [] } in
+  List.iteri
+    (fun j p ->
+      ptest ~scalars tbl sup acc (List.nth ow_args j) (List.nth argtyps j) p)
+    s_args;
+  sibling_conds_guard ~prep ~scalars tbl sup effectful succ acc s
 
 (* -------------------------------------------------------------------------- *)
 (* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
