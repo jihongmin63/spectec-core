@@ -70,6 +70,77 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-15 — 잔여 CRC MAYBE 재분류 + owise or-gate 진단 + 수정 후보 (미구현)
+
+**작업 격리**: worktree `/home/spectec-core-matchbridge`(branch `match-bridge-ceq`,
+HEAD 08dfe4ed, 자체 `_build`). 돌고 있던 differential test(`/home/spectec-core`,
+new-rewrite)와 완전 분리. MFE 도구는 gitignore라 main clone 것 참조
+(`SPECTEC_MFE_DIR=/home/spectec-core/spectec/tools/mfe`, `MAUDE_LIB`=maude dir) — 별도 프로세스.
+
+**잔여 CRC MAYBE 재분류 (현 브랜치 실측 `verify --symbol`).** recalibration.md 표의 CRC열은
+stale. 옛 category-A owise 9개 재측정 → **6개 이미 YES**(`$join_flow` `$is_lpm_key_prime`
+`$requires_priority_prime` `$is_default_parameterIR` `$is_tableDefaultActionProperty`
+`$join_text` — hoist_matchers/expand_subty_guards/align_guards/fold-matcher-destructure가 해소).
+표의 CRC=MAYBE 8개 중 5개는 `$write_value*`(binenc zero-width 진짜 비합류, 별도 트랙),
+1개 `$bin_satplus`(arith sign-split, 재측정 TIMEOUT). **잔여 owise/match MAYBE = 정확히 2개:
+`$join_ctk`(2-인자), `$assignop_as_binop`(1-인자, 13생성자중 12매치).** 둘 다 **enum-dispatch**:
+ground 특정절 + 서로 다른 rhs + owise or-gate 반사.
+
+**진단 (최소예제로 확정) — 상호배타성 문제가 아니라 CRC의 중첩 or-gate feasibility 불완전성.**
+- CRC는 조건을 eq/ceq로 **환원한다**(반례: `ceq h=ff if big=ff`+`eq big=tt` → YES; matcher/or-gate
+  단일인자 mini2 → YES). 그러니 "조건 미환원"이 원인이 아님.
+- 진짜 원인: owise가 ground 형제와 겹치면 조건이 `or(and(match,match)…)=false`(ground, `true`로
+  환원가능)인데, **왼쪽-중첩 `or`에서 참 disjunct가 깊이 묻히면** CRC feasibility 검사가 그걸
+  못 보고 임계쌍을 보수적으로 보고. 증거: mini3(2인자 4-way)에서 4개 겹침 중 참 disjunct가
+  **맨 바깥**인 `f(cb,cb)`만 생존; **or-gate 순서만 바꾸면(mini3b) 생존 ccp 집합이 바뀜** →
+  진짜 비합류 아님, 게이트 인코딩 아티팩트.
+- 그래서 사용자 제안 **부정 ceq `match_B=false if match_A=true`는 못 고침**: (1) 이 문제를 전혀
+  안 건드림, (2) 양방향 ceq가 조건평가 상호재귀로 **CRC 폭발**(Val/Ctk/unfold 무관, timeout/OOM),
+  (3) 막는 ccp 가설이 `and(…)=true`라 원자 match가 없어 애초에 발화도 안 함.
+
+**수정 후보 실측 (전부 실제 MFE):**
+- **[유력] complement 열거**: enum-dispatch owise를 or-gate 대신 **미매치 생성자 튜플마다 ground
+  fall-through 절**로 반사 → 모든 절 ground·disjoint → 임계쌍 0 → YES. `$join_ctk`(DYN관련 5절)
+  **CRC YES**, `$assignop`(plain-`=` 1절) **CRC YES**. 국소적·비폭발. 실행표면 무변경(분석 전용).
+  미매치수 = ∏(arg타입 생성자수)−매치수 → **size guard** 필요(대형/고arity는 or-gate 폴백).
+  v1 스코프: 모든 형제 arg가 **nullary 생성자**인 순수 enum-dispatch(두 대상 다 해당).
+- **[기각] `or [assoc comm]`**: AC 매칭이 참 disjunct를 위치무관 발견 → `$join_ctk` **YES**(진단 확증).
+  그러나 `$assignop` 12-way 게이트에서 **AC 단일화 폭증, 850s 내 verdict 없음**(baseline은 <420s에
+  MAYBE 완주). + `or` 전역 변경이라 타 슬라이스 회귀 위험. 실전 부적합.
+
+**[완료, 2026-07-16] complement 열거 정식 구현 — `Reflect.owise`(pipeline은 여전히 분석
+전용).** v1 스코프를 조건부 형제까지 확장해서 구현(사용자 지시): 인자 위치를 **enum**(형제 중
+누군가 nullary 생성자를 놓는 자리, 선언 타입이 nullary-only variant로 열거 가능해야 함)과
+**pass-through**(전 형제가 변수)로 분류, enum 위치의 곱집합을 튜플별로 순회 —
+- 무조건 형제가 커버 → owise 도달불능, 절 생략
+- 조건부 형제만 커버 → ground-head 절 + **형제 가드 부정의 논리곱**(형제당 `g=false` 1개,
+  or-gate 아님) — 실측 대상 2건은 형제가 전부 무조건이라 이 경로 미시험(v2 설계로 남김,
+  todo.md에 명기)
+- 아무도 안 커버 → 순수 ground fall-through (v1 원안)
+
+`max_complement=16` size guard. `sibling_guard`에서 조건-반사부를 `sibling_conds_guard`로
+추출해 재사용(리팩토링 단계에서 p4 corpus `--ctrs`/stderr **byte-identical** 확인 후 기능
+추가). `reflect.ml`의 owise 단계를 `Array.mapi`(1규칙→1규칙)에서 `List.concat(List.mapi…)`
+(1→N)로 교체.
+
+**실측 결과(전부 실제 MFE, `verify --symbol … --timeout 900`):**
+- `$join_ctk` **CRC YES**(5절, 전부 무조건 — 7/15 수동 실측 재현), `$assignop_as_binop`
+  **CRC YES**(1절, 전부 무조건 — 동일 재현).
+- p4 corpus 전체에서 새로 열거된 심볼은 예상외로 `$join_flow`도 포함(3절, 무조건) — **회귀
+  확인: YES 유지**(기존에도 YES였던 대상). impty 대조군 `$lookup` **YES**(환경 정상).
+- 반사 수 보존: `72 owise rule(s)` → **`69 reflected + 3 complement-enumerated`, kept 0**
+  (7/15 표에서 인용한 `71/1`은 stale — 실측 기준 정확한 불변식은 `72/0`).
+- p4 corpus `--ctrs` diff: 위 3심볼 절만 변화(전부 `ceq…or(...)=false` → `eq` N개), 그 외
+  0. 실행 표면(`rewrite` 출력) sha256 편집 전후 동일 — 분석 전용 패스라 자동 보장, 실측으로도
+  재확인. impty 골든(`spec.ctrs`/`spec.maude`) 둘 다 diff 0.
+
+**v2 후보(미구현, 실측 미검증)**: 조건부 형제의 부정-누적 경로. 사용자가 "실측은 안 돼도 구현은
+해달라"고 명시해 코드는 포함했으나, 현재 corpus엔 이 경로가 발화하는 MAYBE 대상이 없어 CRC
+개선 효과를 검증할 표본이 없다. **다음에 owise CRC MAYBE가 새로 나타나고 그 형제가 조건부면
+가장 먼저 확인할 지점** — `sibling_conds_guard`가 이미 재사용 가능한 형태로 분리돼 있음.
+guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 요구를 되살리는 최소 revert로
+대응(설계는 위 커밋 참고).
+
 - [x] **`Exp_map` 재생성** (done) — IL 얕은 traversal(`map_subexps`/`subexps`/
   `exps_of_prem`). `Defunctionalize`가 사용.
 - [x] **`Simplify` = identity** (done) — 이 프로젝트는 단순화를 하지 않음. `Prem_env`도
@@ -1414,11 +1485,13 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
   → SCC (sufficient completeness)                                             [배관 완주(2026-07-11): [ctor]+CETA 바이너리+--unconditional+run-scc.sh, 산술/subty 최소 시범까지. 남은 건 (P1) subty_*/match_* 도메인 협소화(Val-wide라 반례가 전부 위양성 — 단 1874d212와 충돌하니 설계 필요) → (P2) 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만)]
-  → owise 절 생성자 fan-out                                                    [$join_ctk/$assignop_as_binop CRC MAYBE 2건; CRC가 ccp 조건을 정규화 안 하는 게 원인이라 가드→head 패턴으로 옮기면 해소. expand_subty_guards 재사용]
   → $write_value_from_bits' n_var=0 경계                                       [CRC MAYBE 5의 뿌리이자 유일한 진짜 비합류: 2.1.2-value-aux.spectec:147-153의 두 절이 n_var=0에서 동시에 발화. 원 스펙의 절 순서가 지던 disambiguation을 번역이 잃음 → n_var≠0 가드(또는 owise) 복원 필요. (term 쪽은 fold 이후 5심볼 전부 YES — 3fbbe1d6)]
   → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
+  → owise 조건부-형제 v2 (부정-누적 경로, 미검증)                              [complement_clauses에 코드는 있으나(2026-07-16) 발화 표본이 corpus에 없어 CRC 개선 효과 미확인. 다음 owise MAYBE가 조건부 형제를 가지면 최우선 확인 지점]
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
-         termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md)
+         termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md
+         owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
+         해소(둘 다 YES), $join_flow 회귀 없음, 2026-07-16 상세는 위 M1 블록)
 ```

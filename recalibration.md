@@ -78,6 +78,18 @@ CRC=MAYBE인 재측정 가능 3행을 전체 슬라이스로 다시 돌렸다(`v
 `$bin_satplus`/`$bin_shr` CRC 열은 더 빠른 환경의 옛 측정값을 유지한다(위
 `$write_value*`와 같은 처리) — 다음 안정 환경에서 재측정 필요.
 
+**`$join_ctk`/`$assignop_as_binop` CRC 열 재측정 (2026-07-16) — MAYBE → YES.** 위
+7/13 재측정에서 "match fall-through라 align_guards 대상이 아니다"로 남겨뒀던 이
+두 행의 진짜 원인을 이번에 확정: 진짜 비합류가 아니라, owise 반사가 만드는
+왼쪽-중첩 `or(and(match,match)…)=false` 게이트에서 참 disjunct가 깊이 묻히면 CRC의
+feasibility 검사가 못 보는 **인코딩 아티팩트**였다(todo.md M1 2026-07-15 진단).
+수정: `Reflect.owise`에 **complement 열거**를 구현(enum-dispatch owise를 or-gate
+대신 미매치 생성자 튜플별 ground fall-through 절로 반사 → 절이 전부 ground·서로소 →
+임계쌍 소멸). 전체 슬라이스 `verify --symbol`로 재측정: `$join_ctk` **CRC YES**(5절),
+`$assignop_as_binop` **CRC YES**(1절). 회귀 없음 확인(`$join_flow`도 같은 패스로
+새로 열거됐고 기존 YES 유지, impty `$lookup` 대조군 YES, 실행 표면 sha256 불변).
+상세는 todo.md M1 2026-07-16 항목.
+
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
 | `$annotationList_of_parameterIR` | 1 | YES | YES | YES |  |
@@ -179,7 +191,7 @@ CRC=MAYBE인 재측정 가능 3행을 전체 슬라이스로 다시 돌렸다(`v
 | `$callableId_of_externConstructorPrototypeIR` | 12 | YES | YES | YES |  |
 | `$resolve_constraint` | 13 | YES | YES | YES |  |
 | `$prefixedTypeName` | 14 | YES | YES | YES |  |
-| `$join_ctk` | 15 | MAYBE | YES | YES |  |
+| `$join_ctk` | 15 | YES | YES | YES |  |
 | `$starts_with` | 15 | YES | YES | YES |  |
 | `$is_tableDefaultActionProperty` | 16 | YES | YES | YES |  |
 | `$callableId_of_externMethodPrototypeIR` | 17 | YES | YES | YES |  |
@@ -200,7 +212,7 @@ CRC=MAYBE인 재측정 가능 3행을 전체 슬라이스로 다시 돌렸다(`v
 | `$bin_mod` | 109 | YES | YES | YES | bsub bmod negate-int |
 | `$bin_div` | 113 | YES | YES | YES | bsub bdiv negate-int |
 | `$un_bnot` | 138 | YES | YES | YES | badd bmul bsub bpow-nat bneg negate-int |
-| `$assignop_as_binop` | 171 | MAYBE | YES | YES |  |
+| `$assignop_as_binop` | 171 | YES | YES | YES |  |
 | `$bin_ge` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |
 | `$bin_gt` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |
 | `$bin_le` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |

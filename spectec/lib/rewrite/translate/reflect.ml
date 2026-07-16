@@ -1197,6 +1197,204 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
   sibling_conds_guard ~prep ~scalars tbl sup effectful succ acc s
 
 (* -------------------------------------------------------------------------- *)
+(* Complement enumeration (enum-dispatch owise).
+
+   Classify the owise rule's argument positions: an ENUM position (some
+   sibling puts a nullary constructor there; requires the declared type to
+   enumerate to nullary constructors only) or a PASS-THROUGH position (every
+   sibling has a bare variable). Enumerate the product over enum positions;
+   per tuple:
+   - covered by an unconditional sibling: the owise is dead there, emit
+     nothing;
+   - covered only by conditional siblings: emit a ground-head clause carrying
+     each covering sibling's reflected guard negated ([g = false] per
+     sibling -- a conjunction of negations, no or-gate);
+   - covered by nothing: emit the pure ground fall-through.
+   Every clause head is disjoint from every other tuple's, so critical pairs
+   only arise within a tuple, where the guards are guard-form (discharged by
+   the sibling's own hypotheses under the critical-pair unifier) -- never
+   the ground pattern-form disjuncts the CRC's nested-or feasibility check
+   cannot see, and does not normalize away, when a true disjunct sits buried
+   in a left-nested [or] (the [$join_ctk]/[$assignop_as_binop] MAYBEs; see
+   todo.md M1 2026-07-15). Analysis-only, like the rest of this pass.
+   [max_complement] caps the emitted clause count (the product of the enum
+   positions' constructor counts minus the fully-covered tuples). *)
+
+let max_complement = 16
+
+(* The nullary-constructor enumeration of a declared argument type, when it
+   resolves to a variant with ONLY nullary constructors (the same typdefs
+   walk as {!ensure_matchers}). *)
+let nullary_enum (tbl : tables) (et : typ' option) : string list option =
+  match Option.map (resolve tbl) et with
+  | Some (VarT { synid; _ }) -> (
+      match Hashtbl.find_opt tbl.typdefs synid.it with
+      | Some (VariantT typcases) ->
+          let cs =
+            List.map
+              (fun (tc : typcase) ->
+                let { synid = oid; _ } = tc.origin.it in
+                let mixop = Mixfix.to_mixop tc.notation.it in
+                (T.variant_sym oid.it mixop, Mixfix.arity mixop))
+              typcases
+          in
+          if List.for_all (fun (_, a) -> a = 0) cs then Some (List.map fst cs)
+          else None
+      | _ -> None)
+  | _ -> None
+
+let rec tuple_product : 'a list list -> 'a list list = function
+  | [] -> [ [] ]
+  | cs :: rest ->
+      let tails = tuple_product rest in
+      List.concat_map (fun c -> List.map (fun t -> c :: t) tails) cs
+
+type cpos = Enum of string list | Pass
+
+(* [Some clauses] when the owise rule [r] of [f] qualifies for complement
+   enumeration, [None] to fall back to the or-gate path. May raise [Gate]
+   (an unreflectable sibling condition) -- the caller rolls [sup] back and
+   falls back the same way. *)
+let complement_clauses ~scalars (tbl : tables) (sup : support)
+    (effectful : string list) (succ : string list) (f : string) (r : R.rule)
+    (ow_args : R.term list) (argtyps : typ' option list)
+    (siblings : R.rule list) : R.rule list option =
+  let n = List.length ow_args in
+  let ow_vars =
+    List.filter_map (function R.Var v -> Some v | _ -> None) ow_args
+  in
+  let sib_args =
+    List.filter_map
+      (fun (s : R.rule) ->
+        match s.R.lhs with
+        | R.App (_, a) when List.length a = n -> Some (s, a)
+        | _ -> None)
+      siblings
+  in
+  if
+    siblings = [] (* a no-sibling owise: complement would flip its meaning *)
+    || r.R.conds <> []
+    || List.length ow_vars <> n
+    || List.sort_uniq compare ow_vars <> List.sort compare ow_vars
+    || List.length sib_args <> List.length siblings
+  then None
+  else
+    let classify j =
+      let args_j = List.map (fun (_, a) -> List.nth a j) sib_args in
+      if List.for_all (function R.Var _ -> true | _ -> false) args_j then
+        Some Pass
+      else
+        match nullary_enum tbl (List.nth argtyps j) with
+        | Some cs
+          when List.for_all
+                 (function
+                   | R.Var _ -> true
+                   | R.App (c, []) -> List.mem c cs
+                   | _ -> false)
+                 args_j ->
+            Some (Enum cs)
+        | _ -> None
+    in
+    match
+      List.fold_right
+        (fun j acc ->
+          match (classify j, acc) with
+          | Some p, Some ps -> Some (p :: ps)
+          | _ -> None)
+        (List.init n Fun.id) (Some [])
+    with
+    | None -> None
+    | Some poss
+      when not (List.exists (function Enum _ -> true | Pass -> false) poss) ->
+        None (* purely conditional owise: guard-form or-gates discharge *)
+    | Some poss ->
+        (* candidate heads: per-position slots are the enum constructors, or
+           a single [None] slot at a pass-through position *)
+        let slots =
+          List.map
+            (function
+              | Enum cs -> List.map (fun c -> Some c) cs
+              | Pass -> [ None ])
+            poss
+        in
+        let matches tuple (_, a) =
+          List.for_all2
+            (fun slot p ->
+              match (slot, p) with
+              | None, _ | Some _, R.Var _ -> true
+              | Some c, R.App (c', []) -> c = c'
+              | Some _, _ -> false)
+            tuple a
+        in
+        let cases =
+          List.filter_map
+            (fun tuple ->
+              let ms = List.filter (matches tuple) sib_args in
+              if List.exists (fun ((s : R.rule), _) -> s.R.conds = []) ms then
+                None (* an unconditional sibling covers it: owise dead *)
+              else Some (tuple, ms))
+            (tuple_product slots)
+        in
+        if List.length cases > max_complement then None
+        else
+          Some
+            (List.map
+               (fun (tuple, ms) ->
+                 let head_args =
+                   List.map2
+                     (fun slot v ->
+                       match slot with
+                       | Some c -> T.app_t c []
+                       | None -> T.var_t v)
+                     tuple ow_vars
+                 in
+                 let sub =
+                   List.concat
+                     (List.map2
+                        (fun slot v ->
+                          match slot with
+                          | Some c -> [ (v, T.app_t c []) ]
+                          | None -> [])
+                        tuple ow_vars)
+                 in
+                 (* one negated guard PER covering conditional sibling: a
+                    conjunction of negations, no or-gate. The clause head
+                    already selects the constructors, so enum positions seed
+                    the substitution directly instead of ptest-ing -- keeping
+                    ground matcher constants (the very shape the CRC cannot
+                    normalize) out of the guard. *)
+                 let conds =
+                   List.map
+                     (fun ((s : R.rule), a) ->
+                       let acc = { tests = []; sub = [] } in
+                       List.iteri
+                         (fun j p ->
+                           match (List.nth tuple j, p) with
+                           | Some _, R.App (_, []) ->
+                               () (* the head already selects this ctor *)
+                           | Some c, R.Var v ->
+                               acc.sub <-
+                                 (v, (T.app_t c [], List.nth argtyps j))
+                                 :: acc.sub
+                           | None, p ->
+                               ptest ~scalars tbl sup acc (List.nth ow_args j)
+                                 (List.nth argtyps j) p
+                           | Some _, _ -> assert false)
+                         a;
+                       ( sibling_conds_guard ~scalars tbl sup effectful succ
+                           acc s,
+                         T.bool_t ~scalars false ))
+                     ms
+                 in
+                 {
+                   R.lhs = T.app_t f head_args;
+                   rhs = subst sub r.R.rhs;
+                   conds;
+                   owise = false;
+                 })
+               cases)
+
+(* -------------------------------------------------------------------------- *)
 (* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
    "some rule of R applies", built from each rule's lhs patterns and
    conditions with the rhs ignored, so it covers output-carrying judgments
@@ -1709,15 +1907,15 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   in
   (* ---- owise phase. ---- *)
   let rules = Array.of_list base_rules in
-  let reflected = ref 0 and kept = ref 0 in
+  let reflected = ref 0 and enumerated = ref 0 and kept = ref 0 in
   let out =
-    Array.to_list
-      (Array.mapi
+    List.concat
+      (List.mapi
          (fun i (r : R.rule) ->
-           if not r.R.owise then r
+           if not r.R.owise then [ r ]
            else
              match R.defined_head r with
-             | None -> r
+             | None -> [ r ]
              | Some f -> (
                  let ow_args =
                    match r.R.lhs with R.App (_, args) -> args | _ -> []
@@ -1727,36 +1925,65 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
                    |> List.filter (fun (s : R.rule) ->
                           (not s.R.owise) && R.defined_head s = Some f)
                  in
+                 let argtyps = argtyps_of f (List.length ow_args) in
+                 (* complement enumeration first; anything it does not cover
+                    (or a Gate along the way) falls back to the or-gate. *)
                  let mark = snapshot sup in
-                 try
-                   let argtyps = argtyps_of f (List.length ow_args) in
-                   let guards =
-                     List.map
-                       (sibling_guard ~scalars tbl sup effectful succ ow_args
-                          argtyps)
-                       siblings
-                   in
-                   let guard =
-                     match guards with
-                     | [] -> T.bool_t ~scalars false (* no sibling: keep rule *)
-                     | g :: gs -> List.fold_left (fun a b -> T.or_t a b) g gs
-                   in
-                   incr reflected;
-                   {
-                     r with
-                     R.conds = r.R.conds @ [ (guard, T.bool_t ~scalars false) ];
-                     owise = false;
-                   }
-                 with Gate reason ->
-                   rollback sup mark;
-                   incr kept;
-                   Printf.eprintf "reflect: keeping owise on %s (%s)\n" f reason;
-                   r))
-         rules)
+                 match
+                   try
+                     complement_clauses ~scalars tbl sup effectful succ f r
+                       ow_args argtyps siblings
+                   with Gate _ -> None
+                 with
+                 | Some cls ->
+                     incr enumerated;
+                     let guarded =
+                       List.length
+                         (List.filter (fun (c : R.rule) -> c.R.conds <> []) cls)
+                     in
+                     Printf.eprintf
+                       "reflect: owise complement-enumerated on %s (%d \
+                        clause(s), %d guarded)\n"
+                       f (List.length cls) guarded;
+                     cls
+                 | None -> (
+                     rollback sup mark;
+                     let mark = snapshot sup in
+                     try
+                       let guards =
+                         List.map
+                           (sibling_guard ~scalars tbl sup effectful succ
+                              ow_args argtyps)
+                           siblings
+                       in
+                       let guard =
+                         match guards with
+                         | [] ->
+                             T.bool_t ~scalars false (* no sibling: keep rule *)
+                         | g :: gs ->
+                             List.fold_left (fun a b -> T.or_t a b) g gs
+                       in
+                       incr reflected;
+                       [
+                         {
+                           r with
+                           R.conds =
+                             r.R.conds @ [ (guard, T.bool_t ~scalars false) ];
+                           owise = false;
+                         };
+                       ]
+                     with Gate reason ->
+                       rollback sup mark;
+                       incr kept;
+                       Printf.eprintf "reflect: keeping owise on %s (%s)\n" f
+                         reason;
+                       [ r ])))
+         (Array.to_list rules))
   in
-  if !reflected > 0 || !kept > 0 then
-    Printf.eprintf "reflect: %d owise rule(s) reflected, %d kept\n" !reflected
-      !kept;
+  if !reflected > 0 || !enumerated > 0 || !kept > 0 then
+    Printf.eprintf
+      "reflect: %d owise rule(s) reflected, %d complement-enumerated, %d kept\n"
+      !reflected !enumerated !kept;
   (* Keep only the support rules some rule actually references (a gated or
      simplified attempt may have pulled in a projection it no longer uses). *)
   let used = Hashtbl.create 256 in
