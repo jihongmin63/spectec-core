@@ -90,6 +90,77 @@ feasibility 검사가 못 보는 **인코딩 아티팩트**였다(todo.md M1 202
 새로 열거됐고 기존 YES 유지, impty `$lookup` 대조군 YES, 실행 표면 sha256 불변).
 상세는 todo.md M1 2026-07-16 항목.
 
+## 2026-07-18 post-fix 전면 fresh 재검증 (현재 바이너리 fresh 덤프 · CRC + **AProVE 직접**)
+
+위 재측정들은 7-09/7-10 번역 덤프를 재사용했다 — owise-complement 열거(`2f9f8cba`)·
+align_guards(`a290977b`) **이전** 산출물이다. fix는 번역 덤프 자체를 바꾸므로, 스테일
+스윕(smallcheck/bigsweep)을 전부 중단하고 **현재 바이너리(HEAD `2f9f8cba`)로 153심볼을
+하나씩 재번역**해 CRC를 처음부터 다시 계산했고, termination은 **모듈러-B가 아니라 AProVE
+직접**(시그니처 프루닝 → old-FullMaude fmod → `ct`, `TERM_TMO=1200`, `CRC_TMO=2400`)으로
+다시 돌렸다. `/tmp/fresh500`, **153/153 완주**.
+
+**요약** — CRC: YES 140 / TIMEOUT 8 / MAYBE 5 · ChC: YES 145 / - 8 · term(AProVE 직접): YES 117 / TIMEOUT 25 / MAYBE 11.
+
+1. **fix 정정, 전면 스윕에서 재확인.** 스테일에서 MAYBE였던 `$join_ctk`(9절)·
+   `$assignop_as_binop`(13절)이 fresh 전면 재검에서 **CRC=YES / ChC=YES / term=YES**.
+   위 7-16 `verify --symbol` 단발 측정이 독립 전면 스윕에서 재현됨. **회귀 0.**
+2. **새 비합류/비종료 후보 0.** CRC=YES 140개. 비-YES 37행은 전부 산술/비트 슬라이스이며,
+   아래 두 종류의 알려진 도구 한계다.
+3. **⭐ term 열은 여기서 AProVE 직접이다 — 모듈러-B와 다르다.** full-arith 25개 TIMEOUT
+   (`$bin_minus/mul/plus/satplus/satminus/band/bor/bxor`, `$un_minus/op`, …)은 **AProVE가
+   이진 산술 종료를 1200s 내 못 찾은 것**이고, **같은 심볼이 모듈러-B에선 전부 term=YES**
+   (아래 표 `term(모듈러B)` 열). AProVE 직접이 산술을 블랙박스하지 않아 생기는 차이 —
+   즉 **정확성이 아니라 tractability**이며, ≤500을 AProVE 직접으로 돌리기로 정할 때 예고된
+   결과다. CRC MAYBE/TIMEOUT도 같은 성질(Val-wide subty CP·산술 CP 폭발; ChC는 YES).
+
+**비-YES 37행 (fresh, AProVE 직접 · 모듈러-B 병기):**
+
+| symbol | rules | CRC | ChC | crc_s | term(AProVE직접) | term(모듈러B) | 해석 |
+|---|---|---|---|---|---|---|---|
+| `$join_text` | 13 | YES | YES | 127 | MAYBE | MAYBE | term: 전제-인코딩 하강(양쪽 MAYBE, 종료함) |
+| `$invalidate_headerUnion` | 91 | YES | YES | 254 | MAYBE | MAYBE | term: 전제-인코딩 하강(양쪽 MAYBE, 종료함) |
+| `$invalidate_value` | 91 | YES | YES | 230 | MAYBE | MAYBE | term: 전제-인코딩 하강(양쪽 MAYBE, 종료함) |
+| `$write_bits_from_value` | 107 | TIMEOUT | - | 2402 | YES | TIMEOUT | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님) |
+| `$un_bnot` | 139 | YES | YES | 479 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$bin_ge` | 183 | YES | YES | 658 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$bin_le` | 183 | YES | YES | 664 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$bin_gt` | 184 | YES | YES | 671 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$bin_lt` | 184 | YES | YES | 674 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$int_of_integerValue` | 184 | YES | YES | 656 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$nat_of_integerValue` | 187 | YES | YES | 706 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$bin_minus` | 193 | YES | YES | 749 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_mul` | 193 | YES | YES | 755 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_plus` | 193 | YES | YES | 749 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$un_minus` | 197 | YES | YES | 821 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_bxor` | 199 | YES | YES | 802 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_concat` | 200 | TIMEOUT | - | 2402 | TIMEOUT | YES | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$set_priorities_of_tableEntryListIR_prime` | 200 | YES | YES | 890 | TIMEOUT | MAYBE | term: 양쪽 미해소(종료함) |
+| `$bin_satminus` | 201 | YES | YES | 911 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_satplus` | 201 | YES | YES | 920 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_shl` | 201 | TIMEOUT | - | 2402 | TIMEOUT | YES | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_band` | 202 | YES | YES | 1013 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_bor` | 202 | YES | YES | 1007 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$name_annotationToken` | 209 | YES | YES | 683 | MAYBE | YES | term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES** |
+| `$un_op` | 209 | YES | YES | 995 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bin_shr` | 215 | TIMEOUT | - | 2403 | TIMEOUT | YES | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$set_priorities_of_tableEntryListIR` | 226 | YES | YES | 1137 | TIMEOUT | MAYBE | term: 양쪽 미해소(종료함) |
+| `$name_annotation_opt` | 256 | YES | YES | 1136 | TIMEOUT | YES | term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$write_value_field_from_bits_prime` | 271 | MAYBE | YES | 1314 | TIMEOUT | YES | CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$write_value_fields_from_bits_prime` | 271 | MAYBE | YES | 1337 | TIMEOUT | YES | CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$write_value_from_bits_prime` | 271 | MAYBE | YES | 1328 | TIMEOUT | YES | CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$write_values_from_bits_prime` | 271 | MAYBE | YES | 1314 | TIMEOUT | YES | CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$write_value_from_bits` | 274 | MAYBE | YES | 1350 | TIMEOUT | YES | CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bitacc_range_op` | 283 | TIMEOUT | - | 2403 | TIMEOUT | TIMEOUT | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: 최대 슬라이스 예산 초과(모듈러-B도 TIMEOUT) |
+| `$bitacc_offset_op` | 285 | TIMEOUT | - | 2403 | TIMEOUT | TIMEOUT | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: 최대 슬라이스 예산 초과(모듈러-B도 TIMEOUT) |
+| `$bitacc_range_replace_op` | 391 | TIMEOUT | - | 2402 | TIMEOUT | YES | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES** |
+| `$bitacc_offset_replace_op` | 394 | TIMEOUT | - | 2402 | TIMEOUT | TIMEOUT | CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: 최대 슬라이스 예산 초과(모듈러-B도 TIMEOUT) |
+
+**소결(≤500 fresh)**: post-fix 현재 바이너리·fresh 덤프에서도 **진짜 비합류/비종료 0**.
+스테일 MAYBE 2건(`$join_ctk`/`$assignop_as_binop`)은 fix로 YES 정정 확인. 비-YES는 전부
+tractability(AProVE 직접의 산술 미증명 = 모듈러-B에선 YES, 또는 대형 슬라이스 CP 예산).
+아래 표는 종전 모듈러-B 측정치이며, 이 fresh 재검은 그 결론(도구 근사이지 번역 버그 아님)을
+독립적으로 재확인한다.
+
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
 | `$annotationList_of_parameterIR` | 1 | YES | YES | YES |  |
@@ -245,3 +316,93 @@ feasibility 검사가 못 보는 **인코딩 아티팩트**였다(todo.md M1 202
 | `$bitacc_offset_op` | 296 | TIMEOUT | - | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
 | `$bitacc_range_replace_op` | 396 | TIMEOUT | - | YES | badd bmul bsub bdiv negate-int |
 | `$bitacc_offset_replace_op` | 405 | TIMEOUT | - | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
+
+---
+
+# >500규칙 슬라이스 (bigsweep, tmux 진행 중)
+
+`≤500` 종합 스윕 밖의 대형 슬라이스(501~2000규칙). tmux 세션 `bigsweep`에서 심볼당
+1~4시간(프루닝해도 `kept≈rules` — 실제로 시그니처 대부분을 씀). **아래 27/127은
+확정치, 나머지는 진행 중.** 예산 `CRC_TMO=TERM_TMO=2592000`(사실상 무제한),
+`term(B)`=모듈러 종료.
+
+**중요: 이 구간은 오늘의 binenc(이진 산술) 커밋과 무관하다.** helper 열이 전부
+비어 있고(산술 helper 미사용), 심볼은 전부 **list-flatten / id-accessor /
+prototype-분류 / 코어션(`as_lvalue`)** 계열이다. 대형인 이유는 이들이
+`subty-<T>` 여집합(complement) 가족을 슬라이스로 크게 끌어오기 때문.
+
+| # | symbol | rules | CRC | ChC | term(B) | 종료(term) 시간 |
+|---|---|---|---|---|---|---|
+| 1 | `$flatten_namedExpressionList` | 748 | YES | YES | MAYBE | 2061s |
+| 2 | `$expression_as_lvalue` | 764 | MAYBE | YES | YES | 4352s |
+| 3 | `$flatten_realTypeArgumentList` | 767 | YES | YES | MAYBE | 2154s |
+| 4 | `$flatten_typeArgumentList` | 777 | TIMEOUT | - | MAYBE | 2115s |
+| 5 | `$flatten_expressionList` | 780 | TIMEOUT | - | MAYBE | 2142s |
+| 6 | `$flatten_argumentList` | 782 | TIMEOUT | - | MAYBE | 2172s |
+| 7 | `$flatten_forUpdateStatementList` | 788 | YES | YES | YES | 3413s |
+| 8 | `$is_singleton_list_expression` | 810 | YES | YES | YES | 2148s |
+| 9 | `$flatten_simpleKeysetExpressionList` | 823 | TIMEOUT | - | MAYBE | 2387s |
+| 10 | `$flatten_annotationList` | 866 | YES | YES | YES | 3377s |
+| 11 | `$add_annotationList` | 867 | YES | YES | YES | 6261s |
+| 12 | `$flatten_parameterList` | 872 | YES | YES | YES | 4345s |
+| 13 | `$flatten_constructorParameterListOpt` | 876 | YES | YES | YES | 4416s |
+| 14 | `$is_externConstructorPrototype` | 878 | YES | YES | YES | 3192s |
+| 15 | `$is_externMethodPrototype` | 881 | YES | YES | YES | 3227s |
+| 16 | `$callableId_prime` | 882 | YES | YES | YES | 4500s |
+| 17 | `$callableId` | 883 | YES | YES | YES | 4540s |
+| 18 | `$constructorId_of_externConstructorPrototype` | 884 | YES | YES | YES | 4622s |
+| 19 | `$expressionNonBrace_as_expression` | 885 | TIMEOUT | - | YES | 5001s |
+| 20 | `$constructorId` | 887 | YES | YES | YES | 4719s |
+| 21 | `$callableId_of_externMethodPrototype` | 889 | YES | YES | YES | 4769s |
+| 22 | `$optional_annotation_of_parameterIR_prime` | 893 | YES | YES | MAYBE | 4706s |
+| 23 | `$optional_annotation_of_parameterIR` | 895 | YES | YES | MAYBE | 4808s |
+| 24 | `$is_optional_parameterIR` | 896 | YES | YES | MAYBE | 4835s |
+| 25 | `$flatten_forInitStatementList` | 905 | YES | YES | YES | 5598s |
+| 26 | `$split_externConstructorOrMethodPrototypeList` | 942 | YES | YES | MAYBE | 14734s |
+| 27 | `$flatten_parserStateList` | 1029 | YES | YES | MAYBE | 10134s |
+
+**27개 요약**: CRC YES 21 / MAYBE 1 / TIMEOUT 5. term(B) YES 16 / MAYBE 11.
+**NO(비종료)·비합류 후보 0.**
+
+## MAYBE / TIMEOUT 실제 분석 (덤프 정적 분석)
+
+### CRC=TIMEOUT (5): `$flatten_{typeArgument,expression,argument,simpleKeysetExpression}List`, `$expressionNonBrace_as_expression`
+flatten 3절 구조 —
+`$flatten(EMPTY)=nil` · `$flatten(x)=cons(x,nil) if subty-elem(x)=true` (싱글턴) ·
+`$flatten(x')=cat($flatten(xs),cons(e,nil)) if match-comma(x')=true /\ x'=comma(xs,e)` (재귀).
+싱글턴 절과 재귀 절이 같은 head에 겹치고, CRC는 두 가드
+`subty-elem(x)=true`(x가 원소)와 `match-comma(x)=true`(x가 콤마-노드)가
+**상호배타**임을 증명해야 discharge. 배타는 참이나(원소는 콤마-노드가 아님), 증명하려면
+`subty-<elem>` **여집합 가족(수백 규칙)** 전체에 대한 임계쌍 계산이 필요 →
+780+규칙·near-full 시그니처에서 **자원 소진해 verdict 없이 종료(TIMEOUT)**.
+→ **비합류 아님** (flatten은 EMPTY/싱글턴/재귀가 의미상 서로소·완전한 total 함수).
+이 구간은 `Reflect.expand_subty_guards`가 ≤500에서 풀던 subty-disjointness가
+**슬라이스 규모 때문에 CRC가 완주 못 하는** 케이스.
+
+### CRC=MAYBE (1): `$expression_as_lvalue` (764)
+identifier/nonTypeName 등 다수 무조건 원소 절 + memberAccess/indexAccess/slice/paren의
+재귀 절(base를 `$expression-as-lvalue`로 재귀). MAYBE는 위 subty-가드 배타를 CRC가
+완전 discharge 못 한 잔여(같은 가족). well-defined 부분함수 — **false MAYBE.**
+
+### term(B)=MAYBE (11): flatten/optional/split 계열 — 전부 구조 감소, 감소가 전제에 숨음
+- **flatten MAYBE** (`namedExpressionList`/`realTypeArgumentList`/`typeArgumentList`/
+  `expressionList`/`argumentList`/`simpleKeysetExpressionList`/`parserStateList`):
+  재귀 인자 `xs`가 `x'=comma(xs,e)` **전제에서** 나와 `xs ⊂ x'`(콤마-리스트 한 칸 감소)가
+  syntactic subterm이 아님 → dependency-pair 분석이 감소를 못 봄. **종료하나 false MAYBE.**
+  (7-12 fix가 `match_K ∧ v=K(..)`를 head로 접어 18개 중 13개를 풀었지만, 이 대형
+  슬라이스들은 fold 미적용/미해소분. YES로 바뀐 flatten들 — `forUpdateStatementList`
+  `annotationList` `parameterList` 등 —과 대비.)
+- **`$optional_annotation_of_parameterIR{,_prime}`, `$is_optional_parameterIR`**:
+  `$optional-...(p)=$optional-...-prime($annotationList-of-parameterIR(p))` — 재귀는
+  `-prime`가 annotation 리스트를 감소시키며 수행. 같은 리스트-감소 MAYBE. 종료.
+- **`$split_externConstructorOrMethodPrototypeList`** (14734s): 자기 재귀 아님 —
+  `$flatten` + `$filter`×2 + `$itermap` **합성**. 밑 helper들의 전제-인코딩 감소가
+  MAYBE로 전파. 종료(종료하는 helper들의 합성).
+
+## 총평 (>500 구간)
+- **진짜 비합류/비종료 후보 0.** CRC MAYBE/TIMEOUT = subty-여집합 배타의 CRC
+  미완주(규모), term MAYBE = 전제-인코딩 리스트 감소의 AProVE 미증명 — 둘 다 알려진
+  도구 근사이며 **번역 버그도, 오늘 binenc 변경과의 연관도 없다**(비-산술 슬라이스).
+- 나머지 100개(r=1122~2000, `$name_annotation`·`$sizeof_*`·`$compat_*`·`$name_expression`
+  등)는 진행 중. 여기 `$sizeof_*`(sum/max/min_nat)·`$name_expression`(strip_all_whitespace)
+  등 오늘 커밋 helper의 carrier가 있어 완주 시 binenc 관련 커버리지가 채워진다.
