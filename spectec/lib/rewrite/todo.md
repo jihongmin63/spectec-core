@@ -70,6 +70,38 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-17 — co-iteration `$unzip` fusion (SoA→AoS): termination 개선 시도
+
+**동기**: term(AProVE) MAYBE 심볼 `$invalidate_value`/`$invalidate_headerUnion`의
+원인을 실험으로 규명 — co-iteration의 축별 분리(SoA) 인코딩이 소비 헬퍼의 재귀를
+`$unzip_v(iterbind)`라는 **함수 호출 결과**의 tail에 걸어, AProVE가 감소를 syntactic
+subterm으로 못 봄. → 소비 헬퍼(`$itercollect`/`$itermap`/`$iterall`/`$iterapply`)가
+원본 `iterbind`를 직접 elem-pattern으로 destructure하는 **fused(AoS)** 인코딩으로 전환
+(상세: [CORE_LOGIC.md](CORE_LOGIC.md) §3.7.1).
+
+**구현**(`to_ctrs.ml`): rule 단위 binder 레지스트리(`iter_ctx`) 도입 — `pattern_of_exp`가
+head `IterE`를 등록하고 unzip 조건을 제자리에 방출, 소비 지점(`term_of_exp`/`conds_of_prem`)이
+`spines_of_ids`로 fused/bare spine 계산 + `absorbed` 기록, `prune_absorbed_unzips`가
+흡수+미사용 unzip만 사후 제거(escape/dead는 유지). `spine_disamb`로 fused 변형 네이밍
+(base 이름 유지 → reflect.ml 무보수 호환). helper 정의 walk는 clause 단위로 재구성.
+
+**검증(전부 통과 — 인코딩 정확·무회귀)**:
+- impty 골든 재생성 + `run-structural` 8/8 `result: true`.
+- full-corpus `--ctrs` 대조: `op $unzip` **105→45**(escape 잔존분만), `$dom_map`/`$codom_map`
+  등 escape 무변화, **비-iter 심볼 rule 0라인 변화**.
+- 샘플 diff test: `run-structural --check-p4` 16개(union invalidate 포함) + `run --check-p4`
+  10개 — **전부 MATCH, MISMATCH 0**.
+- owise 반사: 72처리(69 reflected + 3 complement), **0 kept**(fused 변형도 반사됨).
+
+**term 결과: 대상 2심볼 MAYBE 유지(성공 판정 미달) — 원인은 unzip이 아님.**
+toy(단순 self-recursive)·toy2(3함수 상호재귀 미러)는 fused로 AProVE **YES** 실측(종료
+구조 개선 입증). 그러나 실제 대상은 fused 후에도 MAYBE. 원인 후보를 **전부 배제**:
+unzip 소거(✓)·subty guard 제거(여전 MAYBE)·yices 부재(README상 불필요, z3로 진행)·JVM 힙
+(-Xmx100g로도 MAYBE)·signature 크기(prune 후 8-rule/12-op 극소 슬라이스도 MAYBE). 곧
+AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도구 측 한계**(동형 toy2는 YES).
+⇒ fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는 정당한 개선이나, 이 대상들의
+AProVE 판정을 바꾸지는 못했다. 후속: AProVE 전략 튜닝 / 수동 종료증명 별도 트랙.
+
 ### 2026-07-15 — 잔여 CRC MAYBE 재분류 + owise or-gate 진단 + 수정 후보 (미구현)
 
 **작업 격리**: worktree `/home/spectec-core-matchbridge`(branch `match-bridge-ceq`,

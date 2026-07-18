@@ -204,24 +204,23 @@ bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복
   감수한 단순 설계):
 
   ```
-  $itercollect_b(fvs, cons(x,xs)) = cons(b_h, $itercollect_b(fvs, xs))   if <원소 전제>
+  $itercollect_b(fvs, cons(<원소패턴>, rest)) = cons(b_h, $itercollect_b(fvs, rest))   if <원소 전제>
   ```
 
-  `$iterall`처럼 조건부 스텝 → partial.
+  `$iterall`처럼 조건부 스텝 → partial. spine이 head binder에서 온 fused면 step
+  패턴은 원본 리스트의 `cons(<원소패턴>, rest)`(§3.7.1); 아니면 `cons(x, xs)`.
 
 **`IterE`(반복 식)** 는 위치에 따라:
 
 - **값 위치** → `$itermap` helper(성분 스트림들 → 구조 리스트; 요소 타입을 심볼에
   포함해 같은 notation의 두 타입이 한 helper로 collapse되는 것 방지).
-- **binder(패턴) 위치** → **`$unzip`**. CTRS LHS는 생성자만 허용하므로 구조를 가진
-  반복 본문(예: head 인자 `(typeId typeIR)*` — 쌍의 리스트)은 패턴이 될 수 없다.
-  `pattern_of_exp`가 컬렉션 전체를 신선한 `iterbind_N`으로 받고, 공동-반복 변수
-  v마다 성분 스트림을 복원하는 조건을 단다:
+- **binder(패턴) 위치** → 컬렉션 전체를 신선한 `iterbind_N`으로 받는다(CTRS LHS는
+  생성자만 허용하므로 구조를 가진 반복 본문 — 예: head 인자 `(typeId typeIR)*`,
+  쌍의 리스트 — 은 패턴이 될 수 없다). 공동-반복 변수 v를 어떻게 복원하는지는 v가
+  소비되는 방식에 달렸다(§3.7.1의 fusion): 소비 헬퍼가 있으면 `iterbind_N`을 직접
+  destructure(unzip 없음), **escape**하면 `$unzip_v`로 복원.
 
   ```
-  head 패턴:  … iterbind_0 …
-  조건:       ($unzip_id(iterbind_0), typeId*) /\ ($unzip_t(iterbind_0), typeIR*)
-
   $unzip_v(fvs, cons(<원소패턴>, rest)) = cons(v_h, $unzip_v(fvs, rest))
   ```
 
@@ -235,7 +234,7 @@ bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복
 | `$iterproj` | ↑에서 출력 여러 개 | 튜플 스트림 성분 추출 | ✓ (형태 맞으면) |
 | `$itercollect` | IterPr, 일반 수집 | 변수별 조건부 수집 재귀 | ✗ |
 | `$itermap` | IterE 값 위치 | 성분 스트림들 → 구조 리스트 | ✓ (형태 맞으면) |
-| `$unzip` | IterE 패턴 위치 | 구조 리스트 → 성분 스트림 복원 | ✗ (shape refutable) |
+| `$unzip` | IterE 패턴 위치의 **escape** 축 | 구조 리스트 → 성분 스트림 복원 | ✗ (shape refutable) |
 
 partial(✗) 헬퍼들의 "실패=stuck" 거동은 실행 표면에선 의도된 것이지만, 분석
 표면의 owise/negation 반사에서는 total boolean 짝(`and`-fold + 길이 불일치
@@ -246,6 +245,52 @@ partial(✗) 헬퍼들의 "실패=stuck" 거동은 실행 표면에선 의도된
   (`Prem_env.subst_exp`의 `binds_from` 가드와 짝). 이게 table action-enum
   STREAM-vs-element 버그를 잡음. `Simplify.collapse_rezip_iters`는 unzip→re-zip
   왕복을 단일 반복 변수로 미리 접음.
+
+#### 3.7.1 co-iteration의 `$unzip` fusion (종료 위한 SoA→AoS)
+
+co-iteration `(v n)*`를 head binder에서 받을 때, 예전에는 **축별 분리(SoA)**로
+컴파일했다: `iterbind_N`을 통짜로 받은 뒤 축마다 `$unzip_v(iterbind_N)` /
+`$unzip_n(iterbind_N)`으로 독립 스트림을 만들고, 소비 헬퍼가 그 스트림을 소비했다.
+그러면 소비 헬퍼의 재귀가 `$unzip_v(iterbind_N)`이라는 **함수 호출 결과**의 tail에
+걸려, AProVE의 dependency-pair 분석이 감소를 syntactic subterm으로 못 본다(→ 종료
+증명 실패).
+
+**fusion(원소 단위, AoS)**: 소비 헬퍼가 unzip 스트림 대신 **원본 `iterbind_N`을
+직접 받아** 자기 정의에서 head 원소 패턴 `cons(<원소패턴>, rest)`로 destructure한다.
+재귀가 `rest`(= 원본 리스트의 syntactic subterm)로 내려가 종료가 드러난다.
+의미 보존은 순수 map-fusion 항등식 `zip(map(f, unzip_v L), unzip_n L)
+≡ map(λ(v,n).(f v, n)) L`.
+
+구현(`to_ctrs.ml`):
+
+- **binder 레지스트리**(`iter_ctx`, rule 단위 스레딩). `pattern_of_exp`가 head
+  `IterE`를 만나면 각 공동-반복 변수를 `{iterbind, body, vars}`로 등록하고 unzip
+  조건을 **일단 제자리에 방출**해 둔다(순서 보존).
+- **소비 지점**(`term_of_exp`의 `IterE`, `conds_of_prem`의 `IterPr`)이 `spines_of_ids`로
+  spine을 계산한다: 등록된 변수는 같은 `iterbind`끼리 하나의 **fused spine**(원본
+  리스트를 인자로, 정의에서 `cons(elem_pat, rest)` destructure)으로, 미등록 변수는
+  기존대로 **bare spine**(`cons(hd, tl)`)으로. 흡수한 변수는 `absorbed`에 기록.
+- **escape/dead fallback**(`prune_absorbed_unzips`). rule 조립 후, `absorbed`이면서
+  최종 항 어디에도 자유롭게 남지 않은 변수의 unzip 조건만 제거한다. 다른 함수(예:
+  `variant-set`/`$partition`/`$distinct`/`len`)로 흘러가 자유로 남는(**escape**) 변수,
+  또는 흡수되지 않은 dead 변수는 unzip을 그대로 유지 → `$dom_map`/`$codom_map` 등은
+  무변화.
+- **심볼 네이밍**(`spine_disamb`). fused spine이 하나라도 있으면 헬퍼 이름에
+  spine별 태그(bare `b` / fused `f<body>`)를 붙여, 같은 내부 전제라도 소스가
+  binder/bare로 갈리는 rule 간 dedup 충돌을 막는다. all-bare면 태그 없이 기존
+  이름을 유지(무변화). base 이름(`$itercollect` 등)은 그대로라 `reflect.ml`의
+  prefix 인식·owise 반사가 그대로 동작(fused 변형도 반사됨, 0 kept).
+
+**효과와 한계.** unzip 소비 rule이 fused로 접혀 corpus의 `op $unzip`이 105→45로
+줄고(escape 잔존분만 남음), 비-iter 심볼 rule은 무변화(전체 differential에서 iter
+헬퍼 외 0라인). 최소 예시 toy(단순 self-recursive)·toy2(3함수 상호재귀 미러)는
+fused 인코딩으로 AProVE **YES**를 실측 — 종료 구조가 실제로 개선됨을 확인. 다만
+실제 `$invalidate_value`/`$invalidate_headerUnion`은 fused 후에도 term **MAYBE**
+유지인데, 원인은 unzip이 아니라(subty guard 제거·`$unzip` 소거·큰 signature 축소·
+JVM 힙 확대·yices 부재를 **전부 배제**해도, prune 후 8-rule/12-op 극소 슬라이스에서도
+MAYBE) AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도구 측 한계**다
+(동형 구조의 toy2는 YES). 즉 fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는
+정당한 개선이지만, 이 대상들의 AProVE 판정을 MAYBE→YES로 바꾸지는 못했다.
 
 ### 3.8 subtype & cast
 
