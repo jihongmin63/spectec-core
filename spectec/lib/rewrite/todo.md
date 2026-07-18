@@ -102,6 +102,53 @@ AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도�
 ⇒ fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는 정당한 개선이나, 이 대상들의
 AProVE 판정을 바꾸지는 못했다. 후속: AProVE 전략 튜닝 / 수동 종료증명 별도 트랙.
 
+### 2026-07-18 — Native 실행 표면의 completeness gap 2건 수정 (structural builtin 규칙 누출)
+
+**발견 경로**: iter 헬퍼 통합 후 전체 corpus differential(1568 프로그램)에서 completeness
+gap 2건(`samples/const.p4`, `samples/issue1717.p4`). fusion 이전 바이너리로도 재현돼
+**통합과 무관한 별개 회귀**임을 먼저 확정한 뒤 원인을 팠다.
+
+**공통 원인 — delegation이 있는 builtin의 structural 규칙이 Native 모듈에 함께 방출**.
+`Native` 스칼라 이론은 스칼라를 손수 구현한 {!Prelude} 규칙을 **의도적으로 생략**하고
+{!To_maude.delegation_eqs}의 한 줄 위임으로 대체한다. 그런데 `builtin.ml`이 만드는
+structural 규칙은 Native 모드에서도 방출되고, **먼저 선언되므로 매칭을 이긴 뒤**
+생략된 binary-nat 심볼로 내려가 영구 stuck이 된다(뒤에 있는 완전한 delegation은
+영원히 도달 불가).
+
+- **gap1 `const.p4`**: `~32w0` → `$un_bnot` → `$pow2` → `bpow_nat`(Native에 eq 0개)
+  → `isStuckHead(i'') = false` 가드 실패 → 규칙 발화 불가. (`$bneg`은 우연히 생존 —
+  structural 경로가 delegation 있는 `add_int`/`negate_int`로 이어졌기 때문.)
+- **gap2 `issue1717.p4`**: `const bit<32> sz = h1.minSizeInBits();` →
+  `$sizeof_minSizeInBits'(HEADER…)` → `$sum_nat` → **폴드 시드가 `bzero`**(0-arity
+  상수라 1차 스캔에서 놓쳤다) → `add(nat(32), bzero)`에서 정지. 최소 재현 15줄:
+  control apply 안 `const bit<32> sz = h1.minSizeInBits();` 하나면 충분(함수/control
+  무관, `const sz = 5`나 `return minSizeInBits()`는 정상 — **const + 메서드 호출**
+  조합만 실패).
+
+**수정**(`builtin.ml`): `delegated_in_native`가 주석부터 "the **text** builtins"라
+적혀 있었고 실제로 `int_to_text`/`strip_prefix`/`strip_suffix` 3개뿐이었다. delegation을
+가진 나머지를 전부 추가 — `pow2 shl shr shr_arith bneg band bxor bor bitacc
+strip_all_whitespace` + nat-list 폴드 `sum_nat max_nat min_nat`. 추가 전 각 delegation이
+Native 값 전체를 커버하는 **완전한 정의**임을 확인했다. 주석도 "왜 clash가 단순 중복이
+아니라 stuck인가"와 "{!To_maude.delegation_eqs}와 동기화하라"로 고쳐 적었다.
+
+**검증**:
+- 실행 모듈의 참조-미정의 심볼: `bzero`/`bpow_nat`/`badd`/`bsub`/`bmul`/`bdiv`/`bmod`/
+  `bis_zero`/`bpred` 전부 소멸. 남은 8개는 spec 자체에 정의가 없는 의도적 미구현
+  (`$bitacc_replace`, `$init_objectState`, `ExternFunctionCall_eval_lctk`,
+  `$int_to_bits_*`/`$bits_to_int_*`)과 패턴 위치의 `bsucc`뿐 — **분석 표면에도 동일**.
+- **분석 표면(CTRS) byte-identical**, impty 골든 둘 다 무변화(수정은 Native 전용).
+- **전체 corpus differential 재실행**: **completeness gap 2 → 0**, Maude OK 1226 → **1228**,
+  **결과값 일치 1225 → 1227 MATCH / 0 MISMATCH**(= 2026-07-15 clean-run 기준과 일치).
+
+**남은 soundness gap 1건은 오라클 아티팩트 — 수정 대상 아님.**
+`errors/issue1944.p4`는 `const bit<2147483648> x = 0;` 한 줄, 즉 폭 2³¹ 비트 타입이다.
+spec에는 **비트 폭 상한 규정이 없어**(grep 확인) 이를 수락하는 Maude가 오히려 spec에
+충실하다. 인터프리터는 이 프로그램을 300초는 물론 그 뒤로도 끝내지 못했고(2³¹비트
+값을 실제로 만들려는 것으로 보임), `check_diff_p4.sh`가 타임아웃을 FAIL로 기록하면서
+"interp FAIL & Maude OK" = soundness gap으로 잡힌다. CTRS 번역 버그가 아니므로 손대지
+않는다. 진짜로 거부해야 한다면 spec에 폭 상한을 넣는 별건 작업이다.
+
 ### 2026-07-18 — iter 헬퍼 패밀리 통합: `$iterapply`/`$iterproj`→`$itercollect`, 변수별→튜플 수집, `$unzip`→`$iterproj` 개명
 
 **동기(사용자 결정)**: IterPr 출력 쪽 3패밀리를 하나로. (a) 변수별 collect 중복이
