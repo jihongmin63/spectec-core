@@ -102,6 +102,83 @@ AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도�
 ⇒ fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는 정당한 개선이나, 이 대상들의
 AProVE 판정을 바꾸지는 못했다. 후속: AProVE 전략 튜닝 / 수동 종료증명 별도 트랙.
 
+### 2026-07-18 — iter 헬퍼 패밀리 통합: `$iterapply`/`$iterproj`→`$itercollect`, 변수별→튜플 수집, `$unzip`→`$iterproj` 개명
+
+**동기(사용자 결정)**: IterPr 출력 쪽 3패밀리를 하나로. (a) 변수별 collect 중복이
+만연(예: descriptor `e71f64a7` 전제 하나에 헬퍼 5개 — 같은 리스트 5회 주사, 같은
+let 5회 평가); (b) 구 `$iterproj($iterapply(…))`는 함수 호출 결과 위 재귀 — unzip이
+termination MAYBE를 만들던 SoA 잔재와 동일 패턴; (c) 2026-07-16 head-side fusion
+기계(SFused)가 premise-side 소비자 배선을 이미 풀어놓음.
+
+**설계** ([CORE_LOGIC.md](CORE_LOGIC.md) §3.7/§3.7.1): 전제당 `$itercollect` 하나가
+성분(comps = rel call이면 출력 순서, 아니면 binding 순서; `iter_collect_components`)
+스트림을 반환 — k=1이면 성분 자체(이름·형태 종전과 동일), k≥2면 **성분 튜플**
+(조건 1회 평가). ex-apply는 원소=호출 인라인의 **무조건 특수화**로 흡수(⛔
+2026-07-02의 "원소당 1회 호출" 불변식 유지; gensym effectful 판정은 call-graph라
+개명 무관). k≥2 사용처는 튜플 스트림을 `iterbind_N`으로 받아 head binder와 동일
+등록 → 소비 헬퍼 fused destructure / escape는 합성 튜플 본문(`collect_tuple_body`)
+위 `$iterproj` / dead는 `prune_absorbed_projs`. head-side `$unzip`은 `$iterproj`로
+개명해 한 패밀리(`$iterall`/`$itercollect`/`$itermap`/`$iterproj`).
+
+**검토·기각한 대안 — SoA-return collect** (n tuple list 대신 n list tuple 반환;
+재귀-조건형/accumulator형): accumulator형은 사용부가 튜플 패턴 cond 1개로 끝나
+표면상 가장 깔끔하고 producer 종료도 자명하지만, **MAYBE의 원인은 사용부 경계** —
+성분 리스트가 함수 결과로 태어나는 한 소비자 재귀가 C;A 후
+`$itermap(π₁(collect…), π₂(…))` 꼴로 SoA 패턴을 재현한다. 부수 비용(snoc/reverse
+O(n²), k≥2 ex-apply 무조건성 상실, `gen_*_holds` 형태 전제 파괴, `infer_ranges`
+컨테이너 휴리스틱 실패)까지 겹쳐 기각. 전 성분 escape 사이트에 한해선 더 깔끔하나
+인코딩 2벌 유지비가 projection cond 몇 개 절약을 압도.
+
+**구현**: `to_ctrs.ml` — `iter_collect_components`/`collect_tuple_body` 신설,
+`iter_collect_sym`이 comps 접미사(k=1은 byte-identical), `iter_apply_sym`/구
+`iter_proj_sym` 삭제, `conds_of_prem` IterPr가 k≥2에서 등록+제자리 projection 방출,
+`iterpr_defs` Some/None arm 병합(+proj_defs는 여기서만 방출 — 합성 exp는 IL에
+없어 visit_exp가 못 찾음), `unzip_sym`→`iter_proj_sym`·`iter_unzip_defs`→
+`iter_proj_defs`·`prune_absorbed_unzips`→`prune_absorbed_projs` 개명.
+`reflect.ml` — `iter_helper_prefixes`=`[$iterall; $itercollect]`,
+`gen_iterapply_holds`를 `gen_itercollect_holds`에 **형태 기반**으로 병합.
+**교훈(구현 중 회귀 1건)**: "스텝 무조건 → apply형" 판정은 틀림 —
+`fold_premise_binders`가 let-destructure 조건을 LHS 패턴으로 접으면 일반 collect도
+무조건이 된다(owise 66/3/3 kept 회귀 관측). 기준은 **원소가 relation call인가**;
+수정 후 69/3/0 복원.
+
+**검증(전부 통과)**:
+- 구조 sanity(신규 스크립트): 참조 헬퍼 전부 정의 존재·arity 일관·구 패밀리 출현 0.
+  단, `$itermap-…-list-2-pair` 3개가 **참조-미정의**로 검출 — **베이스라인에도
+  동일 존재하는 기존 잠재 이슈**(iterpr_defs 내부 conds는 ctx=None으로 bare 이름을
+  참조하는데 def 방출 visit_exp는 외부 ctx로 fused 이름을 방출하는 비대칭 추정).
+  본 통합과 무관, 별도 추적 항목으로 아래에 기록.
+- impty 골든: 개명+방출순서 churn만(내용 동일), 재생성 커밋.
+- p4 corpus 심볼 대조: helper 406→411, eq/ceq 3061→3071(+10) — churn은 전부
+  (i) 개명 (ii) apply 흡수 (iii) 변수별→튜플 병합(e71f64a7 5→1 등) (iv) 구 proj
+  소멸 (v) 소비자 fused 전환(`$iterall-…-f<tuple>…`; 재귀가 튜플 스트림의
+  구문적 tail로 하강 — 육안 확인) 분류에 귀속, 미분류 잔여 없음.
+- owise 반사: **69 reflected / 3 complement-enumerated / 0 kept** (베이스라인과
+  동일). 다출력 binding cond의 head가 collect 호출 자체가 되면서
+  `insert_success_test`가 이제 그 사이트에도 적용됨.
+- 실행 differential: `run --check-p4` 26표본(entries 10 포함) **25 MATCH /
+  0 MISMATCH**(잔여 1 `issue3671.p4`는 변경 전 바이너리로도 not reduced — 기존
+  동작). structural 레그 `run-structural --check-p4` 표본 **2/2 MATCH**.
+- MFE CRC (`verify --symbol`): `$invalidate_headerUnion`(head-side co-iteration)
+  **CR YES / ChC YES**; `$is_default_parameterIR`(premise-side k=1 collect)
+  **CR YES / ChC YES**(이전 세션 값과 일치 — 무회귀). k≥2 튜플 collect 소비자
+  (`$resolve_constraint`, `$callableId_IR`)는 **TIMEOUT** — slice 자체는 작으나
+  (13/9룰) typing/constraint relation(`Type_ok`/`TableEntry_ok`/`gen_constraint`)을
+  끌어와 critical-pair가 폭발하는 이 심볼들 특유의 tractability 문제. **통합 직전
+  커밋(1307c45d)을 stash-빌드해 대조 → `$resolve_constraint` CRC 동일하게
+  TIMEOUT**(즉 회귀 아님, 통합 무관). 이 슬라이스들의 의미 보존은 CRC verdict가
+  아니라 아래 실행/structural differential MATCH로 뒷받침됨.
+  termination은 이 계열이 YES(`$callableId_IR`/`$dom_map`).
+- AProVE termination (`rtv.sh`): 통합된 다출력 ex-apply 심볼 `$callableId_IR`
+  **YES**, `$dom_map` **YES**(둘 다 튜플-collect/`$iterproj` 포함 슬라이스가
+  syntactic-subterm 하강으로 종료 증명 성공 — 통합 인코딩이 종료 친화적임을 실증).
+  대상 2심볼 `$invalidate_value`/`$invalidate_headerUnion`은 **MAYBE 유지 =
+  통합 전과 동일**(2026-07-17 기록의 AProVE 자동 전략 도구 한계, 회귀 아님).
+
+**미해결(신규 추적)**: `$itermap-…-list-2-pair` 참조-미정의 3건(위 sanity 발견,
+기존 이슈) — iterpr_defs 내부 nested-IterE 이름과 visit_exp 방출 이름의 ctx 비대칭
+규명 필요.
+
 ### 2026-07-15 — 잔여 CRC MAYBE 재분류 + owise or-gate 진단 + 수정 후보 (미구현)
 
 **작업 격리**: worktree `/home/spectec-core-matchbridge`(branch `match-bridge-ceq`,
@@ -815,6 +892,13 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   스트림 projection(현 `$iterapply`+`$iterproj`)이 효과적 다중 출력의 올바른
   형태라 유지. 후속 `$itercollect`-only 통일(4e00da94 revert)도 같은 벽 —
   effectful 반복은 원소당 1회 호출 구조가 불변식임을 전제로 재설계해야 함.
+
+  **→ 해소 (2026-07-18, M1 "iter 헬퍼 패밀리 통합" 참조).** 불변식을 지키는
+  재설계로 통일 완료: 출력별 재호출 대신 **단일 튜플-수집 `$itercollect`**(호출
+  원소당 정확히 1회, 무조건 eq 유지)를 두고, 성분 복원은 이미 계산된 튜플
+  스트림 위의 순수 projection(합성 튜플 본문의 `$iterproj`) 또는 소비 헬퍼의
+  fused destructure가 맡는다 — 2026-07-16 head-side fusion 기계가 premise-side로
+  확장되면서 당시 벽이던 "소비자 배선" 문제가 풀렸다.
 
 ## M2 — 실행 (Maude)
 

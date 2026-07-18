@@ -248,7 +248,7 @@ let case_origin_mixop (tc : typcase) : string * Lang.Il.mixop =
 
 (* Subsort edges (sub, super) and per-symbol signatures recovered from the
    original spec's type/relation/function declarations. *)
-(* The iteration/reflection layer synthesizes helpers ([$unzip_..],
+(* The iteration/reflection layer synthesizes helpers ([$iterproj_..],
    [$itercollect_..], [holds_$iterall_..], ..) that never appear in [orig]'s
    own [TypD]/[RelD]/[DecD], so [tbl] has no entry for them and [signature]'s
    fallback types them all-[Val] -- workable in isolation (a stuck [Val] can

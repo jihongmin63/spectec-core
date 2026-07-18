@@ -72,7 +72,7 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    unreflectable remainder keeps its flag for {!Mfe}'s [drop_owise]
    fallback). It also, system-wide (not only for owise rules), inserts a
    [holds_<helper>(args) = true] test before any condition binding a
-   success-reflected [$itercollect]/[$iterapply] helper's result -- the
+   success-reflected [$itercollect] helper's result -- the
    helper's own call site never carries a bool rhs for
    {!Reflect.replace_cond} to respell, so the guard alignment a later owise
    reflection needs is added as an extra condition instead. All three are

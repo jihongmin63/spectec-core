@@ -169,7 +169,7 @@ bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복
 **binding**(스텝마다 생산되어 리스트로 수집되는 출력). 루프-불변 자유변수(fvs)는
 선두 인자로 스레딩된다.
 
-**`IterPr`(반복 전제) → 3분기** (`conds_of_prem`의 dispatch; 헬퍼 규칙 생성은
+**`IterPr`(반복 전제) → 2분기** (`conds_of_prem`의 dispatch; 헬퍼 규칙 생성은
 `iterpr_defs`):
 
 - **`$iterall`** — binding이 없을 때(순수 검사). "모든 원소에서 전제 성립"을 재귀로:
@@ -182,33 +182,28 @@ bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복
   사용처 조건은 `$iterall(..) = true`. 예: `(Type_alpha: field_a ~~ field_b)*`
   (무출력 relation은 모든 인자가 bound → 이 갈래). cons-스텝이 **조건부라 partial**:
   원소 하나가 실패하면 false가 아니라 **stuck**.
-- **`$iterapply`** — 내부가 **단일 relation call**이고 수집 변수가 정확히 그 call의
-  출력일 때(`iter_call_map` — "map" 케이스). 조건 없이 call을 spine에 map:
+- **`$itercollect`** — 수집이 있으면 **전제당 헬퍼 정확히 하나**. 수집 성분들
+  (comps — 단일 relation call이면 그 출력 순서, 아니면 binding 순서;
+  `iter_collect_components`가 접미사·튜플 순서·등록 순서의 단일 진실 공급원)의
+  스트림을 반환한다. 원소는 k=1이면 성분 자체, k≥2면 **성분 튜플**:
 
   ```
-  $iterapply(fvs, nil)        = nil
-  $iterapply(fvs, cons(x,xs)) = cons(R(..x..), $iterapply(fvs, xs))
+  -- 일반형 (조건부; 내부 전제를 스텝당 1회만 평가)
+  $itercollect(fvs, nil)                    = nil
+  $itercollect(fvs, cons(<원소패턴>, rest)) = cons(tuple(b1_h,…,bk_h), $itercollect(fvs, rest))   if <원소 전제>
+  -- ex-apply 특수화: 내부가 단일 relation call이고 수집이 정확히 그 출력일 때
+  -- (iter_call_map). 원소 = call 인라인, 무조건 eq — 원소당 호출 정확히 1회
+  -- (effectful/gensym 반복의 불변식, todo.md 2026-07-02 참조)
+  $itercollect(fvs, cons(x,xs)) = cons(R(..x..), $itercollect(fvs, xs))
   ```
 
-  사용처 조건은 `($iterapply(ins), out*)` — 출력 스트림이 통째로 바인딩된다.
-- **`$iterproj`** — `$iterapply`의 짝: call 출력이 2개 이상이면 map 결과가 튜플
-  스트림이므로 출력 변수마다 성분 추출 헬퍼를 붙인다:
-
-  ```
-  $iterproj_b(cons(tuple(a_h, b_h), rest)) = cons(b_h, $iterproj_b(rest))
-  ```
-
-  조건은 출력 b마다 `($iterproj_b($iterapply(ins)), b*)`.
-- **`$itercollect`** — 일반 fallback(내부가 단일 call 모양이 아닌데 수집이 있을 때).
-  수집 변수 b **하나당 헬퍼 하나**, 각각 같은 내부 조건을 달고 재귀(중복 평가를
-  감수한 단순 설계):
-
-  ```
-  $itercollect_b(fvs, cons(<원소패턴>, rest)) = cons(b_h, $itercollect_b(fvs, rest))   if <원소 전제>
-  ```
-
-  `$iterall`처럼 조건부 스텝 → partial. spine이 head binder에서 온 fused면 step
-  패턴은 원본 리스트의 `cons(<원소패턴>, rest)`(§3.7.1); 아니면 `cons(x, xs)`.
+  사용처 조건: k=1이면 `($itercollect(ins), b*)` — 스트림이 그대로 바인딩.
+  k≥2면 튜플 스트림을 신선한 `iterbind_N`으로 받고, 각 성분 `bi`는 head binder와
+  **정확히 같은** 취급을 받는다(§3.7.1): 소비 헬퍼가 있으면 튜플 스트림을 직접
+  destructure(fused spine), escape하면 `($iterproj_bi(iterbind_N), bi*)` 조건으로
+  복원, absorbed+dead면 prune. 합성 튜플 본문 `(b1,…,bk)`(`collect_tuple_body`)이
+  등록(`iter_ctx`)·명명(`iter_proj_sym`)·정의(`elem_pat_of_binder`)를 한 곳에서
+  결정한다. 조건부 스텝(일반형)은 `$iterall`처럼 partial.
 
 **`IterE`(반복 식)** 는 위치에 따라:
 
@@ -218,23 +213,22 @@ bound 개수에서 유도(`iter_helper_sym`)되어 구조적으로 같은 반복
   생성자만 허용하므로 구조를 가진 반복 본문 — 예: head 인자 `(typeId typeIR)*`,
   쌍의 리스트 — 은 패턴이 될 수 없다). 공동-반복 변수 v를 어떻게 복원하는지는 v가
   소비되는 방식에 달렸다(§3.7.1의 fusion): 소비 헬퍼가 있으면 `iterbind_N`을 직접
-  destructure(unzip 없음), **escape**하면 `$unzip_v`로 복원.
+  destructure(projection 없음), **escape**하면 `$iterproj_v`로 복원.
 
   ```
-  $unzip_v(fvs, cons(<원소패턴>, rest)) = cons(v_h, $unzip_v(fvs, rest))
+  $iterproj_v(fvs, cons(<원소패턴>, rest)) = cons(v_h, $iterproj_v(fvs, rest))
   ```
 
   원소가 `<원소패턴>`에 안 맞으면 stuck(refutable), 캡처 fvs가 원소 안에서 매칭되면
-  비좌선형. `$itermap`의 역방향.
+  비좌선형. `$itermap`의 역방향. k≥2 `$itercollect`의 합성 튜플 스트림도 같은
+  `$iterproj` 계열로 복원된다(그 경우 원소패턴이 bare 변수 튜플이라 irrefutable).
 
 | 헬퍼 | 트리거 | 성격 | total? |
 |---|---|---|---|
 | `$iterall` | IterPr, 수집 없음 | 전 원소 검사 → `true` | ✗ (실패=stuck) |
-| `$iterapply` | IterPr, 단일 rel call = 수집 | call을 map, 출력 스트림 반환 | call만큼 |
-| `$iterproj` | ↑에서 출력 여러 개 | 튜플 스트림 성분 추출 | ✓ (형태 맞으면) |
-| `$itercollect` | IterPr, 일반 수집 | 변수별 조건부 수집 재귀 | ✗ |
+| `$itercollect` | IterPr, 수집 있음 | 전제당 1개; k≥2면 튜플 스트림; 단일 rel call이면 무조건 map | ex-apply 특수화만 ✓ |
 | `$itermap` | IterE 값 위치 | 성분 스트림들 → 구조 리스트 | ✓ (형태 맞으면) |
-| `$unzip` | IterE 패턴 위치의 **escape** 축 | 구조 리스트 → 성분 스트림 복원 | ✗ (shape refutable) |
+| `$iterproj` | 구조 스트림의 **escape** 축 (head binder / k≥2 collect 튜플) | 구조 리스트 → 성분 스트림 복원 | 본문에 따라 (임의 본문 refutable / bare 튜플 irrefutable) |
 
 partial(✗) 헬퍼들의 "실패=stuck" 거동은 실행 표면에선 의도된 것이지만, 분석
 표면의 owise/negation 반사에서는 total boolean 짝(`and`-fold + 길이 불일치
@@ -246,16 +240,16 @@ partial(✗) 헬퍼들의 "실패=stuck" 거동은 실행 표면에선 의도된
   STREAM-vs-element 버그를 잡음. `Simplify.collapse_rezip_iters`는 unzip→re-zip
   왕복을 단일 반복 변수로 미리 접음.
 
-#### 3.7.1 co-iteration의 `$unzip` fusion (종료 위한 SoA→AoS)
+#### 3.7.1 co-iteration의 projection fusion (종료 위한 SoA→AoS)
 
 co-iteration `(v n)*`를 head binder에서 받을 때, 예전에는 **축별 분리(SoA)**로
-컴파일했다: `iterbind_N`을 통짜로 받은 뒤 축마다 `$unzip_v(iterbind_N)` /
-`$unzip_n(iterbind_N)`으로 독립 스트림을 만들고, 소비 헬퍼가 그 스트림을 소비했다.
-그러면 소비 헬퍼의 재귀가 `$unzip_v(iterbind_N)`이라는 **함수 호출 결과**의 tail에
-걸려, AProVE의 dependency-pair 분석이 감소를 syntactic subterm으로 못 본다(→ 종료
-증명 실패).
+컴파일했다: `iterbind_N`을 통짜로 받은 뒤 축마다 `$iterproj_v(iterbind_N)` /
+`$iterproj_n(iterbind_N)`으로 독립 스트림을 만들고, 소비 헬퍼가 그 스트림을
+소비했다. 그러면 소비 헬퍼의 재귀가 `$iterproj_v(iterbind_N)`이라는 **함수 호출
+결과**의 tail에 걸려, AProVE의 dependency-pair 분석이 감소를 syntactic subterm으로
+못 본다(→ 종료 증명 실패).
 
-**fusion(원소 단위, AoS)**: 소비 헬퍼가 unzip 스트림 대신 **원본 `iterbind_N`을
+**fusion(원소 단위, AoS)**: 소비 헬퍼가 projection 스트림 대신 **원본 `iterbind_N`을
 직접 받아** 자기 정의에서 head 원소 패턴 `cons(<원소패턴>, rest)`로 destructure한다.
 재귀가 `rest`(= 원본 리스트의 syntactic subterm)로 내려가 종료가 드러난다.
 의미 보존은 순수 map-fusion 항등식 `zip(map(f, unzip_v L), unzip_n L)
@@ -264,24 +258,47 @@ co-iteration `(v n)*`를 head binder에서 받을 때, 예전에는 **축별 분
 구현(`to_ctrs.ml`):
 
 - **binder 레지스트리**(`iter_ctx`, rule 단위 스레딩). `pattern_of_exp`가 head
-  `IterE`를 만나면 각 공동-반복 변수를 `{iterbind, body, vars}`로 등록하고 unzip
-  조건을 **일단 제자리에 방출**해 둔다(순서 보존).
+  `IterE`를 만나면 각 공동-반복 변수를 `{iterbind, body, vars}`로 등록하고
+  projection 조건을 **일단 제자리에 방출**해 둔다(순서 보존).
 - **소비 지점**(`term_of_exp`의 `IterE`, `conds_of_prem`의 `IterPr`)이 `spines_of_ids`로
   spine을 계산한다: 등록된 변수는 같은 `iterbind`끼리 하나의 **fused spine**(원본
   리스트를 인자로, 정의에서 `cons(elem_pat, rest)` destructure)으로, 미등록 변수는
   기존대로 **bare spine**(`cons(hd, tl)`)으로. 흡수한 변수는 `absorbed`에 기록.
-- **escape/dead fallback**(`prune_absorbed_unzips`). rule 조립 후, `absorbed`이면서
-  최종 항 어디에도 자유롭게 남지 않은 변수의 unzip 조건만 제거한다. 다른 함수(예:
-  `variant-set`/`$partition`/`$distinct`/`len`)로 흘러가 자유로 남는(**escape**) 변수,
-  또는 흡수되지 않은 dead 변수는 unzip을 그대로 유지 → `$dom_map`/`$codom_map` 등은
-  무변화.
+- **escape/dead fallback**(`prune_absorbed_projs`). rule 조립 후, `absorbed`이면서
+  최종 항 어디에도 자유롭게 남지 않은 변수의 projection 조건만 제거한다. 다른
+  함수(예: `variant-set`/`$partition`/`$distinct`/`len`)로 흘러가 자유로 남는
+  (**escape**) 변수, 또는 흡수되지 않은 dead 변수는 projection을 그대로 유지 →
+  `$dom_map`/`$codom_map` 등은 무변화.
 - **심볼 네이밍**(`spine_disamb`). fused spine이 하나라도 있으면 헬퍼 이름에
   spine별 태그(bare `b` / fused `f<body>`)를 붙여, 같은 내부 전제라도 소스가
   binder/bare로 갈리는 rule 간 dedup 충돌을 막는다. all-bare면 태그 없이 기존
-  이름을 유지(무변화). base 이름(`$itercollect` 등)은 그대로라 `reflect.ml`의
-  prefix 인식·owise 반사가 그대로 동작(fused 변형도 반사됨, 0 kept).
+  이름을 유지(무변화).
 
-**효과와 한계.** unzip 소비 rule이 fused로 접혀 corpus의 `op $unzip`이 105→45로
+**premise-side 확장 (2026-07-18, 헬퍼 패밀리 통합).** 위 기계를 `IterPr`의 출력
+쪽에도 그대로 적용해 세 갈래를 통합했다:
+
+- **`$iterapply`/`$iterproj`(구, 전제 기반) → `$itercollect`로 흡수.** ex-apply는
+  merged `$itercollect`의 무조건 특수화가 됐고(원소당 호출 1회 불변식 유지 —
+  todo.md 2026-07-02 "gensym 벽"의 교훈), 다출력 튜플 스트림의 성분 복원은 별도
+  패밀리 대신 **합성 튜플 본문 `(b1,…,bk)` 위의 `$iterproj`**(head-side와 같은
+  `spine_projection_rules`)가 맡는다. 구 `$iterproj($iterapply(…))` — 함수 호출
+  결과 위의 재귀, 정확히 SoA 잔재 — 패턴이 소멸했다.
+- **변수별 수집 → 튜플 수집.** k≥2 일반 collect는 성분마다 spine을 재주사하며
+  같은 조건을 k회 평가하던 것을, 성분 튜플을 모으는 헬퍼 하나(조건 1회)로
+  합쳤다. 사용처는 튜플 스트림을 `iterbind_N`으로 받아 head binder와 동일하게
+  등록 → 소비 헬퍼 fused destructure / escape `$iterproj` / dead prune.
+- **`$unzip` → `$iterproj` 개명.** head-side escape 헬퍼와 premise-side 튜플
+  projection이 한 패밀리가 되면서 이름도 통일(`$iterall`/`$itercollect`/
+  `$itermap`/`$iterproj`). reflect.ml의 게이트는 `["$iterall"; "$itercollect"]`로
+  줄고, `gen_itercollect_holds`가 **형태 기반**으로 두 모양을 처리한다(스텝
+  무조건+원소가 relation call → `holds_R` 반사; 그 외 → 조건 and-fold. 단,
+  `fold_premise_binders`가 let-destructure 조건을 LHS 패턴으로 접으면 일반
+  collect도 무조건이 될 수 있으므로 "무조건이면 apply형"으로 판정하면 안 된다 —
+  원소가 relation call인지가 기준). owise 반사는 통합 전과 동일(69 reflected /
+  3 complement-enumerated / 0 kept).
+
+**효과와 한계.** (2026-07-17 head-side fusion 시점의 실측; 당시 이름 `$unzip`,
+현 `$iterproj`.) projection 소비 rule이 fused로 접혀 corpus의 `op $unzip`이 105→45로
 줄고(escape 잔존분만 남음), 비-iter 심볼 rule은 무변화(전체 differential에서 iter
 헬퍼 외 0라인). 최소 예시 toy(단순 self-recursive)·toy2(3함수 상호재귀 미러)는
 fused 인코딩으로 AProVE **YES**를 실측 — 종료 구조가 실제로 개선됨을 확인. 다만
@@ -291,6 +308,16 @@ JVM 힙 확대·yices 부재를 **전부 배제**해도, prune 후 8-rule/12-op 
 MAYBE) AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도구 측 한계**다
 (동형 구조의 toy2는 YES). 즉 fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는
 정당한 개선이지만, 이 대상들의 AProVE 판정을 MAYBE→YES로 바꾸지는 못했다.
+
+**premise-side 통합 후 재검증(2026-07-18).** 통합된 튜플-collect + `$iterproj`
+escape를 포함하는 슬라이스가 AProVE termination **YES**를 실측(`$callableId_IR`
+다출력 ex-apply, `$dom_map`) — 재귀가 원본 리스트의 구문적 tail로 하강함이 통합
+후에도 유지됨을 확인. 대상 2심볼은 MAYBE 유지(위 도구 한계, 통합 전과 동일 =
+회귀 아님). MFE CRC는 head-side `$invalidate_headerUnion`·premise-side k=1
+`$is_default_parameterIR` 모두 YES/YES; k≥2 튜플 collect 소비자(`$resolve_constraint`
+등)는 typing/constraint relation을 끌어와 CRC TIMEOUT — **통합 직전 커밋으로 대조해도
+동일 TIMEOUT이라 회귀 아님**(심볼 특유 blowup). 이들의 의미 보존은 전 corpus 실행
+differential 25/26 MATCH·structural 표본 MATCH로 실행 기반 뒷받침.
 
 ### 3.8 subtype & cast
 
