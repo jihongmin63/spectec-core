@@ -143,11 +143,11 @@ O(n²), k≥2 ex-apply 무조건성 상실, `gen_*_holds` 형태 전제 파괴, 
 수정 후 69/3/0 복원.
 
 **검증(전부 통과)**:
-- 구조 sanity(신규 스크립트): 참조 헬퍼 전부 정의 존재·arity 일관·구 패밀리 출현 0.
-  단, `$itermap-…-list-2-pair` 3개가 **참조-미정의**로 검출 — **베이스라인에도
-  동일 존재하는 기존 잠재 이슈**(iterpr_defs 내부 conds는 ctx=None으로 bare 이름을
-  참조하는데 def 방출 visit_exp는 외부 ctx로 fused 이름을 방출하는 비대칭 추정).
-  본 통합과 무관, 별도 추적 항목으로 아래에 기록.
+- 구조 sanity(신규 스크립트): 참조 헬퍼 전부 정의 존재·arity 일관·구 패밀리 출현 0
+  (**SANITY OK**). 최초 실행에서 `$itermap-…-list-2-pair` 3건이 참조-미정의로
+  검출됐는데, 추적 결과 **2026-07-16 head-side fusion 커밋(`6e96deb9`)이 만든
+  회귀**였다(아래 "동반 수정" 참조). 통합 자체가 만든 것은 아니지만 같은 ctx
+  스레딩 결함이므로 이 작업에서 함께 고쳤다.
 - impty 골든: 개명+방출순서 churn만(내용 동일), 재생성 커밋.
 - p4 corpus 심볼 대조: helper 406→411, eq/ceq 3061→3071(+10) — churn은 전부
   (i) 개명 (ii) apply 흡수 (iii) 변수별→튜플 병합(e71f64a7 5→1 등) (iv) 구 proj
@@ -175,9 +175,43 @@ O(n²), k≥2 ex-apply 무조건성 상실, `gen_*_holds` 형태 전제 파괴, 
   대상 2심볼 `$invalidate_value`/`$invalidate_headerUnion`은 **MAYBE 유지 =
   통합 전과 동일**(2026-07-17 기록의 AProVE 자동 전략 도구 한계, 회귀 아님).
 
-**미해결(신규 추적)**: `$itermap-…-list-2-pair` 참조-미정의 3건(위 sanity 발견,
-기존 이슈) — iterpr_defs 내부 nested-IterE 이름과 visit_exp 방출 이름의 ctx 비대칭
-규명 필요.
+**동반 수정 — fusion 회귀(`6e96deb9`)로 정의가 누락된 중첩 `$itermap` 3건.**
+
+**증상**: `$itermap-id-field-a-colon-typeIR-field-a-list-2-pair`(및 field-b,
+`nameIR-field-colon-value-field`)가 **호출되지만 정의 규칙이 없음** — 분석·실행
+양 표면 모두(각 104 선언 / 101 정의). op 선언은 range 복구도 실패해 `-> Val` 폴백.
+
+**시점 확정**: fusion 이전 커밋(main `2f9f8cba`)을 덤프 대조하니 **96 선언 / 96 정의,
+미정의 0**. 즉 head-side fusion이 도입한 회귀이고, 이번 통합은 이를 물려받았을 뿐.
+
+**원인 — ctx 스레딩 비대칭**. 문제 형태는 head binder가 fusion 등록된 rule 안의
+**중첩 IterE**다([5.05.2-typing-casting.spectec:157](../../specs/p4/5-typing/5.05.2-typing-casting.spectec)
+`Cast_expl_neq/structTypeIR`의 `$find_map({ (id_field_a ':' typeIR_field_a)* }, …)`):
+- 호출부 — `iterpr_defs`가 내부 전제의 조건을 **ctx 없이** 계산(helper 안에는
+  head binder가 없고 spine이 인자로 들어오므로 이게 맞다) → bare 2-spine 이름.
+- 정의부 — `iter_helper_defs`의 `visit_prem ctx inner`가 **바깥 rule의 ctx로**
+  방문 → 같은 IterE가 fused 1-spine 이름으로 정의 방출.
+⇒ 호출된 이름은 정의가 없고, 정의된 이름은 아무도 안 불러 `prune_unused`가 제거.
+
+**영향**: 그 스텝의 `isStuckHead($find_map(…)) = false` 가드가 항상 실패해
+**규칙이 발화 불가** — 필드 순서가 다른 struct/header 간 명시적 캐스트
+(`Cast_expl_neq/structTypeIR`·`headerTypeIR`와 대응 value 규칙)가 죽어 있었다.
+분석 전용이 아니라 실행 표면에도 동일했다.
+
+**수정**: `iter_map_def`/`iterpr_defs`/`visit_exp`/`visit_prem`의 ctx를
+`iter_ctx option`으로 바꾸고, **iterated 전제의 inner는 `visit_prem None`으로**
+내려보낸다(= 그 위치의 호출부가 컴파일된 것과 같은 레지스트리 상태). 원칙:
+**정의 방출은 언제나 그 호출 사이트가 쓴 ctx로 해야 한다** — 심볼이
+`spines_of_ids`에 의존하기 때문.
+
+**수정 후 검증**: sanity **OK**(104 선언 / 104 정의, 참조-미정의 0, 양 표면),
+op range도 `-> Val` 폴백에서 정확한 `-> List`로 복구. corpus churn은 정확히
+누락 정의 6줄 추가 + op 선언 3줄 재선언뿐. impty 골든 무변화, owise 69/3/0 불변,
+실행 differential 32표본(struct-cast 후보 6개 추가) **31 MATCH / 0 MISMATCH**
+(잔여 1 `issue3671.p4`는 fusion 이전 바이너리로도 not reduced — 별개 기존 문제),
+structural differential 2/2 MATCH. CRC `$invalidate_headerUnion`·
+`$is_default_parameterIR` 모두 **YES/YES 유지**, termination `$callableId_IR`
+**YES**·`$dom_map` **YES**·`$invalidate_value` **MAYBE** — 전부 수정 전과 동일.
 
 ### 2026-07-15 — 잔여 CRC MAYBE 재분류 + owise or-gate 진단 + 수정 후보 (미구현)
 

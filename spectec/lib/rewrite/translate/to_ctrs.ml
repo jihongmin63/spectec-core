@@ -470,15 +470,20 @@ let elem_pat_of_binder ~scalars (e : binder_entry) : R.term =
    at each element. [List] folds with [cons]/[nil], [Opt] with [some]/[none]. A
    fused spine destructures the head element pattern in place of a projected
    stream. Returns the helper symbol with its rules, or [None] for a bare
-   iterated variable. *)
-let iter_map_def ~scalars (ctx : iter_ctx) (e : exp) :
+   iterated variable.
+
+   [ctx] must be the registry the CALL SITE of this [IterE] was compiled under:
+   [Some] for a rule's own head/result/premise positions, [None] inside another
+   helper's defining rules (see [iter_helper_defs]'s [visit_prem]), because
+   [spines_of_ids] -- and hence the symbol -- depends on it. *)
+let iter_map_def ~scalars (ctx : iter_ctx option) (e : exp) :
     (string * R.rule list) option =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> None
   | IterE (body, (iter, vars)) ->
       let ids = iter_var_ids vars in
       let fvs = iter_captured_exp body vars ids in
-      let spines = spines_of_ids (Some ctx) ids in
+      let spines = spines_of_ids ctx ids in
       let sym = iter_map_sym body iter spines in
       let fv_terms = List.map var_t fvs in
       let body_elem = term_of_exp ~scalars (rename_step_exp ids body) in
@@ -1103,7 +1108,7 @@ let prune_absorbed_projs (ctx : iter_ctx) (rhs : R.term) (conds : R.cond list) :
    component itself for one collected variable, the component tuple for several
    (recovered by [$iterproj] helpers over the synthetic tuple body when a
    component escapes fusion). *)
-let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx) (prem : prem) :
+let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
     (string * R.rule list) list =
   match prem.it with
   | IterPr (inner, (iter, vars)) ->
@@ -1111,7 +1116,7 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx) (prem : prem) :
       let fv_terms = List.map var_t (iter_captured inner vars bound_ids) in
       let inner_stepped = rename_step_prem (bound_ids @ binding_ids) inner in
       let conds = conds_of_prem ~scalars orig (fresh_binder ()) inner_stepped in
-      let spines = spines_of_ids (Some ctx) bound_ids in
+      let spines = spines_of_ids ctx bound_ids in
       let base_args, step_args, rec_args =
         spine_forms iter fv_terms (elem_pat_of_binder ~scalars) spines
       in
@@ -1245,7 +1250,20 @@ let blocks_of_def (def : def) : (exp list * exp list * prem list) list =
    built from the head positions (and let patterns) exactly as the rule assembly
    builds it, so [iter_map_def]/[iterpr_defs] compute the same fused spines --
    and hence the same helper symbols -- as the call sites in the emitted rules.
-   Descends into heads, results, and premises, including nested iterations. *)
+   Descends into heads, results, and premises, including nested iterations.
+
+   The registry is threaded to match each position's CALL SITE, because a
+   helper symbol depends on the spines its call site computed:
+
+   - a rule's own head/result/premise positions are compiled with the registry
+     ([rule_of_clause] passes [~ctx]), so they are visited with [Some ctx];
+   - an ITERATED premise's inner premise is compiled INSIDE that premise's
+     helper, where [iterpr_defs] builds the conditions WITHOUT the registry
+     (the helper takes its spines as parameters; there are no head binders in
+     scope). So its nested iterations are visited with [None] -- visiting them
+     with [Some ctx] instead emits a fused-named definition while the helper
+     body calls the bare name, leaving that call undefined (and the fused
+     definition unreachable, hence pruned). *)
 let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
   let defs = Helper_defs.create 32 in
   let add (sym, rules) = Helper_defs.add defs sym rules in
@@ -1258,7 +1276,7 @@ let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
     match p.it with
     | IterPr (inner, _) ->
         List.iter add (iterpr_defs ~scalars orig ctx p);
-        visit_prem ctx inner
+        visit_prem None inner
     | _ -> List.iter (visit_exp ctx) (Exp_map.exps_of_prem p)
   in
   List.iter
@@ -1270,9 +1288,9 @@ let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
       List.iter (fun e -> ignore (pattern_of_exp ~scalars ~ctx fresh e)) heads;
       ignore (conds_of_prems ~scalars orig ~ctx fresh prems);
       List.iter (fun e -> ignore (term_of_exp ~scalars ~ctx e)) results;
-      List.iter (visit_exp ctx) heads;
-      List.iter (visit_exp ctx) results;
-      List.iter (visit_prem ctx) prems)
+      List.iter (visit_exp (Some ctx)) heads;
+      List.iter (visit_exp (Some ctx)) results;
+      List.iter (visit_prem (Some ctx)) prems)
     (List.concat_map blocks_of_def spec);
   Helper_defs.rules defs
 

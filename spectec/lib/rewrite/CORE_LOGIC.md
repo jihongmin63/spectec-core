@@ -273,6 +273,15 @@ co-iteration `(v n)*`를 head binder에서 받을 때, 예전에는 **축별 분
   spine별 태그(bare `b` / fused `f<body>`)를 붙여, 같은 내부 전제라도 소스가
   binder/bare로 갈리는 rule 간 dedup 충돌을 막는다. all-bare면 태그 없이 기존
   이름을 유지(무변화).
+- **정의 방출은 반드시 그 호출 사이트의 ctx로**(`iter_helper_defs`). 헬퍼 심볼이
+  `spines_of_ids ctx`에 의존하므로, 정의를 방출하는 walk가 호출부와 다른 ctx를
+  쓰면 이름이 갈려 "호출됐는데 정의 없음"이 된다(정의된 쪽은 아무도 안 불러
+  `prune_unused`가 지우므로 흔적도 안 남는다). 규율: rule 자신의 head/result/
+  premise 위치는 `Some ctx`, **iterated 전제의 inner는 `None`** — 그 자리의 조건은
+  `iterpr_defs`가 레지스트리 없이(헬퍼 안에는 head binder가 없고 spine이 인자로
+  들어온다) 컴파일하기 때문이다. fusion 도입 당시 이 비대칭이 실제 회귀를 냈다
+  (중첩 `$itermap` 3건 미정의 → `Cast_expl_neq/structTypeIR` 등 발화 불가;
+  2026-07-18 수정, [todo.md](todo.md) 참조).
 
 **premise-side 확장 (2026-07-18, 헬퍼 패밀리 통합).** 위 기계를 `IterPr`의 출력
 쪽에도 그대로 적용해 세 갈래를 통합했다:
