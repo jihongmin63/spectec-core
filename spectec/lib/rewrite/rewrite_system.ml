@@ -257,7 +257,7 @@ let rec is_ctor_pattern (is_defined : string -> bool) = function
      binds it by matching).
 
    Uniform over every rule, so a binder inside a recursive iteration helper
-   ([$iterapply]/[$itercollect]/[$unzip]) is normalized the same way. Gensym
+   ([$itercollect]/[$iterproj]) is normalized the same way. Gensym
    threading (run before this) binds a [tuple(out, state)], not a bare [Var], so a
    threaded binder is skipped. Analysis-surface only: {!To_maude} keeps the [:=]
    matching condition its stuck-head guard relies on. *)
@@ -338,12 +338,33 @@ let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
       | None -> r
       | Some ((v, repl), others) ->
           let sub = subst_var v repl in
+          (* [inline] (above) substitutes a dec-function call [repl] straight
+             into the rule because it has no relation head ("deterministic"),
+             but a dec function can still be PARTIAL: stuck when none of its
+             own conditional equations hold (e.g. [$add_var_t]'s "main must be
+             a package" or "no duplicate identifier" premises). Dropping the
+             binder without keeping that check turns a precondition on the
+             ENCLOSING equation firing into an opaque value no caller ever
+             re-inspects, so a program that should be rejected can silently
+             "succeed" instead (confirmed on issue4140.p4/dup-param.p4-shaped
+             cases). Re-adding [isStuckHead(repl) = false] preserves the guard
+             using [repl] itself -- no fresh variable -- so it does not
+             reintroduce the [prod = v] critical-pair problem this pass exists
+             to avoid; a pure-constructor [repl] (not in [defined]) can never
+             get stuck, so this only fires where a real check would otherwise
+             be lost. *)
+          let guard =
+            match repl with
+            | App (f, _) when is_defined f ->
+                [ (App ("isStuckHead", [ repl ]), App ("false", [])) ]
+            | _ -> []
+          in
           loop
             {
               r with
               lhs = sub r.lhs;
               rhs = sub r.rhs;
-              conds = List.map (fun (l, rr) -> (sub l, sub rr)) others;
+              conds = guard @ List.map (fun (l, rr) -> (sub l, sub rr)) others;
             }
     in
     let r = loop r in
@@ -367,6 +388,98 @@ let fold_premise_binders ~(rule_heads : string list) (t : t) : t =
    ({!To_maude}) keeps owise for evaluation; this is the analysis pipeline only. *)
 let drop_owise (t : t) : t =
   let rules = List.filter (fun (r : rule) -> not r.owise) t.rules in
+  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+
+(* SCC-facing over-approximation, part 1: strip every rule's conditions, so the
+   sufficient-completeness checker's [drop-bad-eqs] filter (which silently
+   discards conditional equations before building its tree automaton) has
+   nothing left to discard. Pretending a guarded rule always fires
+   over-approximates reducibility, so on this surface a "sufficiently complete"
+   verdict for a symbol that had conditions proves nothing -- but a
+   counterexample is sound: a constructor case no rule's LHS matches is missing
+   regardless of any condition. The SCC reads only rule LHSs (its automaton is
+   built from [lhs(Eq)] alone), so the RHS is free to change: when dropping the
+   conditions would leave an RHS variable unbound (it was bound by a condition),
+   the whole RHS is replaced by the LHS -- always well-sorted, never unbound --
+   rather than marking the rule [nonexec], which the SCC's [is-exec?] filter
+   would discard again. Never applied to the canonical analysis or execution
+   surfaces; only the [rewrite --ctrs --unconditional] dump. *)
+let drop_conds (t : t) : t =
+  let dropped = ref 0 and identity_rhs = ref 0 in
+  let drop_rule (r : rule) : rule =
+    if r.conds = [] then r
+    else (
+      incr dropped;
+      let lhs_vars = vars_of_term r.lhs in
+      let rhs =
+        if List.for_all (fun v -> List.mem v lhs_vars) (vars_of_term r.rhs) then
+          r.rhs
+        else (
+          incr identity_rhs;
+          r.lhs)
+      in
+      { r with rhs; conds = [] })
+  in
+  let rules = List.map drop_rule t.rules in
+  if !dropped > 0 then
+    Printf.eprintf
+      "unconditional: dropped conditions from %d rule(s) (%d rhs replaced by \
+       lhs)\n"
+      !dropped !identity_rhs;
+  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+
+(* SCC-facing over-approximation, part 2: rename the second and later
+   occurrences of any repeated LHS variable ([eqg(x, x)], [$iterproj]'s captured
+   free variables re-mentioned in the element pattern), so the SCC's
+   [drop-bad-eqs] filter -- which also discards non-left-linear equations --
+   keeps the rule. Same polarity as {!drop_conds}: a linear pattern matches
+   more, so counterexamples stay sound and "complete" verdicts for linearized
+   symbols prove nothing. The first occurrence keeps its name, so an RHS that
+   mentions the variable stays bound. *)
+let linearize_lhs (t : t) : t =
+  let linearized = ref 0 in
+  let lin_rule (r : rule) : rule =
+    let taken = Hashtbl.create 16 in
+    List.iter (fun v -> Hashtbl.replace taken v ()) (vars_of_rule r);
+    let seen = Hashtbl.create 16 in
+    let fresh v =
+      let rec pick k =
+        let cand = Printf.sprintf "%s__lin%d" v k in
+        if Hashtbl.mem taken cand then pick (k + 1)
+        else (
+          Hashtbl.replace taken cand ();
+          cand)
+      in
+      pick 2
+    in
+    let changed = ref false in
+    (* Explicit list recursion: which occurrence is "first" (and keeps the
+       name binding the RHS) must be the leftmost one, deterministically. *)
+    let rec go = function
+      | Var v ->
+          if Hashtbl.mem seen v then (
+            changed := true;
+            Var (fresh v))
+          else (
+            Hashtbl.replace seen v ();
+            Var v)
+      | App (f, ts) -> App (f, go_list ts)
+    and go_list = function
+      | [] -> []
+      | x :: xs ->
+          let x' = go x in
+          x' :: go_list xs
+    in
+    let lhs = go r.lhs in
+    if !changed then (
+      incr linearized;
+      { r with lhs })
+    else r
+  in
+  let rules = List.map lin_rule t.rules in
+  if !linearized > 0 then
+    Printf.eprintf "unconditional: linearized %d non-left-linear lhs\n"
+      !linearized;
   { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
 
 (* -------------------------------------------------------------------------- *)

@@ -106,6 +106,53 @@ So the gate can pair **CRC local confluence** with an **MTT/AProVE(Z3) terminati
 proof** for full Church-Rosser. Standalone, the CRC still stands alone as local
 confluence + sort-decreasingness (the CTRS assumed terminating).
 
+## SCC (Sufficient Completeness Checker) — the CETA-linked Maude 2.7 stack
+
+`./run-scc.sh <symbol> [timeout]` checks one analysis-CTRS slice for **sufficient
+completeness**: does every ground term reduce to a constructor term, or does some
+defined symbol get stuck for want of a matching rule? That is the static form of
+the completeness gap `check_diff_p4.sh` hunts empirically.
+
+Two components, both gitignored, both obtained on demand:
+
+1. **`tools/maude27-ceta/`** — Maude 2.7 built against the **CETA** library (tree
+   automata modulo equational theories), which is what binds the SCC's
+   `test-emptiness` hook. Release `v2.7-ext-hooks` of `maude-team/maude`, asset
+   `maude-2.7-hooks-linux.zip`, unpacked flat. **This is the only Linux binary that
+   has it** — despite its title, `v2.7.1-ext-hooks` ships the MTT hooks only
+   (`strings maude | grep -ci ceta` → 0 for it and for stock 3.5.1, 111 here).
+   Without CETA the SCC loads and selects fine, then refuses the check.
+2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the same old MFE the termination path uses;
+   its `src/SCC/scc.maude` is the SCC 2a bundle.
+
+`SCC_MAUDE=<path>` overrides the binary — point it at the CETA-less
+`tools/maude271-hooks/maude` to exercise the whole pipeline and get
+`ERROR-NO-CETA`, which is how to smoke-test the plumbing.
+
+### Reading a verdict
+
+`run-scc.sh` prints `<symbol> <verdict> <fidelity> [witness]`, and **the fidelity
+column decides what the verdict is worth**:
+
+- The SCC's `drop-bad-eqs` silently discards conditional and non-left-linear
+  equations, which on our surface would throw the slice away. So the script feeds
+  `rewrite --ctrs --unconditional`, which drops conditions and linearizes patterns
+  first. That **over-approximates matching**: it can hide a missing case, never
+  invent one.
+- ⇒ **COUNTEREXAMPLE is sound either way** (the witness names a constructor case no
+  rule's lhs covers), while **COMPLETE only proves something for an `exact` slice**
+  — one the transform did not have to touch.
+- The `analysis:` half of the column is the SCC's own report on its abstraction
+  (`complete+sound`), which it prints per run.
+
+A sound witness is still not automatically a bug: it may be **unreachable**. Triage
+it exactly like a CRC MAYBE — confirm a real call site can build the term. Two
+recurring unreachable classes are documented in
+[lib/rewrite/todo.md](../../lib/rewrite/todo.md): the binary-encoding canonicity
+invariant (`bd0`/`bd1` never wrap `bzero` — hand-verified, not enforced by the
+sorts), and predicates declared over the top sort `Val` (so a `NatV` argument is
+well-sorted but never actually passed).
+
 ## Calibration (observed against the real MFE)
 
 The earlier best-effort constants in [mfe.ml](../../lib/rewrite/mfe.ml) were
@@ -148,6 +195,59 @@ against MFE-master + Maude 3.5.1.
     positions of equations left-hand sides.`
   - ChC pending   -> the coherence header printed but not the coherent token
     (proof obligations remain) -> `Maybe`.
+
+## Signature pruning + modular (A/B) termination decomposition
+
+`To_mfe` emits the whole ~460-sort / ~750-op P4 signature for **every** slice
+(only the rules are sliced). MTT's transform is superlinear in the signature, so
+even a 20-rule slice never finishes. Two layered fixes, both operating **only on
+the transient analysis `.mod`** (never the spec source, the OCaml
+prelude/`builtin.ml`, or the executable rewrite system):
+
+1. **Signature pruning** — `tools/mfe/prune_slice_signature.py` (mode `full`) keeps
+   only the sorts/ops the rules actually use (a few dozen, bakery scale). This
+   alone turned `$bin_div` from >900s TIMEOUT into **27s YES**. `run-termination.sh`
+   and the comprehensive sweep call it after the dump.
+
+2. **Modular decomposition** — `tools/mfe/prune_modular.py` (new; separate from the
+   sweep's pruner). Binary-encoded fixed-width arithmetic still TIMEOUTs full-mode,
+   because those slices drag in the width-normalizer `$bitstr_to_int` /
+   `$int_to_bitstr`. Since the combination is hierarchical (spec ops call the
+   arithmetic library, not vice versa) termination splits in two:
+   - **`abstract-builtins` (B)** — drop the arithmetic / terminating-builtin
+     defining rules, keep their op declarations (free constructors) → the spec
+     layer alone. AProVE `YES` ⇒ the spec op terminates *relative to arith as a
+     black box*. Used as an (NR)/stratification **detector**. This turned all
+     fixed-width arith + bitwise TIMEOUTs into **seconds-YES** (14 slices), and
+     `$strip_all_whitespace` from 50634 rules (its `eq(x,chr_32)` guard drags in
+     the whole Val-equality theory) to 5 rules by additionally abstracting
+     `eq`/`eqg`.
+   - **`arith-core` / `arith-pure` (A)** — keep only the arithmetic-library rules
+     (with / without the recursive `$`-helpers) → prove the library once.
+   Compose: `A ∧ B ⇒ whole terminates`, under **operational-termination**
+   side-conditions (every spec-rule *premise* symbol is R_arith-defined or
+   strictly lower in a well-founded stratification; lift the *closure* of `$`-spec
+   helpers reachable from spec RHS **and premises** — `$bitstr_to_int`, `$pow2`,
+   `$int_of_integerValue`, `nat_of_int`, …; arith-blindness of spec LHSs;
+   right-linearity in spec-sorted variables).
+
+Run a pre-built modular module through the same MTT/AProVE `ct`:
+`/tmp/modular/run_mod.sh <module.mod> [timeout]` (or fold it into a driver).
+
+### ⚠️ Caveat — analysis surface, not executable surface
+
+`run-termination.sh` (and the sweep) check the `rewrite --ctrs` **analysis**
+surface, which **drops `owise`** (`rewrite_system.ml` `drop_owise` — justified for
+confluence only, NOT termination) and leaves **`isStuckHead` ruleless**. That is a
+strictly weaker system than the executable surface (`to_maude.ml`, which fully
+defines `isStuckHead`), so a termination `YES` here **does not certify executable
+termination**. Concrete witness: `$bitstr_to_int` non-terminates at `w=0` on the
+executable surface (empty two's-complement range `[-2^(w-1), 2^(w-1))`), but that
+loop is *masked* on the analysis surface (its `isStuckHead(…)=false` premise is
+unsatisfiable). numerics.ml's reference `bitstr_to_int'` shares the same w=0 loop
+(so the CTRS translation is faithful); it terminates in practice only because
+callers always pass `w≥1`. See the repo-root
+`spectec-crc-termination-recalibration.md` (notes **F-w0**, **F-표면**, **F-정리**).
 
 ## Performance — use per-symbol slices
 

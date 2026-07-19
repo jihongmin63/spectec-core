@@ -7,10 +7,10 @@ mod SPEC is
   subsort List < Text .
   subsort Literal < Expr .
 
-  op $itermap-K-t-minus-gt-V-t-list-2-pair : Val Val -> List .
+  op $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair : Val -> List .
+  op $iterproj-K-t-minus-gt-V-t-list-K-t : Val -> List .
+  op $iterproj-K-t-minus-gt-V-t-list-V-t : Val -> List .
   op $lookup : List Val -> Opt .
-  op $unzip-K-t-minus-gt-V-t-list-K-t : Val -> List .
-  op $unzip-K-t-minus-gt-V-t-list-V-t : Val -> List .
   op Check-command : List Command -> List .
   op Check-expr : List Expr -> Type .
   op Check-prog : Command -> BoolV .
@@ -20,52 +20,52 @@ mod SPEC is
   op Run-prog : Command -> List .
   op add-int : IntV IntV -> IntV .
   op and : BoolV BoolV -> BoolV .
-  op bool : Bool -> BoolV .
-  op cons : Val List -> List .
-  op int : Int -> IntV .
+  op bool : Bool -> BoolV [ctor] .
+  op cons : Val List -> List [ctor] .
+  op int : Int -> IntV [ctor] .
   op isStuckHead : Val -> Bool .
   op leq-int : IntV IntV -> BoolV .
-  op match-command-IF-THEN-ELSE-END-3 : Command -> BoolV .
-  op match-command-SKIP-0 : Command -> BoolV .
-  op match-command-WHILE-DO-END-2 : Command -> BoolV .
-  op match-command-eq-2 : Command -> BoolV .
-  op match-command-eq-3 : Command -> BoolV .
-  op match-command-semi-2 : Command -> BoolV .
-  op match-cons : List -> BoolV .
-  op match-expr-amp-amp-2 : Expr -> BoolV .
-  op match-expr-bang-1 : Expr -> BoolV .
-  op match-expr-lt-eq-2 : Expr -> BoolV .
-  op match-expr-plus-2 : Expr -> BoolV .
-  op match-literal-BOOL-1 : Literal -> BoolV .
-  op match-literal-NUM-1 : Literal -> BoolV .
-  op match-nil : List -> BoolV .
-  op match-some : Opt -> BoolV .
-  op match-type-BOOL-0 : Type -> BoolV .
-  op match-type-INT-0 : Type -> BoolV .
-  op nat : Nat -> NatV .
-  op nil : -> List .
-  op none : -> Opt .
+  op match-command-IF-THEN-ELSE-END-3 : Val -> BoolV .
+  op match-command-SKIP-0 : Val -> BoolV .
+  op match-command-WHILE-DO-END-2 : Val -> BoolV .
+  op match-command-eq-2 : Val -> BoolV .
+  op match-command-eq-3 : Val -> BoolV .
+  op match-command-semi-2 : Val -> BoolV .
+  op match-cons : Val -> BoolV .
+  op match-expr-amp-amp-2 : Val -> BoolV .
+  op match-expr-bang-1 : Val -> BoolV .
+  op match-expr-lt-eq-2 : Val -> BoolV .
+  op match-expr-plus-2 : Val -> BoolV .
+  op match-literal-BOOL-1 : Val -> BoolV .
+  op match-literal-NUM-1 : Val -> BoolV .
+  op match-nil : Val -> BoolV .
+  op match-some : Val -> BoolV .
+  op match-type-BOOL-0 : Val -> BoolV .
+  op match-type-INT-0 : Val -> BoolV .
+  op nat : Nat -> NatV [ctor] .
+  op nil : -> List [ctor] .
+  op none : -> Opt [ctor] .
   op not : BoolV -> BoolV .
-  op some : Val -> Opt .
+  op some : Val -> Opt [ctor] .
   op subty-id : Val -> BoolV .
   op subty-literal : Val -> BoolV .
-  op txt : String -> Text .
-  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command .
-  op variant-command-SKIP-0 : -> Command .
-  op variant-command-WHILE-DO-END-2 : Expr Command -> Command .
-  op variant-command-eq-2 : Id Expr -> Command .
-  op variant-command-eq-3 : Type Id Expr -> Command .
-  op variant-command-semi-2 : Command Command -> Command .
-  op variant-expr-amp-amp-2 : Expr Expr -> Expr .
-  op variant-expr-bang-1 : Expr -> Expr .
-  op variant-expr-lt-eq-2 : Expr Expr -> Expr .
-  op variant-expr-plus-2 : Expr Expr -> Expr .
-  op variant-id-ID-1 : Text -> Id .
-  op variant-literal-BOOL-1 : BoolV -> Literal .
-  op variant-literal-NUM-1 : IntV -> Literal .
-  op variant-pair-minus-gt-2 : Val Val -> Pair .
-  op variant-type-BOOL-0 : -> Type .
-  op variant-type-INT-0 : -> Type .
+  op txt : String -> Text [ctor] .
+  op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command [ctor] .
+  op variant-command-SKIP-0 : -> Command [ctor] .
+  op variant-command-WHILE-DO-END-2 : Expr Command -> Command [ctor] .
+  op variant-command-eq-2 : Id Expr -> Command [ctor] .
+  op variant-command-eq-3 : Type Id Expr -> Command [ctor] .
+  op variant-command-semi-2 : Command Command -> Command [ctor] .
+  op variant-expr-amp-amp-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-bang-1 : Expr -> Expr [ctor] .
+  op variant-expr-lt-eq-2 : Expr Expr -> Expr [ctor] .
+  op variant-expr-plus-2 : Expr Expr -> Expr [ctor] .
+  op variant-id-ID-1 : Text -> Id [ctor] .
+  op variant-literal-BOOL-1 : BoolV -> Literal [ctor] .
+  op variant-literal-NUM-1 : IntV -> Literal [ctor] .
+  op variant-pair-minus-gt-2 : Val Val -> Pair [ctor] .
+  op variant-type-BOOL-0 : -> Type [ctor] .
+  op variant-type-INT-0 : -> Type [ctor] .
 
   eq match-some(some(x:Val)) = bool(true) .
   eq match-some(none) = bool(false) .
@@ -148,12 +148,12 @@ mod SPEC is
   eq match-command-semi-2(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = bool(false) .
   eq match-command-semi-2(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = bool(false) .
   eq match-command-semi-2(variant-command-semi-2(x0:Command, x1:Command)) = bool(true) .
-  eq $itermap-K-t-minus-gt-V-t-list-2-pair(nil, nil) = nil .
-  eq $itermap-K-t-minus-gt-V-t-list-2-pair(cons(K-t--hd:Val, K-t--tl:List), cons(V-t--hd:Val, V-t--tl:List)) = cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), $itermap-K-t-minus-gt-V-t-list-2-pair(K-t--tl:List, V-t--tl:List)) .
-  eq $unzip-K-t-minus-gt-V-t-list-V-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
-  eq $unzip-K-t-minus-gt-V-t-list-K-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  eq $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(nil) = nil .
+  eq $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest0:List)) = cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(--rest0:List)) .
+  eq $iterproj-K-t-minus-gt-V-t-list-K-t(nil) = nil .
+  eq $iterproj-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $iterproj-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  eq $iterproj-K-t-minus-gt-V-t-list-V-t(nil) = nil .
+  eq $iterproj-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $iterproj-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
   eq subty-literal(variant-id-ID-1(x0:Text)) = bool(false) .
   eq subty-literal(variant-expr-bang-1(x0:Expr)) = bool(false) .
   eq subty-literal(variant-expr-plus-2(x0:Expr, x1:Expr)) = bool(false) .
@@ -166,8 +166,8 @@ mod SPEC is
   eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = bool(false) .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = bool(false) .
   ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = none if match-nil(pair-lt-K-comma-V-gt:List) = bool(true) .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:List := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:List) = false /\ V-t:List := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:List) = false /\ K-h:Val = K-query:Val .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair(K-t:List, V-t:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:List := $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:List) = false /\ V-t:List := $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:List) = false [owise] .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List /\ K-t:List := $iterproj-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) /\ isStuckHead(K-t:List) = false /\ V-t:List := $iterproj-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) /\ isStuckHead(V-t:List) = false /\ K-h:Val = K-query:Val .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(iterbind-0:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = bool(true) /\ cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) := pair-lt-K-comma-V-gt:List [owise] .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-INT-0 if subty-literal(expr:Expr) = bool(true) /\ literal:Literal := expr:Expr /\ match-literal-NUM-1(literal:Literal) = bool(true) /\ variant-literal-NUM-1(i:IntV) := literal:Literal .
   ceq Check-expr(tenv:List, expr:Expr) = variant-type-BOOL-0 if subty-literal(expr:Expr) = bool(true) /\ literal:Literal := expr:Expr /\ match-literal-BOOL-1(literal:Literal) = bool(true) /\ variant-literal-BOOL-1(b:BoolV) := literal:Literal .
   ceq Check-expr(tenv:List, expr:Expr) = t:Type if subty-id(expr:Expr) = bool(true) /\ x:Id := expr:Expr /\ type:Opt := $lookup(tenv:List, x:Id) /\ isStuckHead(type:Opt) = false /\ match-some(type:Opt) = bool(true) /\ some(t:Type) := type:Opt .
@@ -209,10 +209,10 @@ mod SPEC is
   ceq subty-id(X0:Val) = bool(false) if isStuckHead(X0:Val) = false [owise] .
   ceq subty-literal(X0:Val) = bool(false) if isStuckHead(X0:Val) = false [owise] .
 
-  eq isStuckHead($itermap-K-t-minus-gt-V-t-list-2-pair(V0:Val, V1:Val)) = true .
+  eq isStuckHead($itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(V0:Val)) = true .
+  eq isStuckHead($iterproj-K-t-minus-gt-V-t-list-K-t(V0:Val)) = true .
+  eq isStuckHead($iterproj-K-t-minus-gt-V-t-list-V-t(V0:Val)) = true .
   eq isStuckHead($lookup(V0:List, V1:Val)) = true .
-  eq isStuckHead($unzip-K-t-minus-gt-V-t-list-K-t(V0:Val)) = true .
-  eq isStuckHead($unzip-K-t-minus-gt-V-t-list-V-t(V0:Val)) = true .
   eq isStuckHead(Check-command(V0:List, V1:Command)) = true .
   eq isStuckHead(Check-expr(V0:List, V1:Expr)) = true .
   eq isStuckHead(Check-prog(V0:Command)) = true .
@@ -223,23 +223,23 @@ mod SPEC is
   eq isStuckHead(add-int(V0:IntV, V1:IntV)) = true .
   eq isStuckHead(and(V0:BoolV, V1:BoolV)) = true .
   eq isStuckHead(leq-int(V0:IntV, V1:IntV)) = true .
-  eq isStuckHead(match-command-IF-THEN-ELSE-END-3(V0:Command)) = true .
-  eq isStuckHead(match-command-SKIP-0(V0:Command)) = true .
-  eq isStuckHead(match-command-WHILE-DO-END-2(V0:Command)) = true .
-  eq isStuckHead(match-command-eq-2(V0:Command)) = true .
-  eq isStuckHead(match-command-eq-3(V0:Command)) = true .
-  eq isStuckHead(match-command-semi-2(V0:Command)) = true .
-  eq isStuckHead(match-cons(V0:List)) = true .
-  eq isStuckHead(match-expr-amp-amp-2(V0:Expr)) = true .
-  eq isStuckHead(match-expr-bang-1(V0:Expr)) = true .
-  eq isStuckHead(match-expr-lt-eq-2(V0:Expr)) = true .
-  eq isStuckHead(match-expr-plus-2(V0:Expr)) = true .
-  eq isStuckHead(match-literal-BOOL-1(V0:Literal)) = true .
-  eq isStuckHead(match-literal-NUM-1(V0:Literal)) = true .
-  eq isStuckHead(match-nil(V0:List)) = true .
-  eq isStuckHead(match-some(V0:Opt)) = true .
-  eq isStuckHead(match-type-BOOL-0(V0:Type)) = true .
-  eq isStuckHead(match-type-INT-0(V0:Type)) = true .
+  eq isStuckHead(match-command-IF-THEN-ELSE-END-3(V0:Val)) = true .
+  eq isStuckHead(match-command-SKIP-0(V0:Val)) = true .
+  eq isStuckHead(match-command-WHILE-DO-END-2(V0:Val)) = true .
+  eq isStuckHead(match-command-eq-2(V0:Val)) = true .
+  eq isStuckHead(match-command-eq-3(V0:Val)) = true .
+  eq isStuckHead(match-command-semi-2(V0:Val)) = true .
+  eq isStuckHead(match-cons(V0:Val)) = true .
+  eq isStuckHead(match-expr-amp-amp-2(V0:Val)) = true .
+  eq isStuckHead(match-expr-bang-1(V0:Val)) = true .
+  eq isStuckHead(match-expr-lt-eq-2(V0:Val)) = true .
+  eq isStuckHead(match-expr-plus-2(V0:Val)) = true .
+  eq isStuckHead(match-literal-BOOL-1(V0:Val)) = true .
+  eq isStuckHead(match-literal-NUM-1(V0:Val)) = true .
+  eq isStuckHead(match-nil(V0:Val)) = true .
+  eq isStuckHead(match-some(V0:Val)) = true .
+  eq isStuckHead(match-type-BOOL-0(V0:Val)) = true .
+  eq isStuckHead(match-type-INT-0(V0:Val)) = true .
   eq isStuckHead(not(V0:BoolV)) = true .
   eq isStuckHead(subty-id(V0:Val)) = true .
   eq isStuckHead(subty-literal(V0:Val)) = true .

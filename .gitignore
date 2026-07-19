@@ -24,6 +24,9 @@ spectec/tools/mfe271/
 spectec/tools/aprove/
 spectec/tools/yices/
 spectec/tools/yices1/
+# Sufficient-completeness backend: the CETA-linked Maude 2.7 (v2.7-ext-hooks),
+# the only Linux binary that binds the SCC's test-emptiness hook.
+spectec/tools/maude27-ceta/
 spectec/tools/z3/
 spectec/log.txt
 spectec/term_sweep.tsv
@@ -33,3 +36,13 @@ spectec/.hook-check
 # The harness (check_diff_p4.sh) and reference suite (p4_typecheck_suite.txt)
 # stay tracked; only the generated result files are ignored.
 /check_diff_p4_*
+
+# check_diff_structural_p4.sh (structural-backend differential) outputs: run
+# logs and the PASS&OK shard list. The harness itself stays tracked; the result
+# TSVs it writes are already covered by /check_diff_p4_* above.
+/check_diff_structural_*.log
+/pass_ok.txt
+
+# Personal research notes (not part of the spec/docs; see todo.md/CORE_LOGIC.md
+# for the tracked design docs).
+/RESEARCH_NOTES.md

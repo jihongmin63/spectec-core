@@ -210,29 +210,37 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       ]
   (* ----- text (a byte [cons]/[nil] list) ----- *)
   | "int_to_text", _, _ ->
-      (* the decimal spelling of the int as a char list ([string_of_num]): split
-         off the sign, then emit digits high-to-low by recursive div/mod by ten,
-         each remainder mapped to its ASCII byte ([chr_48]..[chr_57]). [int_neg x]
-         is -(x+1), so its magnitude is [succ x]; '-' is [chr_45]. *)
+      (* the decimal spelling of the int as a char list ([string_of_num]): an
+         explicit sign then digits high-to-low by recursive div/mod by ten, each
+         remainder mapped to its ASCII byte ([chr_48]..[chr_57]). A signed [int]
+         always prints its sign (the interpreter's [Xl.Num.string_of_num], and
+         {!To_maude}'s Native [$int_to_text] delegation, both do): '+' ([chr_43])
+         for non-negative [int_pos n], '-' ([chr_45]) for [int_neg x] (which is
+         -(x+1), so its magnitude is [bsucc x]). [n]/[x] here are [int_pos]/
+         [int_neg]'s [BNatV] magnitude (can be P4-bit-width-scale), so [to_nat]'s
+         own recursion is the [BNatV] (bdiv/bmod/blt) family, not the Peano one --
+         {!Ctrs_term}'s doc comment. *)
       let to_nat = helper "nat" and digit = helper "digit" in
-      let ten = T.nat_lit ~scalars 10 in
+      let ten = T.bnat_lit ~scalars 10 in
       let digit_rules =
         List.init 10 (fun d ->
-            T.rule (T.app_t digit [ T.nat_lit ~scalars d ]) (T.chr_t (48 + d)))
+            T.rule (T.app_t digit [ T.bnat_lit ~scalars d ]) (T.chr_t (48 + d)))
       in
       [
-        T.rule (T.app_t sym [ T.int_pos_t n ]) (T.app_t to_nat [ n ]);
+        T.rule
+          (T.app_t sym [ T.int_pos_t n ])
+          (T.cons_t (T.chr_t 43) (T.app_t to_nat [ n ]));
         T.rule
           (T.app_t sym [ T.int_neg_t x ])
-          (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.succ_t x ]));
+          (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.bsucc_t x ]));
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cons_t (T.app_t digit [ n ]) T.nil_t)
-          [ (T.lt_t n ten, T.bool_t ~scalars true) ];
+          [ (T.blt_t n ten, T.bool_t ~scalars true) ];
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cat_t
-             (T.app_t to_nat [ T.div_t n ten ])
-             (T.cons_t (T.app_t digit [ T.mod_t n ten ]) T.nil_t))
-          [ (T.lt_t n ten, T.bool_t ~scalars false) ];
+             (T.app_t to_nat [ T.bdiv_t n ten ])
+             (T.cons_t (T.app_t digit [ T.bmod_t n ten ]) T.nil_t))
+          [ (T.blt_t n ten, T.bool_t ~scalars false) ];
       ]
       @ digit_rules
   | "strip_prefix", _, _ ->
@@ -242,6 +250,25 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule
           (T.app_t sym [ t; s ])
           (T.take_t t (T.sub_t (T.len_t t) (T.len_t s)));
+      ]
+  | "strip_all_whitespace", _, _ ->
+      (* Mirrors {!To_maude}'s native delegation (Maude STRING's [find]/
+         [substr], stripping every ASCII space, [targets/p4/builtins/texts.ml]'s
+         [String.split_on_char ' ' |> concat]) over this theory's [cons]/[nil]
+         char list instead: drop each [chr_32] (space), keep everything else.
+         Reached by every table key ([TableKey_ok]'s
+         [$strip_all_whitespace($name_expression(..))]) -- previously had no
+         rule at all here, so any table with a key block got stuck. *)
+      [
+        T.rule (T.app_t sym [ T.nil_t ]) T.nil_t;
+        T.rule_cond
+          (T.app_t sym [ T.cons_t x xs ])
+          (T.app_t sym [ xs ])
+          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars true) ];
+        T.rule_cond
+          (T.app_t sym [ T.cons_t x xs ])
+          (T.cons_t x (T.app_t sym [ xs ]))
+          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars false) ];
       ]
   (* ----- saturating fixed-width arithmetic ----- *)
   | ("bin_satplus" | "bin_satminus"), _, _ -> (
@@ -270,10 +297,12 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           let i_max = T.var_t "i_max" and i_min = T.var_t "i_min" in
           let zero_i = T.int_lit ~scalars 0 in
           let one_i = T.int_lit ~scalars 1 in
-          let to_int x = T.app_t (builtin "to_int") [ T.int_pos_t w; x ] in
-          let to_bitstr x =
-            T.app_t (builtin "to_bitstr") [ T.int_pos_t w; x ]
-          in
+          (* [w] is the bit-width parameter, now a binary nat (the nat->binary
+             retype), so wrapping it as an int is [int_pos] directly -- no bridge
+             (same simplification as {!To_ctrs}'s [UpCastE] cast site). *)
+          let w_int = T.int_pos_t w in
+          let to_int x = T.app_t (builtin "to_int") [ w_int; x ] in
+          let to_bitstr x = T.app_t (builtin "to_bitstr") [ w_int; x ] in
           let pow2 n = T.app_t (builtin "pow2") [ n ] in
           (* unsigned [w W i]: the raw sum/difference, clamped to
              [0 .. 2^w - 1] (only the overflowing end can be hit). *)
@@ -360,12 +389,15 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
      [numerics.ml] either -- not covered here, left exactly as unimplemented
      as the interpreter itself leaves it. *)
   | "pow2", _, _ ->
-      (* [pow2 w = 2^w] -- a direct nat power, not hand-rolled doubling:
-         {!Rewrite.Prelude}'s [pow] already has real equations. *)
+      (* [pow2 w = 2^w] -- a direct power, not hand-rolled doubling:
+         {!Rewrite.Prelude}'s [bpow_nat] already has real equations. This is
+         the site the whole binary encoding exists for: [w] (a P4 bit-width,
+         still Peano -- it stays small) is the EXPONENT, but the accumulated
+         RESULT (up to 2^64) is [BNatV], never a Peano tower. *)
       let w = T.var_t "w" in
       [
         T.rule (T.app_t sym [ w ])
-          (T.int_pos_t (T.pow_t (T.nat_lit ~scalars 2) w));
+          (T.int_pos_t (T.bpow_nat_t (T.bnat_lit ~scalars 2) w));
       ]
   | "shl", _, _ ->
       (* [shl v o = v * 2^o] for [o >= 0] -- a single multiplication is exact
@@ -383,31 +415,46 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
   | "shr", _, _ ->
       (* [numerics.ml]'s [shr'] halves [v] (a truncating division) ONE STEP
          AT A TIME, [o] times -- mirrored via structural recursion on [o]'s
-         Peano magnitude rather than a single division by [2^o], since
-         repeated truncation is not always the same value as one truncation
-         by the product. [o <= 0] is the identity, same as [shl]. *)
+         magnitude rather than a single division by [2^o], since repeated
+         truncation is not always the same value as one truncation by the
+         product. [o <= 0] is the identity, same as [shl]. [o]'s magnitude is
+         [BNatV] now, so "is it zero" is a computed [bis_zero] tag rather
+         than a [zero]/[succ] shape match -- dispatched through an auxiliary
+         (the same idiom {!Rewrite.Prelude}'s [div_aux]/[mod_aux] use) so the
+         zero/nonzero cases are disjoint on the TAG, not on a raw side
+         condition sharing the unconditional case's LHS shape (which would be
+         a real, if vacuous, critical-pair overlap for the CRC). *)
       let v = T.var_t "v" and o = T.var_t "o" in
+      let aux = helper "aux" in
       [
-        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t ]) v;
         T.rule
-          (T.app_t sym [ v; T.int_pos_t (T.succ_t o) ])
-          (T.app_t sym [ T.div_int_t v (T.int_lit ~scalars 2); T.int_pos_t o ]);
+          (T.app_t sym [ v; T.int_pos_t o ])
+          (T.app_t aux [ T.bis_zero_t o; v; o ]);
+        T.rule (T.app_t aux [ T.bool_t ~scalars true; v; o ]) v;
+        T.rule
+          (T.app_t aux [ T.bool_t ~scalars false; v; o ])
+          (T.app_t sym
+             [ T.div_int_t v (T.int_lit ~scalars 2); T.int_pos_t (T.bpred_t o) ]);
         T.rule (T.app_t sym [ v; T.int_neg_t o ]) v;
       ]
   | "shr_arith", _, _ ->
       (* Same recursive shape as [shr], but [m] is added back in at EVERY
          halving step (not once at the end) for sign extension -- genuinely
          not a closed form, so [numerics.ml]'s [shr_arith'] recursion is
-         mirrored exactly. *)
+         mirrored exactly (same [bis_zero]-tag-dispatch retarget as [shr]). *)
       let v = T.var_t "v" and o = T.var_t "o" and m = T.var_t "m" in
+      let aux = helper "aux" in
       [
-        T.rule (T.app_t sym [ v; T.int_pos_t T.zero_t; m ]) v;
         T.rule
-          (T.app_t sym [ v; T.int_pos_t (T.succ_t o); m ])
+          (T.app_t sym [ v; T.int_pos_t o; m ])
+          (T.app_t aux [ T.bis_zero_t o; v; o; m ]);
+        T.rule (T.app_t aux [ T.bool_t ~scalars true; v; o; m ]) v;
+        T.rule
+          (T.app_t aux [ T.bool_t ~scalars false; v; o; m ])
           (T.app_t sym
              [
                T.add_int_t (T.div_int_t v (T.int_lit ~scalars 2)) m;
-               T.int_pos_t o;
+               T.int_pos_t (T.bpred_t o);
                m;
              ]);
         T.rule (T.app_t sym [ v; T.int_neg_t o; m ]) v;
@@ -428,17 +475,21 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         ]
       in
       [
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.sub_int_t n pow2w ])
           (common @ [ (T.leq_int_t half n, T.bool_t ~scalars true) ]);
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.add_int_t n pow2w ])
           (common
           @ [
               (T.leq_int_t half n, T.bool_t ~scalars false);
               (T.lt_int_t n neg_half, T.bool_t ~scalars true);
             ]);
-        T.rule_cond (T.app_t sym [ w; n ]) n
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          n
           (common
           @ [
               (T.leq_int_t half n, T.bool_t ~scalars false);
@@ -451,16 +502,21 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       let pow2w = T.var_t "pow2w" in
       let common = [ (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w) ] in
       [
-        T.rule_cond (T.app_t sym [ w; n ]) (T.mod_int_t n pow2w)
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          (T.mod_int_t n pow2w)
           (common @ [ (T.leq_int_t pow2w n, T.bool_t ~scalars true) ]);
-        T.rule_cond (T.app_t sym [ w; n ])
+        T.rule_cond
+          (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.add_int_t n pow2w ])
           (common
           @ [
               (T.leq_int_t pow2w n, T.bool_t ~scalars false);
               (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars true);
             ]);
-        T.rule_cond (T.app_t sym [ w; n ]) n
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          n
           (common
           @ [
               (T.leq_int_t pow2w n, T.bool_t ~scalars false);
@@ -477,18 +533,23 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           (T.negate_int_t (T.add_int_t n (T.int_lit ~scalars 1)));
       ]
   | ("band" | "bxor" | "bor"), _, _ ->
-      (* Unlike [bneg], AND/XOR/OR have no such arithmetic identity; this
-         only covers NONNEGATIVE operands (matching P4's actual use: `&`/`^`/
-         `|` combine already-masked, unsigned bit<w> values) -- decompose
-         both nat magnitudes bit by bit via [div_t]/[mod_t] by 2, recombining
-         with the operator's own single-bit formula. A negative operand
-         doesn't match [int_pos] and is left stuck, same spirit as
-         [bin_satplus]'s arbitrary-precision-operand case above. *)
-      let combine_bit bl br =
-        match id.it with
-        | "band" -> T.mul_t bl br
-        | "bor" -> T.sub_t (T.add_t bl br) (T.mul_t bl br)
-        | _ (* "bxor" *) -> T.mod_t (T.add_t bl br) (T.nat_lit ~scalars 2)
+      (* Unlike [bneg], AND/XOR/OR have no single arithmetic identity that
+         covers every sign combination directly, so this decomposes both
+         [BNatV] magnitudes bit by bit via [bdiv_t]/[bmod_t] by 2 (a
+         mechanical retarget of the same recursive shape used against the old
+         Peano magnitude, not a redesign around direct [bd0]/[bd1] matching:
+         [bdiv]/[bmod] are already O(log n), so this stays O(w) recursive
+         levels each costing O(log(current value)), not the exponential
+         blowup a Peano magnitude would have meant here) for NONNEGATIVE
+         operands, then reaches negative operands through the standard
+         infinite-two's-complement identities below -- matching
+         [Bigint.bit_and]/[bit_or]/[bit_xor] ([targets/p4/builtins/numerics.ml]),
+         the reference interpreter's own arbitrary-precision semantics. *)
+      let combine_bit op bl br =
+        match op with
+        | `And -> T.bmul_t bl br
+        | `Or -> T.bsub_t (T.badd_t bl br) (T.bmul_t bl br)
+        | `Xor -> T.bmod_t (T.badd_t bl br) (T.bnat_lit ~scalars 2)
       in
       (* AND's identity is 0 (0 against anything is 0); OR/XOR's is the
          OTHER operand unchanged (0 contributes nothing to either) -- a
@@ -497,30 +558,104 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
          caught by testing band/bor/bxor independently: band(6,3)=2 checked
          out, but a shared zero-base gave bor(6,3)=3 and bxor(6,3)=1 instead
          of the correct 7 and 5). *)
-      let base_rhs other = match id.it with "band" -> T.zero_t | _ -> other in
+      let base_rhs op other = match op with `And -> T.bzero_t | _ -> other in
+      (* The recursive bit-decomposition rules for one BNat-level bitwise
+         [op] over two NONNEGATIVE magnitudes, defining [nat_sym]. Every
+         top-level operator needs its own shape (AND for [$band], OR for
+         [$bor], XOR for [$bxor]) as its PRIMARY nat helper; AND and OR each
+         also need the OTHER's shape as a CROSS helper, for the De Morgan
+         identities their negative-operand cases reduce through below. *)
+      let nat_op_rules op nat_sym =
+        let l = T.var_t "l" and r = T.var_t "r" in
+        let two_n = T.bnat_lit ~scalars 2 in
+        let bl = T.var_t "bl" and br = T.var_t "br" in
+        let ql = T.var_t "ql" and qr = T.var_t "qr" in
+        [
+          T.rule (T.app_t nat_sym [ T.bzero_t; r ]) (base_rhs op r);
+          T.rule (T.app_t nat_sym [ l; T.bzero_t ]) (base_rhs op l);
+          T.rule_cond
+            (T.app_t nat_sym [ l; r ])
+            (T.badd_t (combine_bit op bl br)
+               (T.bmul_t two_n (T.app_t nat_sym [ ql; qr ])))
+            [
+              (T.bis_zero_t l, T.bool_t ~scalars false);
+              (T.bis_zero_t r, T.bool_t ~scalars false);
+              (T.bmod_t l two_n, bl);
+              (T.bmod_t r two_n, br);
+              (T.bdiv_t l two_n, ql);
+              (T.bdiv_t r two_n, qr);
+            ];
+        ]
+      in
+      let op = match id.it with "band" -> `And | "bor" -> `Or | _ -> `Xor in
       let nat_sym = helper "nat" in
+      let primary_rules = nat_op_rules op nat_sym in
+      let cross_sym = helper "nat_cross" in
+      let cross_rules =
+        match op with
+        | `And -> nat_op_rules `Or cross_sym
+        | `Or -> nat_op_rules `And cross_sym
+        | `Xor -> []
+      in
+      (* Sign cases beyond (nonneg, nonneg) all follow from writing a negative
+         operand [int_neg m] as the two's-complement identity [~m] (recall
+         [int_neg m] itself already represents [-(m+1)], i.e. [bneg]'s [~m] --
+         {!Ctrs_term}'s [int_neg_t]), then pushing the NOT through the
+         operator via De Morgan for AND/OR ([~a & b = b - (a & b)],
+         [~a & ~b = ~(a | b)], and symmetrically for OR) or through XOR's own
+         NOT-cancellation ([~a ^ b = ~(a ^ b)], [~a ^ ~b = a ^ b]). Every
+         subtraction here is a proper bit subset of its minuend by
+         construction, so [bsub_t]'s monus never clamps. *)
       let l = T.var_t "l" and r = T.var_t "r" in
-      let two_n = T.nat_lit ~scalars 2 in
-      let bl = T.var_t "bl" and br = T.var_t "br" in
-      let ql = T.var_t "ql" and qr = T.var_t "qr" in
-      [
-        T.rule
-          (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
-          (T.int_pos_t (T.app_t nat_sym [ l; r ]));
-        T.rule (T.app_t nat_sym [ T.zero_t; r ]) (base_rhs r);
-        T.rule (T.app_t nat_sym [ l; T.zero_t ]) (base_rhs l);
-        T.rule_cond (T.app_t nat_sym [ l; r ])
-          (T.add_t (combine_bit bl br)
-             (T.mul_t two_n (T.app_t nat_sym [ ql; qr ])))
-          [
-            (T.eq_t l T.zero_t, T.bool_t ~scalars false);
-            (T.eq_t r T.zero_t, T.bool_t ~scalars false);
-            (T.mod_t l two_n, bl);
-            (T.mod_t r two_n, br);
-            (T.div_t l two_n, ql);
-            (T.div_t r two_n, qr);
-          ];
-      ]
+      let sign_rules =
+        match op with
+        | `And ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.bsub_t r (T.app_t nat_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_pos_t (T.bsub_t l (T.app_t nat_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t cross_sym [ l; r ]));
+            ]
+        | `Or ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_neg_t (T.bsub_t l (T.app_t cross_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.bsub_t r (T.app_t cross_sym [ l; r ])));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t cross_sym [ l; r ]));
+            ]
+        | `Xor ->
+            [
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_pos_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_pos_t r ])
+                (T.int_neg_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_pos_t l; T.int_neg_t r ])
+                (T.int_neg_t (T.app_t nat_sym [ l; r ]));
+              T.rule
+                (T.app_t sym [ T.int_neg_t l; T.int_neg_t r ])
+                (T.int_pos_t (T.app_t nat_sym [ l; r ]));
+            ]
+      in
+      primary_rules @ cross_rules @ sign_rules
   | "bitacc", _, _ ->
       (* [n[m:l]] masks the low [(m - l + 1)] bits of [n >> l]; validity
          ([l >= 0], [m >= l]) is a guard, not a computed default -- an
@@ -529,7 +664,8 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       let n = T.var_t "n" and m = T.var_t "m" and l = T.var_t "l" in
       let shifted = T.var_t "shifted" and mask = T.var_t "mask" in
       [
-        T.rule_cond (T.app_t sym [ n; m; l ])
+        T.rule_cond
+          (T.app_t sym [ n; m; l ])
           (T.app_t (builtin "band") [ shifted; mask ])
           [
             (T.leq_int_t (T.int_lit ~scalars 0) l, T.bool_t ~scalars true);
@@ -542,12 +678,78 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
               mask );
           ];
       ]
+  | ("sum_nat" | "max_nat" | "min_nat"), _, _ -> (
+      (* [$sizeof_minSizeInBits']-style header/struct/tuple size computations
+         fold these over a [TypeIR] list, matching [targets/p4/builtins/nats.ml]'s
+         [List.fold_left (+/max/min) Bigint.zero] exactly -- including its
+         [min]'s degenerate consequence: since every [nat] is already >= 0,
+         seeding the fold at 0 makes [min_nat] return 0 for EVERY list, empty
+         or not (0 is <= every element, so it wins every comparison), not the
+         list's actual minimum. That's the reference interpreter's own
+         behavior, reproduced verbatim rather than "fixed" here. [sum]/[max]
+         don't have this degeneracy: 0 is additive-identity for [sum], and a
+         nonempty list's true max is never below the 0 seed. *)
+      let x = T.var_t "x"
+      and xs = T.var_t "xs" in
+      match id.it with
+      | "min_nat" -> [ T.rule (T.app_t sym [ xs ]) T.zero_t ]
+      | "sum_nat" ->
+          [
+            T.rule (T.app_t sym [ T.nil_t ]) T.zero_t;
+            T.rule
+              (T.app_t sym [ T.cons_t x xs ])
+              (T.add_t x (T.app_t sym [ xs ]));
+          ]
+      | _ (* "max_nat" *) ->
+          [
+            T.rule (T.app_t sym [ T.nil_t ]) T.zero_t;
+            T.rule_cond
+              (T.app_t sym [ T.cons_t x xs ])
+              x
+              [ (T.leq_t (T.app_t sym [ xs ]) x, T.bool_t ~scalars true) ];
+            T.rule_cond
+              (T.app_t sym [ T.cons_t x xs ])
+              (T.app_t sym [ xs ])
+              [ (T.leq_t (T.app_t sym [ xs ]) x, T.bool_t ~scalars false) ];
+          ])
   | _ -> []
 
-(* The text builtins the Maude backend re-emits as built-in-String delegations
-   ({!To_maude}); emitting their structural recursion too would clash, so the
-   [Native] theory omits them (the [Structural] analysis keeps them). *)
-let delegated_in_native = [ "int_to_text"; "strip_prefix"; "strip_suffix" ]
+(* The builtins the Maude backend re-emits as one-line delegations over Maude's
+   built-in Bool/Nat/Int/String ({!To_maude.delegation_eqs}); emitting their
+   structural recursion too would clash, so the [Native] theory omits them (the
+   [Structural] analysis keeps them).
+
+   "Clash" is not merely redundancy: the structural equation is declared FIRST,
+   so it wins the match, and it then calls a binary-nat helper ([bpow_nat],
+   [badd], [bsub], [bis_zero], ...) whose {!Prelude} equations the [Native]
+   theory deliberately omits -- leaving the call permanently stuck. That is how
+   [~32w0] (via [$un_bnot] -> [$pow2] -> [bpow_nat]) used to strand a whole
+   program's typing. Keep this list in sync with {!To_maude.delegation_eqs}:
+   every builtin with a delegation there and a rule case above belongs here. *)
+let delegated_in_native =
+  [
+    (* text *)
+    "int_to_text";
+    "strip_prefix";
+    "strip_suffix";
+    "strip_all_whitespace";
+    (* fixed-width numeric + bitwise *)
+    "pow2";
+    "shl";
+    "shr";
+    "shr_arith";
+    "bneg";
+    "band";
+    "bxor";
+    "bor";
+    "bitacc";
+    (* nat-list folds: the structural rules seed the fold at [bzero], a binary-nat
+       constant the [Native] theory has no equation for, so a single fold step
+       ([add(nat(32), bzero)]) strands the whole reduction. *)
+    "sum_nat";
+    "max_nat";
+    "min_nat";
+  ]
 
 (* Every collection-builtin rule the spec's [BuiltinDecD]s call for, plus the
    shared list helpers, as definition rules for {!To_ctrs.of_spec}'s prunable
