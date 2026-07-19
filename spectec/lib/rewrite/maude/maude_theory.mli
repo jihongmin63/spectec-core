@@ -2,7 +2,7 @@
     spelling of the scalar wrapper constructors and the literal builders for
     them.
 
-    The analysis pipeline keeps self-contained structural scalars (binary nats,
+    The analysis pipeline keeps self-contained structural scalars (Peano nats,
     sign-magnitude ints, char-list texts, own booleans) because a CTRS has no
     external theories. The execution pipeline instead targets Maude's built-in
     Bool/Nat/Int/String: ground scalar values live in wrapper constructors over

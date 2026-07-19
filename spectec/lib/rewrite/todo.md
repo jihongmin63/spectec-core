@@ -1685,7 +1685,6 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   → $write_value_from_bits' n_var=0 경계                                       [CRC MAYBE 5의 뿌리이자 유일한 진짜 비합류: 2.1.2-value-aux.spectec:147-153의 두 절이 n_var=0에서 동시에 발화. 원 스펙의 절 순서가 지던 disambiguation을 번역이 잃음 → n_var≠0 가드(또는 owise) 복원 필요. (term 쪽은 fold 이후 5심볼 전부 YES — 3fbbe1d6)]
   → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
-  → owise 조건부-형제 v2 (부정-누적 경로, 미검증)                              [complement_clauses에 코드는 있으나(2026-07-16) 발화 표본이 corpus에 없어 CRC 개선 효과 미확인. 다음 owise MAYBE가 조건부 형제를 가지면 최우선 확인 지점]
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
          termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md

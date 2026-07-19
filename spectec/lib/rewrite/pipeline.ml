@@ -60,19 +60,13 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    fold makes redundant, so the MFE's Church-Rosser checker is not tripped by
    the spurious critical pairs the single-sort [prod = v] / [v = K(..)]
    condition rendering of a (deterministic) binding would otherwise raise.
-   {!Reflect.align_guards} then respells complementary comparison guards
-   ([lt]/[lt_int] and leading [not]) to a canonical [leq]/[leq_int] predicate at
-   inverted polarity, so sibling clauses split on [i < 0] vs [i >= 0] (spelled
-   by translation as [lt_int(X,0)] vs the swapped [leq_int(0,X)]) share one
-   subject term and the CRC discharges their pair -- run before [owise] so the
-   sibling guards [owise] reflects from inherit the aligned spelling.
    {!Reflect.owise} then replaces each reflectable [owise] rule's marker with
    the explicit "no earlier sibling applies" guard condition, so the checker
    discharges the owise/sibling pairs instead of flagging them (the
    unreflectable remainder keeps its flag for {!Mfe}'s [drop_owise]
    fallback). It also, system-wide (not only for owise rules), inserts a
    [holds_<helper>(args) = true] test before any condition binding a
-   success-reflected [$itercollect] helper's result -- the
+   success-reflected [$itercollect]/[$iterapply] helper's result -- the
    helper's own call site never carries a bool rhs for
    {!Reflect.replace_cond} to respell, so the guard alignment a later owise
    reflection needs is added as an extra condition instead. All three are
@@ -93,7 +87,6 @@ let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
       ~rule_heads:(To_ctrs.rule_head_syms spec)
       sys
   in
-  let sys = Reflect.align_guards ~scalars:To_ctrs.Structural sys in
   Reflect.owise ~scalars:To_ctrs.Structural ~orig:dspec
     ~effectful:(Gensym.effectful_syms sys)
     sys

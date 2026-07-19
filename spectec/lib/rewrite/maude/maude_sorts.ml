@@ -108,23 +108,6 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("int_pos", ([ "NatV" ], "IntV"));
     ("int_neg", ([ "NatV" ], "IntV"));
     ("negate_int", i1);
-    (* BUG FIX: [abs_nat]/[sub_int_nat] used to be declared over Peano [NatV]
-       (correct back when [int_pos]/[int_neg]'s magnitude WAS Peano); the
-       Phase 4 retype to [BNatV] updated their RULES (in {!Prelude}) but not
-       these two declarations, leaving both silently ill-sorted against
-       their own actual output/argument sort ever since. Unlike [nat_of_int]
-       (a genuine [DownCastE] bridge whose callers throughout the wider spec
-       need real Peano [NatV] back, hence [bnat_to_nat] there), [abs_nat]/
-       [sub_int_nat] are purely internal to this int-family (only ever
-       consumed by [div_int]/[mod_int]/[add_int]'s own rules here, never by
-       {!Builtin} or the wider [.spectec] source, confirmed by grep), and
-       every one of those consumers already correctly expects [BNatV] --
-       so the fix is these two declarations, not a bridging rule. Found via
-       the differential corpus run: any program computing [div_int]/
-       [mod_int] or the [int_pos]/[int_neg] cross-sign [add_int] cases (e.g.
-       [int<n>]-typed negative constant folding, which routes through
-       [add_int]'s [sub_int_nat] case) got permanently stuck one level up,
-       the same failure shape as the [nat_of_int] bug. *)
     ("abs_nat", ([ "IntV" ], "NatV"));
     ("nonneg_int", ([ "IntV" ], "BoolV"));
     ("nat_of_int", ([ "IntV" ], "NatV"));
@@ -137,62 +120,6 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("pow_int", i2);
     ("leq_int", i2b);
     ("lt_int", i2b);
-    (* Binary (Coq [positive]/[N]-style) nat family: the representation of BOTH
-       a bare nat AND [int_pos]/[int_neg]'s magnitude (the nat->binary retype
-       merged the former separate [BNatV] magnitude sort into [NatV]). All four
-       constructors sit in the ONE sort [NatV] (no separate zero-free [positive]
-       sort: this recovery table holds only one signature per symbol name, so
-       [bd0]/[bd1] cannot be typed to statically reject a zero argument the way
-       Coq's [positive] does -- canonicity is instead a by-construction property
-       of every rule in {!Prelude} that builds a nat term, see {!Ctrs_term}'s
-       doc comment). [Bmask] is [bsub_mask]'s 3-valued truncated-subtraction
-       result, [Bcmp] is [bcompare]'s 3-valued relation-so-far; neither is ever
-       itself used as a magnitude, so neither has a [NatV] subsort edge. (The old
-       Peano<->binary bridges [bnat_of_nat]/[bnat_to_nat]/[double_nat] are gone
-       now that a nat IS binary.) *)
-    ("bzero", ([], "NatV"));
-    ("bone", ([], "NatV"));
-    ("bd0", ([ "NatV" ], "NatV"));
-    ("bd1", ([ "NatV" ], "NatV"));
-    ("bsucc", ([ "NatV" ], "NatV"));
-    ("bpred", ([ "NatV" ], "NatV"));
-    ("bpred_double", ([ "NatV" ], "NatV"));
-    ("bis_zero", ([ "NatV" ], "BoolV"));
-    ("badd", ([ "NatV"; "NatV" ], "NatV"));
-    ("badd_carry", ([ "NatV"; "NatV" ], "NatV"));
-    ("bmask_nul", ([], "Bmask"));
-    ("bmask_neg", ([], "Bmask"));
-    ("bmask_pos", ([ "NatV" ], "Bmask"));
-    ("bsub_mask", ([ "NatV"; "NatV" ], "Bmask"));
-    ("bsub_mask_carry", ([ "NatV"; "NatV" ], "Bmask"));
-    ("bdouble_mask", ([ "Bmask" ], "Bmask"));
-    ("bsucc_double_mask", ([ "Bmask" ], "Bmask"));
-    ("bsub_of_mask", ([ "Bmask" ], "NatV"));
-    ("bsub", ([ "NatV"; "NatV" ], "NatV"));
-    ("bmul", ([ "NatV"; "NatV" ], "NatV"));
-    ("bring0", ([ "NatV" ], "NatV"));
-    ("bring1", ([ "NatV" ], "NatV"));
-    ("bdivmod", ([ "NatV"; "NatV" ], "Bdivmod"));
-    ("bquot", ([ "Bdivmod" ], "NatV"));
-    ("brem", ([ "Bdivmod" ], "NatV"));
-    ("bdivmod_pos", ([ "NatV"; "NatV" ], "Bdivmod"));
-    ("bdivmod_step0", ([ "Bdivmod"; "NatV" ], "Bdivmod"));
-    ("bdivmod_step1", ([ "Bdivmod"; "NatV" ], "Bdivmod"));
-    ("bdivmod_combine", ([ "NatV"; "NatV"; "NatV" ], "Bdivmod"));
-    ("bdivmod_dispatch", ([ "BoolV"; "NatV"; "NatV"; "NatV" ], "Bdivmod"));
-    ("bdivmod_base", ([ "BoolV"; "NatV" ], "Bdivmod"));
-    ("bdiv", ([ "NatV"; "NatV" ], "NatV"));
-    ("bmod", ([ "NatV"; "NatV" ], "NatV"));
-    ("blt_kind", ([], "Bcmp"));
-    ("beq_kind", ([], "Bcmp"));
-    ("bgt_kind", ([], "Bcmp"));
-    ("bcompare_cont", ([ "Bcmp"; "NatV"; "NatV" ], "Bcmp"));
-    ("bcompare", ([ "NatV"; "NatV" ], "Bcmp"));
-    ("ble_of_cmp", ([ "Bcmp" ], "BoolV"));
-    ("blt_of_cmp", ([ "Bcmp" ], "BoolV"));
-    ("bleq", ([ "NatV"; "NatV" ], "BoolV"));
-    ("blt", ([ "NatV"; "NatV" ], "BoolV"));
-    ("bpow_nat", ([ "NatV"; "NatV" ], "NatV"));
     ("nil", ([], "List"));
     ("cons", ([ val_sort; "List" ], "List"));
     (* [len]/[cat] also work over texts, and [List < Text] makes [Text] the
@@ -221,10 +148,9 @@ let shared_op_sigs : (string * (string list * string)) list =
 
 (* The scalar CONSTRUCTOR signatures, per theory. [Native] wraps Maude's
    built-ins ([nat(3) : NatV], {!Maude_theory}); [Structural] declares the
-   self-contained own-boolean constructors ([true]/[false]). Naturals are now
-   binary-encoded: their constructors ([bzero]/[bone]/[bd0]/[bd1] : NatV) and
-   the sign-magnitude int constructors ([int_pos]/[int_neg]) already appear in
-   {!shared_op_sigs}, and [chr_<n>] is handled by the {!signature} heuristic. *)
+   self-contained Peano/sign-magnitude/own-boolean constructors ([zero]/[succ]/
+   [true]/[false]; [int_pos]/[int_neg] already appear in {!shared_op_sigs}, and
+   [chr_<n>] is handled by the {!signature} heuristic). *)
 let scalar_ctor_sigs : scalar_theory -> (string * (string list * string)) list =
   function
   | Native ->
@@ -234,7 +160,13 @@ let scalar_ctor_sigs : scalar_theory -> (string * (string list * string)) list =
         (Maude_theory.int_wrap_sym, ([ "Int" ], "IntV"));
         (Maude_theory.text_wrap_sym, ([ "String" ], "Text"));
       ]
-  | Structural -> [ ("true", ([], "BoolV")); ("false", ([], "BoolV")) ]
+  | Structural ->
+      [
+        ("zero", ([], "NatV"));
+        ("succ", ([ "NatV" ], "NatV"));
+        ("true", ([], "BoolV"));
+        ("false", ([], "BoolV"));
+      ]
 
 let prelude_sigs (scalars : scalar_theory) :
     (string * (string list * string)) list =
@@ -248,7 +180,7 @@ let case_origin_mixop (tc : typcase) : string * Lang.Il.mixop =
 
 (* Subsort edges (sub, super) and per-symbol signatures recovered from the
    original spec's type/relation/function declarations. *)
-(* The iteration/reflection layer synthesizes helpers ([$iterproj_..],
+(* The iteration/reflection layer synthesizes helpers ([$unzip_..],
    [$itercollect_..], [holds_$iterall_..], ..) that never appear in [orig]'s
    own [TypD]/[RelD]/[DecD], so [tbl] has no entry for them and [signature]'s
    fallback types them all-[Val] -- workable in isolation (a stuck [Val] can
@@ -277,8 +209,7 @@ let infer_ranges (rules : R.rule list) : sigs =
       match (R.defined_head r, r.R.lhs, r.R.rhs) with
       | Some sym, R.App (_, args), R.App (h, _) ->
           let arity, hs =
-            Option.value
-              (Hashtbl.find_opt seen sym)
+            Option.value (Hashtbl.find_opt seen sym)
               ~default:(List.length args, [])
           in
           Hashtbl.replace seen sym (arity, h :: hs)
@@ -316,10 +247,9 @@ let infer_ranges (rules : R.rule list) : sigs =
       | [] -> ()
       | h0 :: rest -> (
           match range_of_head h0 with
-          | Some rng
-            when List.for_all (fun h -> range_of_head h = Some rng) rest ->
-              Hashtbl.replace ranges sym
-                (List.init arity (fun _ -> val_sort), rng)
+          | Some rng when List.for_all (fun h -> range_of_head h = Some rng) rest
+            ->
+              Hashtbl.replace ranges sym (List.init arity (fun _ -> val_sort), rng)
           | _ -> ()))
     seen;
   ranges
@@ -352,7 +282,8 @@ let infer_proj_ranges (tbl : sigs) (rules : R.rule list) : sigs =
           | Some i -> (
               match Hashtbl.find_opt tbl ctor with
               | Some (ctor_args, _) when List.length ctor_args > i ->
-                  Hashtbl.replace ranges sym ([ val_sort ], List.nth ctor_args i)
+                  Hashtbl.replace ranges sym
+                    ([ val_sort ], List.nth ctor_args i)
               | _ -> ())
           | None -> ())
       | _ -> ())
@@ -430,38 +361,27 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
   merge_gaps (infer_proj_ranges tbl rules);
   (tbl, !subsorts)
 
-(* The signature of [sym] at [arity]: for the per-type predicates the CTRS
-   derives ([match_<T>_*]/[subty_<T>]/[holds_*] (the {!Reflect} judgment
-   reflections)/[eqg]), ALWAYS [BoolV] over a bare-[Val] subject -- checked
-   before the recovered/prelude lookup, not merely as its fallback. [subty_<T>]
-   is generated to span its WHOLE encompassing type (every sibling case gets
-   an explicit clause), so recovery already infers a wide domain for it; but
-   [match_<T>_*] ({!Reflect.ensure_matchers}) is generated to discriminate
-   ONLY between [T]'s own handful of cases, so recovery infers [T] itself --
-   the narrowest sort covering just those clauses' own constructors. That is
-   correct when the caller already narrowed its subject to [T] first, but
-   {!Reflect.sibling_guard}'s owise reflection calls a nested variant's
-   [match_] directly on a subject only known to be the OUTER type (e.g.
-   [match_booleanLiteral_TRUE_0] on an [Expression]-sorted subject while
-   reflecting [$name_expression]'s catch-all) -- ill-sorted at that narrow
-   domain, so Maude can never bring the application down to [BoolV] and the
-   whole owise guard is permanently stuck (silently: reflection itself
-   succeeds, since it only checks variable binding, not sort compatibility --
-   this is a run-structural-only failure, invisible as a "no holds_
-   reflection" warning). Recovering the narrow domain first only papers over
-   the equations that happen to agree with it; forcing the wide one
-   unconditionally is what the generator actually relies on. *)
+(* The signature of [sym] at [arity]: the recovered/prelude one when its arity
+   agrees, otherwise a heuristic for the per-type predicates the CTRS derives
+   ([match_<T>_*]/[subty_<T>]/[holds_*] (the {!Reflect} judgment reflections)
+   decide [BoolV] over a bare-[Val] subject -- [subty_<T>] is totalized over
+   [Val], and a generic matcher may see any value), and finally an all-[Val]
+   fallback. (The iteration helpers
+   [$itermap]/[$unzip]/[$iterall]/[$itercollect] are intentionally left at [Val]:
+   their arg/result sorts vary -- [$iterall] returns a [BoolV], [$itercollect]'s
+   spine sort depends on the body -- so a blanket [List] typing was ill-formed
+   and stuck tuple/sequence programs.) *)
 let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
-  let has p =
-    String.length sym >= String.length p
-    && String.sub sym 0 (String.length p) = p
-  in
-  if has "match_" || has "subty_" || has "holds_" || sym = "eqg" then
-    (List.init arity (fun _ -> val_sort), "BoolV")
-  else
-    match Hashtbl.find_opt tbl sym with
-    | Some (args, res) when List.length args = arity -> (args, res)
-    | _ -> (List.init arity (fun _ -> val_sort), val_sort)
+  match Hashtbl.find_opt tbl sym with
+  | Some (args, res) when List.length args = arity -> (args, res)
+  | _ ->
+      let has p =
+        String.length sym >= String.length p
+        && String.sub sym 0 (String.length p) = p
+      in
+      if has "match_" || has "subty_" || has "holds_" || sym = "eqg" then
+        (List.init arity (fun _ -> val_sort), "BoolV")
+      else (List.init arity (fun _ -> val_sort), val_sort)
 
 (* -------------------------------------------------------------------------- *)
 (* Subsort order (for picking the most specific sort of a variable). *)
@@ -568,10 +488,10 @@ let rec print_term scalars vs (t : R.term) : string =
 (* -------------------------------------------------------------------------- *)
 (* Symbol collection for op declarations. *)
 
-(* The spec's own data constructors: every variant case and every struct
-   constructor. Struct field accessors/updaters are NOT here -- they are defined
-   symbols (equations rewrite them away), see {!il_declared_syms}. *)
-let il_ctor_syms (orig : spec) : string list =
+(* Sorts and constructors that must be declared even if the spec's rules never
+   mention them, so concrete start terms (built by a language encoder) can be
+   formed: every variant case and struct constructor/accessor from [orig]. *)
+let il_constructor_syms (orig : spec) : string list =
   List.concat_map
     (fun def ->
       match def.it with
@@ -581,115 +501,13 @@ let il_ctor_syms (orig : spec) : string list =
               let origin, mixop = case_origin_mixop tc in
               T.variant_sym origin mixop)
             typcases
-      | TypD { synid = t; deftyp = { it = StructT _; _ }; _ } ->
-          [ T.struct_sym t.it ]
+      | TypD { synid = t; deftyp = { it = StructT fields; _ }; _ } ->
+          T.struct_sym t.it
+          :: List.concat_map
+               (fun (a, _) -> [ T.field_sym t.it a; T.upd_field_sym t.it a ])
+               fields
       | _ -> [])
     orig
-
-(* Symbols that must be declared even if the spec's rules never mention them, so
-   concrete start terms (built by a language encoder) can be formed: the spec's
-   constructors, plus each struct's field accessors and updaters. *)
-let il_declared_syms (orig : spec) : string list =
-  il_ctor_syms orig
-  @ List.concat_map
-      (fun def ->
-        match def.it with
-        | TypD { synid = t; deftyp = { it = StructT fields; _ }; _ } ->
-            List.concat_map
-              (fun (a, _) -> [ T.field_sym t.it a; T.upd_field_sym t.it a ])
-              fields
-        | _ -> [])
-      orig
-
-(* The theory's own data constructors -- the symbols a normal form is BUILT from,
-   as opposed to the defined symbols the rules compute away. Maude spells this
-   split with the [ctor] operator attribute, and a tool that must know what a
-   normal form looks like needs it: the Sufficient Completeness Checker asks
-   whether every ground term reduces to a constructor term, which says nothing at
-   all if the signature never says which symbols those are.
-
-   Must track {!shared_op_sigs} and {!Prelude}: a constructor added there but
-   missing here merely goes unmarked (a tool then reads it as defined --
-   conservative, never unsound), whereas a DEFINED symbol listed here would be a
-   false claim. {!To_mfe} guards against exactly that by re-checking this set
-   against the rules' actual defined heads. *)
-let shared_ctor_syms : string list =
-  (* containers: lists (also the char-list spelling of a structural text),
-     options, tuples -- the same constructors in either theory *)
-  [ "nil"; "cons"; "none"; "some"; "tuple" ]
-
-(* The scalar constructors, per theory -- the value half of {!scalar_ctor_sigs}.
-   The split is not cosmetic: the sign-magnitude [int_pos]/[int_neg] BUILD an int
-   in the structural theory, but in the native one they are bridges INTO Maude's
-   built-in [int(_)] and carry equations, i.e. defined symbols there. Same for
-   the binary-nat family, which the native theory replaces outright. *)
-let scalar_ctor_syms : scalar_theory -> string list = function
-  | Native ->
-      [
-        Maude_theory.bool_wrap_sym;
-        Maude_theory.nat_wrap_sym;
-        Maude_theory.int_wrap_sym;
-        Maude_theory.text_wrap_sym;
-      ]
-  | Structural ->
-      [
-        "true";
-        "false";
-        (* binary nat, and the sign-magnitude wrappers that make it an int *)
-        "bzero";
-        "bone";
-        "bd0";
-        "bd1";
-        "int_pos";
-        "int_neg";
-        (* the result sorts of the binary arithmetic: [bsub_mask]'s 3-valued
-           truncated-subtraction mask, [bcompare]'s 3-valued comparison, and
-           [bdivmod]'s quotient/remainder pair (its [bquot]/[brem] projections
-           are defined symbols; this pairing constructor is not) *)
-        "bmask_nul";
-        "bmask_neg";
-        "bmask_pos";
-        "blt_kind";
-        "beq_kind";
-        "bgt_kind";
-        "bdivmod";
-      ]
-
-(* Is [sym] a constructor of the module emitted for [scalars] and [orig]? The
-   [chr_<n>] characters (the structural spelling of a text) are a constructor
-   family recognized by shape: one member per byte value, generated on demand
-   rather than declared anywhere. *)
-let is_ctor (scalars : scalar_theory) (orig : spec) : string -> bool =
-  let tbl = Hashtbl.create 512 in
-  List.iter
-    (fun s -> Hashtbl.replace tbl s ())
-    (scalar_ctor_syms scalars @ shared_ctor_syms @ il_ctor_syms orig);
-  fun sym -> Hashtbl.mem tbl sym || Option.is_some (T.chr_code_of_sym sym)
-
-(* The [ctor] attribute for [sym]'s [op] declaration ([""] when it is a defined
-   symbol), for an emitted module whose rules define [defined].
-
-   Maude itself does not reduce differently for [ctor], but a tool that must know
-   what a normal form looks like cannot work without it -- the Sufficient
-   Completeness Checker asks precisely whether every ground term reduces to a
-   constructor term, which says nothing at all if the signature never says which
-   symbols those are.
-
-   A nominal constructor that turns out to carry equations is not one: declare it
-   plain rather than let the module state a falsehood, and say so -- a data
-   constructor being rewritten away is a translation smell worth seeing, not
-   worth silently papering over. *)
-let ctor_attr (scalars : scalar_theory) (orig : spec) ~(defined : string list) :
-    string -> string =
-  let is_ctor = is_ctor scalars orig in
-  fun sym ->
-    if not (is_ctor sym) then ""
-    else if List.mem sym defined then (
-      prerr_endline
-        ("maude_sorts: WARNING - constructor " ^ sym
-       ^ " has defining equations; declaring it without [ctor]");
-      "")
-    else " [ctor]"
 
 (* The distinct (symbol, arity) pairs that occur as application heads anywhere in
    the rules. A symbol used at several arities (the generic [tuple] constructor

@@ -44,19 +44,19 @@
    owise flag, so {!Mfe}'s [drop_owise] fallback still applies) any symbol
    whose siblings involve: a relation call (needs the R? judgment reflection,
    the planned Phase 3), an iteration helper without a success reflection
-   ([$iterall]/[$itercollect] when THIS attempt could not build
-   one for them; [$itermap]/[$iterproj] are pure stream transformers
+   ([$iterall]/[$itercollect]/[$iterapply] when THIS attempt could not build
+   one for them; [$unzip]/[$itermap]/[$iterproj] are pure stream transformers
    and never gated), a gensym state-threaded symbol, or a pattern/condition
    shape it cannot type against the spec. Each skip is reported on stderr
    with its reason, so the gate doubles as the follow-up worklist.
 
-   [$iterall]/[$itercollect] each get a "does this iteration
-   succeed" total-boolean reflection [holds_$iterall../$itercollect..]
-   built the same way as a judgment's [holds_R] (see the
+   [$iterall]/[$itercollect]/[$iterapply] each get a "does this iteration
+   succeed" total-boolean reflection [holds_$iterall../$itercollect../
+   $iterapply..] built the same way as a judgment's [holds_R] (see the
    judgment reflection section below): a base case of [true], and a step
    case that ANDs the inner premise's reflected conditions with the
-   recursive call. [$itercollect]'s own conditions never
-   carry a bool rhs (they always bind the collected value), so
+   recursive call. [$itercollect]'s and [$iterapply]'s own conditions never
+   carry a bool rhs (they always bind the collected/applied value), so
    {!replace_cond} never rewrites them -- instead, once a helper is
    success-reflected, EVERY rule (owise sibling or not) whose conditions
    bind its result gains an explicit [holds_<helper>(args) = true] test
@@ -189,30 +189,21 @@ let variant_case (tbl : tables) (ty : string) (ctor : string) :
    see through) into genuinely disjoint head patterns. Whether the fold
    actually fires is otherwise entirely [fold_premise_binders]'s call.
 
-   A clause whose head-bound [v] ALSO feeds a companion destructuring
-   condition (the [let K(x, y) = v] SpecTec's elaborator emits alongside the
-   [matches K] guard as two separate premises) cannot be respelled that way:
-   both conditions would still mention [v], so the fresh [v = K(fresh..)]
-   would be inert and [fold_premise_binders] would keep refusing the
-   companion (used-elsewhere). The two passes deadlock on each other's
-   leftover, and the head stays a bare variable -- costing the fold's two
-   payoffs at once: disjoint head patterns (CRC) and a syntactically
-   decreasing recursive argument (termination; the descent lives only in the
-   premise, where a dependency-pair analysis cannot see it).
-
-   So for that shape the matcher is DROPPED instead ([restated_by_destructure]):
-   [match_K(v) = true] is implied by [v = K(..)] naming the same [K], so
-   removing it preserves the clause's applicability while freeing the
-   companion to fold into the head -- where the pattern [K(..)] then states
-   the disjointness the matcher used to carry. Families still holding an
-   [owise] rule are exempt ([owise_head_syms]): there the CRC refutes the
-   negation guard {!owise} emits only by rewriting it with a sibling's
-   IDENTICAL guard term, so dropping that sibling's matcher would strip the
-   very hypothesis the discharge rests on (impty's [$lookup]).
-
-   Runs over the FLAT rule list {!To_ctrs} produced, so a matcher condition
-   nested inside an [IterPr] helper's step rule is covered the same way, with
-   no separate recursive scan. *)
+   The "no other condition mentions [v]" guard mirrors
+   [fold_premise_binders]'s own "not used elsewhere" gate for a reason: a
+   clause whose head-bound [v] ALSO feeds a companion destructuring condition
+   (e.g. a [let K(x, y) = v] alongside the [matches K] guard SpecTec's
+   elaborator emits as two separate premises) already blocks that
+   companion's own fold today (used-elsewhere), and unconditionally
+   respelling [match_K(v) = true] into a SECOND, differently-named
+   [v = K(fresh..)] would not unblock it (both conditions still mention [v])
+   -- it would only replace one inert opaque condition with an equally inert
+   but noisier structural one carrying dead fresh variables. Skipping the
+   respelling in that case leaves the original (harmless, already-inert)
+   [match_*] condition untouched, matching today's output exactly. Runs over
+   the FLAT rule list {!To_ctrs} produced, so a matcher condition nested
+   inside an [IterPr] helper's step rule is covered the same way, with no
+   separate recursive scan. *)
 
 type matcher = { ctor : string; arity : int }
 
@@ -246,25 +237,10 @@ let build_matcher_table (orig : spec) : (string, matcher) Hashtbl.t =
     ];
   tbl
 
-(* The head symbols whose clause family still carries an [owise] rule. Such a
-   family's disjointness is discharged by {!owise}'s negation guard, which the
-   CRC only refutes when a sibling states the SAME guard term it can rewrite
-   with -- so a sibling there keeps its matcher (see [drop_restated_matcher]). *)
-let owise_head_syms (sys : R.t) : string list =
-  List.filter_map
-    (fun (r : R.rule) ->
-      match (r.R.owise, r.R.lhs) with true, R.App (f, _) -> Some f | _ -> None)
-    sys.R.rules
-  |> R.dedup_stable
-
-let head_sym (t : R.term) : string option =
-  match t with R.App (f, _) -> Some f | R.Var _ -> None
-
 let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
     =
   let tbl = build_matcher_table orig in
   let yes = T.bool_t ~scalars true in
-  let owise_heads = owise_head_syms sys in
   let hoist_rule (r : R.rule) : R.rule =
     let n = ref 0 in
     let fresh () =
@@ -272,108 +248,28 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
       incr n;
       Printf.sprintf "hoist_%d" i
     in
-    let guarded_family =
-      match head_sym r.R.lhs with
-      | Some f -> List.mem f owise_heads
-      | None -> true
-    in
     let orig_conds = Array.of_list r.R.conds in
-    let mentions (v : string) ((l, rr) : R.cond) : bool =
-      R.count_var v l > 0 || R.count_var v rr > 0
-    in
-    let others i (v : string) : R.cond list =
+    let mentioned_elsewhere i (v : string) : bool =
       Array.to_list orig_conds
       |> List.filteri (fun j _ -> j <> i)
-      |> List.filter (mentions v)
+      |> List.exists (fun (l, rr) ->
+             R.count_var v l > 0 || R.count_var v rr > 0)
     in
-    (* [v]'s ONLY other occurrence destructures it against the very constructor
-       the matcher tests, so [match_K(v) = true] restates what [v = K(..)]
-       already says: dropping it loses nothing and frees
-       {!Rewrite_system.fold_premise_binders} (whose "used in no other
-       condition" gate the matcher itself was tripping) to fold the destructure
-       into the head. *)
-    let restated_by_destructure i (v : string) (ctor : string) : bool =
-      match others i v with
-      | [ (R.Var u, R.App (f, _)) ] | [ (R.App (f, _), R.Var u) ] ->
-          u = v && f = ctor
-      | _ -> false
-    in
-    let hoist_cond i ((l, r) : R.cond) : R.cond option =
+    let hoist_cond i ((l, r) : R.cond) : R.cond =
       match l with
-      | R.App (msym, [ R.Var v ]) when r = yes -> (
+      | R.App (msym, [ R.Var v ]) when r = yes && not (mentioned_elsewhere i v)
+        -> (
           match Hashtbl.find_opt tbl msym with
-          | None -> Some (l, r)
           | Some { ctor; arity } ->
-              if others i v = [] then
-                Some
-                  ( R.Var v,
-                    T.app_t ctor (List.init arity (fun _ -> T.var_t (fresh ())))
-                  )
-              else if (not guarded_family) && restated_by_destructure i v ctor
-              then None
-              else Some (l, r))
-      | _ -> Some (l, r)
+              ( R.Var v,
+                T.app_t ctor (List.init arity (fun _ -> T.var_t (fresh ()))) )
+          | None -> (l, r))
+      | _ -> (l, r)
     in
-    let conds =
-      List.mapi hoist_cond (Array.to_list orig_conds) |> List.filter_map Fun.id
-    in
-    { r with R.conds }
+    { r with R.conds = List.mapi hoist_cond (Array.to_list orig_conds) }
   in
   let rules = List.map hoist_rule sys.R.rules in
   { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
-
-(* -------------------------------------------------------------------------- *)
-(* Comparison / negation guard alignment.
-
-   The CRC discharges a conditional critical pair's infeasibility only when two
-   of its conditions reduce to the SAME subject term equated to [true] versus
-   [false] (it rewrites the conditions as mutual hypotheses; it does not narrow
-   the subject). Sibling clauses that split on complementary comparisons -- e.g.
-   [$bin_shr]'s arithmetic shift ([i < 0]) versus logical shift ([i >= 0]) --
-   translate to [lt_int(X, 0) = true] in one and [leq_int(0, X) = true] in the
-   other, because {!Ctrs_term.term_of_cmpop} normalizes [>=] to a swapped [leq].
-   Those are two different subject terms, so the CRC keeps the pair as a
-   spurious [MAYBE]. The prelude's [lt_int(x,y) = not(leq_int(y,x))] bridge does
-   NOT repair it: here [X] is a [$bitstr_to_int(..)] whose recovered sort is the
-   top [Val], while the bridge is declared over [IntV] (a subsort), so it never
-   fires on [X] -- measured, the sign split survives as 6 critical pairs.
-
-   This pass respells each top-level comparison guard to the canonical
-   [leq]/[leq_int] predicate at inverted polarity, so the two siblings end up
-   stating the SAME [leq_int(0, X)] term and the CRC discharges the pair by
-   hypothesis (measured: 6 pairs -> 0). A leading [not(..)] guard is flattened
-   the same way, lining a negated [match_K]/subtype/boolean-function test up
-   with its positive twin.
-
-   Satisfiability-equivalent in the structural prelude: [lt(a,b) ->* true] iff
-   [leq(b,a) ->* false] (both read the same total [bcompare]; the [leq_int] sign
-   rules are likewise total), and [not(X) ->* true] iff [X ->* false]. The swap
-   preserves the variable set. Analysis-only, like {!owise} -- the executable
-   surface keeps the original guards. *)
-let align_guards ~(scalars : T.scalar_theory) (sys : R.t) : R.t =
-  let tru = T.bool_t ~scalars true in
-  let fls = T.bool_t ~scalars false in
-  let flip b = if b then fls else tru in
-  (* One rewrite step toward canonical form; [None] when nothing applies. *)
-  let step ((l, r) : R.cond) : R.cond option =
-    let polarity =
-      if r = tru then Some true else if r = fls then Some false else None
-    in
-    match (l, polarity) with
-    | R.App ("not", [ x ]), Some p -> Some (x, flip p)
-    | R.App ("lt", [ a; b ]), Some p -> Some (T.leq_t b a, flip p)
-    | R.App ("lt_int", [ a; b ]), Some p -> Some (T.leq_int_t b a, flip p)
-    | _ -> None
-  in
-  let rec normalize (c : R.cond) : R.cond =
-    match step c with Some c' -> normalize c' | None -> c
-  in
-  let rules =
-    List.map
-      (fun (r : R.rule) -> { r with R.conds = List.map normalize r.R.conds })
-      sys.R.rules
-  in
-  { sys with R.rules }
 
 (* -------------------------------------------------------------------------- *)
 (* Skip conditions. *)
@@ -385,11 +281,11 @@ exception Gate of string
    currently-assumed-successful set (an in-progress attempt's candidates
    while judgment reflection is still generating [holds_] rules, the final
    successful set afterwards). The pure stream transformers
-   [$itermap]/[$iterproj] are allowed unconditionally: they call no
+   [$unzip]/[$itermap]/[$iterproj] are allowed unconditionally: they call no
    relation, and they enter a guard only through a binding condition the
    sibling itself carries with the same spelling, so the hypothesis
    alignment is preserved. *)
-let iter_helper_prefixes = [ "$iterall"; "$itercollect" ]
+let iter_helper_prefixes = [ "$iterall"; "$itercollect"; "$iterapply" ]
 
 let has_prefix p s =
   String.length s >= String.length p && String.sub s 0 (String.length p) = p
@@ -1096,84 +992,6 @@ let and_chain ~scalars (ts : R.term list) : R.term =
   | [] -> T.bool_t ~scalars true
   | t :: ts -> List.fold_left (fun a b -> T.and_t a b) t ts
 
-(* Reflect the sibling's own conditions under a pre-seeded substitution
-   [acc], returning the conjunction of [acc]'s accumulated tests and the
-   conditions'. Shared by {!sibling_guard} (which seeds [acc] by ptest-ing
-   every head position) and the complement-enumeration path (whose clause
-   heads already select the constructors, so it seeds enum positions by
-   direct substitution instead -- keeping ground matcher constants out of
-   the guard). *)
-let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
-    (effectful : string list) (succ : string list) (acc : acc) (s : R.rule) :
-    R.term =
-  (* variables the rule's OWN conditions bind to an exact constructor
-     application, by either side of the condition *)
-  let exactly_bound =
-    List.filter_map
-      (fun ((l, r) : R.cond) ->
-        match (l, r) with
-        | R.Var v, R.App (c, _) when Hashtbl.mem tbl.ctor_types c -> Some v
-        | R.App (c, _), R.Var v when Hashtbl.mem tbl.ctor_types c -> Some v
-        | _ -> None)
-      s.R.conds
-  in
-  let redundant_membership_test ((l, r) : R.cond) : bool =
-    r = T.bool_t ~scalars true
-    &&
-    match l with
-    | R.App (f, [ R.Var v ]) ->
-        (has_prefix "subty_" f || has_prefix "match_" f)
-        && List.mem v exactly_bound
-    | _ -> false
-  in
-  (* [s.R.conds] is the CTRS's raw premise order, not guaranteed to bind a
-     variable before a later condition uses it ({!To_maude.print_conds} hits
-     the identical issue and re-sorts by readiness for exactly this reason --
-     "a cast-stripped binding can sit after a test that uses it"). A rule
-     whose iterated sub-pattern is destructured into a fresh list (e.g. a
-     [{name = value}*] field list projected into two streams) emits its
-     [isStuckHead($iterproj_.. (fresh)) = false] guard ahead of the very
-     destructure that binds [fresh], so a naive left-to-right [ctest] pass
-     gates the whole judgment as unreflectable (seen on [Type_alpha]'s
-     [serializable] case, permanently stranding every negated [Type_alpha]/
-     [Cast_impl] premise -- i.e. every implicit numeric-to-bit cast). Repeat
-     picking whichever remaining condition is already satisfiable (its [l]'s
-     free variables are bound) until none are; whatever is left is fed through
-     in original order so a genuinely unreflectable rule still raises its
-     ordinary [Gate]. *)
-  let is_ready ((l, r) : R.cond) =
-    redundant_membership_test (l, r)
-    || List.for_all (fun v -> List.mem_assoc v acc.sub) (term_vars l)
-  in
-  let rec schedule (remaining : R.cond list) : unit =
-    let rec pick seen = function
-      | [] -> None
-      | c :: rest when is_ready c -> Some (c, List.rev_append seen rest)
-      | c :: rest -> pick (c :: seen) rest
-    in
-    match pick [] remaining with
-    | Some (c, rest) ->
-        if not (redundant_membership_test c) then
-          ctest ~scalars tbl sup effectful succ acc (prep c);
-        schedule rest
-    | None ->
-        List.iter
-          (fun c ->
-            if not (redundant_membership_test c) then
-              ctest ~scalars tbl sup effectful succ acc (prep c))
-          remaining
-  in
-  schedule s.R.conds;
-  (* an empty guard means the sibling always applies: the owise is dead;
-     drop duplicate conjuncts (a destructure re-tests the matcher the
-     sibling's own guard condition already spelled) *)
-  let dedup ts =
-    List.fold_left
-      (fun acc t -> if List.mem t acc then acc else acc @ [ t ])
-      [] ts
-  in
-  and_chain ~scalars (dedup (List.rev acc.tests))
-
 (* "sibling [s] applies", as one total boolean term over the owise rule's own
    variables. [ow_args] are the owise rule's head arguments (the subjects);
    [argtyps] the declared argument types when the spec gives them. [prep]
@@ -1194,204 +1012,40 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
     (fun j p ->
       ptest ~scalars tbl sup acc (List.nth ow_args j) (List.nth argtyps j) p)
     s_args;
-  sibling_conds_guard ~prep ~scalars tbl sup effectful succ acc s
-
-(* -------------------------------------------------------------------------- *)
-(* Complement enumeration (enum-dispatch owise).
-
-   Classify the owise rule's argument positions: an ENUM position (some
-   sibling puts a nullary constructor there; requires the declared type to
-   enumerate to nullary constructors only) or a PASS-THROUGH position (every
-   sibling has a bare variable). Enumerate the product over enum positions;
-   per tuple:
-   - covered by an unconditional sibling: the owise is dead there, emit
-     nothing;
-   - covered only by conditional siblings: emit a ground-head clause carrying
-     each covering sibling's reflected guard negated ([g = false] per
-     sibling -- a conjunction of negations, no or-gate);
-   - covered by nothing: emit the pure ground fall-through.
-   Every clause head is disjoint from every other tuple's, so critical pairs
-   only arise within a tuple, where the guards are guard-form (discharged by
-   the sibling's own hypotheses under the critical-pair unifier) -- never
-   the ground pattern-form disjuncts the CRC's nested-or feasibility check
-   cannot see, and does not normalize away, when a true disjunct sits buried
-   in a left-nested [or] (the [$join_ctk]/[$assignop_as_binop] MAYBEs; see
-   todo.md M1 2026-07-15). Analysis-only, like the rest of this pass.
-   [max_complement] caps the emitted clause count (the product of the enum
-   positions' constructor counts minus the fully-covered tuples). *)
-
-let max_complement = 16
-
-(* The nullary-constructor enumeration of a declared argument type, when it
-   resolves to a variant with ONLY nullary constructors (the same typdefs
-   walk as {!ensure_matchers}). *)
-let nullary_enum (tbl : tables) (et : typ' option) : string list option =
-  match Option.map (resolve tbl) et with
-  | Some (VarT { synid; _ }) -> (
-      match Hashtbl.find_opt tbl.typdefs synid.it with
-      | Some (VariantT typcases) ->
-          let cs =
-            List.map
-              (fun (tc : typcase) ->
-                let { synid = oid; _ } = tc.origin.it in
-                let mixop = Mixfix.to_mixop tc.notation.it in
-                (T.variant_sym oid.it mixop, Mixfix.arity mixop))
-              typcases
-          in
-          if List.for_all (fun (_, a) -> a = 0) cs then Some (List.map fst cs)
-          else None
-      | _ -> None)
-  | _ -> None
-
-let rec tuple_product : 'a list list -> 'a list list = function
-  | [] -> [ [] ]
-  | cs :: rest ->
-      let tails = tuple_product rest in
-      List.concat_map (fun c -> List.map (fun t -> c :: t) tails) cs
-
-type cpos = Enum of string list | Pass
-
-(* [Some clauses] when the owise rule [r] of [f] qualifies for complement
-   enumeration, [None] to fall back to the or-gate path. May raise [Gate]
-   (an unreflectable sibling condition) -- the caller rolls [sup] back and
-   falls back the same way. *)
-let complement_clauses ~scalars (tbl : tables) (sup : support)
-    (effectful : string list) (succ : string list) (f : string) (r : R.rule)
-    (ow_args : R.term list) (argtyps : typ' option list)
-    (siblings : R.rule list) : R.rule list option =
-  let n = List.length ow_args in
-  let ow_vars =
-    List.filter_map (function R.Var v -> Some v | _ -> None) ow_args
-  in
-  let sib_args =
+  (* variables the rule's OWN conditions bind to an exact constructor
+     application, by either side of the condition *)
+  let exactly_bound =
     List.filter_map
-      (fun (s : R.rule) ->
-        match s.R.lhs with
-        | R.App (_, a) when List.length a = n -> Some (s, a)
+      (fun ((l, r) : R.cond) ->
+        match (l, r) with
+        | R.Var v, R.App (c, _) when Hashtbl.mem tbl.ctor_types c -> Some v
+        | R.App (c, _), R.Var v when Hashtbl.mem tbl.ctor_types c -> Some v
         | _ -> None)
-      siblings
+      s.R.conds
   in
-  if
-    siblings = [] (* a no-sibling owise: complement would flip its meaning *)
-    || r.R.conds <> []
-    || List.length ow_vars <> n
-    || List.sort_uniq compare ow_vars <> List.sort compare ow_vars
-    || List.length sib_args <> List.length siblings
-  then None
-  else
-    let classify j =
-      let args_j = List.map (fun (_, a) -> List.nth a j) sib_args in
-      if List.for_all (function R.Var _ -> true | _ -> false) args_j then
-        Some Pass
-      else
-        match nullary_enum tbl (List.nth argtyps j) with
-        | Some cs
-          when List.for_all
-                 (function
-                   | R.Var _ -> true
-                   | R.App (c, []) -> List.mem c cs
-                   | _ -> false)
-                 args_j ->
-            Some (Enum cs)
-        | _ -> None
-    in
-    match
-      List.fold_right
-        (fun j acc ->
-          match (classify j, acc) with
-          | Some p, Some ps -> Some (p :: ps)
-          | _ -> None)
-        (List.init n Fun.id) (Some [])
-    with
-    | None -> None
-    | Some poss
-      when not (List.exists (function Enum _ -> true | Pass -> false) poss) ->
-        None (* purely conditional owise: guard-form or-gates discharge *)
-    | Some poss ->
-        (* candidate heads: per-position slots are the enum constructors, or
-           a single [None] slot at a pass-through position *)
-        let slots =
-          List.map
-            (function
-              | Enum cs -> List.map (fun c -> Some c) cs | Pass -> [ None ])
-            poss
-        in
-        let matches tuple (_, a) =
-          List.for_all2
-            (fun slot p ->
-              match (slot, p) with
-              | None, _ | Some _, R.Var _ -> true
-              | Some c, R.App (c', []) -> c = c'
-              | Some _, _ -> false)
-            tuple a
-        in
-        let cases =
-          List.filter_map
-            (fun tuple ->
-              let ms = List.filter (matches tuple) sib_args in
-              if List.exists (fun ((s : R.rule), _) -> s.R.conds = []) ms then
-                None (* an unconditional sibling covers it: owise dead *)
-              else Some (tuple, ms))
-            (tuple_product slots)
-        in
-        if List.length cases > max_complement then None
-        else
-          Some
-            (List.map
-               (fun (tuple, ms) ->
-                 let head_args =
-                   List.map2
-                     (fun slot v ->
-                       match slot with
-                       | Some c -> T.app_t c []
-                       | None -> T.var_t v)
-                     tuple ow_vars
-                 in
-                 let sub =
-                   List.concat
-                     (List.map2
-                        (fun slot v ->
-                          match slot with
-                          | Some c -> [ (v, T.app_t c []) ]
-                          | None -> [])
-                        tuple ow_vars)
-                 in
-                 (* one negated guard PER covering conditional sibling: a
-                    conjunction of negations, no or-gate. The clause head
-                    already selects the constructors, so enum positions seed
-                    the substitution directly instead of ptest-ing -- keeping
-                    ground matcher constants (the very shape the CRC cannot
-                    normalize) out of the guard. *)
-                 let conds =
-                   List.map
-                     (fun ((s : R.rule), a) ->
-                       let acc = { tests = []; sub = [] } in
-                       List.iteri
-                         (fun j p ->
-                           match (List.nth tuple j, p) with
-                           | Some _, R.App (_, []) ->
-                               () (* the head already selects this ctor *)
-                           | Some c, R.Var v ->
-                               acc.sub <-
-                                 (v, (T.app_t c [], List.nth argtyps j))
-                                 :: acc.sub
-                           | None, p ->
-                               ptest ~scalars tbl sup acc (List.nth ow_args j)
-                                 (List.nth argtyps j) p
-                           | Some _, _ -> assert false)
-                         a;
-                       ( sibling_conds_guard ~scalars tbl sup effectful succ acc
-                           s,
-                         T.bool_t ~scalars false ))
-                     ms
-                 in
-                 {
-                   R.lhs = T.app_t f head_args;
-                   rhs = subst sub r.R.rhs;
-                   conds;
-                   owise = false;
-                 })
-               cases)
+  let redundant_membership_test ((l, r) : R.cond) : bool =
+    r = T.bool_t ~scalars true
+    &&
+    match l with
+    | R.App (f, [ R.Var v ]) ->
+        (has_prefix "subty_" f || has_prefix "match_" f)
+        && List.mem v exactly_bound
+    | _ -> false
+  in
+  List.iter
+    (fun c ->
+      if not (redundant_membership_test c) then
+        ctest ~scalars tbl sup effectful succ acc (prep c))
+    s.R.conds;
+  (* an empty guard means the sibling always applies: the owise is dead;
+     drop duplicate conjuncts (a destructure re-tests the matcher the
+     sibling's own guard condition already spelled) *)
+  let dedup ts =
+    List.fold_left
+      (fun acc t -> if List.mem t acc then acc else acc @ [ t ])
+      [] ts
+  in
+  and_chain ~scalars (dedup (List.rev acc.tests))
 
 (* -------------------------------------------------------------------------- *)
 (* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
@@ -1489,13 +1143,13 @@ let gen_rel_holds ~scalars ~prep (tbl : tables) (sup : support)
   in
   [ T.rule (T.app_t (holds_sym name) xs) disj ]
 
-(* The explicit [false] rules a totalized [holds_$iterall../$itercollect..]
-   needs for a multi-spine List iteration whose bound streams
+(* The explicit [false] rules a totalized [holds_$iterall../$itercollect../
+   $iterapply..] needs for a multi-spine List iteration whose bound streams
    can desync (one hits [nil] before another): every non-trivial subset of
    spine positions (the positions the base rule pins to [nil]) pinned to
    [nil] against the rest still open, so the reflection is total over every
    reachable spine-length combination, not just the lockstep one. Shared by
-   both iteration-helper reflections below (an Opt iteration never
+   all three iteration-helper reflections below (an Opt iteration never
    recurses, so it never calls this). *)
 let iter_spine_mismatches ~scalars (hname : string) (base_args : R.term list) :
     R.rule list =
@@ -1583,22 +1237,12 @@ let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
   @ mismatches
 
 (* The totalized [$itercollect] helper: same recipe as [$iterall] (base ->
-   [true], step -> and-fold with the recursive call), except the step rhs is
-   [cons(collected, sym(rec))] ([some(collected)] for Opt) rather than a bare
-   recursive call -- the collected element itself carries no information for a
-   SUCCESS reflection (whether the iteration completes, not what it collects).
-   Two step shapes:
-
-   - the premise is a single relation call, inlined as the unconditional
-     step's element (the ex-[$iterapply] shape): there is no separate guard
-     to reflect; the call either reduces or the collect result gets stuck,
-     so the success reflection is just [holds_R] applied to that same call's
-     arguments, ANDed with the recursive success;
-   - anything else: the element is discarded and the reflected step
-     conditions are and-folded, as for [$iterall]. A general collect can
-     ALSO be unconditional here -- {!Rewrite_system.fold_premise_binders}
-     folds a let-destructure condition into the step's lhs pattern -- and
-     then the fold is simply empty (success is just the recursive call). *)
+   [true], step -> and-fold of the reflected step conditions with the
+   recursive call), except the step rhs is [cons(collected, sym(rec))]
+   ([some(collected)] for Opt) rather than a bare recursive call -- the
+   collected element itself carries no information for a SUCCESS reflection
+   (whether the iteration completes, not what it collects), so it is
+   discarded and only the recursive argument is threaded through. *)
 let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
     (effectful : string list) (succ : string list) (name : string)
     (rules : R.rule list) : R.rule list =
@@ -1620,32 +1264,80 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
   in
   let base_args = args_of base and step_args = args_of step in
   let hname = holds_sym name in
-  let elem, rec_args =
+  let acc =
+    {
+      tests = [];
+      sub = List.map (fun v -> (v, (R.Var v, None))) (term_vars step.R.lhs);
+    }
+  in
+  List.iter
+    (fun c -> ctest ~scalars tbl sup effectful succ acc (prep c))
+    step.R.conds;
+  let tests = List.rev acc.tests in
+  let rec_args =
     match step.R.rhs with
-    | R.App ("cons", [ e; R.App (s, args) ]) when s = name -> (e, Some args)
-    | R.App ("some", [ e ]) -> (e, None) (* Opt iteration: no recursion *)
+    | R.App ("cons", [ _collected; R.App (s, args) ]) when s = name -> Some args
+    | R.App ("some", [ _collected ]) -> None (* Opt iteration: no recursion *)
     | _ -> raise (Gate "unexpected itercollect step rhs")
   in
-  let rec_holds =
-    match rec_args with Some ra -> [ T.app_t hname ra ] | None -> []
+  let step_rhs =
+    and_chain ~scalars
+      (tests
+      @ match rec_args with Some ra -> [ T.app_t hname ra ] | None -> [])
+  in
+  let mismatches =
+    match rec_args with
+    | None -> []
+    | Some _ -> iter_spine_mismatches ~scalars hname base_args
+  in
+  [
+    T.rule (T.app_t hname base_args) (T.bool_t ~scalars true);
+    T.rule (T.app_t hname step_args) step_rhs;
+  ]
+  @ mismatches
+
+(* The totalized [$iterapply] helper. Unlike [$iterall]/[$itercollect],
+   [$iterapply]'s own rules carry NO conditions -- the iterated premise is a
+   single relation call, so its step rhs IS the call term itself
+   ([cons(R(args), apply(rec))]); the call either reduces or the whole
+   [$iterapply] result gets stuck, with no separate guard to reflect. The
+   success reflection is therefore just [holds_R] applied to that same call's
+   arguments, ANDed with the recursive success. *)
+let gen_iterapply_holds ~scalars (tbl : tables) (effectful : string list)
+    (succ : string list) (name : string) (rules : R.rule list) : R.rule list =
+  let is_base (r : R.rule) = r.R.rhs = T.nil_t || r.R.rhs = T.none_t in
+  let base, step =
+    match rules with
+    | [ a; b ] ->
+        if is_base a then (a, b)
+        else if is_base b then (b, a)
+        else raise (Gate "unexpected iterapply rule shape")
+    | _ -> raise (Gate "unexpected iterapply rule count")
+  in
+  let args_of r =
+    match r.R.lhs with
+    | R.App (_, args) -> args
+    | R.Var _ -> raise (Gate "variable lhs")
+  in
+  let base_args = args_of base and step_args = args_of step in
+  let hname = holds_sym name in
+  let elem, rec_args =
+    match step.R.rhs with
+    | R.App ("cons", [ e; R.App (s, ra) ]) when s = name -> (e, Some ra)
+    | R.App ("some", [ e ]) -> (e, None) (* Opt iteration: no recursion *)
+    | _ -> raise (Gate "unexpected iterapply step rhs")
+  in
+  let g_inner =
+    match elem with
+    | R.App (f, args) when Hashtbl.mem tbl.relsigs f ->
+        List.iter (check_reflectable tbl effectful succ) args;
+        R.App (holds_sym f, args)
+    | _ -> raise (Gate "iterapply element is not a relation call")
   in
   let step_rhs =
-    match elem with
-    | R.App (f, args) when step.R.conds = [] && Hashtbl.mem tbl.relsigs f ->
-        List.iter (check_reflectable tbl effectful succ) args;
-        and_chain ~scalars (R.App (holds_sym f, args) :: rec_holds)
-    | _ ->
-        let acc =
-          {
-            tests = [];
-            sub =
-              List.map (fun v -> (v, (R.Var v, None))) (term_vars step.R.lhs);
-          }
-        in
-        List.iter
-          (fun c -> ctest ~scalars tbl sup effectful succ acc (prep c))
-          step.R.conds;
-        and_chain ~scalars (List.rev acc.tests @ rec_holds)
+    and_chain ~scalars
+      (g_inner
+      :: (match rec_args with Some ra -> [ T.app_t hname ra ] | None -> []))
   in
   let mismatches =
     match rec_args with
@@ -1709,15 +1401,16 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   (* Candidates: judgments negated anywhere, plus judgments/iteration helpers
      conditioning the clauses of an owise-carrying symbol, plus everything
      those pull in (their own rules' judgment/iteration-helper conditions).
-     [$iterall]/[$itercollect] are success-carrying (a step can fail), so
-     they need a success reflection to enter a guard; [$itermap]/[$iterproj]
-     are value-binding pure stream transformers, so they never
+     [$iterall]/[$itercollect]/[$iterapply] are boolean-valued judgments, so
+     they need a success reflection to enter a guard; [$unzip]/[$itermap]/
+     [$iterproj] are value-binding pure stream transformers, so they never
      need one and are excluded here -- {!iter_helper_prefixes} allows them
      unconditionally already. *)
   let is_rel f = Hashtbl.mem tbl.relsigs f in
   let is_iterall f = has_prefix "$iterall" f in
   let is_itercollect f = has_prefix "$itercollect" f in
-  let is_iter_helper f = is_iterall f || is_itercollect f in
+  let is_iterapply f = has_prefix "$iterapply" f in
+  let is_iter_helper f = is_iterall f || is_itercollect f || is_iterapply f in
   (* A dependency can sit anywhere in a condition term, not just as its LHS's
      own head: {!Rewrite_system.fold_premise_binders} (the pass just before
      this one) inlines a premise's output binder at its use sites, so a
@@ -1798,6 +1491,8 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
               else if is_itercollect f then
                 gen_itercollect_holds ~scalars ~prep tbl sup effectful cands f
                   rs
+              else if is_iterapply f then
+                gen_iterapply_holds ~scalars tbl effectful cands f rs
               else
                 let arity =
                   match (List.hd rs).R.lhs with
@@ -1823,8 +1518,8 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   if succ <> [] then
     Printf.eprintf "reflect: judgment reflection for %s\n"
       (String.concat ", " succ);
-  (* [$itercollect] -- and output-carrying judgments -- never
-     carry a bool rhs of their own (they bind the collected/output
+  (* [$itercollect]/[$iterapply] -- and output-carrying judgments -- never
+     carry a bool rhs of their own (they bind the collected/applied/output
      value), so {!replace_cond} never touches their call sites. Instead,
      every rule whose conditions bind a success-reflected symbol's result --
      owise sibling or not, the same insertion applies system-wide -- gains an
@@ -1865,15 +1560,15 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   in
   (* ---- owise phase. ---- *)
   let rules = Array.of_list base_rules in
-  let reflected = ref 0 and enumerated = ref 0 and kept = ref 0 in
+  let reflected = ref 0 and kept = ref 0 in
   let out =
-    List.concat
-      (List.mapi
+    Array.to_list
+      (Array.mapi
          (fun i (r : R.rule) ->
-           if not r.R.owise then [ r ]
+           if not r.R.owise then r
            else
              match R.defined_head r with
-             | None -> [ r ]
+             | None -> r
              | Some f -> (
                  let ow_args =
                    match r.R.lhs with R.App (_, args) -> args | _ -> []
@@ -1883,65 +1578,36 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
                    |> List.filter (fun (s : R.rule) ->
                           (not s.R.owise) && R.defined_head s = Some f)
                  in
-                 let argtyps = argtyps_of f (List.length ow_args) in
-                 (* complement enumeration first; anything it does not cover
-                    (or a Gate along the way) falls back to the or-gate. *)
                  let mark = snapshot sup in
-                 match
-                   try
-                     complement_clauses ~scalars tbl sup effectful succ f r
-                       ow_args argtyps siblings
-                   with Gate _ -> None
-                 with
-                 | Some cls ->
-                     incr enumerated;
-                     let guarded =
-                       List.length
-                         (List.filter (fun (c : R.rule) -> c.R.conds <> []) cls)
-                     in
-                     Printf.eprintf
-                       "reflect: owise complement-enumerated on %s (%d \
-                        clause(s), %d guarded)\n"
-                       f (List.length cls) guarded;
-                     cls
-                 | None -> (
-                     rollback sup mark;
-                     let mark = snapshot sup in
-                     try
-                       let guards =
-                         List.map
-                           (sibling_guard ~scalars tbl sup effectful succ
-                              ow_args argtyps)
-                           siblings
-                       in
-                       let guard =
-                         match guards with
-                         | [] ->
-                             T.bool_t ~scalars false (* no sibling: keep rule *)
-                         | g :: gs ->
-                             List.fold_left (fun a b -> T.or_t a b) g gs
-                       in
-                       incr reflected;
-                       [
-                         {
-                           r with
-                           R.conds =
-                             r.R.conds @ [ (guard, T.bool_t ~scalars false) ];
-                           owise = false;
-                         };
-                       ]
-                     with Gate reason ->
-                       rollback sup mark;
-                       incr kept;
-                       Printf.eprintf "reflect: keeping owise on %s (%s)\n" f
-                         reason;
-                       [ r ])))
-         (Array.to_list rules))
+                 try
+                   let argtyps = argtyps_of f (List.length ow_args) in
+                   let guards =
+                     List.map
+                       (sibling_guard ~scalars tbl sup effectful succ ow_args
+                          argtyps)
+                       siblings
+                   in
+                   let guard =
+                     match guards with
+                     | [] -> T.bool_t ~scalars false (* no sibling: keep rule *)
+                     | g :: gs -> List.fold_left (fun a b -> T.or_t a b) g gs
+                   in
+                   incr reflected;
+                   {
+                     r with
+                     R.conds = r.R.conds @ [ (guard, T.bool_t ~scalars false) ];
+                     owise = false;
+                   }
+                 with Gate reason ->
+                   rollback sup mark;
+                   incr kept;
+                   Printf.eprintf "reflect: keeping owise on %s (%s)\n" f reason;
+                   r))
+         rules)
   in
-  if !reflected > 0 || !enumerated > 0 || !kept > 0 then
-    Printf.eprintf
-      "reflect: %d owise rule(s) reflected, %d complement-enumerated, %d kept\n"
-      !reflected !enumerated !kept;
+  if !reflected > 0 || !kept > 0 then
+    Printf.eprintf "reflect: %d owise rule(s) reflected, %d kept\n" !reflected
+      !kept;
   (* Keep only the support rules some rule actually references (a gated or
      simplified attempt may have pulled in a projection it no longer uses). *)
   let used = Hashtbl.create 256 in

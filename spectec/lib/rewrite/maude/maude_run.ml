@@ -242,21 +242,13 @@ let run_process (bin : string) (timeout : int) (file : string) =
   (* stderr folded in: Maude reports a start term it cannot parse only as a
      warning there, and the result markers parsed below never collide with
      warning lines -- without it such a run is an opaque "could not parse". *)
-  (* [ulimit -s unlimited] first: a legitimately-deep (not runaway) reduction
-     can overflow Maude's native stack under whatever small default the
-     invoking shell inherited, printing a native "Fatal error: stack
-     overflow" that looks nothing like a real ERROR/timeout -- the same root
-     cause {!Mfe.run_mfe}'s CRC path just needed the identical fix for, and
-     the one [check_diff_structural_p4.sh] already works around at the
-     wrapping-script level (this fixes it at the source instead, so every
-     caller of [run_process] -- not just that one script -- is covered). *)
   let cmd =
     if timeout > 0 then
-      Printf.sprintf "ulimit -s unlimited; timeout %d %s -no-banner %s 2>&1"
-        timeout (Filename.quote bin) (Filename.quote file)
-    else
-      Printf.sprintf "ulimit -s unlimited; %s -no-banner %s 2>&1"
+      Printf.sprintf "timeout %d %s -no-banner %s 2>&1" timeout
         (Filename.quote bin) (Filename.quote file)
+    else
+      Printf.sprintf "%s -no-banner %s 2>&1" (Filename.quote bin)
+        (Filename.quote file)
   in
   let ic = Unix.open_process_in cmd in
   let output = In_channel.input_all ic in

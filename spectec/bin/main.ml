@@ -193,12 +193,6 @@ let rewrite_command =
       ~doc:
         " keep relations as Maude rules (rl/crl) instead of equations for \
          input-moded ones"
-  and unconditional =
-    flag "--unconditional" no_arg
-      ~doc:
-        " with --ctrs, over-approximate for the SCC: drop rule conditions and \
-         linearize non-left-linear lhs (counterexamples stay sound; a \
-         'complete' verdict for a transformed symbol proves nothing)"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -213,11 +207,6 @@ let rewrite_command =
         match symbol with
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
         | None -> system
-      in
-      let system =
-        if unconditional then
-          Rewrite.Rewrite_system.(linearize_lhs (drop_conds system))
-        else system
       in
       Ok
         (Rewrite.To_mfe.module_of_system
@@ -374,12 +363,8 @@ let run_command =
     flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
   and timeout =
     flag "--timeout"
-      (optional_with_default 0 int)
-      ~doc:
-        "S kill Maude after S seconds (0 = no limit, the default: a real \
-         spec's module costs ~80s to internalize before the first program even \
-         starts, so any fixed default silently turns a working run into a \
-         TIMEOUT -- bound the run from the caller instead)"
+      (optional_with_default 30 int)
+      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
   and check_p4 =
     flag "--check-p4" no_arg
       ~doc:
@@ -590,8 +575,8 @@ let run_structural_command =
   and p4 =
     flag "--p4" (listed string)
       ~doc:
-        "FILE parse a P4 program and reduce it structurally through Program_ok \
-         (repeat to batch several through one Maude invocation)"
+        "FILE parse a P4 program and reduce it structurally through \
+         Program_ok (repeat to batch several through one Maude invocation)"
   and includes =
     flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
   and task =
@@ -610,10 +595,8 @@ let run_structural_command =
     flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
   and timeout =
     flag "--timeout"
-      (optional_with_default 0 int)
-      ~doc:
-        "S kill Maude after S seconds (0 = no limit, the default -- see \
-         [run]'s --timeout)"
+      (optional_with_default 30 int)
+      ~doc:"S kill Maude after S seconds (default 30, 0 disables)"
   in
   fun () ->
     (match (imp, p4, emit) with

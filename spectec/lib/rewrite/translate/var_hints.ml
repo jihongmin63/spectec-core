@@ -23,7 +23,7 @@ let rec collect_var_types (acc : (string * typ') list) (e : exp) :
   match e.it with
   | IterE ({ it = VarE id; _ }, _) -> (id.it, e.note) :: acc
   (* A structured iterated body (e.g. a head destructure [(typ id `;)*]) compiles
-     to helpers ([$iterproj]/[$itermap]) that bind each co-iterated variable to its
+     to helpers ([$unzip]/[$itermap]) that bind each co-iterated variable to its
      list-level stream, so the variable's CTRS type is the ITERATED type built
      from its own [iter list], not the element type its [VarE] carries inside the
      body. Record those streams and collect only the body's OTHER (captured)

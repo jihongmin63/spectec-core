@@ -842,13 +842,14 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       ("nil", 0);
     ]
   in
+  let ctor_syms = il_constructor_syms orig in
   let ctor_arities =
     List.filter_map
       (fun s ->
         match Hashtbl.find_opt tbl s with
         | Some (a, _) -> Some (s, List.length a)
         | None -> None)
-      (il_declared_syms orig)
+      ctor_syms
   in
   let ops = dedup (used @ delegated @ wrapper_arities @ ctor_arities) in
   let has_op sym = List.exists (fun (s, _) -> s = sym) ops in
@@ -931,17 +932,11 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     (fun (sub, super) -> buf_line b ("  subsort " ^ sub ^ " < " ^ super ^ " ."))
     (dedup inj_subsorts);
   buf_line b "";
-  (* op declarations, sorted for stable output. [ctor] marks the constructors
-     ({!Maude_sorts.ctor_attr}); [defined_heads] here already includes the
-     delegated operators, whose equations live in Maude's built-ins rather than
-     in [sys], so a delegated symbol can never be mistaken for a constructor. *)
-  let ctor_attr = ctor_attr Native orig ~defined:defined_heads in
+  (* op declarations, sorted for stable output *)
   List.iter
     (fun (sym, (args, res)) ->
       let dom = if args = [] then "" else String.concat " " args ^ " " in
-      buf_line b
-        ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ ctor_attr sym
-       ^ " ."))
+      buf_line b ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ " ."))
     (List.sort compare op_sigs);
   buf_line b "";
   (* rules: equations first (functions/prelude/constructors), then relation
@@ -1202,21 +1197,26 @@ let encode_index (orig : spec) : encode_index =
       encode_index_memo := Some (orig, idx);
       idx
 
+(* A Bigint magnitude as a structural Peano tower ([zero]/[succ]).
+   [Native] mode never calls this -- it embeds the Bigint's decimal string
+   directly ({!Maude_theory}, unbounded); this is only reachable for
+   [Structural] encoding, so it stays practical only for small sample values
+   (Peano blows up linearly in the magnitude). *)
+let rec peano_of_bigint (n : Bigint.t) : R.term =
+  if Bigint.compare n Bigint.zero <= 0 then T.zero_t
+  else T.succ_t (peano_of_bigint (Bigint.pred n))
+
 (* Encode a value to a ground term in [scalars]' theory: [Native] scalars become
    wrapped built-in literals ({!Maude_theory}), so a program identifier is a
-   [String] and a numeral is a decimal literal (no [Bigint] overflow);
-   [Structural] scalars are {!Ctrs_term}'s own binary/sign-magnitude/char-list
-   encoding (via {!Ctrs_term.binary_of_bigint}, not {!Ctrs_term.nat_lit}/
-   [int_lit] -- those take a bounded native [int], but a parsed program's numeral
-   is an unbounded [Bigint]), matching {!To_mfe}'s analysis module vocabulary.
-   Both a bare nat leaf and an [int_pos]/[int_neg]-wrapped leaf go through
-   [binary_of_bigint] (naturals are binary-encoded now, the same family as an
-   int's magnitude) -- O(log n) term size, so a real P4 program's ACTUAL VALUES
-   (a [bit<64>] literal, say) encode without any Peano blowup. [expected] is
-   the type the surrounding position wants, used only to put a numeric leaf in
-   the [int] vs [nat] wrapper/constructor. *)
-let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) : R.term
-    =
+   [String] and a numeral never builds a Peano tower (no [Bigint] overflow);
+   [Structural] scalars are {!Ctrs_term}'s own Peano/sign-magnitude/char-list
+   encoding (via [peano_of_bigint], not {!Ctrs_term.nat_lit}/[int_lit] -- those
+   take a bounded native [int], but a parsed program's numeral is an unbounded
+   [Bigint]), matching {!To_mfe}'s analysis module vocabulary. [expected] is the
+   type the surrounding position wants, used only to put a numeric leaf in the
+   [int] vs [nat] wrapper/constructor. *)
+let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) :
+    R.term =
   let idx = encode_index orig in
   (* The declared field types of the variant case [origin]/[mixop], so a numeric
      leaf can be coerced to the [int]/[nat] the case expects. *)
@@ -1242,13 +1242,12 @@ let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) : R.term
             | Native -> Maude_theory.int_t i
             | Structural ->
                 if Bigint.compare i Bigint.zero >= 0 then
-                  T.int_pos_t (T.binary_of_bigint i)
-                else
-                  T.int_neg_t (T.binary_of_bigint (Bigint.pred (Bigint.neg i))))
+                  T.int_pos_t (peano_of_bigint i)
+                else T.int_neg_t (peano_of_bigint (Bigint.pred (Bigint.neg i))))
         | _ -> (
             match scalars with
             | Native -> Maude_theory.nat_t i
-            | Structural -> T.binary_of_bigint i))
+            | Structural -> peano_of_bigint i))
     | TextV s -> T.text_t ~scalars s
     | OptV None -> T.none_t
     | OptV (Some v) -> T.some_t (enc None v)

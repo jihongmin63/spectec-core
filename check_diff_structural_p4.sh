@@ -16,27 +16,28 @@
 # against, so this reuses check_diff_p4.sh's completed IPROG file as-is by
 # default (IPROG=check_diff_p4_interp.tsv) -- Phase A should need no new work.
 #
-# KNOWN, MATERIAL FAILURE MODE (read before running the whole corpus): the
-# Structural theory encodes nat/int as Peano unary (`succ(succ(...zero))`),
-# fine for the CRC (which reasons about rules symbolically via unification
-# and never builds a concrete number this large) but not for ground execution
-# of real arithmetic -- `bit<32>` needs 2^32 (~4.3 BILLION) nested `succ`
-# terms to represent a single value; `bit<64>` is astronomically worse. Most
-# real P4 headers use bit<8/16/32/48/64>, so this is not a corner case: a
-# large share of the corpus is expected to OOM (Maude killed by the OS/cgroup
-# memory limit, not a hang -- confirmed empirically, exit 137) rather than
-# produce a real STUCK/OK verdict. That is a REPRESENTATION limit, not a
-# logic bug (see commit 2583c31f) -- fixing it for real means giving the
-# Structural theory a binary numeral encoding, a separate, larger undertaking
-# not attempted here. Two containment measures below exist BECAUSE of this:
-#   - CHUNK defaults far smaller than check_diff_p4.sh's (an OOM kills the
-#     whole batched Maude process, not just the one offending program, so a
-#     small chunk bounds how much gets lost per crash before per-file retry);
+# NUMERAL ENCODING (was a MATERIAL FAILURE MODE under Peano; no longer -- but
+# the containment machinery below is kept, so read this before running): the
+# Structural theory USED TO encode nat/int as Peano unary
+# (`succ(succ(...zero))`), fine for the CRC (which reasons about rules
+# symbolically via unification and never builds a concrete number) but ruinous
+# for ground execution of real arithmetic -- `bit<32>` needed 2^32 (~4.3
+# BILLION) nested `succ` terms for a single value, so a large share of the
+# corpus OOM'd (Maude killed by the OS/cgroup memory limit, exit 137) instead
+# of producing a real STUCK/OK verdict. That REPRESENTATION limit is now GONE:
+# commit 5e3b37a1 ("binary-encode the structural nat theory (was Peano)"; the
+# 50d2abdc->835d1537->69023118->5e3b37a1 series) switched NatV to a Coq
+# `positive`/`N`-style binary numeral (`bzero`/`bone`/`bd0`/`bd1`/`bsucc`/...),
+# so `bit<32>` is ~32 bits deep, not 2^32. Mass OOM is NO LONGER EXPECTED; a
+# stray OOM now points at a genuine blowup worth investigating, not the
+# encoding. The two containment measures below PREDATE the switch and are KEPT
+# as cheap safety bounds (they no longer carry the run):
+#   - CHUNK bounds how much a single batched-Maude death loses before the
+#     per-file retry re-runs each program alone;
 #   - MEMLIMIT_KB caps each Maude invocation's virtual memory (`ulimit -v`)
-#     so a runaway Peano computation dies fast and cleanly instead of
-#     pressuring the whole container (shared with other work).
-# A program hitting this shows up as its own OOM verdict (see classify_text),
-# not as noise contaminating everything else -- resumable, same as Phase B/D.
+#     so any residual runaway dies fast instead of pressuring the container.
+# A program that still OOMs shows up as its own OOM verdict (see
+# classify_text), not as noise -- resumable, same as Phase B/D.
 #
 # Every Maude invocation also runs with `ulimit -s unlimited` -- caught by an
 # actual run over the real corpus, not anticipated up front: the default 8MB
@@ -57,12 +58,14 @@
 # Maude-invocation `ulimit -v`, default ~4GB), IPROG/MPROG/COMP/SOUND/RESMATCH
 # (output paths).
 #
-# NOTE on ITIMEOUT=60 (vs check_diff_p4.sh's 300): a slow-but-valid program
-# there is genuinely computing; here, a program that hasn't finished in 60s
-# is far more likely climbing the Peano wall than doing legitimate deep
-# recursion (confirmed: pow2(8)=2s, pow2(32) alone didn't finish in 20s) --
-# waiting longer mostly delays reaching the OOM everyone already expects.
-# Raise it if legitimate small-width programs start showing spurious TIMEOUT.
+# NOTE on ITIMEOUT=60 (vs check_diff_p4.sh's 300): kept smaller mainly for
+# throughput. Under the OLD Peano encoding this was also a correctness heuristic
+# -- a program not done in 60s was usually climbing the unary wall toward an OOM
+# (confirmed then: pow2(8)=2s, pow2(32) alone didn't finish in 20s), so waiting
+# longer just delayed the inevitable. With the binary encoding (see the NUMERAL
+# ENCODING note above) that rationale is weaker: legitimate deep reductions now
+# finish in bounded space, so if small-width programs start showing spurious
+# TIMEOUT, raise it.
 set -u
 cd "$(dirname "$0")"
 

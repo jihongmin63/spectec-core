@@ -164,8 +164,7 @@ become CTRS conditions; the result/output becomes the rhs.
   program (repeatable — batches through one Maude invocation, amortizing
   module internalization); `--emit` just prints the module. `--check-p4` also
   typechecks each `--p4` program with the interpreter and diffs the RESULT
-  value against Maude's (`Of_maude`) — the Phase D oracle. `--timeout` defaults
-  to 0 (no limit); see "Performance notes" for why a fixed default cannot work.
+  value against Maude's (`Of_maude`) — the Phase D oracle.
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
@@ -193,51 +192,6 @@ duplicated here, since it shifts as reflection coverage grows.
 it runs externally via a Maude 2.7.1 + MTT + AProVE(Z3) stack
 (`spectec/tools/mfe/run-termination.sh <symbol>`) — see
 [tools/mfe/README.md](spectec/tools/mfe/README.md) for setup.
-
-## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
-
-MAYBE/TIMEOUT means *unproven*, not *defective*. A real defect needs a witness:
-a feasible non-joinable critical pair (CRC), or an actual infinite rewrite
-(termination). A 2026-07-10 sweep over all 153 ≤500-rule symbols produced 41
-MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
-
-**Spurious CRC MAYBE/TIMEOUT.**
-- Fall-through/default clause guarded by `or(all match-Xs) = false` — infeasible
-  once any specific matcher fires (`$join_ctk`, `$assignop_as_binop`).
-- Mutually-exclusive sign/range splits the checker can't discharge (`$bin_shr`:
-  `i<0` arithmetic-shift vs `i≥0` logical; `$bin_satplus`: `sum>0` vs `sum≤0`).
-- CRC TIMEOUT is usually the shared arithmetic library (`badd`/`bmul`, 13–16
-  rules) exploding in critical pairs, not an own-layer overlap — that library is
-  confluent (`$bin_div`/`$bin_mod` are YES).
-
-**Spurious termination MAYBE/TIMEOUT.**
-- Structural recursion whose decreasing argument is destructured in a *premise*
-  (`xs = cons(h,t)`, recurse on `t`) — AProVE's dependency-pair analysis can't
-  certify the descent. Not a loop. (list / flatten / invalidate / write_value)
-- Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
-  (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
-- Acyclic call graph + large slice → pure tool-budget TIMEOUT.
-
-**The one real family — binenc zero-width / zero-value boundary.**
-`$write_value_from_bits'` at `integerValue.V, n_var = 0`: two order-sensitive
-`def` clauses share the `V` constructor, but the general clause carries no
-`n_var ≠ 0` guard and no owise, so both fire at `n_var = 0` with different
-results (keep the original field vs overwrite with `$int_to_bitstr(0, …)`) — a
-latent non-confluence masked only by rule order. This is the root cause of all
-five `write_value*` CRC MAYBEs, and the same family as the
-`$bitstr_to_int` / `$int_to_bitstr` w=0 non-termination. **Lesson: when
-translating order-sensitive `def` clauses that share a constructor, preserve the
-disambiguating guard (or owise); always check the 0-width / 0-value boundary.**
-
-**Surfaces differ.** CRC/termination run on the `rewrite --ctrs` *analysis*
-surface (owise dropped, `isStuckHead` ruleless); confirm a real
-non-confluence/non-termination on the *executable* surface (`main.exe rewrite`
-without `--ctrs`, i.e. `to_maude`).
-
-**Confirming a suspect pair fast.** Build a minimal module (full signature
-preamble + only the two suspect rules + `endm)`) and run CRC — it reports just
-that pair in seconds, instead of re-running the whole slice. Always
-`ulimit -s unlimited` (large-slice CRC dies on stack overflow with no verdict).
 
 ## Same-spec interp-vs-Maude oracle
 
@@ -302,25 +256,8 @@ real costs:
    object-level grammar with a small fixed meta-syntax — eliminates the
    per-program parse cost (was the dominant cost, ~7s/program on P4 modules).
 2. **Batched invocations** (`Maude_run.run_batch`, CLI: repeat `--imp`/`--p4`)
-   amortize module load + first-metaReduce internalization across every program
-   in one Maude invocation.
-
-**Current measured cost on `specs/p4`** (2026-07-11; the module is ~78k lines /
-~74k equations, and it has been this size since well before the binary-nat
-merge — earlier "~10s internalization, ~4ms/program" figures here were measured
-before the 5,425 subty-complement equations landed and are long stale):
-
-| phase | cost |
-|---|---|
-| IL → Maude translation (`run --emit`) | ~10s |
-| Maude module internalization (fixed, once per invocation) | **~80s** |
-| per program after that | ~6.5s |
-
-The fixed ~80s is why **`run`/`run-structural` default to `--timeout 0` (no
-limit)**: any fixed default below it turns a perfectly good run into a `TIMEOUT`
-before the first program even starts (this silently broke `check_diff_p4.sh`'s
-per-file fallback path). Bound the run from the caller instead — as the harness
-already does with a shell `timeout`.
+   amortize module load + first-metaReduce internalization (~10s) across every
+   program in one Maude invocation (~4ms/program after the first).
 
 To break down a slow `run` invocation into startup/module-parse/rewrite phases,
 use `tools/maude/rewrite-time.sh` — **not present on `new-rewrite`**, restore it

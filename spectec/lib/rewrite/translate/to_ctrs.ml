@@ -40,119 +40,16 @@ type scalar_theory = Ctrs_term.scalar_theory = Structural | Native
 
 module IdSet = Common.Domain.IdSet
 
-(* -------------------------------------------------------------------------- *)
-(* Co-iteration binder registry and spines.
-
-   A structured [IterE] in binder position (a clause/rule head, or a [let]'s
-   left-hand side) used to bind the collection to a fresh [iterbind_N] variable
-   and immediately emit one [$iterproj_v] condition per co-iterated variable
-   [v], recovering each element stream by re-walking the list. A consuming
-   helper ([$itercollect]/[$iterall]/[$itermap]) then destructured that
-   already-projected stream. The recursion therefore descended on a FUNCTION
-   RESULT ([$iterproj(L)]) rather than on a syntactic subterm of [L], which
-   hides the decrease from AProVE's dependency-pair analysis.
-
-   Instead we register the binder and defer the projection: a consuming helper
-   now takes the original list [iterbind_N] and destructures each element
-   against the head's element pattern directly, so the recursion descends on
-   the list's own [cons] tail. Only co-iterated variables that ESCAPE to a
-   non-helper position (e.g. a [variant-set] argument, [$partition],
-   [$distinct], [len]) keep the [$iterproj] fallback -- for those the projected
-   stream is genuinely needed as a value. A multi-component [$itercollect]'s
-   tuple stream binds and registers the same way (see [conds_of_prem]). *)
-
-type binder_entry = {
-  be_src : string; (* the fresh [iterbind_N] the collection binds to *)
-  be_body : exp; (* the head's iterated body, for the element pattern *)
-  be_vars : var list; (* the head's co-iterated variables *)
-}
-
-(* Threaded per rule: [reg] maps each co-iterated stream variable to its binder;
-   [emitted] keeps the projection condition still emitted in binder position for
-   each variable; [absorbed] records the ones a consuming helper took as a fused
-   spine. After the rule is assembled, an absorbed variable whose projection
-   condition is its only remaining occurrence is dropped (the helper
-   destructures the element directly); a variable that also escapes keeps its
-   projection. Leaving the condition in place until then preserves the previous
-   emission ORDER for every unchanged (escaping/dead) rule. *)
-type iter_ctx = {
-  reg : (string, binder_entry) Hashtbl.t;
-  emitted : (string, R.cond) Hashtbl.t;
-  absorbed : (string, unit) Hashtbl.t;
-}
-
-let empty_ctx () : iter_ctx =
-  {
-    reg = Hashtbl.create 8;
-    emitted = Hashtbl.create 8;
-    absorbed = Hashtbl.create 8;
-  }
-
-(* One spine a consuming helper recurses over: either a plain co-iterated
-   variable ([SBare], destructured as [cons(hd, tl)] as before), or a registered
-   binder's original list ([SFused], destructured as [cons(elem_pat, rest)] so
-   the element's components are bound directly). *)
-type spine = SBare of string | SFused of binder_entry
-
-(* The distinct spines for consuming [ids], in first-occurrence order:
-   registered ids sharing one [iterbind] collapse to a single fused spine;
-   unregistered ids stay bare. Call site and defining site compute this the same
-   way, so they agree on the helper's arity and argument order. *)
-let spines_of_ids (ctx : iter_ctx option) (ids : string list) : spine list =
-  match ctx with
-  | None -> List.map (fun id -> SBare id) ids
-  | Some c ->
-      let seen = Hashtbl.create 8 in
-      List.filter_map
-        (fun id ->
-          match Hashtbl.find_opt c.reg id with
-          | Some e ->
-              if Hashtbl.mem seen e.be_src then None
-              else (
-                Hashtbl.add seen e.be_src ();
-                Some (SFused e))
-          | None -> Some (SBare id))
-        ids
-
-(* Record that each registered id was taken as a fused spine. *)
-let mark_absorbed (ctx : iter_ctx option) (ids : string list) : unit =
-  match ctx with
-  | None -> ()
-  | Some c ->
-      List.iter
-        (fun id ->
-          if Hashtbl.mem c.reg id then Hashtbl.replace c.absorbed id ())
-        ids
-
-let spine_call_arg : spine -> R.term = function
-  | SBare id -> var_t id
-  | SFused e -> var_t e.be_src
-
 let iter_tag (iter : iter) : string =
   match iter with List -> "list" | Opt -> "opt"
 
 (* A deterministic symbol for an iteration helper: [base] (`$itermap`,
-   `$iterproj`, …), the iterated body/premise's pretty-printed descriptor, the
+   `$unzip`, …), the iterated body/premise's pretty-printed descriptor, the
    iterator tag, then any discriminating [parts] (arity, binder name). The one
    place the descriptor is sanitized and length-bounded ([abbrev]). *)
 let iter_helper_sym (base : string) (descr : string) (iter : iter)
     (parts : string list) : string =
   String.concat "_" (base :: abbrev (R.sanitize descr) :: iter_tag iter :: parts)
-
-(* Extra symbol-name parts distinguishing a helper whose spines include a fused
-   binder from an all-bare helper of the same body: the empty list when every
-   spine is bare (so all-bare helpers keep their previous name and are shared
-   with unchanged rules), otherwise a per-spine tag ("b" for bare, "f<body>" for
-   a fused spine keyed on its element body -- two rules feeding the same inner
-   premise from different binder shapes must not collapse to one definition). *)
-let spine_disamb (spines : spine list) : string list =
-  if List.for_all (function SBare _ -> true | _ -> false) spines then []
-  else
-    List.map
-      (function
-        | SBare _ -> "b"
-        | SFused e -> "f" ^ abbrev (R.sanitize (Print.string_of_exp e.be_body)))
-      spines
 
 (* The co-iterated variables' ids, in iterexp order -- these name the list-level
    values at a use site and the destructured spines in a definition. *)
@@ -253,47 +150,29 @@ let iter_captured_exp (body : exp) (vars : var list) (ids : string list) :
   in
   base @ rebound
 
-(* A fresh rest-of-list variable for the [i]-th fused spine (its element is
-   consumed by the head pattern, not a per-id [__tl]). *)
-let spine_rest (i : int) : string = Printf.sprintf "__rest%d" i
-
-(* The base/step/recursive argument lists for a helper recursing over [spines],
-   with captured [fv_terms] leading unchanged. A bare spine destructures as
-   [cons(hd, tl)] / [some hd] and recurses on its tail (as before); a fused spine
-   destructures its original list as [cons(elem_pat, rest)] / [some elem_pat]
-   -- [elem_pat_of] renders the head element pattern -- and recurses on [rest],
-   so the decrease is a syntactic subterm of the list. *)
-let spine_forms (iter : iter) (fv_terms : R.term list)
-    (elem_pat_of : binder_entry -> R.term) (spines : spine list) :
-    R.term list * R.term list * R.term list =
-  let empty = match iter with List -> nil_t | Opt -> none_t in
-  let base_args = fv_terms @ List.map (fun _ -> empty) spines in
-  let step_of i = function
-    | SBare id -> (
-        match iter with
-        | List -> cons_t (var_t (step_hd id)) (var_t (step_tl id))
-        | Opt -> some_t (var_t (step_hd id)))
-    | SFused e -> (
-        match iter with
-        | List -> cons_t (elem_pat_of e) (var_t (spine_rest i))
-        | Opt -> some_t (elem_pat_of e))
+(* Argument lists for a helper recursing over co-iterated [cons]/[nil] (or
+   [some]/[none]) spines, with the captured variables [fv_terms] leading
+   unchanged: [base empty] fills each spine with its base constructor; [step wrap]
+   destructures each into a fresh head/tail via [wrap]; [rec_args] passes the
+   tails to the recursive call. *)
+let spine_args (fv_terms : R.term list) (ids : string list) :
+    (R.term -> R.term list)
+    * ((string -> string -> R.term) -> R.term list)
+    * R.term list =
+  let base empty = fv_terms @ List.map (fun _ -> empty) ids in
+  let step wrap =
+    fv_terms @ List.map (fun id -> wrap (step_hd id) (step_tl id)) ids
   in
-  let step_args = fv_terms @ List.mapi step_of spines in
-  let rec_of i = function
-    | SBare id -> var_t (step_tl id)
-    | SFused _ -> var_t (spine_rest i)
-  in
-  let rec_args = fv_terms @ List.mapi rec_of spines in
-  (base_args, step_args, rec_args)
+  let rec_args = fv_terms @ List.map (fun id -> var_t (step_tl id)) ids in
+  (base, step, rec_args)
 
 (* The auxiliary symbol for an [IterE] (a "map" over the co-iterated lists). The
    element type joins the descriptor so two iterations whose bodies print the
-   same but build different element constructors do not collapse to one helper.
-   [spine_disamb] additionally distinguishes a fused-spine variant. *)
-let iter_map_sym (body : exp) (iter : iter) (spines : spine list) : string =
+   same but build different element constructors do not collapse to one helper. *)
+let iter_map_sym (body : exp) (iter : iter) (n_lists : int) : string =
   let elem_typ = Option.value (typ_name_of body.note) ~default:"" in
   iter_helper_sym "$itermap" (Print.string_of_exp body) iter
-    ((string_of_int (List.length spines) :: spine_disamb spines) @ [ elem_typ ])
+    [ string_of_int n_lists; elem_typ ]
 
 (* -------------------------------------------------------------------------- *)
 (* Subtype predicate. [SubE] (`e <: T`) is a boolean term that dispatches on the
@@ -335,8 +214,8 @@ let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
 (* Expressions -> terms. Placed ahead of the type pass, which reuses it; it has
    no dependency on the type pass itself. *)
 
-let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
-  let recur = term_of_exp ~scalars ?ctx in
+let rec term_of_exp ~scalars (e : exp) : R.term =
+  let recur = term_of_exp ~scalars in
   match e.it with
   | VarE id -> var_t id.it
   | BoolE b -> bool_t ~scalars b
@@ -348,23 +227,7 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
-     projected with [nat_of_int]. Naturals now share [int_pos]'s binary [BNatV]
-     magnitude representation (the nat->binary retype), so a nat-to-int upcast
-     just wraps the (already binary) nat in [int_pos] directly -- no bridge. *)
-  (* A nat subtraction clamps at zero (BNat monus): computing [ea - eb]
-     in nat first and only then upcasting the (already-clamped) result to int
-     permanently discards the negative case -- confirmed on P4's table-entry
-     priority computation ([n_last - n_delta] under [$ite<int>]), where the
-     third and later implicit-priority entries should go negative and get
-     rejected but instead landed on 0 and the whole table typechecked. Upcast
-     the OPERANDS first and subtract in the int family instead, so a genuine
-     negative result surfaces as [int_neg]; every other nat/int-upcast shape
-     (add/mul/div/mod/pow, or a subtraction not directly under the cast) is
-     unaffected since those operations don't diverge between the two families
-     for non-negative operands. *)
-  | UpCastE (t, ({ it = BinE (`SubOp, _, ea, eb); _ } as e1))
-    when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
-      sub_int_t (int_pos_t (recur ea)) (int_pos_t (recur eb))
+     projected with [nat_of_int]. *)
   | UpCastE (t, e1)
     when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
       int_pos_t (recur e1)
@@ -395,7 +258,7 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
       let typ_name = Option.value (typ_name_of e1.note) ~default:"anon" in
       app_t (field_sym typ_name a) [ recur e1 ]
   | CallE (id, _, args) ->
-      app_t (func_sym id) (List.filter_map (term_of_arg ~scalars ?ctx) args)
+      app_t (func_sym id) (List.filter_map (term_of_arg ~scalars) args)
   (* List/text operations over the [cons]/[nil] encoding, backed by the prelude
      rules and, for [Upd], the statically compiled path ([upd_of_path]).
      Out-of-bounds access is left irreducible. *)
@@ -405,23 +268,17 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | UpdE (a, path, b) -> upd_of_path ~scalars (recur a) path (recur b)
   (* A bare iterated variable [x*]/[x?] is the list/option [x] itself. *)
   | IterE ({ it = VarE id; _ }, _) -> var_t id.it
-  (* A structured iterated body compiles to a call to its "map" helper. Each
-     co-iterated variable bound by a head [IterE] contributes its original list
-     ([iterbind_N], a fused spine) instead of a projected stream; the rest stay
-     bare. Call site and [iter_map_def] compute [spines] identically. *)
+  (* A structured iterated body compiles to a call to its "map" helper, applied
+     to the captured variables then the co-iterated lists (see [iter_map_def]). *)
   | IterE (body, (iter, vars)) ->
       let ids = iter_var_ids vars in
       let fvs = iter_captured_exp body vars ids in
-      let spines = spines_of_ids ctx ids in
-      mark_absorbed ctx ids;
       app_t
-        (iter_map_sym body iter spines)
-        (List.map var_t fvs @ List.map spine_call_arg spines)
+        (iter_map_sym body iter (List.length ids))
+        (List.map var_t (fvs @ ids))
 
-and term_of_arg ~scalars ?ctx (a : arg) : R.term option =
-  match a.it with
-  | ExpA e -> Some (term_of_exp ~scalars ?ctx e)
-  | DefA _ -> None
+and term_of_arg ~scalars (a : arg) : R.term option =
+  match a.it with ExpA e -> Some (term_of_exp ~scalars e) | DefA _ -> None
 
 (* [Upd]'s path is compiled statically: [access_of_path] reads the sub-term
    reached by a path, [upd_of_path] rebuilds the term with the leaf replaced by
@@ -456,62 +313,45 @@ and upd_of_path ~scalars (base : R.term) (path : path) (v : R.term) : R.term =
 (* -------------------------------------------------------------------------- *)
 (* Prelude + type-derived definition rules. *)
 
-(* The element pattern a fused spine destructures: the head's iterated body,
-   with each co-iterated variable renamed to its fresh per-step head. Shares the
-   [step_hd] naming with [rename_step_exp], so a variable the head binds and the
-   consuming body reuses lands on the same name. *)
-let elem_pat_of_binder ~scalars (e : binder_entry) : R.term =
-  subst_term
-    (elem_renaming (iter_var_ids e.be_vars))
-    (term_of_exp ~scalars e.be_body)
-
-(* Defining rules for an [IterE]'s "map" helper: recurse over the (possibly
-   fused) spines in lock-step, rebuilding the collection from the body evaluated
-   at each element. [List] folds with [cons]/[nil], [Opt] with [some]/[none]. A
-   fused spine destructures the head element pattern in place of a projected
-   stream. Returns the helper symbol with its rules, or [None] for a bare
-   iterated variable.
-
-   [ctx] must be the registry the CALL SITE of this [IterE] was compiled under:
-   [Some] for a rule's own head/result/premise positions, [None] inside another
-   helper's defining rules (see [iter_helper_defs]'s [visit_prem]), because
-   [spines_of_ids] -- and hence the symbol -- depends on it. *)
-let iter_map_def ~scalars (ctx : iter_ctx option) (e : exp) :
-    (string * R.rule list) option =
+(* Defining rules for an [IterE]'s "map" helper: recurse over the co-iterated
+   spines in lock-step, rebuilding the collection from the body evaluated at each
+   element. [List] folds with [cons]/[nil], [Opt] with [some]/[none]. Returns the
+   helper symbol with its rules, or [None] for a bare iterated variable. *)
+let iter_map_def ~scalars (e : exp) : (string * R.rule list) option =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> None
   | IterE (body, (iter, vars)) ->
       let ids = iter_var_ids vars in
       let fvs = iter_captured_exp body vars ids in
-      let spines = spines_of_ids ctx ids in
-      let sym = iter_map_sym body iter spines in
+      let sym = iter_map_sym body iter (List.length ids) in
       let fv_terms = List.map var_t fvs in
       let body_elem = term_of_exp ~scalars (rename_step_exp ids body) in
-      let base_args, step_args, rec_args =
-        spine_forms iter fv_terms (elem_pat_of_binder ~scalars) spines
-      in
+      let base_args, step_args, rec_args = spine_args fv_terms ids in
       let rules =
         match iter with
         | List ->
             [
-              rule (app_t sym base_args) nil_t;
-              rule (app_t sym step_args) (cons_t body_elem (app_t sym rec_args));
+              rule (app_t sym (base_args nil_t)) nil_t;
+              rule
+                (app_t sym (step_args (fun h t -> cons_t (var_t h) (var_t t))))
+                (cons_t body_elem (app_t sym rec_args));
             ]
         | Opt ->
             [
-              rule (app_t sym base_args) none_t;
-              rule (app_t sym step_args) (some_t body_elem);
+              rule (app_t sym (base_args none_t)) none_t;
+              rule
+                (app_t sym (step_args (fun h _ -> some_t (var_t h))))
+                (some_t body_elem);
             ]
       in
       Some (sym, rules)
   | _ -> None
 
-(* The auxiliary symbol that projects one co-iterated variable out of a
-   structured stream: a binder-position [IterE]'s body (the inverse of one
-   [iter_map_def] column), or the synthetic tuple stream a multi-component
-   [$itercollect] returns (see [iterpr_defs]). *)
-let iter_proj_sym (body : exp) (iter : iter) (v : string) : string =
-  iter_helper_sym "$iterproj" (Print.string_of_exp body) iter [ R.sanitize v ]
+(* The auxiliary symbol that projects one co-iterated variable out of an
+   iterated body in binder position (the inverse of one [iter_map_def] column).
+*)
+let unzip_sym (body : exp) (iter : iter) (v : string) : string =
+  iter_helper_sym "$unzip" (Print.string_of_exp body) iter [ R.sanitize v ]
 
 (* Defining rules for a single-spine helper [sym]: recurse over a [List]/[Opt]
    spine, matching each element against [elem_pat] and returning the element's
@@ -521,11 +361,11 @@ let iter_proj_sym (body : exp) (iter : iter) (v : string) : string =
    [__rest] -- there is exactly one spine here, unlike [spine_args]'s N-way
    [step_tl id] naming.
 
-   Shared by [iter_proj_defs] below (head-side binder: [elem_pat] is the
-   arbitrary translated iterated body -- possibly non-left-linear, when it
-   re-mentions a captured [fv_terms] variable) and [iterpr_defs]'s [proj_defs]
-   far below (premise-side: [elem_pat] is always a bare fresh-variable tuple
-   over the collect's stream, [fv_terms] always [] -- always irrefutable). *)
+   Shared by [iter_unzip_defs] below ([$unzip]: [elem_pat] is the arbitrary
+   translated iterated body -- possibly non-left-linear, when it re-mentions a
+   captured [fv_terms] variable) and [iterpr_defs]'s [proj_defs] far below
+   ([$iterproj]: [elem_pat] is always a bare fresh-variable tuple over an
+   already-materialized stream, [fv_terms] always [] -- always irrefutable). *)
 let spine_projection_rules (sym : string) (fv_terms : R.term list) (iter : iter)
     (elem_pat : R.term) (v : string) : R.rule list =
   let collected = var_t (step_hd v) in
@@ -544,14 +384,14 @@ let spine_projection_rules (sym : string) (fv_terms : R.term list) (iter : iter)
         rule (app_t sym (fv_terms @ [ some_t elem_pat ])) (some_t collected);
       ]
 
-(* Defining rules for the projection helpers of an [IterE] used in binder
-   position (a clause/rule head pattern): one helper per co-iterated variable,
-   recursing over the list and matching each element against the iterated body
-   to project that variable. The iterated collection binds to a fresh variable
-   (see [pattern_of_exp]) and these helpers recover the element streams the body
-   would have bound. The captured variables are carried as leading parameters
-   and matched in each element (a non-left-linear pattern). *)
-let iter_proj_defs ~scalars (e : exp) : (string * R.rule list) list =
+(* Defining rules for the [unzip] helpers of an [IterE] used in binder position
+   (a clause/rule head pattern): one helper per co-iterated variable, recursing
+   over the list and matching each element against the iterated body to project
+   that variable. The iterated collection binds to a fresh variable (see
+   [pattern_of_exp]) and these helpers recover the element streams the body would
+   have bound. The captured variables are carried as leading parameters and
+   matched in each element (a non-left-linear pattern). *)
+let iter_unzip_defs ~scalars (e : exp) : (string * R.rule list) list =
   match e.it with
   | IterE ({ it = VarE _; _ }, _) -> []
   | IterE (body, (iter, vars)) ->
@@ -562,7 +402,7 @@ let iter_proj_defs ~scalars (e : exp) : (string * R.rule list) list =
       in
       List.map
         (fun v ->
-          let sym = iter_proj_sym body iter v in
+          let sym = unzip_sym body iter v in
           (sym, spine_projection_rules sym fv_terms iter elem_pat v))
         ids
   | _ -> []
@@ -842,25 +682,36 @@ let iter_split (orig : spec) (inner : prem) (vars : var list) :
   |> List.partition (fun id -> not (List.mem id binders))
 
 (* Auxiliary symbols for an [IterPr]: a [$iterall] predicate (every step holds)
-   when nothing is collected, or ONE [$itercollect] returning the collected
-   stream -- component values for a single collected variable, per-step
-   component tuples for several ([comps] is the component order). The leading
-   part is the spine count (equal to the bound-variable count when no spine is
-   fused, so all-bare helpers keep their previous name); [spine_disamb]
-   distinguishes a fused variant. *)
-let iter_all_sym (inner : prem) (iter : iter) (spines : spine list) : string =
+   when nothing is collected, or one [$itercollect] per binding variable. *)
+let iter_all_sym (inner : prem) (iter : iter) (n_bound : int) : string =
   iter_helper_sym "$iterall"
     (Print.string_of_prem inner)
     iter
-    (string_of_int (List.length spines) :: spine_disamb spines)
+    [ string_of_int n_bound ]
 
-let iter_collect_sym (inner : prem) (iter : iter) (spines : spine list)
-    (comps : string list) : string =
+let iter_collect_sym (inner : prem) (iter : iter) (n_bound : int) (b : string) :
+    string =
   iter_helper_sym "$itercollect"
     (Print.string_of_prem inner)
     iter
-    ((string_of_int (List.length spines) :: spine_disamb spines)
-    @ [ String.concat "_" (List.map R.sanitize comps) ])
+    [ string_of_int n_bound; R.sanitize b ]
+
+(* When the iterated premise is a single relation call whose outputs are exactly
+   the collected variables, the iteration is a plain "map" carrying the call
+   result as the element. [$iterapply] returns that output stream; [$iterproj_b]
+   projects one component when the call has several outputs. *)
+let iter_apply_sym (inner : prem) (iter : iter) (n_bound : int) : string =
+  iter_helper_sym "$iterapply"
+    (Print.string_of_prem inner)
+    iter
+    [ string_of_int n_bound ]
+
+let iter_proj_sym (inner : prem) (iter : iter) (n_bound : int) (b : string) :
+    string =
+  iter_helper_sym "$iterproj"
+    (Print.string_of_prem inner)
+    iter
+    [ string_of_int n_bound; R.sanitize b ]
 
 (* [Some (call, out_vars)] when [inner] is a single relation call whose output
    positions are exactly the collected [binding_ids] as bare variables.
@@ -884,48 +735,11 @@ let iter_call_map ~scalars (orig : spec) (inner : prem)
       else None
   | _ -> None
 
-(* Component order and identity of the stream an [IterPr]'s [$itercollect]
-   returns, shared by the use site ([conds_of_prem]) and the definitions
-   ([iterpr_defs]): the relation's output order when the premise is a plain
-   call-map, else [iter_split]'s binding order. The single source of truth for
-   the symbol suffix, the tuple component order, and the projection/registration
-   order. *)
-let iter_collect_components ~scalars (orig : spec) (inner : prem)
-    (binding_ids : string list) : string list =
-  match iter_call_map ~scalars orig inner binding_ids with
-  | Some (_, out_vars) -> out_vars
-  | None -> binding_ids
-
-(* The synthetic tuple expression that names ([iter_proj_sym]) and defines
-   ([elem_pat_of_binder], via the registry) a multi-component [$itercollect]'s
-   projection helpers, plus the component [var] records in component order. A
-   component's note is its per-step ELEMENT type: the var's own [iters] wrapped
-   around its base type (the enclosing [IterPr]'s iter is the stream layer). *)
-let collect_tuple_body (vars : var list) (comps : string list) : exp * var list
-    =
-  let comp_vars =
-    List.map
-      (fun b -> List.find (fun ({ varid; _ } : var) -> varid.it = b) vars)
-      comps
-  in
-  let elem_typ ({ typ; iters; _ } : var) : typ' =
-    List.fold_left
-      (fun acc it -> IterT { typ = acc $ typ.at; iter = it })
-      typ.it iters
-  in
-  let ves =
-    List.map
-      (fun (v : var) -> VarE v.varid $$ (v.varid.at, elem_typ v))
-      comp_vars
-  in
-  let tup_typ = TupleT (List.map (fun v -> elem_typ v $ no_region) comp_vars) in
-  (TupleE ves $$ (no_region, tup_typ), comp_vars)
-
 (* -------------------------------------------------------------------------- *)
 (* Premises -> conditions. *)
 
 (* A source of rule-unique binder names (for the collection variables that an
-   iterated pattern projects through). One generator is threaded across a rule's
+   iterated pattern unzips through). One generator is threaded across a rule's
    head pattern and all its premises so the names never clash. *)
 let fresh_binder () : unit -> string =
   let n = ref 0 in
@@ -937,13 +751,12 @@ let fresh_binder () : unit -> string =
 (* Translate a head (binder-position) expression into a left-hand-side pattern.
    Identical to [term_of_exp] for structural constructors, but a structured
    iterated body cannot stand as a pattern (a CTRS LHS is constructor-only), so
-   it binds a fresh list variable and yields projection conditions recovering
-   the element streams (see [iter_proj_defs]). [fresh] supplies rule-unique
-   names. *)
-let rec pattern_of_exp ~scalars ?ctx (fresh : unit -> string) (e : exp) :
+   it binds a fresh list variable and yields [unzip] conditions recovering the
+   element streams (see [iter_unzip_defs]). [fresh] supplies rule-unique names. *)
+let rec pattern_of_exp ~scalars (fresh : unit -> string) (e : exp) :
     R.term * R.cond list =
   let many es =
-    let pairs = List.map (pattern_of_exp ~scalars ?ctx fresh) es in
+    let pairs = List.map (pattern_of_exp ~scalars fresh) es in
     (List.map fst pairs, List.concat_map snd pairs)
   in
   match e.it with
@@ -954,21 +767,7 @@ let rec pattern_of_exp ~scalars ?ctx (fresh : unit -> string) (e : exp) :
       let conds =
         List.map
           (fun v ->
-            let uc =
-              ( app_t (iter_proj_sym body iter v) (fv_terms @ [ var_t t ]),
-                var_t v )
-            in
-            (match ctx with
-            | Some c ->
-                (* Register the binder so a consuming helper can destructure the
-                   head element pattern directly; keep the projection condition
-                   in place for now -- it is pruned after assembly if the
-                   variable is absorbed and occurs nowhere else. *)
-                Hashtbl.replace c.reg v
-                  { be_src = t; be_body = body; be_vars = vars };
-                Hashtbl.replace c.emitted v uc
-            | None -> ());
-            uc)
+            (app_t (unzip_sym body iter v) (fv_terms @ [ var_t t ]), var_t v))
           (iter_var_ids vars)
       in
       (var_t t, conds)
@@ -979,8 +778,8 @@ let rec pattern_of_exp ~scalars ?ctx (fresh : unit -> string) (e : exp) :
       let ts, cs = many es in
       (List.fold_right cons_t ts nil_t, cs)
   | ConsE (h, t) ->
-      let th, ch = pattern_of_exp ~scalars ?ctx fresh h in
-      let tt, ct = pattern_of_exp ~scalars ?ctx fresh t in
+      let th, ch = pattern_of_exp ~scalars fresh h in
+      let tt, ct = pattern_of_exp ~scalars fresh t in
       (cons_t th tt, ch @ ct)
   | CaseE ne ->
       let ts, cs = many (Mixfix.args ne) in
@@ -991,20 +790,20 @@ let rec pattern_of_exp ~scalars ?ctx (fresh : unit -> string) (e : exp) :
       let typ_name = Option.value (typ_name_of e.note) ~default:"anon" in
       (struct_t typ_name ts, cs)
   | OptE (Some e1) ->
-      let t, c = pattern_of_exp ~scalars ?ctx fresh e1 in
+      let t, c = pattern_of_exp ~scalars fresh e1 in
       (some_t t, c)
   (* Non-structural (or capture-carrying iterated) heads stay as plain terms. *)
-  | _ -> (term_of_exp ~scalars ?ctx e, [])
+  | _ -> (term_of_exp ~scalars e, [])
 
-let rec conds_of_prem ~scalars (orig : spec) ?ctx (fresh : unit -> string)
+let rec conds_of_prem ~scalars (orig : spec) (fresh : unit -> string)
     (prem : prem) : R.cond list =
-  let term = term_of_exp ~scalars ?ctx in
+  let term = term_of_exp ~scalars in
   match prem.it with
   (* The let's pattern is a binder position: compile it as a pattern so an
-     iterated destructuring projects into the element streams, rather than
+     iterated destructuring unzips into the element streams, rather than
      re-zipping them with [$itermap] (a function Maude cannot run backwards). *)
   | LetPr (lhs, rhs) ->
-      let pat, conds = pattern_of_exp ~scalars ?ctx fresh lhs in
+      let pat, conds = pattern_of_exp ~scalars fresh lhs in
       (term rhs, pat) :: conds
   | IfPr { cond = { it = CmpE (`EqOp, _, a, b); _ }; _ } -> [ (term a, term b) ]
   | IfPr { cond = { it = CmpE (`NeOp, _, a, b); _ }; _ } ->
@@ -1021,45 +820,33 @@ let rec conds_of_prem ~scalars (orig : spec) ?ctx (fresh : unit -> string)
       let lhs, _ = rel_invocation ~scalars orig id ne in
       [ (lhs, bool_t ~scalars false) ]
   (* An iterated premise becomes a call to its auxiliary helper (see
-     [iterpr_defs]): a [$iterall] check when it collects nothing, else ONE
-     [$itercollect] returning the collected stream. A multi-component stream
-     binds a fresh [iterbind_N] variable; each component is registered as a
-     fused-spine binder (a consuming helper destructures the tuple stream
-     directly) and recovered by an in-place [$iterproj] condition, pruned after
-     assembly when the component is absorbed and occurs nowhere else -- exactly
-     the head-side [IterE] binder treatment above. *)
+     [iterpr_defs]): a [$iterall] check when it collects nothing; an [$iterapply]
+     map (or [$iterproj_b] per output) when it iterates a single relation call;
+     else an [$itercollect_b] condition per collected list [b]. *)
   | IterPr (inner, (iter, vars)) -> (
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fvs = iter_captured inner vars bound_ids in
-      let spines = spines_of_ids ctx bound_ids in
-      mark_absorbed ctx bound_ids;
-      let args = List.map var_t fvs @ List.map spine_call_arg spines in
+      let args = List.map var_t (fvs @ bound_ids) in
+      let n = List.length bound_ids in
       if binding_ids = [] then
-        [ (app_t (iter_all_sym inner iter spines) args, bool_t ~scalars true) ]
+        [ (app_t (iter_all_sym inner iter n) args, bool_t ~scalars true) ]
       else
-        let comps = iter_collect_components ~scalars orig inner binding_ids in
-        let collect = app_t (iter_collect_sym inner iter spines comps) args in
-        match comps with
-        | [ b ] -> [ (collect, var_t b) ]
-        | _ ->
-            let t = fresh () in
-            let body, comp_vars = collect_tuple_body vars comps in
-            let entry = { be_src = t; be_body = body; be_vars = comp_vars } in
-            let projs =
-              List.map
-                (fun b ->
-                  let pc =
-                    (app_t (iter_proj_sym body iter b) [ var_t t ], var_t b)
-                  in
-                  (match ctx with
-                  | Some c ->
-                      Hashtbl.replace c.reg b entry;
-                      Hashtbl.replace c.emitted b pc
-                  | None -> ());
-                  pc)
-                comps
-            in
-            (collect, var_t t) :: projs)
+        match iter_call_map ~scalars orig inner binding_ids with
+        (* A single relation call: [$iterapply] returns the output stream
+           directly (a single output binds it; several are projected out). *)
+        | Some (_, [ b ]) ->
+            [ (app_t (iter_apply_sym inner iter n) args, var_t b) ]
+        | Some (_, _) ->
+            let apply = app_t (iter_apply_sym inner iter n) args in
+            List.map
+              (fun b ->
+                (app_t (iter_proj_sym inner iter n b) [ apply ], var_t b))
+              binding_ids
+        (* Otherwise collect each output with a per-step conditional helper. *)
+        | None ->
+            List.map
+              (fun b -> (app_t (iter_collect_sym inner iter n b) args, var_t b))
+              binding_ids)
   | ElsePr | DebugPr _ -> []
 
 and cond_of_match ~scalars (e : exp) (pattern : pattern) : R.cond =
@@ -1075,130 +862,108 @@ and cond_of_match ~scalars (e : exp) (pattern : pattern) : R.cond =
   | ListP `Nil -> (app_t "match_nil" [ subj ], yes)
   | ListP (`Fixed n) -> (len_t subj, nat_lit ~scalars n)
 
-let conds_of_prems ~scalars (orig : spec) ?ctx (fresh : unit -> string)
+let conds_of_prems ~scalars (orig : spec) (fresh : unit -> string)
     (prems : prem list) : R.cond list =
-  List.concat_map (conds_of_prem ~scalars orig ?ctx fresh) prems
+  List.concat_map (conds_of_prem ~scalars orig fresh) prems
 
-let terms_of_conds (conds : R.cond list) : R.term list =
-  List.concat_map (fun (a, b) -> [ a; b ]) conds
-
-(* Drop each in-place projection condition whose co-iterated variable was
-   absorbed into a fused spine and now occurs nowhere else in the rule (its only
-   mention is the condition's own right-hand side). A variable that also escapes
-   -- used as a [variant-set] argument, in [$partition]/[$distinct]/[len], ... --
-   occurs again and so keeps its projection. Left-in-place preserves order; only
-   genuinely dead projections are removed. *)
-let prune_absorbed_projs (ctx : iter_ctx) (rhs : R.term) (conds : R.cond list) :
-    R.cond list =
-  let all_vars = List.concat_map R.vars_of_term (rhs :: terms_of_conds conds) in
-  let occ v = List.length (List.filter (String.equal v) all_vars) in
-  let dead_proj (c : R.cond) : bool =
-    Hashtbl.fold
-      (fun v uc acc ->
-        acc || (uc = c && Hashtbl.mem ctx.absorbed v && occ v <= 1))
-      ctx.emitted false
-  in
-  List.filter (fun c -> not (dead_proj c)) conds
-
-(* Defining rules for an [IterPr]'s helpers, the premise counterpart of
+(* Defining rules for an [IterPr]'s helper(s), the premise counterpart of
    [iter_map_def]: recurse over the bound (iteration-guiding) spines, requiring
-   the inner premise's conditions at each step. A pure check ([$iterall])
-   reduces to [true] only when every step holds; the collecting helper
-   ([$itercollect]) rebuilds the stream of each step's bound value(s) -- the
-   component itself for one collected variable, the component tuple for several
-   (recovered by [$iterproj] helpers over the synthetic tuple body when a
-   component escapes fusion). *)
-let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
+   the inner premise's conditions at each step. A pure check ([$iterall]) reduces
+   to [true] only when every step holds; a collecting helper ([$itercollect_b])
+   rebuilds the list of each step's bound value [b]. *)
+let iterpr_defs ~scalars (orig : spec) (prem : prem) :
     (string * R.rule list) list =
   match prem.it with
-  | IterPr (inner, (iter, vars)) ->
+  | IterPr (inner, (iter, vars)) -> (
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fv_terms = List.map var_t (iter_captured inner vars bound_ids) in
       let inner_stepped = rename_step_prem (bound_ids @ binding_ids) inner in
       let conds = conds_of_prem ~scalars orig (fresh_binder ()) inner_stepped in
-      let spines = spines_of_ids ctx bound_ids in
-      let base_args, step_args, rec_args =
-        spine_forms iter fv_terms (elem_pat_of_binder ~scalars) spines
-      in
+      let base_args, step_args, rec_args = spine_args fv_terms bound_ids in
+      let n = List.length bound_ids in
+      let cons_step h t = cons_t (var_t h) (var_t t) in
+      let some_step h _ = some_t (var_t h) in
       if binding_ids = [] then
-        let sym = iter_all_sym inner iter spines in
+        let sym = iter_all_sym inner iter n in
         let yes = bool_t ~scalars true in
         let rules =
           match iter with
           | List ->
               [
-                rule (app_t sym base_args) yes;
-                rule_cond (app_t sym step_args) (app_t sym rec_args) conds;
+                rule (app_t sym (base_args nil_t)) yes;
+                rule_cond
+                  (app_t sym (step_args cons_step))
+                  (app_t sym rec_args) conds;
               ]
           | Opt ->
               [
-                rule (app_t sym base_args) yes;
-                rule_cond (app_t sym step_args) yes conds;
+                rule (app_t sym (base_args none_t)) yes;
+                rule_cond (app_t sym (step_args some_step)) yes conds;
               ]
         in
         [ (sym, rules) ]
       else
-        let comps = iter_collect_components ~scalars orig inner binding_ids in
-        let sym = iter_collect_sym inner iter spines comps in
-        let body, _ = collect_tuple_body vars comps in
-        let tuple_pat = tuple_t (List.map (fun v -> var_t (step_hd v)) comps) in
-        (* [tuple_pat] equals [elem_pat_of_binder] on the use site's registry
-           entry, so a fused consumer's spine pattern, the projection helpers'
-           element pattern, and the multi-component collect element below all
-           agree by one construction. The projection definitions MUST be
-           emitted here: the synthetic tuple body never exists in the IL, so
-           [visit_exp]/[iter_proj_defs] cannot find it. *)
-        let proj_defs =
-          if List.length comps <= 1 then []
-          else
+        match iter_call_map ~scalars orig inner binding_ids with
+        (* A single relation call: an unconditional "map" carrying the call
+           result as the element, plus a projection helper per output when the
+           call has several (the stream is then a stream of tuples). *)
+        | Some (call, out_vars) ->
+            let apply = iter_apply_sym inner iter n in
+            let elem = subst_term (elem_renaming bound_ids) call in
+            let apply_rules =
+              match iter with
+              | List ->
+                  [
+                    rule (app_t apply (base_args nil_t)) nil_t;
+                    rule
+                      (app_t apply (step_args cons_step))
+                      (cons_t elem (app_t apply rec_args));
+                  ]
+              | Opt ->
+                  [
+                    rule (app_t apply (base_args none_t)) none_t;
+                    rule (app_t apply (step_args some_step)) (some_t elem);
+                  ]
+            in
+            let proj_defs =
+              if List.length out_vars <= 1 then []
+              else
+                let tuple_pat =
+                  tuple_t (List.map (fun v -> var_t (step_hd v)) out_vars)
+                in
+                List.map
+                  (fun v ->
+                    let sym = iter_proj_sym inner iter n v in
+                    (sym, spine_projection_rules sym [] iter tuple_pat v))
+                  out_vars
+            in
+            (apply, apply_rules) :: proj_defs
+        (* Otherwise collect each output with a per-step conditional helper. *)
+        | None ->
             List.map
-              (fun v ->
-                let psym = iter_proj_sym body iter v in
-                (psym, spine_projection_rules psym [] iter tuple_pat v))
-              comps
-        in
-        let rules =
-          match iter_call_map ~scalars orig inner binding_ids with
-          (* A single relation call: an unconditional "map" carrying the call
-             result as the element -- one (possibly gensym-threaded) call per
-             element, which projection/fusion must never duplicate. A multi-
-             output call's result normalizes to [output_term]'s tuple in
-             [comps] order, matching [tuple_pat]. *)
-          | Some (call, _) -> (
-              let elem = subst_term (elem_renaming bound_ids) call in
-              match iter with
-              | List ->
-                  [
-                    rule (app_t sym base_args) nil_t;
-                    rule (app_t sym step_args)
-                      (cons_t elem (app_t sym rec_args));
-                  ]
-              | Opt ->
-                  [
-                    rule (app_t sym base_args) none_t;
-                    rule (app_t sym step_args) (some_t elem);
-                  ])
-          (* Otherwise a conditional step, requiring the inner premise's
-             conditions once and collecting the component (or their tuple). *)
-          | None -> (
-              let elem =
-                match comps with [ b ] -> var_t (step_hd b) | _ -> tuple_pat
-              in
-              match iter with
-              | List ->
-                  [
-                    rule (app_t sym base_args) nil_t;
-                    rule_cond (app_t sym step_args)
-                      (cons_t elem (app_t sym rec_args))
-                      conds;
-                  ]
-              | Opt ->
-                  [
-                    rule (app_t sym base_args) none_t;
-                    rule_cond (app_t sym step_args) (some_t elem) conds;
-                  ])
-        in
-        (sym, rules) :: proj_defs
+              (fun b ->
+                let sym = iter_collect_sym inner iter n b in
+                let collected = var_t (step_hd b) in
+                let rules =
+                  match iter with
+                  | List ->
+                      [
+                        rule (app_t sym (base_args nil_t)) nil_t;
+                        rule_cond
+                          (app_t sym (step_args cons_step))
+                          (cons_t collected (app_t sym rec_args))
+                          conds;
+                      ]
+                  | Opt ->
+                      [
+                        rule (app_t sym (base_args none_t)) none_t;
+                        rule_cond
+                          (app_t sym (step_args some_step))
+                          (some_t collected) conds;
+                      ]
+                in
+                (sym, rules))
+              binding_ids)
   | _ -> []
 
 (* A set of named helper definitions accumulated during a spec walk: [add] is
@@ -1217,12 +982,11 @@ module Helper_defs = struct
     Hashtbl.fold (fun _ rules acc -> rules @ acc) t []
 end
 
-(* Each function clause / relation rule of [def] as its (head-position, result,
-   premises) triple; [] for non-body defs. Head positions are a clause's [ExpA]
-   argument expressions or a relation rule's input notexp arguments -- the binder
-   positions a co-iteration registry is built from. Results are a clause's body
-   or a relation rule's output arguments. *)
-let blocks_of_def (def : def) : (exp list * exp list * prem list) list =
+(* Each function clause / relation rule of [def] as its (head and result
+   expressions, premises); [] for non-body defs. The head expressions are a
+   clause's [ExpA] argument expressions plus its result, or a relation rule's
+   notexp arguments -- the positions a translation walk visits. *)
+let blocks_of_def (def : def) : (exp list * prem list) list =
   match def.it with
   | DecD { clauses; _ } ->
       let arg_exp (a : arg) =
@@ -1231,66 +995,39 @@ let blocks_of_def (def : def) : (exp list * exp list * prem list) list =
       List.map
         (fun (c : clause) ->
           let { args; body; prems } = c.it in
-          (List.filter_map arg_exp args, [ body ], prems))
+          (List.filter_map arg_exp args @ [ body ], prems))
         clauses
-  | RelD { reltyp; rules; _ } ->
-      let n = List.length (Mixfix.args (Mode.notation reltyp.it)) in
-      let inputs, _ = Mode.partition reltyp.it (List.init n Fun.id) in
+  | RelD { rules; _ } ->
       List.map
         (fun (r : rule) ->
           let { concl; prems; _ } = r.it in
-          let in_args, out_args = split_inputs inputs (Mixfix.args concl) in
-          (in_args, out_args, prems))
+          (Mixfix.args concl, prems))
         rules
   | TypD _ | BuiltinDecD _ -> []
 
 (* Collect every iteration helper definition reachable in the spec's bodies,
    deduplicated by symbol (structurally identical iterations share one helper).
-   Walks clause/rule by clause/rule: a per-block co-iteration registry [ctx] is
-   built from the head positions (and let patterns) exactly as the rule assembly
-   builds it, so [iter_map_def]/[iterpr_defs] compute the same fused spines --
-   and hence the same helper symbols -- as the call sites in the emitted rules.
-   Descends into heads, results, and premises, including nested iterations.
-
-   The registry is threaded to match each position's CALL SITE, because a
-   helper symbol depends on the spines its call site computed:
-
-   - a rule's own head/result/premise positions are compiled with the registry
-     ([rule_of_clause] passes [~ctx]), so they are visited with [Some ctx];
-   - an ITERATED premise's inner premise is compiled INSIDE that premise's
-     helper, where [iterpr_defs] builds the conditions WITHOUT the registry
-     (the helper takes its spines as parameters; there are no head binders in
-     scope). So its nested iterations are visited with [None] -- visiting them
-     with [Some ctx] instead emits a fused-named definition while the helper
-     body calls the bare name, leaving that call undefined (and the fused
-     definition unreachable, hence pruned). *)
+   Descends into clause/rule heads, results, and premises, including nested
+   iterations. *)
 let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
   let defs = Helper_defs.create 32 in
   let add (sym, rules) = Helper_defs.add defs sym rules in
-  let rec visit_exp ctx (e : exp) =
-    (match iter_map_def ~scalars ctx e with Some d -> add d | None -> ());
-    List.iter add (iter_proj_defs ~scalars e);
-    List.iter (visit_exp ctx) (Exp_map.subexps e.it)
+  let rec visit_exp (e : exp) =
+    (match iter_map_def ~scalars e with Some d -> add d | None -> ());
+    List.iter add (iter_unzip_defs ~scalars e);
+    List.iter visit_exp (Exp_map.subexps e.it)
   in
-  let rec visit_prem ctx (p : prem) =
+  let rec visit_prem (p : prem) =
     match p.it with
     | IterPr (inner, _) ->
-        List.iter add (iterpr_defs ~scalars orig ctx p);
-        visit_prem None inner
-    | _ -> List.iter (visit_exp ctx) (Exp_map.exps_of_prem p)
+        List.iter add (iterpr_defs ~scalars orig p);
+        visit_prem inner
+    | _ -> List.iter visit_exp (Exp_map.exps_of_prem p)
   in
   List.iter
-    (fun (heads, results, prems) ->
-      let ctx = empty_ctx () in
-      let fresh = fresh_binder () in
-      (* Populate the registry (and [absorbed]) as the rule assembly does; the
-         resulting terms/conditions are only used for their side effects here. *)
-      List.iter (fun e -> ignore (pattern_of_exp ~scalars ~ctx fresh e)) heads;
-      ignore (conds_of_prems ~scalars orig ~ctx fresh prems);
-      List.iter (fun e -> ignore (term_of_exp ~scalars ~ctx e)) results;
-      List.iter (visit_exp (Some ctx)) heads;
-      List.iter (visit_exp (Some ctx)) results;
-      List.iter (visit_prem (Some ctx)) prems)
+    (fun (exps, prems) ->
+      List.iter visit_exp exps;
+      List.iter visit_prem prems)
     (List.concat_map blocks_of_def spec);
   Helper_defs.rules defs
 
@@ -1381,8 +1118,8 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
     List.iter targets_of_exp (Exp_map.exps_of_prem p)
   in
   List.iter
-    (fun (heads, results, prems) ->
-      List.iter targets_of_exp (heads @ results);
+    (fun (exps, prems) ->
+      List.iter targets_of_exp exps;
       List.iter targets_of_prem prems)
     (List.concat_map blocks_of_def simplified);
   Helper_defs.rules defs
@@ -1466,18 +1203,18 @@ let sub_complement_defs ~scalars (orig : spec) (simplified : spec) : R.rule list
     List.concat_map of_exp (Exp_map.exps_of_prem p)
   in
   List.concat_map
-    (fun (heads, results, prems) ->
-      List.concat_map of_exp (heads @ results) @ List.concat_map of_prem prems)
+    (fun (exps, prems) ->
+      List.concat_map of_exp exps @ List.concat_map of_prem prems)
     (List.concat_map blocks_of_def simplified)
 
 (* -------------------------------------------------------------------------- *)
 (* Spec body rules. *)
 
-let pattern_of_arg ~scalars ?ctx (fresh : unit -> string) (a : arg) :
+let pattern_of_arg ~scalars (fresh : unit -> string) (a : arg) :
     R.term option * R.cond list =
   match a.it with
   | ExpA e ->
-      let t, c = pattern_of_exp ~scalars ?ctx fresh e in
+      let t, c = pattern_of_exp ~scalars fresh e in
       (Some t, c)
   | DefA _ -> (None, [])
 
@@ -1491,19 +1228,12 @@ let has_otherwise (prems : prem list) : bool =
 let rule_of_clause ~scalars (orig : spec) (id : id) (clause : clause) : R.rule =
   let { args; body = exp; prems } = clause.it in
   let fresh = fresh_binder () in
-  let ctx = empty_ctx () in
-  let arg_pairs = List.map (pattern_of_arg ~scalars ~ctx fresh) args in
-  let arg_conds = List.concat_map snd arg_pairs in
-  (* Premises before the result: a [let] pattern may register a binder the
-     result iterates over, and [iter_helper_defs] populates the registry in this
-     same order -- so the result's fused spines (and thus the helper symbol it
-     calls) match the helper definitions. *)
-  let prem_conds = conds_of_prems ~scalars orig ~ctx fresh prems in
-  let rhs = term_of_exp ~scalars ~ctx exp in
+  let arg_pairs = List.map (pattern_of_arg ~scalars fresh) args in
   {
     R.lhs = app_t (func_sym id) (List.filter_map fst arg_pairs);
-    rhs;
-    conds = prune_absorbed_projs ctx rhs (arg_conds @ prem_conds);
+    rhs = term_of_exp ~scalars exp;
+    conds =
+      List.concat_map snd arg_pairs @ conds_of_prems ~scalars orig fresh prems;
     owise = has_otherwise prems;
   }
 
@@ -1513,17 +1243,12 @@ let rule_of_rel_rule ~scalars (orig : spec) (id : id) (inputs : int list)
   let args = Mixfix.args ne in
   let in_args, out_args = split_inputs inputs args in
   let fresh = fresh_binder () in
-  let ctx = empty_ctx () in
-  let in_pairs = List.map (pattern_of_exp ~scalars ~ctx fresh) in_args in
-  let arg_conds = List.concat_map snd in_pairs in
-  let prem_conds = conds_of_prems ~scalars orig ~ctx fresh prems in
-  let rhs =
-    output_term ~scalars (List.map (term_of_exp ~scalars ~ctx) out_args)
-  in
+  let in_pairs = List.map (pattern_of_exp ~scalars fresh) in_args in
   {
     R.lhs = app_t (rel_sym id) (List.map fst in_pairs);
-    rhs;
-    conds = prune_absorbed_projs ctx rhs (arg_conds @ prem_conds);
+    rhs = output_term ~scalars (List.map (term_of_exp ~scalars) out_args);
+    conds =
+      List.concat_map snd in_pairs @ conds_of_prems ~scalars orig fresh prems;
     owise = has_otherwise prems;
   }
 
@@ -1576,21 +1301,11 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
     sub_helper_defs ~scalars orig simplified
     @ sub_complement_defs ~scalars orig simplified
   in
-  (* Printable ASCII (union'd with the static scan, for anything outside that
-     range) rather than just the codes the spec's own rule text happens to
-     mention: text data lives in ENCODED START TERMS built at run time from
-     whatever identifiers/string literals the target program actually
-     contains, which this pass cannot see yet -- a byte that never appeared
-     literally in the spec's own text (an ordinary generic type parameter
-     like P4's [T], for instance) previously had its [chr] declared
-     ({!To_mfe}'s matching declaration loop already covers the full 0-255
-     byte range) but not its [eq], silently stranding every relation that
-     needed to prove two such bytes equal. *)
+  (* [extra_defs] (builtin rules) can introduce text bytes of their own, so scan
+     them too, or a produced text could meet a [chr] with no equality rule. *)
   let char_rules =
-    let printable_ascii = List.init 95 (fun i -> i + 32) in
-    let scanned = char_codes_of_rules (type_rules @ body_rules @ extra_defs) in
-    let codes = List.sort_uniq compare (printable_ascii @ scanned) in
-    char_eq_rules ~scalars codes
+    char_eq_rules ~scalars
+      (char_codes_of_rules (type_rules @ body_rules @ extra_defs))
   in
   let type_rules =
     prune_unused

@@ -52,8 +52,8 @@ val maude_sym : string -> string
     whichever side is fresh) that actually BINDS a fresh right-hand variable --
     unlike {!Rewrite_system.string_of_system_maude}'s/{!To_mfe}'s ANALYSIS-only
     plain [l = r] (sound for the MFE's critical-pair reasoning, which never
-    executes anything, but not directly [reduce]-able: Maude's [reduce] does not
-    bind a fresh variable across a bare [=]). Conditions are scheduled by
+    executes anything, but not directly [reduce]-able: Maude's [reduce] does
+    not bind a fresh variable across a bare [=]). Conditions are scheduled by
     binding-readiness (left to right is not always binding-respecting), and a
     bare-variable match gets an [{!stuck_head_sym}] guard so a stuck subterm
     does not silently masquerade as a bound value. [defined] is the set of
@@ -71,16 +71,16 @@ val print_rule :
   Rewrite_system.rule ->
   string
 
-(** The name of the [Val -> Bool] predicate {!print_rule}'s matching conditions
-    guard bare-variable binds with (see [print_rule]'s doc). *)
+(** The name of the [Val -> Bool] predicate {!print_rule}'s matching
+    conditions guard bare-variable binds with (see [print_rule]'s doc). *)
 val stuck_head_sym : string
 
-(** [stuck_head_eqs heads sg] emits the [{!stuck_head_sym}] equations: [true] on
-    a term headed by one of [heads] (a stuck, not-yet-reduced application --
+(** [stuck_head_eqs heads sg] emits the [{!stuck_head_sym}] equations: [true]
+    on a term headed by one of [heads] (a stuck, not-yet-reduced application --
     [sg h n] gives its declared argument sorts, so the guard pattern types
     correctly), [false] otherwise ([owise]). A module using {!print_rule}'s
-    matching conditions must declare these (plus the
-    [{!stuck_head_sym} : Val -> Bool] op itself) for the guard to resolve. *)
+    matching conditions must declare these (plus the [{!stuck_head_sym} : Val
+    -> Bool] op itself) for the guard to resolve. *)
 val stuck_head_eqs :
   (string * int) list -> (string -> int -> string list * string) -> string list
 
@@ -96,16 +96,12 @@ val meta_start_app : Lang.Il.spec -> string -> string list -> string
     the inverse [Of_maude.decode]/[Of_mfe]-style back-translation decodes.
     [Native] wraps built-in literals ({!Maude_theory}, unbounded -- a numeral
     never builds a Peano tower); [Structural] uses {!Ctrs_term}'s own
-    binary/sign-magnitude/char-list encoding, matching {!To_mfe}'s analysis
+    Peano/sign-magnitude/char-list encoding, matching {!To_mfe}'s analysis
     module vocabulary (for a direct, non-reflective [reduce] on that module).
     Exposed (unlike the META-TERM encoder below, which is [Native]-only) so a
     structural start-term builder can reuse the variant/struct constructor
     resolution this does. *)
-val encode_value :
-  scalars:Ctrs_term.scalar_theory ->
-  Lang.Il.spec ->
-  Lang.Il.value ->
-  Rewrite_system.term
+val encode_value : scalars:Ctrs_term.scalar_theory -> Lang.Il.spec -> Lang.Il.value -> Rewrite_system.term
 
 (** Encode an IL [value] (e.g. a program parsed by a language front-end) to a
     ground Maude {e META-TERM} text in the module's vocabulary, for the
