@@ -10,7 +10,7 @@ Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. **분석 confluence
 MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_guards`), owise
 반사 72/72 달성 + `drop_owise` 폴백 제거, holds_R output-carrying 일반화까지 완료
 (아래 2026-07-07 항목). **구조적 CTRS differential**(binary nat 이론, Phase D
-1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [recalibration.md](../../../recalibration.md))도
+1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [verification.md](../../../verification.md))도
 완료됐습니다. 남은 일은 아래 "남은 작업" 블록(`$bitstr_to_int` w=0 비종료,
 LTL 모델 검사, SCC, 잔여 MAYBE)입니다.
 알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
@@ -269,7 +269,7 @@ HEAD 08dfe4ed, 자체 `_build`). 돌고 있던 differential test(`/home/spectec-
 new-rewrite)와 완전 분리. MFE 도구는 gitignore라 main clone 것 참조
 (`SPECTEC_MFE_DIR=/home/spectec-core/spectec/tools/mfe`, `MAUDE_LIB`=maude dir) — 별도 프로세스.
 
-**잔여 CRC MAYBE 재분류 (현 브랜치 실측 `verify --symbol`).** recalibration.md 표의 CRC열은
+**잔여 CRC MAYBE 재분류 (현 브랜치 실측 `verify --symbol`).** verification.md 표의 CRC열은
 stale. 옛 category-A owise 9개 재측정 → **6개 이미 YES**(`$join_flow` `$is_lpm_key_prime`
 `$requires_priority_prime` `$is_default_parameterIR` `$is_tableDefaultActionProperty`
 `$join_text` — hoist_matchers/expand_subty_guards/align_guards/fold-matcher-destructure가 해소).
@@ -949,7 +949,8 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   전부 gitignore(`tools/{maude271-hooks,mfe271,aprove,yices,z3}/`), 셋업 상세는
   [tools/mfe/README.md](../../tools/mfe/README.md). **종합 스윕(153심볼 CRC+termination) +
   모듈러(A/B) 분해 완료 (2026-07-09)** — 결과·수정 합성 정리는 저장소 루트
-  `spectec-crc-termination-recalibration.md`. full-mode의 고정폭 산술 TIMEOUT은 도구 예산이
+  `spectec-crc-termination-recalibration.md`(이후 recalibration.md로 개명, 현재는
+  verification.md + verification-notes.md로 분리). full-mode의 고정폭 산술 TIMEOUT은 도구 예산이
   아니라 폭-정규화 헬퍼로 국소화됨: **모듈러 (B) 분해(`tools/mfe/prune_modular.py`, 산술을
   종료 블랙박스로 추상)로 11개 산술 + 3개 비트와이즈 슬라이스가 전부 수초 YES**,
   sum/max/min_nat·strip_all_whitespace(eq-theory abstract, 50634→5규칙)도 YES.
@@ -1829,7 +1830,7 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
 - **증상**: 리스트/구조 재귀의 감소 인자가 head가 아니라 **전제에만** 존재
   (`ceq $f(v) = ..$f(v_t).. if match_cons(v)=true /\ v = cons(v_h,v_t)`). AProVE의
   dependency-pair 분석은 `v_t < v`를 세우지 못해 MAYBE — 루프가 아니라 **증명 실패**.
-  [recalibration.md](../../../recalibration.md)의 term MAYBE 18건 중 14건이 이 모양
+  [verification.md](../../../verification.md)의 term MAYBE 18건 중 14건이 이 모양
   (`$concat_text`/`$exists`/`$forall`/`$filter`/`$join_text`/`$flatten_*`/`$invalidate_*`/
   `$lvalue_as_expression`/`$set_priorities_*`).
 - **수정** ([translate/reflect.ml](translate/reflect.ml)): `match_K(v)=true`의 **유일한**
@@ -1847,7 +1848,7 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   | `$concat_text` termination | MAYBE (237s) | **YES (98s)** |
   | `$flatten_nameList` termination | MAYBE (240s) | **YES (101s)** |
   | `$lookup` CRC/ChC (impty, owise 계열) | YES/YES | YES/YES (무회귀) |
-  | `$filter` CRC | TIMEOUT (397s) | TIMEOUT — **회귀 아님**(변경 전에도 TIMEOUT; 이 기기 MFE 성능. recalibration의 YES는 더 빠른 환경 값) |
+  | `$filter` CRC | TIMEOUT (397s) | TIMEOUT — **회귀 아님**(변경 전에도 TIMEOUT; 이 기기 MFE 성능. verification.md의 YES는 더 빠른 환경 값) |
 
   의미 보존: 실행(native) 표면 **sha256 불변**(분석 표면 전용), impty `run-structural` 8/8
   `result: true`, p4 `run-structural --check-p4` 표본 **12/12 MATCH / 0 MISMATCH**.
@@ -1893,7 +1894,7 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
-         termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md
+         termination 열 채우기 — 153심볼 CRC+term 스윕, verification.md
          owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
          해소(둘 다 YES), $join_flow 회귀 없음, 2026-07-16 상세는 위 M1 블록)
 ```

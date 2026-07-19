@@ -344,7 +344,7 @@ actually proves.
 | anchor | date | measured **on that exact tree** | carried over |
 |---|---|---|---|
 | `92618dc2` | 2026-07-10 | **differential**, full corpus, both surfaces: native completeness 0 / soundness 1 (issue1944) / Phase D 1227/1227 MATCH, and structural Phase D 1227/1227 MATCH / 0 MISMATCH ([spectec-structural-completeness-soundness.md](spectec-structural-completeness-soundness.md)) | CRC/term |
-| `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([recalibration.md](recalibration.md)) | differential |
+| `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([verification-notes.md](verification-notes.md)) | differential |
 
 **`5647b883` is the bisect anchor**: its analysis columns are current, and the
 only *executable*-surface commit separating it from the differential-verified
