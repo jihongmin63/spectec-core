@@ -714,10 +714,42 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
           ])
   | _ -> []
 
-(* The text builtins the Maude backend re-emits as built-in-String delegations
-   ({!To_maude}); emitting their structural recursion too would clash, so the
-   [Native] theory omits them (the [Structural] analysis keeps them). *)
-let delegated_in_native = [ "int_to_text"; "strip_prefix"; "strip_suffix" ]
+(* The builtins the Maude backend re-emits as one-line delegations over Maude's
+   built-in Bool/Nat/Int/String ({!To_maude.delegation_eqs}); emitting their
+   structural recursion too would clash, so the [Native] theory omits them (the
+   [Structural] analysis keeps them).
+
+   "Clash" is not merely redundancy: the structural equation is declared FIRST,
+   so it wins the match, and it then calls a binary-nat helper ([bpow_nat],
+   [badd], [bsub], [bis_zero], ...) whose {!Prelude} equations the [Native]
+   theory deliberately omits -- leaving the call permanently stuck. That is how
+   [~32w0] (via [$un_bnot] -> [$pow2] -> [bpow_nat]) used to strand a whole
+   program's typing. Keep this list in sync with {!To_maude.delegation_eqs}:
+   every builtin with a delegation there and a rule case above belongs here. *)
+let delegated_in_native =
+  [
+    (* text *)
+    "int_to_text";
+    "strip_prefix";
+    "strip_suffix";
+    "strip_all_whitespace";
+    (* fixed-width numeric + bitwise *)
+    "pow2";
+    "shl";
+    "shr";
+    "shr_arith";
+    "bneg";
+    "band";
+    "bxor";
+    "bor";
+    "bitacc";
+    (* nat-list folds: the structural rules seed the fold at [bzero], a binary-nat
+       constant the [Native] theory has no equation for, so a single fold step
+       ([add(nat(32), bzero)]) strands the whole reduction. *)
+    "sum_nat";
+    "max_nat";
+    "min_nat";
+  ]
 
 (* Every collection-builtin rule the spec's [BuiltinDecD]s call for, plus the
    shared list helpers, as definition rules for {!To_ctrs.of_spec}'s prunable

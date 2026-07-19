@@ -257,7 +257,7 @@ let rec is_ctor_pattern (is_defined : string -> bool) = function
      binds it by matching).
 
    Uniform over every rule, so a binder inside a recursive iteration helper
-   ([$iterapply]/[$itercollect]/[$unzip]) is normalized the same way. Gensym
+   ([$itercollect]/[$iterproj]) is normalized the same way. Gensym
    threading (run before this) binds a [tuple(out, state)], not a bare [Var], so a
    threaded binder is skipped. Analysis-surface only: {!To_maude} keeps the [:=]
    matching condition its stuck-head guard relies on. *)
@@ -429,7 +429,7 @@ let drop_conds (t : t) : t =
   { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
 
 (* SCC-facing over-approximation, part 2: rename the second and later
-   occurrences of any repeated LHS variable ([eqg(x, x)], [$unzip]'s captured
+   occurrences of any repeated LHS variable ([eqg(x, x)], [$iterproj]'s captured
    free variables re-mentioned in the element pattern), so the SCC's
    [drop-bad-eqs] filter -- which also discards non-left-linear equations --
    keeps the rule. Same polarity as {!drop_conds}: a linear pattern matches

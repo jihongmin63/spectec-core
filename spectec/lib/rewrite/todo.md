@@ -70,6 +70,196 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-17 — co-iteration `$unzip` fusion (SoA→AoS): termination 개선 시도
+
+**동기**: term(AProVE) MAYBE 심볼 `$invalidate_value`/`$invalidate_headerUnion`의
+원인을 실험으로 규명 — co-iteration의 축별 분리(SoA) 인코딩이 소비 헬퍼의 재귀를
+`$unzip_v(iterbind)`라는 **함수 호출 결과**의 tail에 걸어, AProVE가 감소를 syntactic
+subterm으로 못 봄. → 소비 헬퍼(`$itercollect`/`$itermap`/`$iterall`/`$iterapply`)가
+원본 `iterbind`를 직접 elem-pattern으로 destructure하는 **fused(AoS)** 인코딩으로 전환
+(상세: [CORE_LOGIC.md](CORE_LOGIC.md) §3.7.1).
+
+**구현**(`to_ctrs.ml`): rule 단위 binder 레지스트리(`iter_ctx`) 도입 — `pattern_of_exp`가
+head `IterE`를 등록하고 unzip 조건을 제자리에 방출, 소비 지점(`term_of_exp`/`conds_of_prem`)이
+`spines_of_ids`로 fused/bare spine 계산 + `absorbed` 기록, `prune_absorbed_unzips`가
+흡수+미사용 unzip만 사후 제거(escape/dead는 유지). `spine_disamb`로 fused 변형 네이밍
+(base 이름 유지 → reflect.ml 무보수 호환). helper 정의 walk는 clause 단위로 재구성.
+
+**검증(전부 통과 — 인코딩 정확·무회귀)**:
+- impty 골든 재생성 + `run-structural` 8/8 `result: true`.
+- full-corpus `--ctrs` 대조: `op $unzip` **105→45**(escape 잔존분만), `$dom_map`/`$codom_map`
+  등 escape 무변화, **비-iter 심볼 rule 0라인 변화**.
+- 샘플 diff test: `run-structural --check-p4` 16개(union invalidate 포함) + `run --check-p4`
+  10개 — **전부 MATCH, MISMATCH 0**.
+- owise 반사: 72처리(69 reflected + 3 complement), **0 kept**(fused 변형도 반사됨).
+
+**term 결과: 대상 2심볼 MAYBE 유지(성공 판정 미달) — 원인은 unzip이 아님.**
+toy(단순 self-recursive)·toy2(3함수 상호재귀 미러)는 fused로 AProVE **YES** 실측(종료
+구조 개선 입증). 그러나 실제 대상은 fused 후에도 MAYBE. 원인 후보를 **전부 배제**:
+unzip 소거(✓)·subty guard 제거(여전 MAYBE)·yices 부재(README상 불필요, z3로 진행)·JVM 힙
+(-Xmx100g로도 MAYBE)·signature 크기(prune 후 8-rule/12-op 극소 슬라이스도 MAYBE). 곧
+AProVE 자동 전략이 이 특정 구조의 종료 증명을 못 찾는 **도구 측 한계**(동형 toy2는 YES).
+⇒ fusion은 종료를 논리적으로 보장하고 규칙 수를 줄이는 정당한 개선이나, 이 대상들의
+AProVE 판정을 바꾸지는 못했다. 후속: AProVE 전략 튜닝 / 수동 종료증명 별도 트랙.
+
+### 2026-07-18 — Native 실행 표면의 completeness gap 2건 수정 (structural builtin 규칙 누출)
+
+**발견 경로**: iter 헬퍼 통합 후 전체 corpus differential(1568 프로그램)에서 completeness
+gap 2건(`samples/const.p4`, `samples/issue1717.p4`). fusion 이전 바이너리로도 재현돼
+**통합과 무관한 별개 회귀**임을 먼저 확정한 뒤 원인을 팠다.
+
+**공통 원인 — delegation이 있는 builtin의 structural 규칙이 Native 모듈에 함께 방출**.
+`Native` 스칼라 이론은 스칼라를 손수 구현한 {!Prelude} 규칙을 **의도적으로 생략**하고
+{!To_maude.delegation_eqs}의 한 줄 위임으로 대체한다. 그런데 `builtin.ml`이 만드는
+structural 규칙은 Native 모드에서도 방출되고, **먼저 선언되므로 매칭을 이긴 뒤**
+생략된 binary-nat 심볼로 내려가 영구 stuck이 된다(뒤에 있는 완전한 delegation은
+영원히 도달 불가).
+
+- **gap1 `const.p4`**: `~32w0` → `$un_bnot` → `$pow2` → `bpow_nat`(Native에 eq 0개)
+  → `isStuckHead(i'') = false` 가드 실패 → 규칙 발화 불가. (`$bneg`은 우연히 생존 —
+  structural 경로가 delegation 있는 `add_int`/`negate_int`로 이어졌기 때문.)
+- **gap2 `issue1717.p4`**: `const bit<32> sz = h1.minSizeInBits();` →
+  `$sizeof_minSizeInBits'(HEADER…)` → `$sum_nat` → **폴드 시드가 `bzero`**(0-arity
+  상수라 1차 스캔에서 놓쳤다) → `add(nat(32), bzero)`에서 정지. 최소 재현 15줄:
+  control apply 안 `const bit<32> sz = h1.minSizeInBits();` 하나면 충분(함수/control
+  무관, `const sz = 5`나 `return minSizeInBits()`는 정상 — **const + 메서드 호출**
+  조합만 실패).
+
+**수정**(`builtin.ml`): `delegated_in_native`가 주석부터 "the **text** builtins"라
+적혀 있었고 실제로 `int_to_text`/`strip_prefix`/`strip_suffix` 3개뿐이었다. delegation을
+가진 나머지를 전부 추가 — `pow2 shl shr shr_arith bneg band bxor bor bitacc
+strip_all_whitespace` + nat-list 폴드 `sum_nat max_nat min_nat`. 추가 전 각 delegation이
+Native 값 전체를 커버하는 **완전한 정의**임을 확인했다. 주석도 "왜 clash가 단순 중복이
+아니라 stuck인가"와 "{!To_maude.delegation_eqs}와 동기화하라"로 고쳐 적었다.
+
+**검증**:
+- 실행 모듈의 참조-미정의 심볼: `bzero`/`bpow_nat`/`badd`/`bsub`/`bmul`/`bdiv`/`bmod`/
+  `bis_zero`/`bpred` 전부 소멸. 남은 8개는 spec 자체에 정의가 없는 의도적 미구현
+  (`$bitacc_replace`, `$init_objectState`, `ExternFunctionCall_eval_lctk`,
+  `$int_to_bits_*`/`$bits_to_int_*`)과 패턴 위치의 `bsucc`뿐 — **분석 표면에도 동일**.
+- **분석 표면(CTRS) byte-identical**, impty 골든 둘 다 무변화(수정은 Native 전용).
+- **전체 corpus differential 재실행**: **completeness gap 2 → 0**, Maude OK 1226 → **1228**,
+  **결과값 일치 1225 → 1227 MATCH / 0 MISMATCH**(= 2026-07-15 clean-run 기준과 일치).
+
+**남은 soundness gap 1건은 오라클 아티팩트 — 수정 대상 아님.**
+`errors/issue1944.p4`는 `const bit<2147483648> x = 0;` 한 줄, 즉 폭 2³¹ 비트 타입이다.
+spec에는 **비트 폭 상한 규정이 없어**(grep 확인) 이를 수락하는 Maude가 오히려 spec에
+충실하다. 인터프리터는 이 프로그램을 300초는 물론 그 뒤로도 끝내지 못했고(2³¹비트
+값을 실제로 만들려는 것으로 보임), `check_diff_p4.sh`가 타임아웃을 FAIL로 기록하면서
+"interp FAIL & Maude OK" = soundness gap으로 잡힌다. CTRS 번역 버그가 아니므로 손대지
+않는다. 진짜로 거부해야 한다면 spec에 폭 상한을 넣는 별건 작업이다.
+
+### 2026-07-18 — iter 헬퍼 패밀리 통합: `$iterapply`/`$iterproj`→`$itercollect`, 변수별→튜플 수집, `$unzip`→`$iterproj` 개명
+
+**동기(사용자 결정)**: IterPr 출력 쪽 3패밀리를 하나로. (a) 변수별 collect 중복이
+만연(예: descriptor `e71f64a7` 전제 하나에 헬퍼 5개 — 같은 리스트 5회 주사, 같은
+let 5회 평가); (b) 구 `$iterproj($iterapply(…))`는 함수 호출 결과 위 재귀 — unzip이
+termination MAYBE를 만들던 SoA 잔재와 동일 패턴; (c) 2026-07-16 head-side fusion
+기계(SFused)가 premise-side 소비자 배선을 이미 풀어놓음.
+
+**설계** ([CORE_LOGIC.md](CORE_LOGIC.md) §3.7/§3.7.1): 전제당 `$itercollect` 하나가
+성분(comps = rel call이면 출력 순서, 아니면 binding 순서; `iter_collect_components`)
+스트림을 반환 — k=1이면 성분 자체(이름·형태 종전과 동일), k≥2면 **성분 튜플**
+(조건 1회 평가). ex-apply는 원소=호출 인라인의 **무조건 특수화**로 흡수(⛔
+2026-07-02의 "원소당 1회 호출" 불변식 유지; gensym effectful 판정은 call-graph라
+개명 무관). k≥2 사용처는 튜플 스트림을 `iterbind_N`으로 받아 head binder와 동일
+등록 → 소비 헬퍼 fused destructure / escape는 합성 튜플 본문(`collect_tuple_body`)
+위 `$iterproj` / dead는 `prune_absorbed_projs`. head-side `$unzip`은 `$iterproj`로
+개명해 한 패밀리(`$iterall`/`$itercollect`/`$itermap`/`$iterproj`).
+
+**검토·기각한 대안 — SoA-return collect** (n tuple list 대신 n list tuple 반환;
+재귀-조건형/accumulator형): accumulator형은 사용부가 튜플 패턴 cond 1개로 끝나
+표면상 가장 깔끔하고 producer 종료도 자명하지만, **MAYBE의 원인은 사용부 경계** —
+성분 리스트가 함수 결과로 태어나는 한 소비자 재귀가 C;A 후
+`$itermap(π₁(collect…), π₂(…))` 꼴로 SoA 패턴을 재현한다. 부수 비용(snoc/reverse
+O(n²), k≥2 ex-apply 무조건성 상실, `gen_*_holds` 형태 전제 파괴, `infer_ranges`
+컨테이너 휴리스틱 실패)까지 겹쳐 기각. 전 성분 escape 사이트에 한해선 더 깔끔하나
+인코딩 2벌 유지비가 projection cond 몇 개 절약을 압도.
+
+**구현**: `to_ctrs.ml` — `iter_collect_components`/`collect_tuple_body` 신설,
+`iter_collect_sym`이 comps 접미사(k=1은 byte-identical), `iter_apply_sym`/구
+`iter_proj_sym` 삭제, `conds_of_prem` IterPr가 k≥2에서 등록+제자리 projection 방출,
+`iterpr_defs` Some/None arm 병합(+proj_defs는 여기서만 방출 — 합성 exp는 IL에
+없어 visit_exp가 못 찾음), `unzip_sym`→`iter_proj_sym`·`iter_unzip_defs`→
+`iter_proj_defs`·`prune_absorbed_unzips`→`prune_absorbed_projs` 개명.
+`reflect.ml` — `iter_helper_prefixes`=`[$iterall; $itercollect]`,
+`gen_iterapply_holds`를 `gen_itercollect_holds`에 **형태 기반**으로 병합.
+**교훈(구현 중 회귀 1건)**: "스텝 무조건 → apply형" 판정은 틀림 —
+`fold_premise_binders`가 let-destructure 조건을 LHS 패턴으로 접으면 일반 collect도
+무조건이 된다(owise 66/3/3 kept 회귀 관측). 기준은 **원소가 relation call인가**;
+수정 후 69/3/0 복원.
+
+**검증(전부 통과)**:
+- 구조 sanity(신규 스크립트): 참조 헬퍼 전부 정의 존재·arity 일관·구 패밀리 출현 0
+  (**SANITY OK**). 최초 실행에서 `$itermap-…-list-2-pair` 3건이 참조-미정의로
+  검출됐는데, 추적 결과 **2026-07-16 head-side fusion 커밋(`6e96deb9`)이 만든
+  회귀**였다(아래 "동반 수정" 참조). 통합 자체가 만든 것은 아니지만 같은 ctx
+  스레딩 결함이므로 이 작업에서 함께 고쳤다.
+- impty 골든: 개명+방출순서 churn만(내용 동일), 재생성 커밋.
+- p4 corpus 심볼 대조: helper 406→411, eq/ceq 3061→3071(+10) — churn은 전부
+  (i) 개명 (ii) apply 흡수 (iii) 변수별→튜플 병합(e71f64a7 5→1 등) (iv) 구 proj
+  소멸 (v) 소비자 fused 전환(`$iterall-…-f<tuple>…`; 재귀가 튜플 스트림의
+  구문적 tail로 하강 — 육안 확인) 분류에 귀속, 미분류 잔여 없음.
+- owise 반사: **69 reflected / 3 complement-enumerated / 0 kept** (베이스라인과
+  동일). 다출력 binding cond의 head가 collect 호출 자체가 되면서
+  `insert_success_test`가 이제 그 사이트에도 적용됨.
+- 실행 differential: `run --check-p4` 26표본(entries 10 포함) **25 MATCH /
+  0 MISMATCH**(잔여 1 `issue3671.p4`는 변경 전 바이너리로도 not reduced — 기존
+  동작). structural 레그 `run-structural --check-p4` 표본 **2/2 MATCH**.
+- MFE CRC (`verify --symbol`): `$invalidate_headerUnion`(head-side co-iteration)
+  **CR YES / ChC YES**; `$is_default_parameterIR`(premise-side k=1 collect)
+  **CR YES / ChC YES**(이전 세션 값과 일치 — 무회귀). k≥2 튜플 collect 소비자
+  (`$resolve_constraint`, `$callableId_IR`)는 **TIMEOUT** — slice 자체는 작으나
+  (13/9룰) typing/constraint relation(`Type_ok`/`TableEntry_ok`/`gen_constraint`)을
+  끌어와 critical-pair가 폭발하는 이 심볼들 특유의 tractability 문제. **통합 직전
+  커밋(1307c45d)을 stash-빌드해 대조 → `$resolve_constraint` CRC 동일하게
+  TIMEOUT**(즉 회귀 아님, 통합 무관). 이 슬라이스들의 의미 보존은 CRC verdict가
+  아니라 아래 실행/structural differential MATCH로 뒷받침됨.
+  termination은 이 계열이 YES(`$callableId_IR`/`$dom_map`).
+- AProVE termination (`rtv.sh`): 통합된 다출력 ex-apply 심볼 `$callableId_IR`
+  **YES**, `$dom_map` **YES**(둘 다 튜플-collect/`$iterproj` 포함 슬라이스가
+  syntactic-subterm 하강으로 종료 증명 성공 — 통합 인코딩이 종료 친화적임을 실증).
+  대상 2심볼 `$invalidate_value`/`$invalidate_headerUnion`은 **MAYBE 유지 =
+  통합 전과 동일**(2026-07-17 기록의 AProVE 자동 전략 도구 한계, 회귀 아님).
+
+**동반 수정 — fusion 회귀(`6e96deb9`)로 정의가 누락된 중첩 `$itermap` 3건.**
+
+**증상**: `$itermap-id-field-a-colon-typeIR-field-a-list-2-pair`(및 field-b,
+`nameIR-field-colon-value-field`)가 **호출되지만 정의 규칙이 없음** — 분석·실행
+양 표면 모두(각 104 선언 / 101 정의). op 선언은 range 복구도 실패해 `-> Val` 폴백.
+
+**시점 확정**: fusion 이전 커밋(main `2f9f8cba`)을 덤프 대조하니 **96 선언 / 96 정의,
+미정의 0**. 즉 head-side fusion이 도입한 회귀이고, 이번 통합은 이를 물려받았을 뿐.
+
+**원인 — ctx 스레딩 비대칭**. 문제 형태는 head binder가 fusion 등록된 rule 안의
+**중첩 IterE**다([5.05.2-typing-casting.spectec:157](../../specs/p4/5-typing/5.05.2-typing-casting.spectec)
+`Cast_expl_neq/structTypeIR`의 `$find_map({ (id_field_a ':' typeIR_field_a)* }, …)`):
+- 호출부 — `iterpr_defs`가 내부 전제의 조건을 **ctx 없이** 계산(helper 안에는
+  head binder가 없고 spine이 인자로 들어오므로 이게 맞다) → bare 2-spine 이름.
+- 정의부 — `iter_helper_defs`의 `visit_prem ctx inner`가 **바깥 rule의 ctx로**
+  방문 → 같은 IterE가 fused 1-spine 이름으로 정의 방출.
+⇒ 호출된 이름은 정의가 없고, 정의된 이름은 아무도 안 불러 `prune_unused`가 제거.
+
+**영향**: 그 스텝의 `isStuckHead($find_map(…)) = false` 가드가 항상 실패해
+**규칙이 발화 불가** — 필드 순서가 다른 struct/header 간 명시적 캐스트
+(`Cast_expl_neq/structTypeIR`·`headerTypeIR`와 대응 value 규칙)가 죽어 있었다.
+분석 전용이 아니라 실행 표면에도 동일했다.
+
+**수정**: `iter_map_def`/`iterpr_defs`/`visit_exp`/`visit_prem`의 ctx를
+`iter_ctx option`으로 바꾸고, **iterated 전제의 inner는 `visit_prem None`으로**
+내려보낸다(= 그 위치의 호출부가 컴파일된 것과 같은 레지스트리 상태). 원칙:
+**정의 방출은 언제나 그 호출 사이트가 쓴 ctx로 해야 한다** — 심볼이
+`spines_of_ids`에 의존하기 때문.
+
+**수정 후 검증**: sanity **OK**(104 선언 / 104 정의, 참조-미정의 0, 양 표면),
+op range도 `-> Val` 폴백에서 정확한 `-> List`로 복구. corpus churn은 정확히
+누락 정의 6줄 추가 + op 선언 3줄 재선언뿐. impty 골든 무변화, owise 69/3/0 불변,
+실행 differential 32표본(struct-cast 후보 6개 추가) **31 MATCH / 0 MISMATCH**
+(잔여 1 `issue3671.p4`는 fusion 이전 바이너리로도 not reduced — 별개 기존 문제),
+structural differential 2/2 MATCH. CRC `$invalidate_headerUnion`·
+`$is_default_parameterIR` 모두 **YES/YES 유지**, termination `$callableId_IR`
+**YES**·`$dom_map` **YES**·`$invalidate_value` **MAYBE** — 전부 수정 전과 동일.
+
 ### 2026-07-15 — 잔여 CRC MAYBE 재분류 + owise or-gate 진단 + 수정 후보 (미구현)
 
 **작업 격리**: worktree `/home/spectec-core-matchbridge`(branch `match-bridge-ceq`,
@@ -783,6 +973,13 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   스트림 projection(현 `$iterapply`+`$iterproj`)이 효과적 다중 출력의 올바른
   형태라 유지. 후속 `$itercollect`-only 통일(4e00da94 revert)도 같은 벽 —
   effectful 반복은 원소당 1회 호출 구조가 불변식임을 전제로 재설계해야 함.
+
+  **→ 해소 (2026-07-18, M1 "iter 헬퍼 패밀리 통합" 참조).** 불변식을 지키는
+  재설계로 통일 완료: 출력별 재호출 대신 **단일 튜플-수집 `$itercollect`**(호출
+  원소당 정확히 1회, 무조건 eq 유지)를 두고, 성분 복원은 이미 계산된 튜플
+  스트림 위의 순수 projection(합성 튜플 본문의 `$iterproj`) 또는 소비 헬퍼의
+  fused destructure가 맡는다 — 2026-07-16 head-side fusion 기계가 premise-side로
+  확장되면서 당시 벽이던 "소비자 배선" 문제가 풀렸다.
 
 ## M2 — 실행 (Maude)
 

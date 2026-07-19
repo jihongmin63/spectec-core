@@ -7,10 +7,10 @@ set include BOOL off .
   subsort List < Text .
   subsort Literal < Expr .
 
-  op $itermap-K-t-minus-gt-V-t-list-2-pair : Val Val -> List .
+  op $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair : Val -> List .
+  op $iterproj-K-t-minus-gt-V-t-list-K-t : Val -> List .
+  op $iterproj-K-t-minus-gt-V-t-list-V-t : Val -> List .
   op $lookup : List Val -> Opt .
-  op $unzip-K-t-minus-gt-V-t-list-K-t : Val -> List .
-  op $unzip-K-t-minus-gt-V-t-list-V-t : Val -> List .
   op Check-command : List Command -> List .
   op Check-expr : List Expr -> Type .
   op Check-prog : Command -> BoolV .
@@ -285,12 +285,12 @@ set include BOOL off .
   eq match-command-semi-2(variant-command-IF-THEN-ELSE-END-3(x0:Expr, x1:Command, x2:Command)) = false .
   eq match-command-semi-2(variant-command-WHILE-DO-END-2(x0:Expr, x1:Command)) = false .
   eq match-command-semi-2(variant-command-semi-2(x0:Command, x1:Command)) = true .
-  eq $itermap-K-t-minus-gt-V-t-list-2-pair(nil, nil) = nil .
-  eq $itermap-K-t-minus-gt-V-t-list-2-pair(cons(K-t--hd:Val, K-t--tl:List), cons(V-t--hd:Val, V-t--tl:List)) = cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), $itermap-K-t-minus-gt-V-t-list-2-pair(K-t--tl:List, V-t--tl:List)) .
-  eq $unzip-K-t-minus-gt-V-t-list-V-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
-  eq $unzip-K-t-minus-gt-V-t-list-K-t(nil) = nil .
-  eq $unzip-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $unzip-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  eq $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(nil) = nil .
+  eq $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest0:List)) = cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), $itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(--rest0:List)) .
+  eq $iterproj-K-t-minus-gt-V-t-list-K-t(nil) = nil .
+  eq $iterproj-K-t-minus-gt-V-t-list-K-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(K-t--hd:Val, $iterproj-K-t-minus-gt-V-t-list-K-t(--rest:List)) .
+  eq $iterproj-K-t-minus-gt-V-t-list-V-t(nil) = nil .
+  eq $iterproj-K-t-minus-gt-V-t-list-V-t(cons(variant-pair-minus-gt-2(K-t--hd:Val, V-t--hd:Val), --rest:List)) = cons(V-t--hd:Val, $iterproj-K-t-minus-gt-V-t-list-V-t(--rest:List)) .
   eq subty-literal(variant-id-ID-1(x0:Text)) = false .
   eq subty-literal(variant-expr-bang-1(x0:Expr)) = false .
   eq subty-literal(variant-expr-plus-2(x0:Expr, x1:Expr)) = false .
@@ -303,8 +303,8 @@ set include BOOL off .
   eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
   eq $lookup(nil, K-query:Val) = none .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:List /\ $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:List .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-2-pair($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List), $unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)), K-query:Val) if isStuckHead($unzip-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)) = false /\ isStuckHead($unzip-K-t-minus-gt-V-t-list-K-t(iterbind-0:List)) = false /\ match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(eqg(pair-lt-K-comma-V-gt:List, nil), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $iterproj-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:List /\ $iterproj-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:List .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(iterbind-0:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(eqg(pair-lt-K-comma-V-gt:List, nil), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
   eq Check-expr(tenv:List, variant-literal-NUM-1(i:IntV)) = variant-type-INT-0 .
   eq Check-expr(tenv:List, variant-literal-BOOL-1(b:BoolV)) = variant-type-BOOL-0 .
   ceq Check-expr(tenv:List, variant-id-ID-1(expand-0:Text)) = t:Type if $lookup(tenv:List, variant-id-ID-1(expand-0:Text)) = some(t:Type) .
