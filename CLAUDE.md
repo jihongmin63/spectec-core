@@ -164,7 +164,8 @@ become CTRS conditions; the result/output becomes the rhs.
   program (repeatable — batches through one Maude invocation, amortizing
   module internalization); `--emit` just prints the module. `--check-p4` also
   typechecks each `--p4` program with the interpreter and diffs the RESULT
-  value against Maude's (`Of_maude`) — the Phase D oracle.
+  value against Maude's (`Of_maude`) — the Phase D oracle. `--timeout` defaults
+  to 0 (no limit); see "Performance notes" for why a fixed default cannot work.
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
@@ -192,6 +193,123 @@ duplicated here, since it shifts as reflection coverage grows.
 it runs externally via a Maude 2.7.1 + MTT + AProVE(Z3) stack
 (`spectec/tools/mfe/run-termination.sh <symbol>`) — see
 [tools/mfe/README.md](spectec/tools/mfe/README.md) for setup.
+
+### Do not route termination through MTT — unravel and call AProVE directly
+
+**MTT's C;A path is the wrong transformation for these slices, and it was the
+cause of the long-standing termination MAYBEs — not AProVE, and not the
+translation.** (2026-07-19.)
+
+MTT unravels `l -> r if s == t` by passing the *condition's variables* to the
+helper symbol:
+
+    l            -> U(s, x1..xn)          (x1..xn = Var(l))
+    U(t, x1..xn) -> r
+
+An argument like `HU(e0,e1)` is thereby taken apart into `e0,e1` and rebuilt on
+the right, which **inverts the subterm relation that carried the descent** —
+`e0`,`e1` are strictly smaller than `HU(e0,e1)`, so no argument projection can
+orient the resulting dependency pair, and the proof is unreachable no matter how
+much budget AProVE gets.
+
+The fix is to unravel *structure-preservingly*: carry the left-hand side's
+argument list **unchanged**, wrapped in a fresh constructor `k_N` that has no
+defining rule (inert, so it cannot loop — passing the bare lhs *term* instead
+makes the rule reproduce its own redex, and AProVE correctly answers NO):
+
+    f(p1..pk)            -> u_1(s, k_1(p1..pk))
+    u_1(t, k_1(p1..pk))  -> r
+
+Then hand the plain TRS straight to `tools/aprove/runme <file.trs> <budget>`
+(WST mode). No MTT in the loop.
+
+Measured effect (153 ≤500-rule symbols, both axes): the three slices MTT could
+not close — `$join_text`, `$invalidate_headerUnion`, `$invalidate_value` —
+each burn the full 1200 s budget to reach MAYBE through MTT, and prove **YES in
+about one second** when unraveled this way. **Zero regressions** among the
+symbols MTT already proved. The CTRS encoding needs no change; this is purely a
+defect of the checking pipeline.
+
+Implementing it correctly needs three details, each of which silently produces a
+wrong or malformed system if missed:
+
+1. **Multi-condition chains must accumulate bound variables.** A condition can
+   bind variables a later condition or the final rhs uses
+   (`... if p(x) = cons(h,t) /\ q(h) = true`). Each keep-constructor must carry
+   the original arguments *plus* every variable bound by the conditions before
+   it, or the last rule has an extra variable in its rhs.
+2. **Emitted conditions are not always in dependency order.** Reflect's guard
+   passes can place an `isStuckHead` guard ahead of the condition that binds the
+   variable it inspects (`$bitstr-to-int`). Re-order greedily: repeatedly take
+   the first condition whose left side is fully bound, then treat its right side
+   as a binder.
+3. **Verify coverage, don't assume it.** Fail loudly on any equation not
+   accounted for and on any rule with an unbound rhs variable. Both bugs above
+   were found that way; both had produced plausible-looking output.
+
+Soundness: every CTRS step is simulated by the TRS
+(`lσ -> u(sσ, k(argsσ)) ->* u(tσ, k(argsσ)) -> rσ`), condition evaluation
+included, so **TRS termination ⟹ CTRS operational termination**. Sorts and
+subsorts are dropped, making the TRS an over-approximation (well-sorted terms
+are a subset) — the same safe direction MTT has. The corollary matters:
+**a NO verdict does *not* prove the source non-terminating** — it may be an
+artifact of the over-approximation, so treat NO as something to investigate, not
+a witness.
+
+Analysis-surface slices are safe inputs for this: they carry no `owise`, no
+`rl`/`crl`, no `assoc`/`comm`/`id:` attributes, no `:=`/`=>` conditions, no
+imports, and no mixfix — every declaration is prefix and single-line.
+Also note `prune_slice_signature.py full` prunes only the *signature*, never a
+rule, so it is a no-op for this path.
+
+## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
+
+MAYBE/TIMEOUT means *unproven*, not *defective*. A real defect needs a witness:
+a feasible non-joinable critical pair (CRC), or an actual infinite rewrite
+(termination). A 2026-07-10 sweep over all 153 ≤500-rule symbols produced 41
+MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
+
+**Spurious CRC MAYBE/TIMEOUT.**
+- Fall-through/default clause guarded by `or(all match-Xs) = false` — infeasible
+  once any specific matcher fires (`$join_ctk`, `$assignop_as_binop`).
+- Mutually-exclusive sign/range splits the checker can't discharge (`$bin_shr`:
+  `i<0` arithmetic-shift vs `i≥0` logical; `$bin_satplus`: `sum>0` vs `sum≤0`).
+- CRC TIMEOUT is usually the shared arithmetic library (`badd`/`bmul`, 13–16
+  rules) exploding in critical pairs, not an own-layer overlap — that library is
+  confluent (`$bin_div`/`$bin_mod` are YES).
+
+**Spurious termination MAYBE/TIMEOUT.**
+- Structural recursion whose decreasing argument is destructured in a *premise*
+  (`xs = cons(h,t)`, recurse on `t`). Not a loop. (list / flatten / invalidate /
+  write_value) **Cause corrected 2026-07-19:** this was blamed on AProVE's
+  dependency-pair analysis, which was wrong. AProVE certifies the descent in
+  about a second; MTT's unraveling was destroying it before AProVE ever saw it.
+  Unravel structure-preservingly and these all come back YES — see
+  "Do not route termination through MTT" above.
+- Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
+  (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
+- Acyclic call graph + large slice → pure tool-budget TIMEOUT.
+
+**The one real family — binenc zero-width / zero-value boundary.**
+`$write_value_from_bits'` at `integerValue.V, n_var = 0`: two order-sensitive
+`def` clauses share the `V` constructor, but the general clause carries no
+`n_var ≠ 0` guard and no owise, so both fire at `n_var = 0` with different
+results (keep the original field vs overwrite with `$int_to_bitstr(0, …)`) — a
+latent non-confluence masked only by rule order. This is the root cause of all
+five `write_value*` CRC MAYBEs, and the same family as the
+`$bitstr_to_int` / `$int_to_bitstr` w=0 non-termination. **Lesson: when
+translating order-sensitive `def` clauses that share a constructor, preserve the
+disambiguating guard (or owise); always check the 0-width / 0-value boundary.**
+
+**Surfaces differ.** CRC/termination run on the `rewrite --ctrs` *analysis*
+surface (owise dropped, `isStuckHead` ruleless); confirm a real
+non-confluence/non-termination on the *executable* surface (`main.exe rewrite`
+without `--ctrs`, i.e. `to_maude`).
+
+**Confirming a suspect pair fast.** Build a minimal module (full signature
+preamble + only the two suspect rules + `endm)`) and run CRC — it reports just
+that pair in seconds, instead of re-running the whole slice. Always
+`ulimit -s unlimited` (large-slice CRC dies on stack overflow with no verdict).
 
 ## Same-spec interp-vs-Maude oracle
 
@@ -256,8 +374,25 @@ real costs:
    object-level grammar with a small fixed meta-syntax — eliminates the
    per-program parse cost (was the dominant cost, ~7s/program on P4 modules).
 2. **Batched invocations** (`Maude_run.run_batch`, CLI: repeat `--imp`/`--p4`)
-   amortize module load + first-metaReduce internalization (~10s) across every
-   program in one Maude invocation (~4ms/program after the first).
+   amortize module load + first-metaReduce internalization across every program
+   in one Maude invocation.
+
+**Current measured cost on `specs/p4`** (2026-07-11; the module is ~78k lines /
+~74k equations, and it has been this size since well before the binary-nat
+merge — earlier "~10s internalization, ~4ms/program" figures here were measured
+before the 5,425 subty-complement equations landed and are long stale):
+
+| phase | cost |
+|---|---|
+| IL → Maude translation (`run --emit`) | ~10s |
+| Maude module internalization (fixed, once per invocation) | **~80s** |
+| per program after that | ~6.5s |
+
+The fixed ~80s is why **`run`/`run-structural` default to `--timeout 0` (no
+limit)**: any fixed default below it turns a perfectly good run into a `TIMEOUT`
+before the first program even starts (this silently broke `check_diff_p4.sh`'s
+per-file fallback path). Bound the run from the caller instead — as the harness
+already does with a shell `timeout`.
 
 To break down a slow `run` invocation into startup/module-parse/rewrite phases,
 use `tools/maude/rewrite-time.sh` — **not present on `new-rewrite`**, restore it
