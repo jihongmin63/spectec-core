@@ -199,38 +199,90 @@ let rewrite_command =
         " with --ctrs, over-approximate for the SCC: drop rule conditions and \
          linearize non-left-linear lhs (counterexamples stay sound; a \
          'complete' verdict for a transformed symbol proves nothing)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (the pre-fixpoint \
+         behaviour; to bisect a regression back to that pass)"
+  and slice_dir =
+    flag "--slice-dir" (optional string)
+      ~doc:
+        "DIR with --ctrs, write EVERY symbol's slice to DIR/<symbol>.mod in \
+         one translation instead of dumping one to stdout (the whole-spec \
+         translation is the per-symbol cost of a sweep: ~50s each on p4)"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     if simplified then
       Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
-      let system =
-        match symbol with
-        | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
-        | None -> system
+      (* The signature is recovered from the WHOLE system even when the dump is
+         a slice or condition-dropped: a predicate's domain is the join of its
+         call sites, and both transforms delete call sites, so recovering from
+         the transformed rules would declare a narrower domain than the module
+         that actually runs -- and an SCC verdict about that domain would be
+         about a system nobody executes. *)
+      let sig_rules = system.rules in
+      (* the module text, and whether [--unconditional] had to over-approximate
+         this slice to get it past the SCC's drop-bad-eqs filter (a COMPLETE
+         verdict proves nothing when it did) *)
+      let emit sys =
+        let sys' =
+          if unconditional then
+            Rewrite.Rewrite_system.(linearize_lhs (drop_conds sys))
+          else sys
+        in
+        let fidelity = if sys' = sys then "exact" else "approx" in
+        ( Rewrite.To_mfe.module_of_system ~predicates ~sig_rules spec_il sys',
+          fidelity )
       in
-      let system =
-        if unconditional then
-          Rewrite.Rewrite_system.(linearize_lhs (drop_conds system))
-        else system
-      in
+      match slice_dir with
+      | Some dir ->
+          (* every symbol the rules define, not just [def_symbols] (the spec's
+             own functions/relations): the SCC's most valuable targets are the
+             DERIVED predicates -- subty_<T>, match_<T>_<K>, holds_<R> -- which
+             no [DecD]/[RelD] declares. *)
+          let syms = Rewrite.Rewrite_system.defined_heads system in
+          let fid = open_out (Filename.concat dir "_fidelity.tsv") in
+          Fun.protect
+            ~finally:(fun () -> Out_channel.close fid)
+            (fun () ->
+              List.iter
+                (fun s ->
+                  let sys = Rewrite.Rewrite_system.slice system ~roots:[ s ] in
+                  let text, fidelity = emit sys in
+                  let oc = open_out (Filename.concat dir (s ^ ".mod")) in
+                  Fun.protect
+                    (fun () -> Out_channel.output_string oc text)
+                    ~finally:(fun () -> Out_channel.close oc);
+                  Printf.fprintf fid "%s\t%s\n" s fidelity)
+                syms);
+          Ok (Printf.sprintf "%d slices written to %s" (List.length syms) dir)
+      | None ->
+          let system =
+            match symbol with
+            | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
+            | None -> system
+          in
+          Ok (fst (emit system))
+    else
       Ok
-        (Rewrite.To_mfe.module_of_system
-           ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-           spec_il system)
-    else Ok (Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il)
+        (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
 
 (* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
    the Maude Formal Environment. [Rewrite.rewrite_spec] builds the structural
    CTRS, [--symbol] optionally slices it to one definition's dependency closure,
-   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation;
-   non-input-moded relations ([Rewrite.To_ctrs.rule_head_syms]) are the rules,
-   everything else equations. *)
+   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation; the
+   module is purely equational (every SpecTecx relation is input-moded). *)
 let verify_command =
   Core.Command.basic
     ~summary:
@@ -293,15 +345,16 @@ let verify_command =
             false )
     else
       let system = Rewrite.rewrite_spec spec_il in
+      (* see the [rewrite --ctrs] path: a sliced module still declares the whole
+         system's predicate domains *)
+      let sig_rules = system.rules in
       let system =
         match symbol with
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
         | None -> system
       in
       let result : Rewrite.Mfe.result =
-        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir
-          ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-          spec_il system
+        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il system
       in
       let verdict = Rewrite.Mfe.string_of_verdict in
       let line =
@@ -367,6 +420,12 @@ let run_command =
       ~doc:
         " keep relations as Maude rules (rl/crl) instead of equations for \
          input-moded ones (pair with --search to explore non-determinism)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (to bisect a \
+         regression back to that pass)"
   and bound =
     flag "--bound" (optional int)
       ~doc:"N cap the number of search solutions explored"
@@ -448,8 +507,12 @@ let run_command =
           | Error e -> (label, kind, Error (resolve_error_msg e)))
         sources
     in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     let module_text =
-      Rewrite.To_maude.module_of_spec ~relations_as_rules spec_il
+      Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il
     in
     if emit then Ok (module_text, false)
     else
@@ -587,6 +650,12 @@ let run_structural_command =
       ~doc:
         "FILE parse an impty program and reduce it structurally (repeat to \
          batch several through one Maude invocation)"
+  and wide_predicates =
+    flag "--wide-predicate-domains" no_arg
+      ~doc:
+        " declare the match_/subty_/holds_/eqg predicates over the top sort \
+         Val instead of the domain recovered from their use (to bisect a \
+         regression back to that pass)"
   and p4 =
     flag "--p4" (listed string)
       ~doc:
@@ -630,10 +699,13 @@ let run_structural_command =
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     let system = Rewrite.rewrite_spec spec_il in
+    let predicates =
+      if wide_predicates then Rewrite.Maude_sorts.Wide
+      else Rewrite.Maude_sorts.Narrow
+    in
     let module_text =
-      Rewrite.To_mfe.module_of_system ~full_maude:false
-        ~rule_heads:(Rewrite.To_ctrs.rule_head_syms spec_il)
-        spec_il system
+      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates spec_il
+        system
     in
     if emit then Ok (module_text, false)
     else

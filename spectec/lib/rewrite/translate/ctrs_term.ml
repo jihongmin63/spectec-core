@@ -81,6 +81,11 @@ let subty_sym (typ_name : string) : string = "subty_" ^ R.sanitize typ_name
 let func_sym (id : id) : string = "$" ^ R.sanitize id.it
 let rel_sym (id : id) : string = R.sanitize id.it
 
+(* The boolean reflection of a judgment ({!Reflect}): "[sym] holds of these
+   arguments". Takes the symbol, not the id, since the iteration helpers
+   reflect their own generated symbols too. *)
+let holds_sym (sym : string) : string = "holds_" ^ sym
+
 (* Smart constructors. *)
 let var_t (name : string) : R.term = R.Var name
 let app_t (sym : string) (args : R.term list) : R.term = R.App (sym, args)

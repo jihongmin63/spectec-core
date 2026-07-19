@@ -1416,8 +1416,6 @@ let complement_clauses ~scalars (tbl : tables) (sup : support)
    condition and instead gain an inserted [holds_R(in) = true] test (the
    same mechanism as the collecting iteration helpers below). *)
 
-let holds_sym (s : string) : string = "holds_" ^ s
-
 (* Which spelling of a [R(in..) = true/false] condition is a satisfiability
    test (negation-as-failure, respellable to [holds_R]) rather than an output
    VALUE test: a no-output judgment only ever concludes [true]; a judgment
@@ -1454,7 +1452,7 @@ let replace_cond ~scalars (tbl : tables) (succ : string list) ((l, r) : R.cond)
           | `Maybe_bool -> false
         else bool_rhs true || bool_rhs false
       in
-      if respell then (R.App (holds_sym f, args), r) else (l, r)
+      if respell then (R.App (T.holds_sym f, args), r) else (l, r)
   | _ -> (l, r)
 
 (* [holds_<R>(x0..xn-1) = or(g_1 .. g_k)]: one g per rule of [R], built by the
@@ -1487,7 +1485,7 @@ let gen_rel_holds ~scalars ~prep (tbl : tables) (sup : support)
     | [] -> raise (Gate "judgment without rules")
     | g :: gs -> List.fold_left (fun a b -> T.or_t a b) g gs
   in
-  [ T.rule (T.app_t (holds_sym name) xs) disj ]
+  [ T.rule (T.app_t (T.holds_sym name) xs) disj ]
 
 (* The explicit [false] rules a totalized [holds_$iterall../$itercollect..]
    needs for a multi-spine List iteration whose bound streams
@@ -1549,7 +1547,7 @@ let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
     | R.Var _ -> raise (Gate "variable lhs")
   in
   let base_args = args_of base and step_args = args_of step in
-  let hname = holds_sym name in
+  let hname = T.holds_sym name in
   let acc =
     {
       tests = [];
@@ -1619,7 +1617,7 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
     | R.Var _ -> raise (Gate "variable lhs")
   in
   let base_args = args_of base and step_args = args_of step in
-  let hname = holds_sym name in
+  let hname = T.holds_sym name in
   let elem, rec_args =
     match step.R.rhs with
     | R.App ("cons", [ e; R.App (s, args) ]) when s = name -> (e, Some args)
@@ -1633,7 +1631,7 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
     match elem with
     | R.App (f, args) when step.R.conds = [] && Hashtbl.mem tbl.relsigs f ->
         List.iter (check_reflectable tbl effectful succ) args;
-        and_chain ~scalars (R.App (holds_sym f, args) :: rec_holds)
+        and_chain ~scalars (R.App (T.holds_sym f, args) :: rec_holds)
     | _ ->
         let acc =
           {
@@ -1846,7 +1844,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
           when List.mem f succ
                && r <> T.bool_t ~scalars true
                && r <> T.bool_t ~scalars false ->
-            [ (R.App (holds_sym f, args), T.bool_t ~scalars true); c ]
+            [ (R.App (T.holds_sym f, args), T.bool_t ~scalars true); c ]
         | _ -> [ c ])
       conds
   in

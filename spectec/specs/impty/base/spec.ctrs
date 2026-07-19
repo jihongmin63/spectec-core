@@ -52,23 +52,23 @@ set include BOOL off .
   op int-pos : NatV -> IntV [ctor] .
   op isStuckHead : Val -> Val .
   op leq-int : IntV IntV -> BoolV .
-  op match-command-IF-THEN-ELSE-END-3 : Val -> BoolV .
-  op match-command-SKIP-0 : Val -> BoolV .
-  op match-command-WHILE-DO-END-2 : Val -> BoolV .
-  op match-command-eq-2 : Val -> BoolV .
-  op match-command-eq-3 : Val -> BoolV .
-  op match-command-semi-2 : Val -> BoolV .
-  op match-cons : Val -> BoolV .
-  op match-expr-amp-amp-2 : Val -> BoolV .
-  op match-expr-bang-1 : Val -> BoolV .
-  op match-expr-lt-eq-2 : Val -> BoolV .
-  op match-expr-plus-2 : Val -> BoolV .
-  op match-literal-BOOL-1 : Val -> BoolV .
-  op match-literal-NUM-1 : Val -> BoolV .
-  op match-nil : Val -> BoolV .
-  op match-some : Val -> BoolV .
-  op match-type-BOOL-0 : Val -> BoolV .
-  op match-type-INT-0 : Val -> BoolV .
+  op match-command-IF-THEN-ELSE-END-3 : Command -> BoolV .
+  op match-command-SKIP-0 : Command -> BoolV .
+  op match-command-WHILE-DO-END-2 : Command -> BoolV .
+  op match-command-eq-2 : Command -> BoolV .
+  op match-command-eq-3 : Command -> BoolV .
+  op match-command-semi-2 : Command -> BoolV .
+  op match-cons : List -> BoolV .
+  op match-expr-amp-amp-2 : Expr -> BoolV .
+  op match-expr-bang-1 : Expr -> BoolV .
+  op match-expr-lt-eq-2 : Expr -> BoolV .
+  op match-expr-plus-2 : Expr -> BoolV .
+  op match-literal-BOOL-1 : Literal -> BoolV .
+  op match-literal-NUM-1 : Literal -> BoolV .
+  op match-nil : List -> BoolV .
+  op match-some : Opt -> BoolV .
+  op match-type-BOOL-0 : Type -> BoolV .
+  op match-type-INT-0 : Type -> BoolV .
   op nil : -> List [ctor] .
   op none : -> Opt [ctor] .
   op not : BoolV -> BoolV .
@@ -78,8 +78,8 @@ set include BOOL off .
   op some : Val -> Opt [ctor] .
   op sub-int-nat : NatV NatV -> IntV .
   op sub-int-nat-aux : Val Val Val -> Val .
-  op subty-id : Val -> BoolV .
-  op subty-literal : Val -> BoolV .
+  op subty-id : Expr -> BoolV .
+  op subty-literal : Expr -> BoolV .
   op true : -> BoolV [ctor] .
   op variant-command-IF-THEN-ELSE-END-3 : Expr Command Command -> Command [ctor] .
   op variant-command-SKIP-0 : -> Command [ctor] .

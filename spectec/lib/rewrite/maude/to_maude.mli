@@ -22,7 +22,11 @@
     equations, so arithmetic and text operations run in constant time instead of
     structural recursion. *)
 val module_of_spec :
-  ?module_name:string -> ?relations_as_rules:bool -> Lang.Il.spec -> string
+  ?module_name:string ->
+  ?relations_as_rules:bool ->
+  ?predicates:Maude_sorts.predicate_mode ->
+  Lang.Il.spec ->
+  string
 
 (** The module's reducible symbols (functions/relations/ops) in Maude spelling.
     Pass to {!Maude_run.run} as [~defined_heads] so a normal form still
@@ -31,10 +35,15 @@ val maude_defined_heads : Lang.Il.spec -> string list
 
 (** Emit the module for an already-translated system (a
     {!Pipeline.maude_system_of_spec} result), given the [orig] spec it came from
-    (needed for the sorts/signatures). *)
+    (needed for the sorts/signatures). [predicates] selects how the per-type
+    predicates ([match_]/[subty_]/[holds_]/[eqg]) are typed: [Narrow] (default)
+    recovers each domain from use ({!Maude_sorts.predicate_domains}), [Wide]
+    keeps the blunt [Val] of commit 1874d212 (to bisect a regression back to
+    that pass). *)
 val module_of_system :
   ?module_name:string ->
   ?relations_as_rules:bool ->
+  ?predicates:Maude_sorts.predicate_mode ->
   Lang.Il.spec ->
   Rewrite_system.t ->
   string
@@ -75,14 +84,14 @@ val print_rule :
     guard bare-variable binds with (see [print_rule]'s doc). *)
 val stuck_head_sym : string
 
-(** [stuck_head_eqs heads sg] emits the [{!stuck_head_sym}] equations: [true] on
-    a term headed by one of [heads] (a stuck, not-yet-reduced application --
-    [sg h n] gives its declared argument sorts, so the guard pattern types
-    correctly), [false] otherwise ([owise]). A module using {!print_rule}'s
-    matching conditions must declare these (plus the
-    [{!stuck_head_sym} : Val -> Bool] op itself) for the guard to resolve. *)
-val stuck_head_eqs :
-  (string * int) list -> (string -> int -> string list * string) -> string list
+(** [stuck_head_eqs heads] emits the [{!stuck_head_sym}] equations: [true] on a
+    term headed by one of [heads] (a stuck, not-yet-reduced application),
+    [false] otherwise ([owise]). The guard patterns take [Val] arguments, since
+    a stuck term's own arguments may sit at the [Val] kind -- see the
+    implementation. A module using {!print_rule}'s matching conditions must
+    declare these (plus the [{!stuck_head_sym} : Val -> Bool] op itself) for the
+    guard to resolve. *)
+val stuck_head_eqs : (string * int) list -> string list
 
 (** The start application of relation [rel] (an IL relation name, e.g.
     ["Program_ok"]) on already-encoded {e META-TERM} argument terms, as a Maude

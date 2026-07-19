@@ -246,8 +246,11 @@ executable surface (empty two's-complement range `[-2^(w-1), 2^(w-1))`), but tha
 loop is *masked* on the analysis surface (its `isStuckHead(…)=false` premise is
 unsatisfiable). numerics.ml's reference `bitstr_to_int'` shares the same w=0 loop
 (so the CTRS translation is faithful); it terminates in practice only because
-callers always pass `w≥1`. See the repo-root
-`spectec-crc-termination-recalibration.md` (notes **F-w0**, **F-표면**, **F-정리**).
+callers always pass `w≥1`. The detailed notes (**F-w0**, **F-표면**, **F-정리**)
+lived in the repo-root recalibration report until it was reduced to tables in
+`e58c6153` — recover them with
+`git show e58c6153^:spectec-crc-termination-recalibration.md`; the current
+tables/notes are `verification.md` / `verification-notes.md`.
 
 ## Performance — use per-symbol slices
 

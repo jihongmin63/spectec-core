@@ -28,15 +28,6 @@ val of_spec :
     defines, in declaration order. *)
 val def_symbols : Lang.Il.spec -> string list
 
-(** The CTRS symbols of relations that declare a non-empty input mode
-    ([hint(input ...)]); such relations are functional and may be emitted as
-    equations. *)
-val input_moded_rel_syms : Lang.Il.spec -> string list
-
-(** The CTRS symbols of relations with an empty input mode: the complement of
-    {!input_moded_rel_syms}, emitted as rules rather than equations. *)
-val rule_head_syms : Lang.Il.spec -> string list
-
 (** The constructor of a one-case variant type [name] in the spec: a builder
     wrapping its arguments in that case's [variant_<origin>_<mixop>] symbol.
     [None] when the name is undefined or not a single-case variant. *)

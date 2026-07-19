@@ -10,9 +10,9 @@ Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. **분석 confluence
 MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_guards`), owise
 반사 72/72 달성 + `drop_owise` 폴백 제거, holds_R output-carrying 일반화까지 완료
 (아래 2026-07-07 항목). **구조적 CTRS differential**(binary nat 이론, Phase D
-1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [recalibration.md](../../../recalibration.md))도
+1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [verification.md](../../../verification.md))도
 완료됐습니다. 남은 일은 아래 "남은 작업" 블록(`$bitstr_to_int` w=0 비종료,
-search/modelCheck 메타 성질 검증, SCC, 잔여 MAYBE)입니다.
+LTL 모델 검사, SCC, 잔여 MAYBE)입니다.
 알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
 [CLAUDE.md](CLAUDE.md) 참고.
 
@@ -20,9 +20,10 @@ search/modelCheck 메타 성질 검증, SCC, 잔여 MAYBE)입니다.
 
 - ✅ 빌드됨·온전: `Rewrite_system`(`{vars;rules}` + `string_of_term`·질의·`slice` +
   `string_of_system_maude`/`ops_of_system`), `To_ctrs` 심볼/빌더 레이어 + thin 질의
-  (`def_symbols`·`input_moded_rel_syms`·`rule_head_syms`), `pipeline`/`rewrite`,
-  `Mfe`(CRC+ChC 브리지), **CLI 배선**(`bin/main.ml` `rewrite`/`verify`/`run` +
-  `bin/dune`에 `spectec.rewrite`).
+  (`def_symbols`·`input_moded_rel_syms`·`rule_head_syms` — 뒤 둘은 2026-07-14
+  삭제: 모든 SpecTecx 관계가 입력-모드라 각각 "전 관계"/∅ 상수였다),
+  `pipeline`/`rewrite`, `Mfe`(CRC+ChC 브리지), **CLI 배선**(`bin/main.ml`
+  `rewrite`/`verify`/`run` + `bin/dune`에 `spectec.rewrite`).
 - ✅ 복구됨(지원 패스, `rewrite` 브랜치에서): `exp_map`(IL 얕은 traversal),
   `defunctionalize`(def-인자 specialization), `gensym`(`$fresh` 상태 스레딩),
   `builtin`(P4 컬렉션 builtin 규칙). `pipeline`이 두 경로(Structural/Native)에서
@@ -64,7 +65,8 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   - `run` — 현재 **모듈 emit만**(실행/`--imp`/`--p4`/`--check-p4`는 M2: `Maude_run`·
     `Of_maude`·targets `maude_start_term` 복귀 시).
   `Mfe.check`/maude 표면이 받는 `rule_heads`(= 비입력-moded relation)는
-  `To_ctrs.rule_head_syms`로 계산(`input_moded_rel_syms`의 여집합). 세 커맨드 모두
+  `To_ctrs.rule_head_syms`로 계산(`input_moded_rel_syms`의 여집합 — 이 `rule_heads`
+  배선은 항상 ∅이어서 2026-07-14 통째로 삭제됨, 분석 표면은 순수 등식). 세 커맨드 모두
   컴파일·dispatch 확인 — 호출 시 각 백엔드 스텁(M1 `of_spec`/`Simplify`, M2
   `To_maude`)의 `failwith`에 도달하며, 스텁을 채우면 즉시 동작.
 
@@ -267,7 +269,7 @@ HEAD 08dfe4ed, 자체 `_build`). 돌고 있던 differential test(`/home/spectec-
 new-rewrite)와 완전 분리. MFE 도구는 gitignore라 main clone 것 참조
 (`SPECTEC_MFE_DIR=/home/spectec-core/spectec/tools/mfe`, `MAUDE_LIB`=maude dir) — 별도 프로세스.
 
-**잔여 CRC MAYBE 재분류 (현 브랜치 실측 `verify --symbol`).** recalibration.md 표의 CRC열은
+**잔여 CRC MAYBE 재분류 (현 브랜치 실측 `verify --symbol`).** verification.md 표의 CRC열은
 stale. 옛 category-A owise 9개 재측정 → **6개 이미 YES**(`$join_flow` `$is_lpm_key_prime`
 `$requires_priority_prime` `$is_default_parameterIR` `$is_tableDefaultActionProperty`
 `$join_text` — hoist_matchers/expand_subty_guards/align_guards/fold-matcher-destructure가 해소).
@@ -947,7 +949,8 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   전부 gitignore(`tools/{maude271-hooks,mfe271,aprove,yices,z3}/`), 셋업 상세는
   [tools/mfe/README.md](../../tools/mfe/README.md). **종합 스윕(153심볼 CRC+termination) +
   모듈러(A/B) 분해 완료 (2026-07-09)** — 결과·수정 합성 정리는 저장소 루트
-  `spectec-crc-termination-recalibration.md`. full-mode의 고정폭 산술 TIMEOUT은 도구 예산이
+  `spectec-crc-termination-recalibration.md`(이후 recalibration.md로 개명, 현재는
+  verification.md + verification-notes.md로 분리). full-mode의 고정폭 산술 TIMEOUT은 도구 예산이
   아니라 폭-정규화 헬퍼로 국소화됨: **모듈러 (B) 분해(`tools/mfe/prune_modular.py`, 산술을
   종료 블랙박스로 추상)로 11개 산술 + 3개 비트와이즈 슬라이스가 전부 수초 YES**,
   sum/max/min_nat·strip_all_whitespace(eq-theory abstract, 50634→5규칙)도 YES.
@@ -980,6 +983,66 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   스트림 위의 순수 projection(합성 튜플 본문의 `$iterproj`) 또는 소비 헬퍼의
   fused destructure가 맡는다 — 2026-07-16 head-side fusion 기계가 premise-side로
   확장되면서 당시 벽이던 "소비자 배선" 문제가 풀렸다.
+
+### CRC 조건-단순화 **예산** 실측 — `$join_ctk`/`$assignop_as_binop` MAYBE의 원인 규명 (2026-07-14)
+
+CLAUDE.md가 *"Fall-through/default clause guarded by `or(all match-Xs) = false`"* 로
+분류해 둔 허위 MAYBE(`$join_ctk`, `$assignop_as_binop`)의 **진짜 원인을 규명**했다.
+기존 트리아지("infeasible once any specific matcher fires")는 *현상*은 맞지만 *왜 CRC가
+그걸 못 보는지*를 짚지 못했다.
+
+**실측 1 — 원인은 or-체인 길이(예산)지, 정보 부족이 아니다.**
+`$join_ctk`의 잔여 ccp를 **20줄 미니모듈(J0)로 그대로 재현**했다(실물과 동일한 ccp):
+
+```
+ccp: variant-ctk-CTK-0 = variant-ctk-DYN-0
+     if or(or(or(and(match-ctk-LCTK-0(CTK), match-ctk-LCTK-0(CTK)), …), …),
+           and(match-ctk-CTK-0(CTK), match-ctk-CTK-0(CTK))) = false .
+```
+
+- 조건은 **100% ground**다 (owise가 ground head 형제 절과 겹쳐서 unifier가 이미 생성자를
+  대입해 버렸다). 슬라이스엔 `match-ctk-CTK-0(CTK)=true`, `or(true,y)=true`가 **전부 있다**.
+- 같은 항을 stock Maude `reduce`에 넣으면 **9 rewrites 만에 `true`** = 조건 모순 = 불가능.
+  **그런데 CRC는 안 줄인다.**
+- disjunct 수를 바꿔가며 경계를 찍었다:
+
+  | or-disjunct 수 | CRC |
+  |---|---|
+  | 2 (H0/J2) | YES |
+  | 3 (J3) | YES |
+  | **4 (J0 = `$join_ctk` 실물 형태)** | **MAYBE** |
+
+  → **CRC의 CCP 조건 단순화에는 한정된 예산이 있다.** "프로그램 등식을 안 쓴다"가 아니라
+  **깊어지면 못 쓴다**. (CRC 판정 법칙 전체는 memory `mfe-crc-hypothesis-rewriting` 참조:
+  ①가설 충돌로 refute ②생성자 narrowing 안 함 ③프로그램 등식은 쓰되 예산 있음.)
+
+**따름 — guard를 "똑똑하게" 만드는 처방은 이 부류에 전부 무효.** 줄여야 할 항이 이미
+ground라 가설이 개입할 자리가 없다. 이번 세션에 시험 구현한 `Reflect.tag_guards`
+(타입당 단일 판별자 `tag_<T>` + `tagcase_<T>_<Ci>`, `align_guards`의 N치 일반화)가
+정확히 이 이유로 **이득 0이라 되돌렸다**. 상세:
+
+- 메커니즘 자체는 옳다 — 통제 모듈에서 `match_` spelling MAYBE → tag spelling **YES**.
+  겨냥한 건 법칙②(narrowing 불가로 형제 matcher guard의 배타성에 도달 못 함)다.
+- **그런데 검사 가능한 MAYBE 중 법칙②에 막힌 게 하나도 없었다.**
+  - `Check_expr`(impty), `$typedLvalueIR_as_typedExpressionIR`(p4): 형제들이 **head 패턴으로
+    이미 분기**(`variant-expr-plus-2` vs `variant-expr-lt-eq-2`) → 좌변이 **unify 불가** →
+    **임계쌍이 아예 생성되지 않는다**. tag는 짝을 이루지 않는 규칙에 조건만 덧붙였다.
+  - `$join_ctk`/`$assignop_as_binop`: 위의 예산 문제 → tag로 respell하면 disjunct마다
+    `tag(..)→tagcase` + `eqg→true` 두 스텝이 **더 붙어 오히려 악화**.
+  - `Check_expr`의 잔여 ccp는 `$lookup(t, ID(x))` 출력이 두 변수에 묶인 **결정성 쌍** — 무관.
+- **구조적 이유**: `hoist_matchers`/`fold_premise_binders`/`expand_subty_guards`가 하는 일이
+  바로 "guard에 있던 판별을 head 패턴으로 옮기기"다. 성공할 때마다 tag의 먹잇감을 없앤다.
+  남는 잔여물은 (i) subject가 **계산된 값**이라 못 접는 경우(→ 그런 절들은 head가 이미
+  서로소라 CCP 없음)와 (ii) `guarded_family` 예외(→ 그게 곧 owise 예산 문제)다.
+- 다만 **tag의 사정거리를 과소평가했던 점은 정정**한다: guard를 *커버된 쪽*이 아니라
+  **여집합 쪽**으로 철자하면 `$assignop_as_binop`은 tag로도 풀린다 —
+  `or(12겹 match) = false` 대신 `tag_assignop(x) = tagcase_eq` 한 줄(생성자 13개 중 12개
+  커버 → 여집합 1개). 단 `$join_ctk`은 커버 4/여집합 5로 **양쪽 다 예산 초과**라 어느 쪽
+  철자로도 안 된다. 즉 tag는 이 부류의 일부만 건드릴 수 있다.
+- p4에서 tag가 실제 발화한 형제-겹침 심볼(`Lvalue_ok` 23규칙, `TableAction_ok` 17 …)은
+  슬라이스가 **5만 규칙 이상**이라 CRC가 애초에 안 돈다 → 이득 측정 자체가 불가능.
+  **명제: tag는 법칙②를 정확히 푼다. 그런데 검사 가능한 슬라이스에 법칙② 봉쇄가 없다.**
+  MFE가 5만 규칙을 감당하게 되면 재고 가치 있음.
 
 ## M2 — 실행 (Maude)
 
@@ -1312,9 +1375,99 @@ IL 타입의 값이라 **전부 도달 불가** — CRC MAYBE 트리아지와 �
 그 반대 방향으로 갔다: matcher/subty/holds/eqg 도메인을 **무조건 `Val`로 넓힌** 이유가
 "좁은 도메인이면 `Reflect.sibling_guard`가 바깥 타입 주어에 중첩 variant의 matcher를
 불러 ill-sorted가 되고, owise 가드가 영구 stuck"이기 때문(48e59d5f의 협소화를 되돌린
-것). ⇒ SCC를 위한 협소화는 **그 반사 가드까지 같이 리타입**하거나, SCC-facing
-표면에만(=`--unconditional`처럼 소비자 한정) 적용하되 가드 항의 sort 정합을 별도로
-보장해야 한다. **한 줄짜리 되돌리기가 아니라 설계 작업**이다.
+것). ⇒ **선언 타입으로 좁히는 건 답이 아니다.**
+
+### P1 해소 — 술어 도메인 = "쓰이는 주어들의 join" 고정점 (2026-07-14, 완료)
+
+`Maude_sorts.predicate_domains`: 선언에서 **시드**(matcher→포함 타입, `holds_R`→R의 입력
+타입, `subty_T`→T의 sort)를 잡고, **규칙에 실제로 나타나는 모든 인자 sort**(자기 정의
+규칙이 해체하는 생성자 + 모든 호출부의 인자)로 **join**해 고정점까지 넓힌다. 결과는
+정의상 "실제로 오는 주어들의 상한"이라 **1874d212의 stuck guard가 구조적으로 재발
+불가**하면서, 스펙이 허락하는 만큼 좁다. `eqg`만 제외(임의 두 타입을 비교하므로 `Val`이
+진짜 도메인).
+
+- **실측(specs/p4)**: `match_` **464/465**, `subty_` **366/486**, `holds_` **39/51** —
+  가족의 **86%**가 진짜 IL sort로 선언된다. 남는 `Val`은 전부 **컨테이너/스칼라
+  erasure**(`cons`의 원소, 튜플 슬롯, `sub_nat`의 Int-or-Nat 주어)라 정직하게 `Val`로 둔다.
+- 부수적으로 필요했던 두 가지: (1) `infer_var_sorts`에서 **술어 인자 위치는 변수 sort를
+  좁히지 않는다**(consumer-only; 정의 규칙의 lhs head는 계속 authoritative) —
+  안 그러면 바깥 타입 변수가 중첩 타입으로 조용히 좁아져 lhs 패턴 의미가 바뀐다.
+  (2) `stuck_head_eqs`의 가드 패턴을 **`Val` 고정**(head가 뭔지만 묻는 등식인데, 잡아야 할
+  대상이 바로 인자가 `Val` kind에 뜬 stuck 항이다).
+- **슬라이스 주의(치명적)**: 도메인은 **풀 시스템**에서 복원해야 한다(`~sig_rules`).
+  슬라이스/`--unconditional`은 **호출부를 지우므로**, 거기서 join하면 도메인이 seed로
+  붕괴하고 SCC가 "아무도 실행하지 않는 시스템"에 대해 COMPLETE를 준다.
+- **무회귀**: impty 골든은 op 도메인 줄만 변경(`--wide-predicate-domains`로 돌리면
+  byte-identical), `dune runtest` 통과, impty 8/8(native+run-structural),
+  p4 `--check-p4` 12/12 MATCH·`run-structural` 6/6(두 모드 동일), CRC `$lookup` YES/YES.
+
+### 실측 결과 — 협소화 후 (2026-07-14)
+
+| 심볼 | 2026-07-11 | 지금 |
+|---|---|---|
+| `match_typeIR_BOOL_0` | COUNTEREXAMPLE `match_typeIR_BOOL_0(false)` | **COMPLETE** (exact) |
+| `subty_value` | COUNTEREXAMPLE `subty_value(bone)` | COUNTEREXAMPLE `sub_nat(invalidHeaderValue)` — **`dom:Val-wide`** |
+| `subty_typeIR` | COUNTEREXAMPLE `subty_list_fieldValue(bone)` | COUNTEREXAMPLE `subty_prefixedNameIR(setValue)` — **`dom:Val-wide`** |
+
+`run-scc.sh`가 이제 반례마다 **witness의 head 심볼 도메인**을 `dom:narrow|Val-wide`로
+자동 표시한다(트리아지 1번 질문의 기계화). 남은 두 반례는 **둘 다 아직 `Val`인 심볼**을
+가리킨다 — 즉 위양성이 `subty_*` 자신에서 **한 단계 아래 Val-wide 심볼로 이동**했다:
+
+- **`sub_nat` (프리루드)**: `IntV`(`int_pos`/`int_neg`)와 `NatV`(`bzero`/`bone`/`bd0`/`bd1`)
+  **양쪽에서 호출**되는데 두 sort의 공통 상위는 `Val`뿐이라 join이 `Val`로 떨어진다.
+  → 후속 선택지: (a) 합성 union sort `Scalar`(`NatV`,`IntV` < `Scalar`)를 도입해
+  `sub_nat : Scalar -> BoolV`로 선언하면 6개 규칙이 그 도메인을 총망라 → COMPLETE.
+  (b) 애초에 **주어의 정적 타입이 이미 nat이면 `sub_nat` 호출 자체가 자명하게 true**다
+  (`subty_value(integerLiteral_W(x0:NatV, ..)) = and(sub_nat(x0:NatV), true)`) — `sub_pred`가
+  그 경우 `true`를 바로 방출하면 호출이 사라진다. (b)가 더 근본적.
+- **`subty_prefixedNameIR` 등 120개 subty_**: 컨테이너 원소를 통해서만 불려서 `Val`에 남음.
+
+**⇒ COMPLETE는 도메인 폭과 무관하게 항상 유효한 증명이다**(더 넓은 도메인에서의 totality는
+더 강한 진술). 신뢰도 캐비엇이 필요한 건 **COUNTEREXAMPLE 쪽뿐**이고, 그건 이제 `dom:` 열이
+자동으로 알려준다.
+
+### 전수 스윕 결과 — `subty_`/`match_` 951심볼 (2026-07-14)
+
+`--slice-dir`로 2,403개 슬라이스를 **한 번의 번역**(30분, 2.7G)으로 덤프하고
+`run-scc-sweep.sh '^(subty|match)_'`로 951개 전부를 검사했다. **951/951이 `exact`
+fidelity + `analysis:complete+sound`** — 즉 SCC가 우리 규칙을 그대로 보았고 자기 분석도
+sound하다고 선언했으므로, 아래 판정은 전부 액면 그대로 읽어도 된다.
+
+| verdict | 수 | 내역 |
+|---|---|---|
+| **COMPLETE** | **503** | `match_` 464/465 + `subty_` 39 — **totality의 기계 증명** |
+| COUNTEREXAMPLE | 448 | `dom:Val-wide` 405 / `dom:elem-erased` 43 |
+| **`dom:narrow`** | **0** | — |
+
+**`dom:narrow` 반례가 하나도 없다** = 이 가족에서 SCC가 찾아낸 **진짜 빠진 케이스는 0건**.
+2026-07-11에 위양성이던 `match_*` 465개는 이제 464개가 COMPLETE다(유일한 예외 `match_cons`도
+`dom:Val-wide`).
+
+**반례 448건의 정체 — 448건 중 407건은 검사 대상 심볼이 아니라 그 의존성을 가리킨다.**
+witness의 head를 세면 `subty-boolTypeIR` 77 / `subty-name` 59 / `subty-expression` 58 / …
+— **아직 `Val`로 남은 소수의 `subty_` 심볼 하나가 그것을 쓰는 모든 슬라이스를 오염시킨다.**
+따라서 잔여 `Val`을 지우는 것이 곧 반례를 지우는 것이다.
+
+**그 중 절반은 join의 모호성이었다(해소, `3cde77b4`).** `BoolTypeIR`의 상위는
+`BaseTypeIR`/`TypeIR`/`TypedefIR` 셋으로 **비교 불가** — p4의 union이 겹치므로 관측 주어들의
+최소 상계가 여럿이고 join이 아예 없다. `lub`가 그때 `Val`로 후퇴했는데, **공통 상계는 어느
+것이든 정의상 well-sorted**(모든 관측 주어를 지배)이므로 그 중 **최소·최협소인 것을
+결정적으로** 고르면 된다. → `subty_` 도메인 366/486 → **404/486**, `subty_boolTypeIR`은
+`Val` → `TypeIR`이 되고 SCC 판정이 **COUNTEREXAMPLE → COMPLETE**로 뒤집혔다
+(`match_` 464/465·`holds_` 39/51 무변화, impty 골든 무변화, p4 `--check-p4` 6/6 MATCH).
+
+**남은 82개 `subty_`의 `Val`은 다른 원인 — 보완(complement) 절이 무관한 소스 타입까지 넘나든다.**
+`subty_name`의 주어를 세면 `Name` 변수 외에 `nameList`·`typeParameterList`(리스트 타입!)
+생성자가 섞여 있고, `subty_expression`의 반례 witness는 `setValue`(**Value** 생성자)다.
+리스트 sort와 `Name`의 공통 상위는 `Val`뿐이라 join이 진짜로 `Val`이다. 즉 `sub_complement_defs`가
+"타깃 `T`에 대해 어딘가에서 소스로 등장한 **모든** 타입"의 생성자에 `= false` 절을 다는 탓에,
+서로 무관한 union을 가로질러 도메인이 벌어진다. **후속(P3)**: 보완 절을 실제로 검사되는
+(소스, 타깃) 쌍으로 제한하거나, 타깃별이 아니라 (소스,타깃)별 술어로 쪼갠다. 이걸 닫으면
+`dom:Val-wide` 405건이 대부분 COMPLETE로 떨어질 것으로 본다.
+
+`dom:elem-erased` 43건(`subty_list_value`/`subty_list_fieldValue` 등)은 **원소 타입이 `List`
+sort에 남아 있지 않아서** 생기는 구조적 잔재로, 규칙 2(원소 변수 협소화)의 대가이자 호출부가
+만들 수 없는 항이다 — 고칠 대상이 아니라 보고할 대상.
 
 ### 할 일
 - [x] (선행) op 선언에 `[ctor]` 방출 — **완료 2026-07-11**, `to_mfe`(분석)·`to_maude`
@@ -1323,70 +1476,103 @@ IL 타입의 값이라 **전부 도달 불가** — CRC MAYBE 트리아지와 �
   가드 포함(p4에서 발화 0건).
 - [x] `tools/maude27-ceta/` 설치 + `run-scc.sh` — **완료 2026-07-11** (커밋 7e88a68c).
 - [x] 산술 프리루드 + `subty_*`/`match_*` **최소 시범** — 완료 (위 두 표).
-- [ ] **(P1, 선행) `subty_*`/`match_*` op 도메인 협소화** (`Val` → 선언 IL 타입).
-  이게 없으면 아래 스윕의 이 가족 반례가 전부 위양성이라 판정이 무의미하다.
-- [ ] **(P2) 전체 스윕** — 세 갈래로 나눠서:
-  (a) `exact` 심볼(무조건-only 1,722개: `subty_*` 486 / `match_*` 465 / 함수 435 /
-  relation·프리루드 285 / `holds_*` 51) — COMPLETE가 실제 증명이 되는 유일한 집합,
-  **P1 이후에** 돌릴 것;
-  (b) `approx` 심볼(혼재 394 + `ceq`-only 287 = 의미론 본체) — COMPLETE는 무시하고
-  **COUNTEREXAMPLE만** 수확 → 실제 stuck 후보 목록;
-  (c) 슬라이스 크기순(`verify --list-symbols --sizes`)으로 tractable한 것부터.
-  비용 실측: 심볼당 ~1.5분(대부분 p4 스펙 번역 고정비, SCC 자체는 수십 ms).
-  → 슬라이스 덤프를 한 번만 하고 재사용하도록 배치 드라이버를 짜면 대폭 단축 가능.
+- [x] **(P1, 선행) 술어 op 도메인 협소화** — **완료 2026-07-14** (`Maude_sorts.predicate_domains`,
+  위 절). 선언 타입이 아니라 **쓰이는 주어들의 join 고정점**. 가족의 86%가 진짜 sort로.
+- [x] **프루닝 선행 수정** — **완료 2026-07-14**. `prune_slice_signature.py`가 subsort 경로의
+  **내부 노드를 keep**하도록(p4에 2단 체인 286개 — `BaseType < RealTypeArgument <
+  TypeArgument`). 도메인이 전부 `Val`이던 동안엔 모든 sort가 `< Val` 직결이라 무해했지만,
+  좁힌 도메인은 실제 격자에 의존하므로 중간 sort가 잘리면 슬라이스가 ill-sorted가 된다.
+- [x] **(P2, 선행) `--slice-dir` 배치 덤프** — **완료 2026-07-14** (`b97afab3`). 심볼당
+  49.9초 재번역(=24시간)이 **한 번의 번역**(2,403 슬라이스, 30분)으로. `run-scc.sh`가
+  `SCC_SLICE_DIR`로 소비하고, `run-scc-sweep.sh`가 작은 슬라이스부터 resumable하게 돈다.
+- [x] **(P2) `subty_`/`match_` 전수 스윕** — **완료 2026-07-14** (951/951, 위 절).
+  503 COMPLETE / 448 COUNTEREXAMPLE, **`dom:narrow` 0건**.
+- [x] **(P3) `sub_nat`의 Val 도메인 해소** — **완료 2026-07-14** (`381c6bd0`). `NatV`,`IntV`
+  `< NumV` 상위 sort를 (스펙이 `sub_nat`에 실제 도달할 때만) 선언 → 6개 규칙이 도메인을
+  총망라, 반례 소멸. impty 골든은 byte-identical.
+- [x] **(P3) 모호한 join의 `Val` 후퇴 해소** — **완료 2026-07-14** (`3cde77b4`). 최소 상계가
+  여럿일 때 `Val`이 아니라 그 중 최협소한 것을 결정적으로 선택.
+- [ ] **(P3, 다음) 잔여 82개 `subty_`의 `Val`** — 원인은 보완 절이 무관한 소스 타입을
+  넘나드는 것(위 절). 보완을 실제 검사되는 (소스,타깃) 쌍으로 제한 → `dom:Val-wide` 405건
+  대부분이 COMPLETE로 떨어질 전망.
+- [ ] **(P2) 나머지 심볼 스윕** — 함수 435 / relation·프리루드 285 / `holds_*` 51, 그리고
+  `approx` 756개(COMPLETE는 무시하고 **COUNTEREXAMPLE만** 수확 → 진짜 stuck 후보 목록).
+  슬라이스는 이미 덤프돼 있으니 `run-scc-sweep.sh <pattern>`만 돌리면 된다.
 - [ ] (선택) `BPos < BNatV` 서브소트 — `Maude_sorts`의 심볼당-단일-시그니처 제약을
   풀어야 함. 풀면 canonicity 반례 3개가 COMPLETE로 떨어지고, 불변식이 sort로 강제된다.
 
-## `search` / `modelCheck` — P4 언어의 메타 성질 검증 (신규, 미착수)
+## LTL 모델 검사 — P4 언어의 시간적 성질 검증 (신규, 미착수)
 
 **동기.** 지금까지 Maude는 두 축으로만 쓰였다: (1) **실행 엔진**(`reduce` — 프로그램
 하나의 타입검사 결과), (2) **분석 게이트**(CRC/ChC/termination — 재작성 시스템 자체의
-성질). 어느 쪽도 "**P4 언어의 메타 성질**"(결정성·progress·preservation·parser 도달성
-등)을 묻지 않는다. `search`(도달 가능 상태공간 탐색)와 `modelCheck`(LTL 모델 검사)는
-세 번째 축 — 성질의 **반례를 기계적으로 찾거나**, 유한 모델에서 성립을 확인한다.
+성질). 어느 쪽도 "**P4 프로그램이 실행 도중 무엇을 지키는가**"(header validity, parser
+종료, table 적용 결정성 …)를 묻지 않는다. Maude의 **LTL 모델 검사기**
+(`model-checker.maude`, `modelCheck(init, φ)`)가 세 번째 축 — 시간 논리 공식 φ를
+상태공간 전체에 대해 검사하고, 실패하면 **반례 경로**(`counterexample(path, cycle)`)를
+돌려준다.
+
+**LTL은 Kripke 구조를 요구한다 — 지금 우리 모듈엔 그게 없다.** 필요한 네 조각:
+상태 sort(`State`), **`rl` 전이 규칙**, 원자명제 sort(`Prop`), 만족 관계
+(`op _|=_ : State Prop -> Bool`). 현재 p4 모듈은 relation이 전부 input-moded라 **`rl`이
+0개**(전부 `eq`) — 전이가 없으니 상태공간 자체가 없고 `modelCheck`는 무의미하다. 아래
+(P1)·(P2)가 그 구조를 만드는 일이고, (P3)이 LTL 본체다. `search`는 이 축의 목표가
+아니라 **LTL 배선을 만드는 김에 거의 공짜로 얻는 보조 반증 도구**로만 다룬다(아래).
 
 **전제 조건 (배선부터 필요).**
 
-- [ ] **(P1) `Maude_run.Search` 일반화.** 현재는 디버깅용 근사다
+- [ ] **(P1) 선택적 `rl` 모드 — Kripke 전이 만들기.** `--relations-as-rules`는 *모든*
+  relation을 rl로 바꿔 상태공간을 무의미하게 키운다. 필요한 건 **동적 의미론의 step
+  relation만** rl로 두는 선택적 플래그(`--rules-for R1,R2` 같은 것). 시작항도
+  `Program_ok(..)` 판정 호출이 아니라 **전이할 상태**여야 한다. 이게 LTL의 유일한
+  하드 블로커다.
+  **⚠️ 2026-07-14 삭제 주의**: 모드-힌트 기반 rl 선택 기계 —
+  `To_ctrs.rule_head_syms`/`input_moded_rel_syms`, `To_mfe`/`Mfe.check`/
+  `fold_premise_binders`의 `~rule_heads` 배선, 그리고 `To_maude.rule_relation_syms`의
+  **ceq-는-`=>`-조건-불가 fixpoint**(eq로 남은 관계의 조건이 rl 관계를 호출하면 그
+  관계도 crl로 강등) — 는 모든 관계가 입력-모드라 사어여서 삭제됐다(이 항목 작성
+  당시에도 `rule_head_syms`는 ∅). `--rules-for` 구현 시 (a) 선택 집합 배선과 (b) 그
+  fixpoint 적법성 제약을 다시 들여와야 한다. 복원 참조: `git log -S rule_relation_syms`
+  직전 트리(삭제 커밋 부모)에서 — 기존 삭제-모듈 관례와 동일.
+- [ ] **(P2) `modelCheck` 배선.** `MODEL-CHECKER` 모듈 protecting + step relation의 상태
+  sort를 `State`로 subsort + `Prop` 선언 + `_|=_` 등식. **설계의 핵심 질문은 "원자명제를
+  스펙에서 어떻게 얻는가"** — 유력 후보는 `Reflect`가 이미 만드는 **`holds_R`**(무출력
+  judgment의 성공 반사, 무조건 규칙 1개, BoolV 시그니처)를 그대로 명제로 쓰는 것
+  (`eq S |= p_R = holds_R(S)`). 결과 디코딩(`true` vs `counterexample(...)`)엔 `Of_maude`에
+  **전이-경로 파서**가 필요하다. CLI는 `run`에 `--ltl 'φ'` 정도로 붙이면 된다.
+  **⚠️ 유한성 제약**: P4 **타입검사**의 상태공간은 항 크기가 무제한이라 무한하다 —
+  modelCheck가 완주하려면 **고정 프로그램 + 고정 입력의 동적 의미론**처럼 상태공간이
+  유한한 곳에 걸어야 한다. (무한 상태공간에서 반증만 원한다면 depth-bounded search가
+  대안 — 아래 P3.)
+- [ ] **(P3, 보조) `Maude_run.Search` 일반화.** LTL이 감당 못 하는 무한/거대 상태공간에서
+  **bound된 반증**을 얻는 용도. 현재는 디버깅용 근사다
   ([maude_run.ml:148-152](maude/maude_run.ml#L148-L152)):
-  `metaSearch(M, start, 'R:Val, nil, '!, unbounded, N)` — **패턴이 bare 변수, 조건 `nil`,
-  화살표 `'!`(`=>!`) 고정, 깊이 unbounded**, 해는 인덱스 `0..cap-1` 순차 열거
-  (`search_cap = 100`). 메타 성질 검증엔 다음이 필요: 임의 **search pattern** +
-  **`such that` 조건**(metaSearch의 3·4번째 인자), 화살표 `=>*`/`=>+`/`=>1` 선택,
-  **깊이 bound**, 그리고 반례를 읽으려면 `metaSearchPath`(전이 경로). "반례 없음"은
-  기존 `NoSolution`을 그대로 쓸 수 있다.
-- [ ] **(P2) 선택적 `rl` 모드.** p4 모듈은 relation이 전부 input-moded라 **`rl`이 0개**
-  (그래서 ChC가 vacuous하다). `--relations-as-rules`는 *모든* relation을 rl로 바꿔
-  상태공간을 무의미하게 키운다. 필요한 건 **동적 의미론의 step relation만** rl로 두는
-  선택적 플래그(`--rules-for R1,R2` 같은 것). 시작항도 `Program_ok(..)` 판정 호출이
-  아니라 **전이할 상태**여야 한다.
-- [ ] **(P3) `modelCheck` 배선 (미구현).** `MODEL-CHECKER` 모듈 protecting + 상태 sort를
-  `State`로 subsort + 원자명제 sort `Prop`과 `op _|=_ : State Prop -> Bool`. **설계의
-  핵심 질문은 "명제를 스펙에서 어떻게 얻는가"** — 유력 후보는 `Reflect`가 이미 만드는
-  **`holds_R`**(무출력 judgment의 성공 반사, 무조건 규칙 1개, BoolV 시그니처)를 그대로
-  원자명제로 쓰는 것. 결과 디코딩(`true` vs `counterexample(...)`)엔 `Of_maude`에
-  전이-경로 파서가 필요하다.
-  **⚠️ 유한성 제약**: P4 타입검사의 상태공간은 항 크기가 무제한이라 무한하다 —
-  modelCheck는 **고정 프로그램 + 고정 입력에 대한 동적 의미론**에서만 의미가 있다.
-  반면 search는 깊이 bound로 유한화하면 (반증 도구로서) 무한 상태공간에서도 유효.
+  `metaSearch(M, start, 'R:Val, nil, '!, unbounded, N)` — 패턴이 bare 변수, 조건 `nil`,
+  화살표 `'!`(`=>!`) 고정, 깊이 unbounded, 해는 인덱스 `0..cap-1` 순차 열거
+  (`search_cap = 100`). 필요한 건 임의 **search pattern** + **`such that` 조건**
+  (metaSearch의 3·4번째 인자), 화살표 `=>*`/`=>+`/`=>1` 선택, **깊이 bound**, 그리고 반례
+  경로용 `metaSearchPath`. "반례 없음"은 기존 `NoSolution`을 그대로 쓴다. (P2)의 경로
+  파서와 디코딩 코드를 공유한다.
 
-**검증 대상 후보 (메타 성질).** 전부 **반증 지향** — 해가 나오면 진짜 결함, 해가 없으면
-(bound 안에서) 반례 부재.
+**검증 대상 LTL 성질.** 전부 **반증 지향** — 반례가 나오면 진짜 결함, 안 나오면 (유한
+모델/bound 안에서) 성립.
 
-- [ ] **결정성**: `search P =>! X`의 해가 정확히 1개. CRC(등식 층의 합류성)와 상보적 —
-  search는 **rl 층 + 실제 도달 가능한 상태만** 본다.
-- [ ] **progress (무-stuck)**: well-typed 프로그램에서
-  `search init =>! S such that isStuckHead(S)`가 해 없음. 현재의 `Stuck` 판정을 프로그램
-  하나가 아니라 **상태공간 전체**로 확장하는 셈.
-- [ ] **preservation**: `search init =>* S such that holds_Type_ok(S) = false`가 해 없음.
-- [ ] **parser 상태기계**: P4 parser는 루프 가능 — `accept`/`reject` 도달성, 무한 루프
-  검출(`modelCheck(init, <> accept)` 또는 depth-bounded search).
-- [ ] **header validity 안전성**: invalid header를 읽지 않는다 — LTL `[] ~ readInvalid`.
+- [ ] **header validity 안전성**: invalid header를 절대 읽지 않는다 — `[] ~ readInvalid`.
+  LTL이 가장 자연스럽게 잡는 성질이고 첫 타깃으로 적합.
+- [ ] **parser 종료/도달성**: P4 parser는 루프 가능 — `<> (accept \/ reject)`(항상 결말에
+  도달), `accept` 도달성, 무한 루프 검출.
+- [ ] **progress (무-stuck)**: well-typed 프로그램은 stuck 상태에 안 빠진다 —
+  `[] ~ stuck`. 현재의 `Stuck` 판정을 프로그램 하나가 아니라 **상태공간 전체**로 확장.
+- [ ] **preservation**: 모든 도달 가능 상태가 well-typed — `[] p_Type_ok`
+  (`holds_Type_ok`를 원자명제로).
+- [ ] **결정성**: 종료 상태가 유일 — LTL로는 직접 못 쓰므로 `search P =>! X`의 해가 정확히
+  1개인지로 확인(P3 몫). CRC(등식 층의 합류성)와 상보적 — rl 층 + 실제 도달 가능한 상태만
+  본다.
 - [ ] **table entry 우선순위 결정성**: 같은 키에 매칭되는 두 엔트리의 우선순위가 동률이면
-  적용 순서가 비결정 — search로 반례 탐색.
+  적용 순서가 비결정 — search로 반례 탐색(P3 몫).
 
-**권장 착수 순서**: (P1) → (P2) → 결정성/progress를 기존 corpus 위에서 search로
-(differential 하니스의 자연스러운 확장, modelCheck 없이 가능) → (P3) → LTL 성질.
+**권장 착수 순서**: (P1) rl 모드 → (P2) modelCheck 배선 → header validity(`[] ~ readInvalid`)
+를 기존 corpus 프로그램 하나에 걸어 end-to-end 확인 → parser/progress/preservation LTL →
+(P3) search 일반화로 무한 상태공간 성질(결정성·table 우선순위) 보강.
 
 ## 권장 순서
 
@@ -1644,7 +1830,7 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
 - **증상**: 리스트/구조 재귀의 감소 인자가 head가 아니라 **전제에만** 존재
   (`ceq $f(v) = ..$f(v_t).. if match_cons(v)=true /\ v = cons(v_h,v_t)`). AProVE의
   dependency-pair 분석은 `v_t < v`를 세우지 못해 MAYBE — 루프가 아니라 **증명 실패**.
-  [recalibration.md](../../../recalibration.md)의 term MAYBE 18건 중 14건이 이 모양
+  [verification.md](../../../verification.md)의 term MAYBE 18건 중 14건이 이 모양
   (`$concat_text`/`$exists`/`$forall`/`$filter`/`$join_text`/`$flatten_*`/`$invalidate_*`/
   `$lvalue_as_expression`/`$set_priorities_*`).
 - **수정** ([translate/reflect.ml](translate/reflect.ml)): `match_K(v)=true`의 **유일한**
@@ -1662,7 +1848,7 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   | `$concat_text` termination | MAYBE (237s) | **YES (98s)** |
   | `$flatten_nameList` termination | MAYBE (240s) | **YES (101s)** |
   | `$lookup` CRC/ChC (impty, owise 계열) | YES/YES | YES/YES (무회귀) |
-  | `$filter` CRC | TIMEOUT (397s) | TIMEOUT — **회귀 아님**(변경 전에도 TIMEOUT; 이 기기 MFE 성능. recalibration의 YES는 더 빠른 환경 값) |
+  | `$filter` CRC | TIMEOUT (397s) | TIMEOUT — **회귀 아님**(변경 전에도 TIMEOUT; 이 기기 MFE 성능. verification.md의 YES는 더 빠른 환경 값) |
 
   의미 보존: 실행(native) 표면 **sha256 불변**(분석 표면 전용), impty `run-structural` 8/8
   `result: true`, p4 `run-structural --check-p4` 표본 **12/12 MATCH / 0 MISMATCH**.
@@ -1676,18 +1862,39 @@ termination MAYBE의 지배적 원인 해소.** `hoist_matchers`와 `fold_premis
   fan-out(`expand_subty_guards`와 동일 기법, ctk 3멤버/assignop 13멤버로 ≤16 게이트 통과)하면
   head가 서로소가 되어 임계쌍 자체가 사라진다.)
 
+### ⚠️ 전수 differential 재실행 필요 (2026-07-14, 미완)
+
+**`check_diff_p4_*.tsv`의 "completeness 0 / soundness 1 / Phase D 1227/1227"은 현재 HEAD의
+수치가 아니다.** 술어 도메인 협소화(위 SCC P1) 검증 중에 드러났다:
+
+- `check_diff_p4.sh`는 **resumable**이라 TSV에 기록된 프로그램을 건너뛴다. 즉 **옛 바이너리로
+  만든 TSV가 남아 있으면 재실행이 아무것도 검증하지 않는다**(`1568 done, 0 to run`).
+  ⇒ 회귀 게이트로 쓰기 전에 반드시 TSV를 baseline으로 옮기고 지울 것.
+- 그렇게 지우고 새로 돌린 부분 실행(Phase B 1140/1568)에서 **`const.p4`/`issue1717.p4`가
+  기존 TSV의 `OK`와 달리 `STUCK`** 으로 나왔다. 협소화 회귀를 의심했으나 —
+  **변경 직전 커밋(08dfe4ed)의 바이너리로도 똑같이 STUCK**임을 워크트리로 확인했다
+  (`--wide-predicate-domains`에서도 STUCK). ⇒ **이번 변경의 회귀가 아니라, 그 이전 어느
+  커밋에서 이미 생긴 completeness gap 2건**이거나, 기존 TSV 자체가 낡은 바이너리 산물이다.
+- 이번 변경의 무회귀는 **50개 표본으로 확인**(baseline TSV와 50/50 일치; 1874d212가 고쳤던
+  cross-type matcher 케이스 `issue122.p4`/`key-name.p4` 포함).
+
+**할 일**: 깨끗한 환경에서 `check_diff_p4.sh` **전수 재실행**(~8시간) → 진짜 completeness/
+soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실제 gap이면 어느 커밋에서
+생겼는지 이분 탐색(둘 다 `Program_ok`가 stuck).
+
 남은 작업:
 
 ```
+  → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조]
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
-  → search/modelCheck로 P4 언어 메타 성질 검증                                 [신규 축; (P1) Search 일반화 → (P2) 선택적 rl 모드 → 결정성/progress → (P3) modelCheck]
-  → SCC (sufficient completeness)                                             [배관 완주(2026-07-11): [ctor]+CETA 바이너리+--unconditional+run-scc.sh, 산술/subty 최소 시범까지. 남은 건 (P1) subty_*/match_* 도메인 협소화(Val-wide라 반례가 전부 위양성 — 단 1874d212와 충돌하니 설계 필요) → (P2) 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만)]
+  → LTL 모델 검사로 P4 시간적 성질 검증                                        [신규 축; (P1) 선택적 rl 모드(= Kripke 전이, 유일한 하드 블로커) → (P2) modelCheck 배선(holds_R을 원자명제로) → header validity `[] ~ readInvalid` → parser/progress/preservation → (P3) 보조 search 일반화]
+  → SCC (sufficient completeness)                                             [P1 도메인 협소화 완료(2026-07-14, predicate_domains = 쓰이는 주어들의 join 고정점; 가족의 86%가 진짜 sort, match_typeIR_BOOL_0이 위양성 반례 → COMPLETE). 남은 건 (P2) --slice-dir 배치 덤프(심볼당 50초 재번역 → 24시간이라 스윕 전 필수) → 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만; dom: 열로 1차 분류) → (P3) sub_nat의 Val 도메인]
   → $write_value_from_bits' n_var=0 경계                                       [CRC MAYBE 5의 뿌리이자 유일한 진짜 비합류: 2.1.2-value-aux.spectec:147-153의 두 절이 n_var=0에서 동시에 발화. 원 스펙의 절 순서가 지던 disambiguation을 번역이 잃음 → n_var≠0 가드(또는 owise) 복원 필요. (term 쪽은 fold 이후 5심볼 전부 YES — 3fbbe1d6)]
   → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
 
   (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
-         termination 열 채우기 — 153심볼 CRC+term 스윕, recalibration.md
+         termination 열 채우기 — 153심볼 CRC+term 스윕, verification.md
          owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
          해소(둘 다 YES), $join_flow 회귀 없음, 2026-07-16 상세는 위 M1 블록)
 ```

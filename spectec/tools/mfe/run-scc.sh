@@ -21,7 +21,8 @@
 # case, never invent one. So the witness term is the thing to chase -- it names
 # a constructor case no rule's lhs covers. Triage it like a CRC MAYBE: confirm
 # the term is reachable before calling it a bug (a sort-correct witness outside
-# any real call site is not a defect).
+# any real call site is not a defect). The [dom:] field automates the first
+# question of that triage -- see below.
 #
 # Prereqs (all under spectec/tools/, gitignored -- see spectec/tools/mfe/README.md):
 #   - tools/maude27-ceta/maude     (v2.7-ext-hooks, asset maude-2.7-hooks-linux.zip:
@@ -54,9 +55,20 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 # discards every conditional or non-left-linear equation before building its
 # automaton). Its stderr reports what it had to transform: no transformation
 # means the SCC sees the rules verbatim, so the verdict is exact.
-"$BIN" rewrite --ctrs --unconditional --symbol "$sym" $P4 \
-  > "$tmp/slice.raw.mod" 2> "$tmp/xform.log"
-if grep -q '^unconditional:' "$tmp/xform.log"; then fidelity=approx; else fidelity=exact; fi
+#
+# Translating specs/p4 takes ~50s and dwarfs the check itself, so a sweep dumps
+# every slice once (`rewrite --ctrs --unconditional --slice-dir DIR`) and points
+# SCC_SLICE_DIR here; the transform log is then per-sweep, not per-symbol.
+if [ -n "${SCC_SLICE_DIR:-}" ]; then
+  cp "$SCC_SLICE_DIR/$sym.mod" "$tmp/slice.raw.mod" 2>/dev/null || {
+    printf '%s\tERROR-NO-SLICE\t-\n' "$sym"; exit 0; }
+  fidelity=$(awk -F'\t' -v s="$sym" '$1==s{print $2}' "$SCC_SLICE_DIR/_fidelity.tsv")
+  fidelity=${fidelity:-exact}
+else
+  "$BIN" rewrite --ctrs --unconditional --symbol "$sym" $P4 \
+    > "$tmp/slice.raw.mod" 2> "$tmp/xform.log"
+  if grep -q '^unconditional:' "$tmp/xform.log"; then fidelity=approx; else fidelity=exact; fi
+fi
 
 if [ "$(grep -cE '^\s*c?eq |^\s*c?rl ' "$tmp/slice.raw.mod")" -eq 0 ]; then
   printf '%s\tDEGENERATE\t%s\n' "$sym" "$fidelity"; exit 0
@@ -118,9 +130,43 @@ elif grep -q 'Completeness counter-examples:'                <<<"$out"; then
 elif grep -qiE 'no parse for [^ ]*SPEC|error'                <<<"$out"; then v=ERROR
 else v=TIMEOUT; fi
 
-# The transform fidelity (does the SCC see our rules verbatim?) and the SCC's
-# own analysis fidelity (is its abstraction sound/complete here?) are separate
-# caveats; report both.
+# A COUNTEREXAMPLE is only as meaningful as the domain of the symbol it names,
+# and the erasure of the CTRS's polymorphism shows up in exactly two places.
+#
+#   dom:Val-wide   the witness's symbol is declared over the top sort, so the SCC
+#                  enumerated EVERY constructor of the module for that argument.
+#                  A tuple slot or an unresolved type parameter lands here.
+#                  `subty_value(bone)` is not a gap, it is a term no call site can
+#                  build. Suspect first, chase last.
+#   dom:elem-erased  the witness's symbol takes a List/Opt, and the container
+#                  sorts carry no element type. `subty_list_fieldValue` accepts
+#                  only fieldValue elements (Maude_sorts narrows the cons head to
+#                  the element predicate's domain, which is what buys that
+#                  predicate a real sort in the first place), so over the
+#                  element-agnostic List it is genuinely not total -- yet no call
+#                  site can hand it a list of anything else. True about the sorts,
+#                  unreachable in the system.
+#   dom:narrow     the witness's symbol is declared over its real IL sort. Nothing
+#                  discounts this one: it names a subject the type system permits
+#                  and no rule covers. THIS is the finding to chase.
+#
+# COMPLETE needs no such caveat: proving totality over a WIDER domain is a
+# stronger statement, not a weaker one.
+domain=""
+if [ "$v" = COUNTEREXAMPLE ]; then
+  head_sym=${witness%%(*}; head_sym=$(tr -d ' ' <<<"$head_sym")
+  dom=$(sed -n "s/^\s*op ${head_sym} : \(.*\)-> .*/\1/p" "$tmp/slice.mod" | head -1)
+  if   [ -z "$dom" ];                     then domain="dom:?"
+  elif grep -qw Val <<<"$dom";            then domain="dom:Val-wide"
+  elif grep -qwE 'List|Opt' <<<"$dom";    then domain="dom:elem-erased"
+  else                                         domain="dom:narrow"; fi
+fi
+
+# The transform fidelity (does the SCC see our rules verbatim?), the SCC's own
+# analysis fidelity (is its abstraction sound/complete here?), and the witness
+# symbol's domain (is the witness even reachable?) are separate caveats; report
+# all three.
 [ -n "$analysis" ] && fidelity="$fidelity/analysis:${analysis// /-}"
+[ -n "$domain" ]   && fidelity="$fidelity/$domain"
 
 printf '%s\t%s\t%s\t%s\n' "$sym" "$v" "$fidelity" "$witness"

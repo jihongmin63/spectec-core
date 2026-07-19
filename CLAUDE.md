@@ -73,7 +73,7 @@ is ground truth.
 | [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, shared lexical layer (`sanitize`, `maude_id`, `maude_var`), `slice`/`reachable_heads`/`fold_premise_binders`/`drop_owise`. No Maude module emission (that's `maude/`). |
 | [translate/ctrs_term.ml](spectec/lib/rewrite/translate/ctrs_term.ml) | Symbol-naming vocabulary (`variant_sym`/`func_sym`/`rel_sym`/…), smart term/rule builders, `scalar_theory = Structural \| Native` and the mode-aware scalar leaf builders. The one place raw `R.App`/`R.Var` gets built. |
 | [translate/prelude.ml](spectec/lib/rewrite/translate/prelude.ml) / `.mli` | Fixed rule set giving `Ctrs_term`'s symbols their semantics (bool/nat/int/list/option ops). `Native` drops `native_replaced_heads` (delegated by `To_maude` instead). |
-| [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`/`input_moded_rel_syms`/`rule_head_syms`. |
+| [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`. Every SpecTecx relation is input-moded (`hint(input …)`), hence functional — relations translate like functions and emit as equations (`--relations-as-rules` is the only rl/crl path, a `--search` debugging override). The invariant is enforced at elaboration (`fetch_rel_input_dirs`: a hint-less relation defaults to all-input with a warning), so the translator needs no guard of its own. |
 | [translate/var_hints.ml](spectec/lib/rewrite/translate/var_hints.ml) / `.mli` | Per-symbol variable→IL-type map (from `VarE` notes), used only by `To_maude` to restore narrow declared types. |
 | [translate/simplify.ml](spectec/lib/rewrite/translate/simplify.ml) / `.mli` | **Identity** — see above. |
 | [translate/exp_map.ml](spectec/lib/rewrite/translate/exp_map.ml) / `.mli` | Shallow one-level IL traversal helpers (`map_subexps`/`subexps`/`exps_of_prem`), used by `Defunctionalize`. |
@@ -82,7 +82,7 @@ is ground truth.
 | [translate/defunctionalize.ml](spectec/lib/rewrite/translate/defunctionalize.ml) / `.mli` | Specializes away `def`-valued arguments by call-site specialization. Runs first; identity without `DefP` (e.g. impty). |
 | [translate/reflect.ml](spectec/lib/rewrite/translate/reflect.ml) / `.mli` | Analysis-only: `owise` (explicit sibling-disjointness guards + judgment reflection) and `hoist_matchers` (respell opaque `match_K` guards so `fold_premise_binders` can fold discriminators into head patterns). |
 | [maude/maude_theory.ml](spectec/lib/rewrite/maude/maude_theory.ml) / `.mli` | Native scalar vocabulary: wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) + literal builders, shared by `Ctrs_term`, `To_maude`, `Of_maude`. No fold pass (leaf builders emit these directly at translation time). |
-| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. |
+| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. The `match_`/`subty_`/`holds_` predicates are declared nowhere, so `predicate_domains` recovers each domain as the **join of every subject the rules pass it** (`--wide-predicate-domains` restores the old blanket `Val`); pass `~sig_rules` with the whole system when emitting a slice, or the domains collapse to their seed. |
 | [maude/to_mfe.ml](spectec/lib/rewrite/maude/to_mfe.ml) | Analysis Maude surface: emits the structural CTRS as an order-sorted Full-Maude `(mod … endm)`. Consumed by `rewrite --ctrs` and `Mfe.check`. |
 | [maude/to_maude.ml](spectec/lib/rewrite/maude/to_maude.ml) / `.mli` | Execution backend: executable order-sorted Maude module (op decls, eq/rl, built-in delegations, `owise` totalization) plus the META-TERM start-term encoder (`print_meta_term`/`meta_term_of_value`) that `metaReduce` runs. |
 | [maude/of_maude.ml](spectec/lib/rewrite/maude/of_maude.ml) / `.mli` | Reverse of the start-term encoder: parses a Maude normal form back into an IL `value`; `canonicalize` normalizes gensym names and sorts map entries so both sides of the result-VALUE oracle compare equal. |
@@ -332,6 +332,42 @@ Triage any hit immediately by bisecting the failing sub-goal with `reduce` —
 see [todo.md](spectec/lib/rewrite/todo.md) for the procedure. Use the current
 spec's own path (`main.exe p4 typecheck -p FILE -i INC`), never
 `--spec-dir specs/p4-old`, when re-checking a file with the interpreter.
+
+## Verified baselines — which commit measured what
+
+The three checks (differential, CRC/ChC, termination) each cost hours, so each
+is measured once at a point in history and then *carried forward* over commits
+that are argued not to affect it. **No single commit has all three measured on
+its own tree** — so before calling any tree "green", read what its anchor
+actually proves.
+
+| anchor | date | measured **on that exact tree** | carried over |
+|---|---|---|---|
+| `92618dc2` | 2026-07-10 | **differential**, full corpus, both surfaces: native completeness 0 / soundness 1 (issue1944) / Phase D 1227/1227 MATCH, and structural Phase D 1227/1227 MATCH / 0 MISMATCH ([spectec-structural-completeness-soundness.md](spectec-structural-completeness-soundness.md)) | CRC/term |
+| `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([verification-notes.md](verification-notes.md)) | differential |
+
+**`5647b883` is the bisect anchor**: its analysis columns are current, and the
+only *executable*-surface commit separating it from the differential-verified
+tree is `95ddd9b3` (`[ctor]` attributes) — everything else in that window is
+analysis-only (`reflect.ml`) or CLI. That one commit is therefore also the
+entire bisect window for the two programs (`const.p4`, `issue1717.p4`) that a
+2026-07-14 spot check found STUCK at `08dfe4ed`: they are the reason
+"completeness 0" is **not** established past `92618dc2`.
+
+Stale beyond the anchors, in commit order:
+
+- `a290977b` (`align_guards`, 07-13) changed the analysis surface *after* the
+  termination column was measured. Only the CRC column was re-measured
+  (`3302d75d`/`08dfe4ed` — no column changes); **termination is carried, not
+  measured**, from `08dfe4ed` on.
+- `3327881f`/`381c6bd0`/`3cde77b4` (07-14, predicate-domain narrowing, `NumV`,
+  ambiguous-join tie-break) change **both** surfaces, so all three checks are
+  stale at HEAD. They are one family of change — re-measure once, after the
+  last of them. The pending full-corpus differential re-run is tracked in
+  [todo.md](spectec/lib/rewrite/todo.md).
+- The `check_diff_p4_*.tsv` sitting in the repo root are **not** HEAD's numbers.
+  The driver is resumable and silently skips every file already recorded, so a
+  re-run over a stale TSV validates nothing — move them aside first.
 
 ## Build & run
 

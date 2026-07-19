@@ -19,12 +19,12 @@ open Maude_sorts
       pragmatic resolution of the polymorphism the erased CTRS left behind.
 
     - {b eq vs rl.} Function/prelude/constructor rules are deterministic
-      equations ([eq]/[ceq]). Input-moded relations are functional, so they also
-      become equations -- this lets {!Maude_run} [reduce] them deterministically
-      instead of forcing a [search] over a free output variable (see
-      {!rule_relation_syms}). Only relations left as rules ([rl]/[crl]) are
-      explored with [search]/[rewrite]; [relations_as_rules] forces every
-      relation back to a rule.
+      equations ([eq]/[ceq]). Every SpecTecx relation is input-moded, hence
+      functional, so relations also become equations -- this lets {!Maude_run}
+      [reduce] them deterministically instead of forcing a [search] over a free
+      output variable (see {!rule_relation_syms}). [relations_as_rules] forces
+      every relation back to a rule ([rl]/[crl]), explored with
+      [search]/[rewrite].
 
     - {b Condition kinds.} A CTRS join condition [(left, right)] is, by the
       translation's invariant, [left] = a value to evaluate and [right] = a
@@ -220,79 +220,44 @@ let buf_line b s =
   Buffer.add_char b '\n'
 
 (* The relations to keep as Maude rules ([rl]/[crl]); the rest become equations.
-   Input-moded relations are functional, so by default they are emitted as
-   equations -- this lets [reduce] evaluate them deterministically instead of
-   forcing Maude to [search] over a free output variable. Two exceptions stay
-   rules: [relations_as_rules] forces every relation back to a rule, and an
-   input-moded relation whose rule conditions invoke a non-functional relation
-   must stay a rule because a [ceq] cannot carry a [=>] rewrite condition (only a
-   [crl] can). The latter is iterated to a fixpoint, since one such fallback can
-   pull another relation down with it. *)
-let rule_relation_syms ~(relations_as_rules : bool) (orig : spec) (sys : R.t) :
-    string list =
-  let all_rels =
+   Every SpecTecx relation is input-moded (declares `hint(input ...)`), hence
+   functional: relations are emitted as equations, which lets [reduce] evaluate
+   them deterministically instead of forcing Maude to [search] over a free
+   output variable. [relations_as_rules] forces every relation back to a rule --
+   a debugging affordance, paired with [--search] to explore the rewrite
+   space. *)
+let rule_relation_syms ~(relations_as_rules : bool) (orig : spec) : string list
+    =
+  if not relations_as_rules then []
+  else
     List.filter_map
       (fun def ->
         match def.it with
         | RelD { relid = id; _ } -> Some (T.rel_sym id)
         | _ -> None)
       orig
-  in
-  if relations_as_rules then all_rels
-  else
-    let candidates = To_ctrs.input_moded_rel_syms orig in
-    (* Per candidate, the relations it invokes in a condition's lhs (the only
-       place that would render as a [=>] rewrite condition). *)
-    let invokes = Hashtbl.create 16 in
-    List.iter
-      (fun r ->
-        match R.defined_head r with
-        | Some h when List.mem h candidates ->
-            let calls =
-              List.filter_map
-                (fun (l, _) ->
-                  match l with
-                  | R.App (f, _) when List.mem f all_rels -> Some f
-                  | _ -> None)
-                r.R.conds
-            in
-            Hashtbl.replace invokes h
-              (calls @ Option.value (Hashtbl.find_opt invokes h) ~default:[])
-        | _ -> ())
-      sys.R.rules;
-    let rec fixpoint functional =
-      let functional' =
-        List.filter
-          (fun h ->
-            List.for_all
-              (fun c -> List.mem c functional)
-              (Option.value (Hashtbl.find_opt invokes h) ~default:[]))
-          functional
-      in
-      if List.length functional' = List.length functional then functional
-      else fixpoint functional'
-    in
-    let functional = fixpoint candidates in
-    List.filter (fun r -> not (List.mem r functional)) all_rels
 
 (* Equations defining [isStuckHead : Val -> Bool], which is [true] exactly on a
    term whose head is a defined symbol (a stuck, not-yet-reduced application) and
    [false] on a value constructor (via [owise]). [print_cond] uses it to keep a
    bare-variable matching condition from absorbing a stuck term. [heads] are the
-   defined symbols with their arities; [sg] gives each one's domain sorts. *)
-let stuck_head_eqs (heads : (string * int) list) sg : string list =
+   defined symbols with their arities.
+
+   The argument patterns are [Val], deliberately, not the head's declared
+   domain: this equation asks one thing only -- is [h] the head? -- and the
+   terms it exists to catch are precisely the STUCK ones, whose own arguments
+   may sit at the [Val] kind (a stuck [$f(..)] nested inside). A pattern at the
+   narrow domain would fail to match exactly those, leaving [isStuckHead]
+   itself stuck. A [Val] argument in a narrower position is ordinary Maude
+   (the module is one kind), and matching more here is always safe. *)
+let stuck_head_eqs (heads : (string * int) list) : string list =
   let eq_of (h, n) =
-    let argsorts, _ = sg h n in
-    let argsorts =
-      if List.length argsorts = n then argsorts
-      else List.init n (fun _ -> val_sort)
-    in
     let pat =
       if n = 0 then R.maude_id h
       else
         R.maude_id h ^ "("
         ^ String.concat ", "
-            (List.mapi (fun i s -> Printf.sprintf "V%d:%s" i s) argsorts)
+            (List.init n (fun i -> Printf.sprintf "V%d:%s" i val_sort))
         ^ ")"
     in
     "  eq " ^ stuck_head_sym ^ "(" ^ pat ^ ") = true ."
@@ -814,18 +779,21 @@ let native_delegated (sys : R.t) : (string * int) list =
 let builtin_sorts = [ "Bool"; "Nat"; "NzNat"; "Int"; "NzInt"; "String" ]
 
 let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
-    (orig : spec) (sys : R.t) : string =
+    ?(predicates = Narrow) (orig : spec) (sys : R.t) : string =
   (* [sys] was built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form -- the specialized
      copies' declarations live only there (memoized, the same physical spec). *)
   let orig = Defunctionalize.defunctionalize orig in
   let tenv = type_env orig in
   let tbl, inj_subsorts = recover ~rules:sys.R.rules Native orig tenv in
+  let edges = inference_edges inj_subsorts in
   (* Declared IL types of body-rule variables, keyed by defined symbol, used to
      restore narrow variable sorts (see {!Var_hints.of_spec}). Recomputed
      from the same idempotent simplification [sys] was built from. *)
   let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
-  let rels = rule_relation_syms ~relations_as_rules orig sys in
+  let hint = var_hint_fn tenv var_hints in
+  predicate_domains ~mode:predicates ~edges ~hint tbl sys.R.rules;
+  let rels = rule_relation_syms ~relations_as_rules orig in
   let sg sym arity = signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, the delegated
      operators (rule-less, see [native_delegated]), the wrapper constructors
@@ -905,12 +873,6 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       @ edge_sorts)
     |> List.filter (fun s -> not (List.mem s builtin_sorts))
   in
-  let edges =
-    inj_subsorts
-    @ List.filter_map
-        (fun s -> if s = val_sort then None else Some (s, val_sort))
-        mentioned
-  in
   let sorts = dedup (val_sort :: mentioned) in
   let b = Buffer.create 4096 in
   buf_line b ("mod " ^ module_name ^ " is");
@@ -957,15 +919,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   let emit r =
     let head = R.defined_head r in
     let is_rel = match head with Some h -> List.mem h rels | None -> false in
-    (* The declared types of this rule's variables (by its defined symbol),
-       mapped to sorts; authoritative over position inference. *)
-    let hint_types =
-      match head with
-      | Some h -> Option.value (Hashtbl.find_opt var_hints h) ~default:[]
-      | None -> []
-    in
-    let hint v = Option.map (sort_of_typ tenv) (List.assoc_opt v hint_types) in
-    let vs = infer_var_sorts edges sg hint r in
+    let vs = infer_var_sorts edges sg (hint r) r in
     buf_line b ("  " ^ print_rule ~scalars:Native vs rels defined_heads is_rel r)
   in
   List.iter emit eqs;
@@ -1104,7 +1058,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
     (List.sort compare subty_syms);
   (* The value-head predicate guarding bare-variable matching conditions. *)
   buf_line b "";
-  List.iter (buf_line b) (stuck_head_eqs stuck_arities sg);
+  List.iter (buf_line b) (stuck_head_eqs stuck_arities);
   buf_line b "endm";
   Buffer.contents b
 
@@ -1114,9 +1068,9 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
    elaborated spec) supplies the sorts/signatures. The analysis (COPS) surface
    keeps the structural system; the two pipelines diverge intentionally. *)
 let module_of_spec ?(module_name = "SPEC") ?(relations_as_rules = false)
-    (orig : spec) : string =
+    ?(predicates = Narrow) (orig : spec) : string =
   let sys = Pipeline.maude_system_of_spec orig in
-  module_of_system ~module_name ~relations_as_rules orig sys
+  module_of_system ~module_name ~relations_as_rules ~predicates orig sys
 
 (* The module's reducible symbols (functions/relations/ops, including the
    rule-less delegated operators) in Maude spelling, for {!Maude_run}'s stuck
