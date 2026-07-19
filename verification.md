@@ -5,12 +5,27 @@ CRC/ChC = Church-Rosser(합류성)/Coherence. 값 = YES / MAYBE / TIMEOUT / `-`(
 
 ## 1. ≤500 종합 (153심볼 · term 두 방식 병기)
 
-CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 `2f9f8cba`, 새 덤프, `/tmp/fresh500`, 153/153).
-`term(모듈러B)`는 **종전 stale 측정**(pre-fix 덤프) — spine과 다른 런이라 재측정 필요(§ 하단 TODO).
+`rules`와 **term 두 열**은 **2026-07-19 fresh 동시 재측정**(바이너리 `30d413ad` =
+iter-fuse의 IterPr 헬퍼 통합 반영, 새 덤프, `/tmp/claude-iterfuse/term500`, 153/153,
+`termA_TMO=1200` / `termB_TMO=1800`). 두 term 열이 **처음으로 같은 런·같은 바이너리**
+기준이라 행별 직접 비교가 가능하다.
+`CRC`/`ChC`는 **2026-07-18 측정 유지**(바이너리 `2f9f8cba`, `/tmp/fresh500`) — 이번 재검은
+term 두 축만 대상이었다(§ 하단 TODO).
 
-- **CRC**: YES 140 / TIMEOUT 8 / MAYBE 5  ·  **ChC**: YES 145 / - 8
-- **term(모듈러B)**: YES 144 / MAYBE 5 / TIMEOUT 4  ·  **term(AProVE직접)**: YES 117 / TIMEOUT 25 / MAYBE 11
+- **CRC**: YES 140 / TIMEOUT 8 / MAYBE 5  ·  **ChC**: YES 145 / - 8   *(2f9f8cba 기준)*
+- **term(모듈러B)**: YES 150 / MAYBE 3 / TIMEOUT 0  ·  **term(AProVE직접)**: YES 117 / TIMEOUT 24 / MAYBE 12
 - 두 term 열 차이 = 방법론 차이(모듈러-B는 산술 블랙박스 → YES, AProVE 직접은 full-arith 미증명 → TIMEOUT). 정확성 아님. 행별 해석은 notes.
+- **통합 대비 회귀 0.** term(AProVE직접)은 종전(`2f9f8cba`) 대비 **YES 집합 117개 완전 동일**,
+  판정 변화는 `$bin_plus` 1건뿐(TIMEOUT→MAYBE = 1200s 소진 대신 1176s에 실제 판정을 낸 것,
+  악화 아님). term(모듈러B)는 종전 stale 대비 **6건 전부 개선**(TIMEOUT→YES 4:
+  `$write_bits_from_value`·`$bitacc_range_op`·`$bitacc_offset_op`·`$bitacc_offset_replace_op`,
+  MAYBE→YES 2: `$set_priorities_of_tableEntryListIR{,_prime}`), 악화 0.
+- 남은 term 비-YES 중 두 축 모두 MAYBE인 3건: `$join_text`, `$invalidate_value`,
+  `$invalidate_headerUnion` — AProVE 자동 전략의 도구 한계로 규명된 건이며 통합 전과 동일.
+- `rules` 열이 종전과 다른 7행은 헬퍼 통합의 직접 효과다(변수별 collect 병합으로 감소:
+  `$resolve_constraint` 13→9, `$invalidate_value`/`$invalidate_headerUnion` 91→87,
+  `$write_bits_from_value` 107→103; 다출력 ex-apply의 튜플화로 증가: `$callableId_IR` 11→13,
+  `$callableId_of_extern{Constructor,Method}PrototypeIR` 12→14 / 13→15).
 
 | symbol | rules | CRC | ChC | term(모듈러B) | term(AProVE직접) | new-commit helpers |
 |---|---|---|---|---|---|---|
@@ -109,13 +124,13 @@ CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 
 | `$inherit_i` | 10 | YES | YES | YES | YES |  |
 | `$name` | 10 | YES | YES | YES | YES |  |
 | `$un_plus` | 11 | YES | YES | YES | YES |  |
-| `$callableId_IR` | 11 | YES | YES | YES | YES |  |
+| `$callableId_IR` | 13 | YES | YES | YES | YES |  |
 | `$objectId_ends_with` | 11 | YES | YES | YES | YES |  |
-| `$callableId_of_externConstructorPrototypeIR` | 12 | YES | YES | YES | YES |  |
+| `$callableId_of_externConstructorPrototypeIR` | 14 | YES | YES | YES | YES |  |
 | `$prefixedTypeName` | 12 | YES | YES | YES | YES |  |
 | `$join_text` | 13 | YES | YES | MAYBE | MAYBE | bsucc |
-| `$resolve_constraint` | 13 | YES | YES | YES | YES |  |
-| `$callableId_of_externMethodPrototypeIR` | 13 | YES | YES | YES | YES |  |
+| `$resolve_constraint` | 9 | YES | YES | YES | YES |  |
+| `$callableId_of_externMethodPrototypeIR` | 15 | YES | YES | YES | YES |  |
 | `$flatten_nameList` | 13 | YES | YES | YES | YES |  |
 | `$flatten_typeParameterList` | 13 | YES | YES | YES | YES |  |
 | `$assignop_as_binop` | 13 | YES | YES | YES | YES |  |
@@ -129,9 +144,9 @@ CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 
 | `$isValid_header` | 80 | YES | YES | YES | YES |  |
 | `$ends_with` | 88 | YES | YES | YES | YES | bsub bsucc bpred bcompare |
 | `$strip_suffix_rec` | 91 | YES | YES | YES | YES | bsub bsucc bpred bcompare |
-| `$invalidate_headerUnion` | 91 | YES | YES | MAYBE | MAYBE |  |
-| `$invalidate_value` | 91 | YES | YES | MAYBE | MAYBE |  |
-| `$write_bits_from_value` | 107 | TIMEOUT | - | TIMEOUT | YES |  |
+| `$invalidate_headerUnion` | 87 | YES | YES | MAYBE | MAYBE |  |
+| `$invalidate_value` | 87 | YES | YES | MAYBE | MAYBE |  |
+| `$write_bits_from_value` | 103 | TIMEOUT | - | YES | YES |  |
 | `$bin_mod` | 109 | YES | YES | YES | YES | bsub bmod negate-int |
 | `$bin_div` | 113 | YES | YES | YES | YES | bsub bdiv negate-int |
 | `$un_bnot` | 139 | YES | YES | YES | MAYBE | badd bmul bsub bpow-nat bneg negate-int |
@@ -143,11 +158,11 @@ CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 
 | `$nat_of_integerValue` | 187 | YES | YES | YES | MAYBE | badd bmul bsub bdiv negate-int nat-of-int |
 | `$bin_minus` | 193 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int |
 | `$bin_mul` | 193 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int |
-| `$bin_plus` | 193 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int |
+| `$bin_plus` | 193 | YES | YES | YES | MAYBE | badd bmul bsub bdiv bmod negate-int |
 | `$un_minus` | 197 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod bpow-nat negate-int |
 | `$bin_bxor` | 199 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int bxor |
 | `$bin_concat` | 200 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int |
-| `$set_priorities_of_tableEntryListIR_prime` | 200 | YES | YES | MAYBE | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
+| `$set_priorities_of_tableEntryListIR_prime` | 200 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
 | `$bin_satminus` | 201 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod bpow-nat negate-int |
 | `$bin_satplus` | 201 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod bpow-nat negate-int |
 | `$bin_shl` | 201 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int |
@@ -156,17 +171,17 @@ CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 
 | `$name_annotationToken` | 209 | YES | YES | YES | MAYBE | bsub bdiv bmod |
 | `$un_op` | 209 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv bmod bpow-nat bneg negate-int |
 | `$bin_shr` | 215 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv bmod bpow-nat negate-int |
-| `$set_priorities_of_tableEntryListIR` | 226 | YES | YES | MAYBE | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
+| `$set_priorities_of_tableEntryListIR` | 226 | YES | YES | YES | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
 | `$name_annotation_opt` | 256 | YES | YES | YES | TIMEOUT | bsub bdiv bmod |
 | `$write_value_field_from_bits_prime` | 271 | MAYBE | YES | YES | TIMEOUT | badd bmul bsub bmod negate-int |
 | `$write_value_fields_from_bits_prime` | 271 | MAYBE | YES | YES | TIMEOUT | badd bmul bsub bmod negate-int |
 | `$write_value_from_bits_prime` | 271 | MAYBE | YES | YES | TIMEOUT | badd bmul bsub bmod negate-int |
 | `$write_values_from_bits_prime` | 271 | MAYBE | YES | YES | TIMEOUT | badd bmul bsub bmod negate-int |
 | `$write_value_from_bits` | 274 | MAYBE | YES | YES | TIMEOUT | badd bmul bsub bmod negate-int |
-| `$bitacc_range_op` | 283 | TIMEOUT | - | TIMEOUT | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
-| `$bitacc_offset_op` | 285 | TIMEOUT | - | TIMEOUT | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
+| `$bitacc_range_op` | 283 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
+| `$bitacc_offset_op` | 285 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv bmod negate-int nat-of-int band |
 | `$bitacc_range_replace_op` | 391 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv negate-int |
-| `$bitacc_offset_replace_op` | 394 | TIMEOUT | - | TIMEOUT | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
+| `$bitacc_offset_replace_op` | 394 | TIMEOUT | - | YES | TIMEOUT | badd bmul bsub bdiv negate-int nat-of-int |
 
 ## 2. >500 슬라이스 (bigsweep · term = 모듈러 B · 27/127 확정)
 
@@ -205,10 +220,14 @@ CRC/ChC/`term(AProVE직접)`는 **2026-07-18 fresh 재검**(현재 바이너리 
 
 ## TODO
 
-- [ ] **≤500 `term(모듈러B)` 열 fresh 재측정.** 현재 이 열은 pre-fix stale 덤프
-  (7-09/7-10) 측정치라, 같은 표의 fresh AProVE/CRC 열과 측정 기준이 다르다. 현재
-  바이너리(`2f9f8cba`)로 새 덤프를 뽑아 모듈러-B 종료를 다시 돌려 열을 갱신해야
-  두 term 열이 동일 런 기준으로 비교된다. (bigfresh가 >500엔 이미 fresh 모듈러-B를
-  돌리는 중; ≤500은 fresh500이 AProVE만 돌렸으므로 모듈러-B fresh가 빠져 있음.)
+- [x] **≤500 `term(모듈러B)` 열 fresh 재측정** (2026-07-19 완료). 두 term 축을 한 런에서
+  동시에 재측정해(`/tmp/claude-iterfuse/iterterm.sh`, tmux `iterterm`, 153/153) 열을
+  교체했다. 기준 바이너리는 `2f9f8cba`가 아니라 **`30d413ad`**(iter-fuse의 IterPr 헬퍼
+  통합)이며, 그 통합 자체의 무회귀 검증을 겸했다 — 위 §1 요약의 회귀 대조 참조.
+  모듈러-B TIMEOUT은 4→0으로 해소.
+- [ ] **≤500 `CRC`/`ChC` 열 재측정.** 이 두 열만 아직 `2f9f8cba` 기준이라, 같은 표의
+  `rules`/term 열(`30d413ad`)과 측정 기준이 다르다. 통합이 CRC에 미치는 영향은
+  표본으로만 확인됨(head-side·k=1 collect YES/YES, k≥2 소비자는 통합 직전 커밋에서도
+  동일 TIMEOUT = 무회귀). 전수 재검은 미실시.
 - [ ] **§2 >500 표 fresh 값 갱신.** bigfresh(현재 진행) 완주 시 27행 stale 표를 교체.
 
