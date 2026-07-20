@@ -1140,7 +1140,10 @@ let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
      picking whichever remaining condition is already satisfiable (its [l]'s
      free variables are bound) until none are; whatever is left is fed through
      in original order so a genuinely unreflectable rule still raises its
-     ordinary [Gate]. *)
+     ordinary [Gate]. ({!Rewrite_system.order_conds} now normalizes the
+     pipeline's conds to binding order upstream, but this scheduler also
+     credits [redundant_membership_test] conds as ready, so it stays as
+     defense in depth.) *)
   let is_ready ((l, r) : R.cond) =
     redundant_membership_test (l, r)
     || List.for_all (fun v -> List.mem_assoc v acc.sub) (term_vars l)

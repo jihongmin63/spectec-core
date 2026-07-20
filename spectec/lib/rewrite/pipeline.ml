@@ -89,10 +89,20 @@ let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
     Reflect.expand_subty_guards ~scalars:To_ctrs.Structural ~orig:dspec sys
   in
   let sys = Rewrite_system.fold_premise_binders sys in
+  (* Immediately after the fold, whose isStuckHead-guard prepend is the pass
+     that breaks binding order -- and BEFORE {!Reflect.owise}, whose
+     [gen_*_holds] generators thread their substitution through a helper
+     rule's conditions in source order. *)
+  let sys = Rewrite_system.order_conds sys in
   let sys = Reflect.align_guards ~scalars:To_ctrs.Structural sys in
   Reflect.owise ~scalars:To_ctrs.Structural ~orig:dspec
     ~effectful:(Gensym.effectful_syms sys)
     sys
+  (* [owise]'s own insertions preserve binding order (the success test goes
+     immediately before the condition it guards; the sibling guard is
+     appended last) -- the final normalization is idempotent insurance for
+     future passes, not a fix. *)
+  |> Rewrite_system.order_conds
 
 (* Execution pipeline: the DIRECT IL -> Maude path. The native built-in theory
    is the translation target from the start ([~scalars:Native]), so this is NOT

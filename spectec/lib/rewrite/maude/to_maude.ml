@@ -142,7 +142,13 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
    NOT bind is fully bound: a rewrite [l => r] or a check [l = r] needs [l]
    bound; a matching binds whichever side is fresh, so it needs the other side
    bound. A genuine cycle leaves nothing ready; emit the rest in source order
-   rather than loop. *)
+   rather than loop.
+
+   The analysis pipeline now pre-orders conditions upstream
+   ({!Rewrite_system.order_conds}), but this system arrives via the Native
+   pipeline, which does not -- and the [cond_form]-aware readiness here is
+   this printer's own rendering concern either way, so the local scheduler
+   stays. *)
 let print_conds ~(scalars : T.scalar_theory) vs rels defined
     (lhs_vars : string list) (conds : R.cond list) : string =
   let bnd bound t = List.for_all (fun v -> List.mem v bound) (vars_of_term t) in

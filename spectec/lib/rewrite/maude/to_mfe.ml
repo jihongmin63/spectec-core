@@ -21,8 +21,10 @@ module T = Ctrs_term
       [false]) are declared instead of the native [nat]/[int]/[bool]/[txt]
       wrappers, and nothing is imported ([set include BOOL off .] so the
       module's own [true]/[false]/[and]/[not] stand);
-    - conditions stay in the CTRS join form [s = t] in source order (the MFE
-      analyses the equations; it does not need {!To_maude}'s [:=]/[=>]
+    - conditions stay in the CTRS join form [s = t] in source order -- which
+      {!Rewrite_system.order_conds} has normalized to binding order, so a
+      condition's evaluated side only uses variables an earlier pattern bound
+      (the MFE analyses the equations; it does not need {!To_maude}'s [:=]/[=>]
       operational scheduling, [isStuckHead] guards, delegation equations, or
       owise totalization);
     - the module is wrapped in Full-Maude [(mod ... endm)] parens. *)

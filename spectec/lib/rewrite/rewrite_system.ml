@@ -342,7 +342,12 @@ let fold_premise_binders (t : t) : t =
              reintroduce the [prod = v] critical-pair problem this pass exists
              to avoid; a pure-constructor [repl] (not in [defined]) can never
              get stuck, so this only fires where a real check would otherwise
-             be lost. *)
+             be lost.
+
+             The prepend can place the guard AHEAD of a condition that binds
+             one of [repl]'s variables (use-before-bind); {!order_conds},
+             run right after this pass in the pipeline, restores binding
+             order. *)
           let guard =
             match repl with
             | App (f, _) when is_defined f ->
@@ -362,6 +367,70 @@ let fold_premise_binders (t : t) : t =
     { r with conds = List.filter (fun (l, rr) -> l <> rr) r.conds }
   in
   let rules = List.map fold_rule t.rules in
+  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
+  { rules; vars }
+
+(* Restore every rule's conditions to binding order. A condition [s = t]
+   evaluates [s] and matches the result against the pattern [t], so [s]'s
+   variables must already be bound (by the lhs or an earlier condition's
+   pattern) when it runs, and [t]'s fresh variables become bound after it.
+   The source spec satisfies this by construction, but pipeline passes build
+   conditions out of that order -- {!fold_premise_binders} above prepends an
+   [isStuckHead(repl) = false] guard ahead of the condition that binds
+   [repl]'s variables. {!To_maude.print_conds} and
+   {!Reflect.sibling_conds_guard} each re-fix the order locally, but
+   {!To_mfe} prints source order (the CRC's rewrite encoding then reads a
+   use-before-bind condition as a non-executable rule: "variable used before
+   it is bound") and {!Reflect}'s [gen_*_holds] generators thread their
+   substitution in source order. Normalize once, per rule: greedy stable
+   readiness scheduling -- among the not-yet-emitted conditions, always take
+   the EARLIEST whose evaluated side is fully bound. A well-ordered rule is
+   reproduced verbatim, and re-running the pass is the identity. Which
+   condition binds a variable is decided per rule by the schedule itself (the
+   first scheduled pattern containing it); the same variable's binding
+   position legitimately differs from rule to rule, and any later pattern
+   occurrence is a plain equality check. Wired into the analysis pipeline
+   ({!Pipeline.ctrs_of_spec}) only: the Native execution path's sole consumer
+   is {!To_maude.print_conds}, which re-schedules regardless, so pre-ordering
+   there would only churn the emitted module text. *)
+let order_conds (t : t) : t =
+  let order_rule (r : rule) : rule =
+    if r.conds = [] then r
+    else
+      let ready bound (s, _) =
+        List.for_all (fun v -> List.mem v bound) (vars_of_term s)
+      in
+      (* The earliest pending condition that is ready, and the rest in order. *)
+      let take_ready bound pending =
+        let rec go before = function
+          | [] -> None
+          | c :: after ->
+              if ready bound c then Some (c, List.rev_append before after)
+              else go (c :: before) after
+        in
+        go [] pending
+      in
+      let rec schedule bound pending acc =
+        match pending with
+        | [] -> List.rev acc
+        | _ -> (
+            match take_ready bound pending with
+            | Some (((_, pat) as c), rest) ->
+                schedule (bound @ vars_of_term pat) rest (c :: acc)
+            | None ->
+                (* No condition is ready: a genuinely unbound variable (a
+                   cycle, or a free variable no pattern binds). The current
+                   translation never produces one -- checked corpus-wide --
+                   so keep the source order (behaviour unchanged) and warn,
+                   mirroring To_maude.print_conds's fallback. *)
+                Printf.eprintf
+                  "rewrite: WARNING - unorderable conditions in a rule for %s\n"
+                  (match defined_head r with Some h -> h | None -> "?");
+                List.rev_append acc pending)
+      in
+      { r with conds = schedule (vars_of_term r.lhs) r.conds [] }
+  in
+  let rules = List.map order_rule t.rules in
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
   { rules; vars }
 
