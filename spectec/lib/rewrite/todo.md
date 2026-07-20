@@ -88,52 +88,88 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 3. 헤더를 옛 Full Maude functional module로 고침(`mod`→`fmod`, `set include BOOL[-OPS] off`).
 4. Maude 2.7.1(hook 빌드) + MFE 2.7.1에 stdin으로 밀어넣고
    `(select tool MTT .) (select external tool aprove .) (select path C;A .) (ct SPEC .)`.
-5. **MTT 1.5j**가 order-sorted 조건부 모듈을 TPDB CTRS로 변환하고(`isTerm`/`isThruth` sort
-   guard 추가), 조건부이므로 **`C;A` 경로** = *C(onditional elimination) 후 A(rgument
-   filtering/ordering)* — 즉 **조건부 규칙을 무조건 TRS로 unravel한 뒤** 넘긴다.
+5. **MTT 1.5j**가 order-sorted 조건부 모듈을 TPDB **조건부** TRS로 변환한다. 조건부라서
+   `C;A` 경로를 고른다.
 6. `termCheck` 훅이 `mfe.config`대로 `tools/aprove/runme`(AProVE WST 모드, Z3 백엔드)를
    호출. 판정은 Maude 출력의 `is terminating`(YES) / `not been found`(MAYBE)로 읽는다.
 
 두 축의 차이는 **2번의 pruning뿐**이었다. `term(AProVE직접)`은 위 그대로, `term(모듈러B)`는
 2번을 `prune_modular.py abstract-builtins`로 바꿔 **산술 규칙을 통째로 빼고 산술 op을 자유
 생성자로 남긴다**(R_arith를 블랙박스로 두고 spec 층만 증명 → 모듈러 합성). 5·6번은 동일하다.
-**즉 두 축 모두 MTT의 unraveling을 통과했다.** 이게 핵심이다.
+**즉 두 축 모두 MTT의 변환을 통과했다.** 이게 핵심이다.
 
-#### 결함 — 변수 전달 unraveling이 하강을 파괴한다
+#### MTT가 실제로 무엇을 하는가 — 출력 캡처
 
-MTT는 `l -> r if s == t` 를 표준 Marchiori식으로, **조건의 변수**를 헬퍼에 넘겨 푼다:
+`mfe.config`(`aprove <path>/runme .trs`)가 가리키는 실행 파일을 "인자 `$1`을 복사해 두고 진짜
+runme를 exec하는" 래퍼로 바꾸고, `MAUDE_LIB`을 그 사본 디렉터리로 지정하면 MTT가 AProVE에
+넘기는 파일을 그대로 얻을 수 있다. 그렇게 얻은 `$join_text` 슬라이스의 TPDB를 보면:
 
-```
-l            -> U(s, x1..xn)        (x1..xn = Var(l))
-U(t, x1..xn) -> r
-```
+**MTT는 unravel을 하지 않는다.** 조건부 TRS를 그대로 넘긴다. 대신 두 가지를 한다.
 
-문제는 `l`의 인자가 구조를 가질 때다. `$invalidate-value(HU(e0,e1))` 이면 `HU(e0,e1)`가
-성분 `e0`,`e1`로 **분해되어** U에 실리고 우변에서 `HU(e0,e1)`로 **재조립**된다. 그런데
-`e0`,`e1`은 `HU(e0,e1)`의 진부분항이므로, 하강을 나르던 부분항 관계가 **역전**된다.
-dependency pair framework에서 subterm criterion이나 argument projection π는 "어떤 인자가
-줄어드는가"로 정렬하는데, 줄어들 인자가 이미 쪼개졌다가 커진 형태로 되돌아오므로
-**어떤 π로도 정렬 불가**다. 예산 문제가 아니라 도달 불가다 — 1200초를 줘도 1200초를 태우고
-MAYBE가 나온다.
+1. order-sorted를 unsorted로 낮추며 **모든 sort를 술어로** 바꾸고(`isText`, `isList`,
+   `is[Val]`) 규칙마다 변수별 sort 조건을 붙인다.
+2. **조건 `s = t`를 `equal(s,t) -> tt`** 로 바꾸고, 전역 비좌선형 규칙 `equal(X,X) -> tt`를
+   추가한다.
 
-이건 unraveling의 알려진 **불완전성**(종료하는 CTRS가 종료 증명 불가능한 TRS로 unravel될
-수 있다)의 아주 구체적인 발현이다. 우리 인코딩이 premise에서 destructure하는 구조 재귀
-(`xs = cons(h,t)` 두고 `t`로 재귀)를 즐겨 쓰기 때문에 정확히 이 패턴을 대량 생산했다.
+#### 결함 — 매칭 조건이 동등성 검사로 바뀌면서 3형 CTRS가 된다
 
-#### 해법 — 구조 보존 unraveling
-
-좌변 인자 목록을 **분해하지 않고 그대로** 넘긴다. 단, 좌변 항 자체를 넘기면 규칙이 자기
-redex를 재생산해 무한 루프가 된다(실제로 첫 시도에서 AProVE가 **NO**를 냈고, 그게 변환
-버그를 잡아줬다). 그래서 **정의 규칙이 없는 불활성 생성자 `k_N`** 으로 감싼다:
+2번이 치명적이다. 캡처된 실제 규칙:
 
 ```
-f(p1..pk)            -> u_1(s, k_1(p1..pk))
-u_1(t, k_1(p1..pk))  -> r
+$join-text(cons(t-h1, text), t-sep)
+   ->  cat(cat(t-h1, t-sep), $join-text(cons(t-h2, t-t), t-sep))
+   |   equal(match-cons(text), true) -> tt ,
+       equal(text, cons(t-h2, t-t)) -> tt , ...
 ```
 
-`k_N`은 재작성되지 않으므로 루프를 못 만들고, U의 둘째 인자는 원 인자 구조를 글자 그대로
-보존한다 → 조건부 규칙이 갖고 있던 부분항 관계가 그대로 살아남는다. MTT를 완전히 빼고
-이 평범한 TRS를 `tools/aprove/runme <f>.trs <budget>`(WST)에 직접 던진다.
+`t-h2`, `t-t`가 **좌변 어디에도 없다**. 원래 `text = cons(t_h2, t_t)`는 *매칭* 조건이라 두
+변수가 매칭으로 바인딩되는데, 대칭 동등성 *검사*로 바뀌면서 자유 변수가 됐다. 우변은 그
+자유 변수로 지은 `cons(t-h2, t-t)`에 재귀한다.
+
+이것이 **extra-variable CTRS (Bergstra–Klop 3형)** 이다. dependency pair framework 입장에서
+재귀 인자 `cons(t-h2,t-t)`는 좌변 인자의 부분항도 아니고 어떤 구문적 관계도 없다 — `equal`
+조건을 *의미적으로* 풀어야만 `text`와 같음을 알 수 있다. 3형 CTRS 종료 증명은 1/2형보다
+훨씬 비싸다.
+
+우리 인코딩이 premise에서 destructure하는 구조 재귀(`xs = cons(h,t)` 두고 `t`로 재귀)를 즐겨
+쓰기 때문에 이 패턴을 대량 생산했고, 그래서 피해가 컸다.
+
+**단, 증명 불가능해지는 건 아니다 — 비싸질 뿐이다.** 캡처한 TPDB를 AProVE에 직접 넣으면
+예산을 충분히 줬을 때 **YES**가 나온다. 13-rule짜리 `$join_text` 하나가 이 인코딩에서는
+120초를 넘기고, 우리 unraveled TRS에서는 **1초**다. 100배 이상이고, 슬라이스가 커질수록
+격차는 벌어진다.
+
+#### 왜 그 비용이 곧바로 MAYBE가 되는가 — MTT의 120초 하드코딩
+
+`mtt.maude:90`이 `termCheck(TOOL, In:String, 120)` 이다. **MTT는 AProVE를 언제나 120초
+예산으로 호출한다.** 우리가 스윕에서 준 `TERMA_TMO=1200`/`TERMB_TMO=1800`은 Maude *프로세스*
+타임아웃이라 이 내부 한도에 아무 영향이 없었다 — 예산을 늘려도 판정이 안 바뀌던 이유가
+이것이고, 나(2026-07-19 최초 서술)는 그걸 "어떤 예산으로도 도달 불가"로 잘못 읽었다.
+
+정리하면 MAYBE는 **두 요인의 곱**이다: (a) `equal` 인코딩이 문제를 3형 CTRS로 만들어 100배
+비싸게 하고, (b) MTT가 그 비싼 문제를 120초에서 자른다. 어느 하나만 없어도 살아남는다.
+우리 경로는 (a)를 없애서 문제를 1초짜리로 만들고, 덤으로 (b)도 우리가 예산을 직접 쥔다.
+
+#### 해법 — 직접 unravel해서 매칭 의미를 되살린다
+
+unraveling은 조건을 규칙 구조 안으로 옮겨 무조건 TRS로 만드는 표준 기법이다:
+
+```
+l            -> U(s, <carried>)     -- 조건을 평가하러 간다
+U(t, <carried>) -> r                -- t가 여기서 패턴으로 매칭된다
+```
+
+핵심은 마지막 줄이다. `t`가 **규칙 좌변의 패턴**으로 돌아오므로 그 변수들이 매칭으로
+바인딩되고, 재귀 인자가 원 인자의 부분항임이 **구문적으로 보인다**. subterm criterion이
+바로 잡는다. 이것이 이득의 전부다.
+
+**`<carried>`가 무엇인지는 무관하다.** Marchiori 고전형(좌변 *변수*를 평평하게)과 구조
+보존형(좌변 *인자 목록*을 정의 규칙 없는 불활성 생성자 `k_N`에 그대로)을 같은 슬라이스·같은
+AProVE로 맞대조하면 **둘 다 0~1초에 YES**다. 실무에서는 단순한 변수 전달형을 권한다.
+(공통 함정: 좌변 *항* 자체를 넘기면 규칙이 자기 redex를 재생산해 무한 루프가 된다 — 첫
+시도에서 AProVE가 **NO**를 내어 그 버그를 잡아줬다.)
+
+MTT를 빼고 이 평범한 TRS를 `tools/aprove/runme <f>.trs <budget>`(WST)에 직접 던진다.
 
 #### 건전성
 
@@ -179,12 +215,38 @@ u_1(t, k_1(p1..pk))  -> r
 3. **커버리지를 가정하지 말고 검증**. 처리 못 한 방정식과 미바인딩 우변 변수에서 **크게
    실패**시킬 것. 위 두 버그는 전부 이 검사로 잡혔고, 둘 다 그럴듯해 보이는 출력을 내고 있었다.
 
+#### 방법론 반성 — 어떻게 틀렸었나
+
+최초(2026-07-19) 서술은 "MTT의 unraveling이 인자를 분해해 부분항 관계를 역전시켜, 예산과
+무관하게 증명이 도달 불가"였다. **세 군데가 틀렸다**: MTT는 unravel을 하지 않고, 따라서
+분해도 역전도 없으며, 도달 불가도 아니다(예산만 주면 YES).
+
+원인은 방법이다. **파이프라인 전체(MTT 경로 vs 우리 경로)를 맞대조해 놓고 그 안의 한 요소를
+원인으로 지목했다.** 두 경로는 unraveling 말고도 sort 인코딩·조건 인코딩·AProVE 예산이 전부
+달랐는데, 그중 하나를 골라 이야기를 지어낸 것이다. 반증한 실험은 셋 다 "한 번에 하나만
+바꾸는" 형태였다:
+
+1. 같은 슬라이스에서 **unraveling 방식만** 교체(변수 전달 vs 구조 보존) → 둘 다 YES.
+   ⇒ unraveling 방식은 원인이 아니다.
+2. MTT가 AProVE에 넘기는 파일을 **캡처**해 직접 실행 → YES.
+   ⇒ MTT의 출력 자체는 증명 가능하다. 문제는 출력이 아니라 호출 조건이다.
+3. `mtt.maude` 확인 → `termCheck(…, 120)`.
+   ⇒ 예산이 잘렸던 것이고, 우리가 준 1200s는 엉뚱한 층의 타임아웃이었다.
+
+**교훈: X가 Y의 원인이라 주장하려면 X만 바꿔라.** 그리고 도구가 왜 실패하는지 궁금하면
+도구가 실제로 내놓는 산출물을 먼저 확보하라 — `mfe.config`를 래퍼로 바꾸는 데 5분 걸렸고,
+그것 하나가 잘못된 이야기 전체를 무너뜨렸다.
+
 #### 후속
 
 - [ ] unraveler를 `tools/mfe/`로 승격(현재 스크래치패드 `sp_unravel.py`+`sp_run.sh`).
-      `run-termination.sh`의 MTT C;A 경로를 대체하고, 비-YES면 MTT로 폴백하는 **포트폴리오**로.
-- [ ] 모듈러B 회귀 3건: 항 크기 가설 검증. 맞다면 **escape하지 않는 인자는 keep에서 제외**하는
-      최적화로 닫힐 수 있다.
+      `run-termination.sh`의 MTT 경로를 대체할 것. **단순한 변수 전달형으로 충분하다**
+      (구조 보존형과 동률). 폴백으로 MTT를 남길지는 §2 재측정 후 판단.
+- [ ] 폐지한 모듈러 축에서 구조 보존이 MTT보다 나빴던 3건: 항 크기 가설 검증. 맞다면
+      **escape하지 않는 인자는 keep에서 제외**하는 최적화로 닫힌다. 변수 전달형을 쓰면
+      애초에 발생하지 않을 수도 있다(미확인).
+- [ ] MTT 인코딩의 실제 비용 곡선 측정(선택). `$join_text`는 우리 1초 : MTT 인코딩 >120초다.
+      슬라이스 크기에 따라 이 배율이 어떻게 커지는지 보면 "MTT를 폴백으로 둘 가치"가 정해진다.
 - [ ] §2 >500 표(term(B), MAYBE 11)도 같은 경로로 재측정 — 상당수가 닫힐 것으로 예상.
 - [ ] 측정 기준 커밋 확인: 측정은 `30d413ad` 덤프 기준인데 그 뒤 술어 도메인 변경
       (`6e740f3e` 계열)이 들어왔다. HEAD에서 재덤프해 대조할 것(sort 태그만 달라졌다면

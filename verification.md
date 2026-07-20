@@ -17,13 +17,26 @@ term 축만 대상이었다(§ 하단 TODO).
 > 공산이 크지만 **미확인**이다 — 아래 TODO 참조.
 
 **`term` = 구조 보존 unraveling → AProVE 직접.** 슬라이스의 조건부 규칙을 좌변 인자
-목록을 **분해하지 않고** 정의 규칙 없는 불활성 생성자 `k_N`에 감싸 넘기는 방식으로
-평범한 TRS로 만든 뒤, `tools/aprove/runme <f>.trs <budget>`(WST 모드)에 바로 던진다.
+목록을 정의 규칙 없는 불활성 생성자 `k_N`에 감싸 넘기는 방식으로 평범한 TRS로 만든 뒤,
+`tools/aprove/runme <f>.trs <budget>`(WST 모드)에 바로 던진다.
 `f(p1..pk) -> u(s, k(p1..pk))` / `u(t, k(p1..pk)) -> r` 꼴이다.
-**MTT는 쓰지 않는다** — MTT의 C;A는 `l -> r if s == t`를 *조건의 변수*를 헬퍼로 넘겨
-unravel하므로 `HU(e0,e1)` 같은 인자가 성분으로 분해됐다가 우변에서 재조립되고,
-하강을 나르던 부분항 관계가 **역전**되어(`e0`,`e1`은 `HU(e0,e1)`보다 작다) 어떤 argument
-projection으로도 dependency pair를 정렬할 수 없다. 예산 문제가 아니라 도달 불가였다.
+
+**MTT는 쓰지 않는다.** MTT는 unravel을 하지 않고 조건부 TRS를 그대로 AProVE에 넘기면서,
+조건 `s = t`를 **`equal(s,t) -> tt`** 로 바꾼다(전역 규칙 `equal(X,X) -> tt` 동반). 우리
+조건은 *매칭* 조건이라 `text = cons(t_h2, t_t)`의 `t_h2`/`t_t`가 매칭으로 바인딩되는데,
+대칭 동등성 검사로 바뀌면 **자유 변수**가 되어 좌변에 나타나지 않는다 — extra-variable
+CTRS(Bergstra–Klop 3형)다. 재귀 인자 `cons(t_h2,t_t)`가 좌변 인자와 구문적 관계가 없어
+dependency pair로 정렬할 하강이 보이지 않고, 3형 종료 증명은 1/2형보다 훨씬 어렵다.
+unravel하면 `t`가 다시 **규칙 좌변의 패턴**이 되어 변수가 매칭으로 바인딩되고 하강이
+구문적으로 드러난다 — 이것이 이득의 전부다.
+**무엇을 날라 주는지는 무관하다**: Marchiori 고전형(좌변 *변수*를 평평하게)과 구조 보존형
+(좌변 *인자 목록*을 `k_N`에 그대로)을 같은 슬라이스·같은 AProVE로 맞대조하면 **둘 다
+0~1초에 YES**다.
+MTT 인코딩이 증명 *불가능*한 건 아니고 **비쌀 뿐**이다 — 캡처본에 예산을 충분히 주면 YES가
+나온다. 다만 `mtt.maude:90`이 AProVE를 **120초로 하드코딩** 호출하므로 그 비용이 곧바로
+MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 무관했다 — 예산을 늘려도
+판정이 안 바뀌던 이유다). 13-rule짜리 `$join_text`가 MTT 인코딩에서 >120초, 우리 TRS에서
+1초로 100배 이상 차이다.
 상세·건전성 논증·구현 함정은 [CLAUDE.md](CLAUDE.md) "Do not route termination through MTT",
 경위와 측정 전문은 [lib/rewrite/todo.md](spectec/lib/rewrite/todo.md) 2026-07-19 research note.
 
@@ -35,6 +48,12 @@ projection으로도 dependency pair를 정렬할 수 없다. 예산 문제가 �
 - 종전 이 표가 "AProVE 자동 전략의 도구 한계"로 적었던 3건(`$join_text`,
   `$invalidate_value`, `$invalidate_headerUnion`)은 MTT로 1200s를 소진하고 MAYBE였으나
   새 경로에서 **각 1초에 YES**다. 그 진단은 **틀렸다**.
+- ⚠️ 이 항목의 인과 설명은 2026-07-20에 정정됐다. 최초 서술은 "MTT의 unraveling이 인자를
+  분해해 부분항 관계를 역전시키므로 어떤 예산으로도 증명 불가"였는데, 세 군데가 틀렸다
+  (MTT는 unravel을 안 하고, 분해도 역전도 없으며, 예산만 주면 증명된다). 파이프라인 전체를
+  맞대조한 뒤 그 안의 한 요소를 원인으로 지목한 것이 실수였다. **측정값(153/153)과 실무
+  결론(MTT를 거치지 말 것)은 불변**이고 기전만 틀렸었다. 경위는
+  [todo.md](spectec/lib/rewrite/todo.md) "방법론 반성" 참조.
 - 종전 병기하던 `term(모듈러B)` 열(`prune_modular.py abstract-builtins`로 산술을 블랙박스
   처리해 spec 층만 증명하던 축)은 **폐지했다.** 그 축은 MTT가 full-arith를 못 뚫는 걸
   우회하려고 둔 것인데, 직접 축이 153/153이 된 이상 존재 이유가 없다. 참고로 같은 구조

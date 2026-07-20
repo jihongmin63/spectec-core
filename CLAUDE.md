@@ -196,48 +196,82 @@ it runs externally via a Maude 2.7.1 + MTT + AProVE(Z3) stack
 
 ### Do not route termination through MTT — unravel and call AProVE directly
 
-**MTT's C;A path is the wrong transformation for these slices, and it was the
-cause of the long-standing termination MAYBEs — not AProVE, and not the
-translation.** (2026-07-19.)
+**MTT's transformation, not AProVE and not the translation, was the cause of the
+long-standing termination MAYBEs.** Unravel the slice yourself and hand the
+result to AProVE. (2026-07-19; causal analysis corrected 2026-07-20 — see the
+note at the end of this section for what the first version got wrong.)
 
-MTT unravels `l -> r if s == t` by passing the *condition's variables* to the
-helper symbol:
+**MTT does not unravel at all.** Capturing the file it actually hands AProVE
+(point `mfe.config` at a wrapper that copies `$1` aside) shows it emits a
+*conditional* TRS in TPDB format. What it does instead is:
 
-    l            -> U(s, x1..xn)          (x1..xn = Var(l))
-    U(t, x1..xn) -> r
+1. lower order-sorted to unsorted by turning every sort into a **predicate**
+   (`isText`, `isList`, `is[Val]`) and attaching per-variable sort conditions to
+   every rule;
+2. rewrite each condition `s = t` into **`equal(s,t) -> tt`**, with one global
+   non-left-linear rule `equal(X,X) -> tt`.
 
-An argument like `HU(e0,e1)` is thereby taken apart into `e0,e1` and rebuilt on
-the right, which **inverts the subterm relation that carried the descent** —
-`e0`,`e1` are strictly smaller than `HU(e0,e1)`, so no argument projection can
-orient the resulting dependency pair, and the proof is unreachable no matter how
-much budget AProVE gets.
+Step 2 is what kills it. Our conditions are *matching* conditions — in
+`... if text = cons(t_h2, t_t)`, the variables `t_h2`/`t_t` are **bound by the
+match**. Turned into a symmetric equality *test* they become free, and the rule
+MTT emits is:
 
-The fix is to unravel *structure-preservingly*: carry the left-hand side's
-argument list **unchanged**, wrapped in a fresh constructor `k_N` that has no
-defining rule (inert, so it cannot loop — passing the bare lhs *term* instead
-makes the rule reproduce its own redex, and AProVE correctly answers NO):
+    $join-text(cons(t-h1, text), t-sep)
+      -> cat(cat(t-h1, t-sep), $join-text(cons(t-h2, t-t), t-sep))
+       | equal(match-cons(text), true) -> tt,
+         equal(text, cons(t-h2, t-t)) -> tt, ...
 
-    f(p1..pk)            -> u_1(s, k_1(p1..pk))
-    u_1(t, k_1(p1..pk))  -> r
+`t-h2` and `t-t` occur nowhere in the lhs. That is an **extra-variable CTRS
+(Bergstra–Klop type 3)**: the recursive argument `cons(t-h2,t-t)` bears no
+syntactic relation to the lhs argument, and equals `text` only *semantically*,
+via the `equal` condition. The dependency-pair framework sees no descent to
+orient, and type-3 termination is far more expensive than type 1/2.
 
-Then hand the plain TRS straight to `tools/aprove/runme <file.trs> <budget>`
-(WST mode). No MTT in the loop.
+Expensive, not impossible: feed the captured file to AProVE with enough budget
+and it says YES. But **MTT always calls AProVE with a hardcoded 120 s budget**
+(`mtt.maude:90`, `termCheck(TOOL, In:String, 120)`), so the expensive problem
+gets cut off. The `TERMA_TMO=1200` we set is a timeout on the *Maude process* and
+never reaches this inner limit — which is why raising it never changed a verdict.
+So a MAYBE here is the product of two factors: the `equal` encoding makes the
+problem ~100× more expensive (a 13-rule `$join_text` needs >120 s there versus
+**1 s** as an unraveled TRS), and the 120 s cap then truncates it. Either one
+alone would have been survivable.
 
-Measured effect (153 ≤500-rule symbols, both axes): the three slices MTT could
-not close — `$join_text`, `$invalidate_headerUnion`, `$invalidate_value` —
-each burn the full 1200 s budget to reach MAYBE through MTT, and prove **YES in
-about one second** when unraveled this way. **Zero regressions** among the
-symbols MTT already proved. The CTRS encoding needs no change; this is purely a
-defect of the checking pipeline.
+Unraveling restores the matching semantics, which is the whole fix: the
+condition's right-hand side goes back to being a **pattern in a rule's lhs**, so
+its variables are bound by matching and the descent is syntactically visible.
+
+    f(p1..pk)      -> u_1(s, <carried>)
+    u_1(t, <carried>) -> r          -- t matched here; its variables are bound
+
+Then hand the plain TRS to `tools/aprove/runme <file.trs> <budget>` (WST mode).
+
+**What `<carried>` is does not matter.** Marchiori's classic form (pass the lhs
+*variables*, flat) and a structure-preserving form (pass the lhs *argument list*
+verbatim inside an inert `k_N` constructor with no defining rule) were measured
+head to head on the same slices with the same AProVE: **both YES**, in 0–1 s.
+Prefer the simpler variable-passing form. (One trap either way: passing the bare
+lhs *term* makes the rule reproduce its own redex — AProVE correctly answers NO.)
+
+Measured effect (153 ≤500-rule symbols): `term` goes from YES 117 / MAYBE 12 /
+TIMEOUT 24 through MTT to **YES 153/153**. The slices MTT could not close —
+`$join_text`, `$invalidate_headerUnion`, `$invalidate_value` — burn the full
+1200 s budget to reach MAYBE through MTT and prove YES in about one second here.
+The CTRS encoding needs no change; this is purely a defect of the checking
+pipeline.
+
+The sort-predicate encoding (step 1) contributes bulk but is not the mechanism —
+the `equal` rewriting is.
 
 Implementing it correctly needs three details, each of which silently produces a
 wrong or malformed system if missed:
 
 1. **Multi-condition chains must accumulate bound variables.** A condition can
    bind variables a later condition or the final rhs uses
-   (`... if p(x) = cons(h,t) /\ q(h) = true`). Each keep-constructor must carry
-   the original arguments *plus* every variable bound by the conditions before
-   it, or the last rule has an extra variable in its rhs.
+   (`... if p(x) = cons(h,t) /\ q(h) = true`). Each helper must carry whatever it
+   carries *plus* every variable bound by the conditions before it, or the last
+   rule has an extra variable in its rhs — reintroducing exactly the type-3
+   defect this whole approach exists to avoid.
 2. **Emitted conditions are not always in dependency order.** Reflect's guard
    passes can place an `isStuckHead` guard ahead of the condition that binds the
    variable it inspects (`$bitstr-to-int`). Re-order greedily: repeatedly take
@@ -248,7 +282,7 @@ wrong or malformed system if missed:
    were found that way; both had produced plausible-looking output.
 
 Soundness: every CTRS step is simulated by the TRS
-(`lσ -> u(sσ, k(argsσ)) ->* u(tσ, k(argsσ)) -> rσ`), condition evaluation
+(`lσ -> u(sσ, carried) ->* u(tσ, carried) -> rσ`), condition evaluation
 included, so **TRS termination ⟹ CTRS operational termination**. Sorts and
 subsorts are dropped, making the TRS an over-approximation (well-sorted terms
 are a subset) — the same safe direction MTT has. The corollary matters:
@@ -261,6 +295,23 @@ Analysis-surface slices are safe inputs for this: they carry no `owise`, no
 imports, and no mixfix — every declaration is prefix and single-line.
 Also note `prune_slice_signature.py full` prunes only the *signature*, never a
 rule, so it is a no-op for this path.
+
+> **Correction (2026-07-20).** The first version of this section claimed MTT
+> unravels by passing the condition's variables, that decomposing a structured
+> argument this way inverts the subterm relation, and that the proof was
+> therefore unreachable at any budget. All three were wrong — MTT does not
+> unravel, so nothing is decomposed or inverted, and the proof is reachable given
+> budget. The error came from comparing whole *pipelines* and then blaming one
+> component inside them, when the two paths differed in sort encoding, condition
+> encoding, and AProVE budget all at once. Three one-variable-at-a-time
+> experiments settled it: swapping only the unraveling style (variable-passing vs
+> structure-preserving) leaves both at YES; running MTT's captured output
+> directly gives YES; and `mtt.maude` turns out to hardcode a 120 s budget. The
+> measurements and the operational conclusion (don't use MTT; unravel yourself
+> and call AProVE) were unaffected. **Lessons: to claim X causes Y, change X and
+> nothing else — and when a tool fails, get hold of what it actually emits before
+> theorising. Repointing `mfe.config` at a wrapper took five minutes and
+> collapsed the whole wrong story.**
 
 ## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
 
@@ -281,11 +332,12 @@ MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
 **Spurious termination MAYBE/TIMEOUT.**
 - Structural recursion whose decreasing argument is destructured in a *premise*
   (`xs = cons(h,t)`, recurse on `t`). Not a loop. (list / flatten / invalidate /
-  write_value) **Cause corrected 2026-07-19:** this was blamed on AProVE's
+  write_value) **Cause corrected 2026-07-19/20:** this was blamed on AProVE's
   dependency-pair analysis, which was wrong. AProVE certifies the descent in
-  about a second; MTT's unraveling was destroying it before AProVE ever saw it.
-  Unravel structure-preservingly and these all come back YES — see
-  "Do not route termination through MTT" above.
+  about a second — but only if the premise's destructuring survives as a *match*.
+  MTT rewrites it into an `equal(s,t) -> tt` test, which frees the pattern's
+  variables and makes the descent invisible. Unravel it yourself and these all
+  come back YES — see "Do not route termination through MTT" above.
 - Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
   (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
 - Acyclic call graph + large slice → pure tool-budget TIMEOUT.
