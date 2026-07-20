@@ -5,7 +5,9 @@ open Common.Source
 
 (* Numbers *)
 
-let string_of_num = Num.string_of_num
+let string_of_num = function
+  | `Int i when i >= Bigint.zero -> Bigint.to_string i
+  | num -> Num.string_of_num num
 
 (* Texts *)
 
@@ -63,8 +65,8 @@ and string_of_nottyp nottyp =
     nottyp.it
 
 and string_of_reltyp reltyp =
-  Mode.render ~pad_brackets:true ~string_of_atom ~string_of_arg:string_of_typ
-    reltyp.it
+  Mode.render ~pad_brackets:true ~string_of_atom ~string_of_in:string_of_typ
+    ~string_of_out:string_of_typ reltyp.it
 
 and string_of_deftyp deftyp =
   match deftyp.it with

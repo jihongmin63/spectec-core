@@ -7,15 +7,22 @@ DUNE = cd spectec && $(OPAM_EXEC) dune
 
 # Compile & Format
 
-.PHONY: exe check fmt fmt-check promote clean
+.PHONY: exe lsp check fmt fmt-check promote clean
 
 EXESPEC = spectec/_build/default/bin/main.exe
+EXELSP = spectec/_build/default/bin/lsp_main.exe
 
 exe:
 	rm -f ./$(NAME)
 	$(DUNE) build bin/main.exe
 	@echo
 	ln -f $(EXESPEC) ./$(NAME)
+
+lsp:
+	rm -f ./$(NAME)-lsp
+	$(DUNE) build bin/lsp_main.exe
+	@echo
+	ln -f $(EXELSP) ./$(NAME)-lsp
 
 check:
 	$(DUNE) build @check
@@ -30,7 +37,7 @@ promote:
 	$(DUNE) promote
 
 clean:
-	rm -f ./$(NAME)
+	rm -f ./$(NAME) ./$(NAME)-lsp
 	$(DUNE) clean
 
 # Splice and render. `splice-html` requires `asciidoctor`; `splice-pdf`
@@ -60,6 +67,15 @@ splice-pdf: splice
 splice-clean:
 	rm -rf $(SPLICE_BUILD)
 
+# VS Code extension: package editors/vscode into a sideloadable .vsix
+# (install with `code --install-extension spectecx.vsix`).
+
+.PHONY: vsix
+
+vsix:
+	cd editors/vscode && npx -y @vscode/vsce package -o $(NAME).vsix
+	@echo "#### extension written to editors/vscode/$(NAME).vsix"
+
 # Tests
 #
 # Individual tests (run against the new p4 spec by default):
@@ -80,6 +96,7 @@ splice-clean:
 #
 # CLI snapshot tests (impty CLI + instrumentation, cram against hello.imp):
 #   make test-cli        - impty CLI command and instrumentation snapshots
+#   make test-lsp        - LSP diagnostics snapshot (Check.run -> LSP JSON)
 #
 # Grouped tests:
 #   make test-quick      - Fast tests (elab + elab-neg + interp-neg + cli + struct + roundtrip-il + roundtrip-el + impty)
@@ -97,7 +114,7 @@ splice-clean:
 #
 #   make test            - quick + new p4 il/sl
 
-.PHONY: test test-quick test-elab test-elab-neg test-interp-neg test-cli test-struct test-roundtrip-il test-roundtrip-el
+.PHONY: test test-quick test-elab test-elab-neg test-interp-neg test-cli test-lsp test-struct test-roundtrip-il test-roundtrip-el
 .PHONY: test-il test-il-pos test-il-neg
 .PHONY: test-sl test-sl-pos test-sl-neg
 .PHONY: test-old test-il-old test-il-pos-old test-il-neg-old
@@ -130,6 +147,10 @@ test-interp-neg:
 test-cli:
 	@echo "#### Running CLI snapshot tests (impty CLI + instrumentation)"
 	@$(DUNE) build @test/cli/runtest --profile=release && echo OK
+
+test-lsp:
+	@echo "#### Running LSP diagnostics test"
+	@$(DUNE) build @test/lsp/runtest --profile=release && echo OK
 
 test-struct:
 	@echo "#### Running structuring test"
@@ -173,7 +194,7 @@ test-sl-pos-old:
 test-sl-neg-old:
 	$(call run_interp_test,p4-old,sl,neg)
 
-test-quick: test-elab test-elab-neg test-interp-neg test-cli test-struct test-roundtrip-il test-roundtrip-el test-impty
+test-quick: test-elab test-elab-neg test-interp-neg test-cli test-lsp test-struct test-roundtrip-il test-roundtrip-el test-impty
 	@echo "#### Quick tests passed"
 
 test-il: test-il-pos test-il-neg

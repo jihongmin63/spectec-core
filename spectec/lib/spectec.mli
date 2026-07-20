@@ -12,24 +12,57 @@ type 'a result = ('a, Error.t) Stdlib.result
 
 (** {1 Diagnostics}
 
-    Warnings emitted during pipeline passes (parse, elaborate, interpret) are
-    collected automatically. Use {!with_diagnostics} as the single entry point
-    for running pipeline operations that may emit warnings — it handles the
-    collection lifecycle so callers cannot forget to reset or drain. *)
+    A diagnostic is a single message about the spec (an error, a warning, or a
+    note) tied to a place in the source. The pipeline passes (parse, elaborate,
+    interpret) report warnings as they run; {!with_warnings} and
+    {!with_diagnostics} run a pass and hand those back as a [Diag.Bag.t], so
+    callers gather them in one place instead of by hand. *)
 
-(** [with_diagnostics f] runs [f] with a fresh diagnostic context and returns
-    its result paired with all diagnostics emitted during the call. The sink is
-    reset on entry, so sequential calls are independent. If [f] raises, the
-    exception propagates and diagnostics emitted so far are discarded (the next
-    call to [with_diagnostics] resets the sink regardless). *)
-val with_diagnostics : (unit -> 'a) -> 'a * Diag.Bag.t
+(** [with_warnings f] runs [f] and returns its result together with every
+    warning [f] reported. Warnings are cleared first, so the bag holds only the
+    ones from this call. *)
+val with_warnings : (unit -> 'a) -> 'a * Diag.Bag.t
+
+(** [with_diagnostics f] is like {!with_warnings}, but when [f] returns
+    [Error e] the error [e] is turned into a diagnostic and added to the bag
+    too. The bag is then the complete set to show the user: the warnings plus
+    the error the run failed with. *)
+val with_diagnostics : (unit -> 'a result) -> 'a result * Diag.Bag.t
+
+(** {1 Spec membership}
+
+    A spec is elaborated from an ordered set of [.spectec] files; a [*.spec]
+    marker file (e.g. [specs/p4/p4.spec]) marks its directory as the root of one
+    spec. *)
+
+(** [spec_root_of_file file] is the nearest ancestor directory of [file] that
+    holds a [*.spec] marker, if any. *)
+val spec_root_of_file : string -> string option
+
+(** [collect_spec_files dir] is the [.spectec] files under [dir], gathered
+    recursively; digit runs in names compare as numbers ([5.9-] before [5.11-]),
+    so section numbers order without zero-padding. *)
+val collect_spec_files : string -> string list
 
 (** {1 Pipeline transformations} *)
 
-val parse_spec_files : string list -> Lang.El.spec result
+(** Spec source [contents] paired with the [filename] its diagnostics are
+    attributed to. [contents] may be a file's bytes on disk or an unsaved editor
+    buffer; a synthetic input, such as a reparse check, uses an angle-bracketed
+    name like [<roundtrip>]. *)
+type spec_source = Pass.spec_source = { filename : string; contents : string }
 
-(** [origin] is the label used in diagnostic messages. *)
-val parse_spec_string : origin:string -> string -> Lang.El.spec result
+val parse_spec_source : spec_source -> Lang.El.spec result
+
+(** Parses each source in order into one concatenated spec. Order matters:
+    parsing shares an atom and variable table, so each source must follow those
+    it takes names from. *)
+val parse_spec_sources : spec_source list -> Lang.El.spec result
+
+(** Reads and parses each path in order into one concatenated spec; each path
+    becomes the [filename] labeling its own diagnostics. The on-disk counterpart
+    of {!parse_spec_sources}. *)
+val parse_spec_files : string list -> Lang.El.spec result
 
 val elaborate : Lang.El.spec -> Lang.Il.spec result
 val structure : Lang.Il.spec -> Lang.Sl.spec
