@@ -72,7 +72,129 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-19 — 【research note】 termination MAYBE의 진짜 원인은 MTT의 unraveling이었다 — 구조 보존 unraveling + AProVE 직접으로 153/153
+
+> 이 항목은 그대로 research note로 옮겨 쓸 수 있게 서술한다. 아래 2026-07-17 항목이
+> "AProVE 자동 전략의 도구 측 한계"로 내린 결론을 **반증**한다.
+
+#### 배경 — 우리가 termination을 재던 방식
+
+`tools/mfe/run-termination.sh`는 심볼 하나의 분석 슬라이스를 이렇게 흘려보냈다:
+
+1. `main.exe rewrite --ctrs --symbol <sym>` 로 슬라이스(.mod)를 덤프.
+2. `prune_slice_signature.py … full` 로 **시그니처만** 축소. To_mfe는 슬라이스마다 P4 전체
+   order-sorted 시그니처(~460 sort / ~750 op)를 찍는데 MTT의 변환이 시그니처에 초선형이라
+   20-rule 슬라이스도 안 끝난다. 규칙은 한 줄도 안 건드린다(측정으로 확인: 13 rule → 13 rule).
+3. 헤더를 옛 Full Maude functional module로 고침(`mod`→`fmod`, `set include BOOL[-OPS] off`).
+4. Maude 2.7.1(hook 빌드) + MFE 2.7.1에 stdin으로 밀어넣고
+   `(select tool MTT .) (select external tool aprove .) (select path C;A .) (ct SPEC .)`.
+5. **MTT 1.5j**가 order-sorted 조건부 모듈을 TPDB CTRS로 변환하고(`isTerm`/`isThruth` sort
+   guard 추가), 조건부이므로 **`C;A` 경로** = *C(onditional elimination) 후 A(rgument
+   filtering/ordering)* — 즉 **조건부 규칙을 무조건 TRS로 unravel한 뒤** 넘긴다.
+6. `termCheck` 훅이 `mfe.config`대로 `tools/aprove/runme`(AProVE WST 모드, Z3 백엔드)를
+   호출. 판정은 Maude 출력의 `is terminating`(YES) / `not been found`(MAYBE)로 읽는다.
+
+두 축의 차이는 **2번의 pruning뿐**이었다. `term(AProVE직접)`은 위 그대로, `term(모듈러B)`는
+2번을 `prune_modular.py abstract-builtins`로 바꿔 **산술 규칙을 통째로 빼고 산술 op을 자유
+생성자로 남긴다**(R_arith를 블랙박스로 두고 spec 층만 증명 → 모듈러 합성). 5·6번은 동일하다.
+**즉 두 축 모두 MTT의 unraveling을 통과했다.** 이게 핵심이다.
+
+#### 결함 — 변수 전달 unraveling이 하강을 파괴한다
+
+MTT는 `l -> r if s == t` 를 표준 Marchiori식으로, **조건의 변수**를 헬퍼에 넘겨 푼다:
+
+```
+l            -> U(s, x1..xn)        (x1..xn = Var(l))
+U(t, x1..xn) -> r
+```
+
+문제는 `l`의 인자가 구조를 가질 때다. `$invalidate-value(HU(e0,e1))` 이면 `HU(e0,e1)`가
+성분 `e0`,`e1`로 **분해되어** U에 실리고 우변에서 `HU(e0,e1)`로 **재조립**된다. 그런데
+`e0`,`e1`은 `HU(e0,e1)`의 진부분항이므로, 하강을 나르던 부분항 관계가 **역전**된다.
+dependency pair framework에서 subterm criterion이나 argument projection π는 "어떤 인자가
+줄어드는가"로 정렬하는데, 줄어들 인자가 이미 쪼개졌다가 커진 형태로 되돌아오므로
+**어떤 π로도 정렬 불가**다. 예산 문제가 아니라 도달 불가다 — 1200초를 줘도 1200초를 태우고
+MAYBE가 나온다.
+
+이건 unraveling의 알려진 **불완전성**(종료하는 CTRS가 종료 증명 불가능한 TRS로 unravel될
+수 있다)의 아주 구체적인 발현이다. 우리 인코딩이 premise에서 destructure하는 구조 재귀
+(`xs = cons(h,t)` 두고 `t`로 재귀)를 즐겨 쓰기 때문에 정확히 이 패턴을 대량 생산했다.
+
+#### 해법 — 구조 보존 unraveling
+
+좌변 인자 목록을 **분해하지 않고 그대로** 넘긴다. 단, 좌변 항 자체를 넘기면 규칙이 자기
+redex를 재생산해 무한 루프가 된다(실제로 첫 시도에서 AProVE가 **NO**를 냈고, 그게 변환
+버그를 잡아줬다). 그래서 **정의 규칙이 없는 불활성 생성자 `k_N`** 으로 감싼다:
+
+```
+f(p1..pk)            -> u_1(s, k_1(p1..pk))
+u_1(t, k_1(p1..pk))  -> r
+```
+
+`k_N`은 재작성되지 않으므로 루프를 못 만들고, U의 둘째 인자는 원 인자 구조를 글자 그대로
+보존한다 → 조건부 규칙이 갖고 있던 부분항 관계가 그대로 살아남는다. MTT를 완전히 빼고
+이 평범한 TRS를 `tools/aprove/runme <f>.trs <budget>`(WST)에 직접 던진다.
+
+#### 건전성
+
+`lσ -> u(sσ, k(argsσ)) ->* u(tσ, k(argsσ)) -> rσ` 로 **원 CTRS의 모든 스텝이 시뮬레이션**된다
+(조건 평가 `sσ ->* tσ` 자체도 `u(□, k(…))` 문맥 안에서 재현되므로 operational termination까지
+덮는다). 따라서 **TRS 종료 ⇒ CTRS 종료**. sort/subsort는 버리므로 TRS는 **과근사**(well-sorted
+항이 부분집합) — MTT와 같은 안전한 방향이다.
+
+따름정리로 **NO는 비종료의 증거가 아니다**(과근사 탓일 수 있다). NO가 나오면 witness를
+확인할 대상으로만 취급할 것.
+
+분석면 슬라이스가 이 변환에 안전한 근거(153개 전수 확인): `owise` 0, `rl`/`crl` 0,
+`assoc`/`comm`/`id:` 0, `:=`/`=>` 조건 0, import 0, mixfix 0 — 전부 prefix·단일행이다.
+
+#### 측정 (153심볼 × 2축, 슬라이스는 `30d413ad` 덤프 재사용)
+
+| 축 | MTT 경로 | 구조 보존 + AProVE 직접 |
+|---|---|---|
+| AProVE 직접 | YES 117 / MAYBE 12 / TIMEOUT 24 | **YES 153 / 153** |
+| 모듈러 B | YES 150 / MAYBE 3 | YES 150 / MAYBE 2 / TIMEOUT 1 |
+
+- **MAYBE 12건 전부, TIMEOUT 24건 중 23건**이 닫혔다. 이진 산술 계열
+  (`$bin_*`·`$un_*`·`$bitacc_*`·`$write_value*`)이 통째로 풀렸다.
+- 2026-07-17 항목이 "도구 한계"로 지목했던 `$join_text`/`$invalidate_value`/
+  `$invalidate_headerUnion`은 MTT로 1200초 태우고 MAYBE였는데 **각 1초에 YES**다.
+- **인코딩은 한 줄도 안 고쳤다.** 원인은 번역도 AProVE도 아니고 MTT였다.
+- 예산 주의: `$write_bits_from_value` 축A는 300초 TIMEOUT / 1200초 YES. 표 값은 MTT와 같은
+  예산으로 맞췄다.
+
+**회귀 3건은 모듈러B 축에만**: `$write_bits_from_value`(TIMEOUT),
+`$set_priorities_of_tableEntryListIR{,_prime}`(MAYBE). keep-생성자가 인자 구조를 복제하므로
+항이 커지는 비용이 있고, MTT의 분해가 마침 무해했던 슬라이스에서는 그 비용만 남는다.
+**두 방법의 비-YES 집합은 서로소**라, 모듈러B도 둘 중 하나만 돌리면 153/153이다.
+
+#### 구현 함정 (놓치면 조용히 틀린 결과가 나온다 — 셋 다 실제로 밟았다)
+
+1. **다조건 체인의 바인딩 변수 누적**. 조건이 뒤 조건이나 최종 우변이 쓰는 변수를 바인딩할
+   수 있다(`… if p(x) = cons(h,t) /\ q(h) = true`). keep-생성자가 원 인자 + **앞선 조건들이
+   바인딩한 변수 전부**를 날라야 한다. 안 그러면 마지막 규칙 우변에 미바인딩 변수가 생긴다.
+2. **소스 조건이 use-before-bind 순서로 나온다**. reflect의 guard 패스가 `isStuckHead` 가드를
+   그 변수를 바인딩하는 조건보다 **앞에** 놓는다(`$bitstr-to-int`에서 `half`). 좌변이 전부
+   바인딩된 조건을 하나씩 골라가는 위상 정렬로 재배치해야 한다.
+3. **커버리지를 가정하지 말고 검증**. 처리 못 한 방정식과 미바인딩 우변 변수에서 **크게
+   실패**시킬 것. 위 두 버그는 전부 이 검사로 잡혔고, 둘 다 그럴듯해 보이는 출력을 내고 있었다.
+
+#### 후속
+
+- [ ] unraveler를 `tools/mfe/`로 승격(현재 스크래치패드 `sp_unravel.py`+`sp_run.sh`).
+      `run-termination.sh`의 MTT C;A 경로를 대체하고, 비-YES면 MTT로 폴백하는 **포트폴리오**로.
+- [ ] 모듈러B 회귀 3건: 항 크기 가설 검증. 맞다면 **escape하지 않는 인자는 keep에서 제외**하는
+      최적화로 닫힐 수 있다.
+- [ ] §2 >500 표(term(B), MAYBE 11)도 같은 경로로 재측정 — 상당수가 닫힐 것으로 예상.
+- [ ] 측정 기준 커밋 확인: 측정은 `30d413ad` 덤프 기준인데 그 뒤 술어 도메인 변경
+      (`6e740f3e` 계열)이 들어왔다. HEAD에서 재덤프해 대조할 것(sort 태그만 달라졌다면
+      unraveled TRS는 byte-identical이라 판정 불변).
+
 ### 2026-07-17 — co-iteration `$unzip` fusion (SoA→AoS): termination 개선 시도
+
+> ⚠️ **이 항목의 결론(맨 아래 "AProVE 자동 전략의 도구 측 한계")은 2026-07-19에 반증됐다.**
+> AProVE는 이 구조를 1초에 증명한다 — 문제는 그 앞단 MTT의 unraveling이 하강을 파괴한 것이었다.
+> 위 2026-07-19 research note 참조. 단, fusion 자체의 정당성과 무회귀 검증 결과는 유효하다.
 
 **동기**: term(AProVE) MAYBE 심볼 `$invalidate_value`/`$invalidate_headerUnion`의
 원인을 실험으로 규명 — co-iteration의 축별 분리(SoA) 인코딩이 소비 헬퍼의 재귀를
