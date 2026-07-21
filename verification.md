@@ -41,6 +41,7 @@ MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 �
 경위와 측정 전문은 [lib/rewrite/todo.md](spectec/lib/rewrite/todo.md) 2026-07-19 research note.
 
 - **CRC**: YES 140 / TIMEOUT 8 / MAYBE 5  ·  **ChC**: YES 145 / - 8   *(2f9f8cba 기준)*
+  - MAYBE 5(전부 `$write_value*`)는 **`--crc-normalize`(upgrade-only)로 YES 승격** — 아래 "CRC 정규화" 참조.
 - **term**: YES **153 / 153**
 - **MTT 경로였을 때는 YES 117 / MAYBE 12 / TIMEOUT 24였다.** MAYBE **12건 전부**와 TIMEOUT
   24건 중 **23건**이 닫혔고, 이진 산술 계열(`$bin_*`·`$un_*`·`$bitacc_*`·`$write_value*`)이
@@ -66,6 +67,36 @@ MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 �
   `$resolve_constraint` 13→9, `$invalidate_value`/`$invalidate_headerUnion` 91→87,
   `$write_bits_from_value` 107→103; 다출력 ex-apply의 튜플화로 증가: `$callableId_IR` 11→13,
   `$callableId_of_extern{Constructor,Method}PrototypeIR` 12→14 / 13→15).
+
+### CRC 정규화 (`--crc-normalize`, upgrade-only) — 2026-07-21, 커밋 `7e748c8f`·`ee8e6ff4`
+
+baseline CRC(위 `2f9f8cba` 열)가 못 닫는 **determinacy critical pair**(조건 `$f(A)=t`를 CRC가
+fresh-변수 joinability로 인코딩하나 `$f`의 결정성을 몰라 self-overlap을 못 닫음)를 분석-전용
+정규화로 제거한다. 세 레버: **inline**(single-var binder 인라인 = 등식, blanket 안전),
+**unravel**(tuple binder를 `crcu`/`crck` 체인으로 = confluence-**reflecting만**, preserve 아님 —
+그래서 **upgrade-only**: 정규화-YES ⇒ 원본 YES 승격, 정규화-MAYBE/TIMEOUT ⇒ 원본 verdict
+유지·절대 하향 금지), **real-sort**(`crcu`/`crck`에 실제 IL sort 부여 — all-Val 대비 spurious
+overlap 제거, narrowing이라 건전). 실행/종료/ChC 경로 무영향, crcu 없으면 byte-identical.
+
+실측(real-sort 바이너리 `ee8e6ff4`, 직렬 Maude 32코어 독점, prune 동반, 조기종료):
+
+- **MAYBE 5 → YES 0쌍**: `$write_value_from_bits`(142s)·`_prime`(134s),
+  `$write_value_field_from_bits_prime`(139s), `$write_value_fields_from_bits_prime`(138s),
+  `$write_values_from_bits_prime`(139s). 정규화가 닫는 것은 이 5건(표의 MAYBE 5와 정확히 일치).
+- **회귀(원래-YES는 upgrade-only라 무영향)**: `$un_op`·`$bin_bor` YES 유지(inline-only, crcu
+  없어 byte-identical). `$set_priorities_of_tableEntryListIR`는 정규화 시 all-Val이면 TIMEOUT이나
+  **real-sort로 YES 0쌍 78s**(단 원래 YES라 실사용선 미정규화). `$join_text`만 정규화 시
+  **YES→MAYBE**: unravel이 형제 체인 root-overlap을 만들어 **infeasible** 임계쌍
+  `crcu1(#2,crck1(#1,t-sep)) = crcu0(cons(#1,#2),crck0) if len(cons(#1,#2))=bone /\`
+  `match-cons(#2)=true`(길이 1 ⟹ `#2`=nil 인데 `match-cons(#2)=true`는 `#2`가 cons ⟹ **모순**)를
+  남기고 CRC가 이 불가능성을 못 증명해 false MAYBE. real-sort로도 안 없어진다(overlap이 sort가
+  아닌 **구조**(list ↔ cons) 기반). 원래 YES라 upgrade-only로 **무해** — unravel이 confluence를
+  reflect할 뿐 preserve하지 않음의 교과서적 실증.
+- **TIMEOUT 회수**(별도 축): `$bin_concat` inline+prune으로 TIMEOUT→YES 259s(chains=0이라
+  real-sort inert). `$bin_shl`/`$bin_shr`는 정규화·prune에도 CP 폭발로 TIMEOUT 잔존.
+
+이론(Marchiori 1996; Nishida-Sakai-Sakabe LMCS 2012)·건전성 방향·구현은
+[todo.md](spectec/lib/rewrite/todo.md) 2026-07-21 절 참조.
 
 | symbol | rules | CRC | ChC | term | new-commit helpers |
 |---|---|---|---|---|---|
