@@ -475,6 +475,21 @@ let order_conds (t : t) : t =
    To_mfe needs no change and no fresh sort is introduced). [owise] rules are
    left intact. *)
 let crc_unravel (t : t) : t =
+  (* Only a binding condition whose SUBJECT is a defined-function application
+     raises a determinacy critical pair -- that is the whole reason to unravel.
+     A destructure of an already-bound value ([v = K(..)], or [K(..) = v]) has
+     no such pair: the CRC handles it by unification, and
+     {!Reflect.hoist_matchers} deliberately respells [match_K(v) = true] into
+     exactly this destructure form so the checker CAN see through it. Unraveling
+     such a destructure is both needless and harmful -- it splits the destructure
+     off from any companion guard into a separate chain rule, undoing hoist's
+     work ([$join_text] regressed YES -> MAYBE that way: its recursive clause's
+     [text = cons(t-h2, t-t)] moved into a [crcu] consumer, leaving only the
+     opaque [match-cons(text) = true] at the sibling overlap, so the CRC could no
+     longer see the [len = bone] contradiction). So gate on the subject. *)
+  let defined = Hashtbl.create 512 in
+  List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
+  let is_defined h = Hashtbl.mem defined h in
   let rec key_of = function
     | Var v -> "#" ^ v
     | App (f, args) -> f ^ "(" ^ String.concat "," (List.map key_of args) ^ ")"
@@ -491,12 +506,14 @@ let crc_unravel (t : t) : t =
         let fresh =
           List.filter (fun v -> not (List.mem v !bound)) (vars_of_term tp)
         in
-        (* Only a constructor/tuple pattern is unraveled: a BARE-VARIABLE
-           binder [s = v] is [fold]'s job (an unused one it leaves behind,
-           [uses = 0], forms only a trivial rhs=rhs self-pair, so keep it as a
-           condition rather than turn it into a spurious [crcu] overlap). *)
-        match tp with
-        | App _ when fresh <> [] ->
+        (* Unravel a binder only when (a) its pattern [tp] is a constructor with
+           fresh variables -- a BARE-VARIABLE binder [s = v] is [fold]'s job (an
+           unused [uses = 0] one it leaves behind forms only a trivial rhs=rhs
+           self-pair, so keep it as a condition) -- AND (b) its subject [s] is a
+           defined-function call, the only shape with a determinacy critical pair
+           (see the header). A value destructure [v = K(..)] stays a condition. *)
+        match (tp, s) with
+        | App _, App (f, _) when fresh <> [] && is_defined f ->
             segs := (List.rev !cur, s, tp) :: !segs;
             cur := [];
             bound := !bound @ fresh
