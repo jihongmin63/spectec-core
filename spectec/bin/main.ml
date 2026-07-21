@@ -204,10 +204,11 @@ let rewrite_command =
   and crc_normalize =
     flag "--crc-normalize" no_arg
       ~doc:
-        " with --ctrs, aggressively inline single-variable binders (dropping \
-         the fold's use-once cap) so the CRC raises no determinacy critical \
-         pair for them; meaning-preserving, analysis-only (leaves tuple \
-         binders untouched)"
+        " with --ctrs, normalize the slice for the Church-Rosser checker: \
+         inline single-variable binders and unravel tuple/constructor binders \
+         into crcu/crck chain operators, leaving no determinacy critical pair. \
+         The inline is meaning-preserving; the unravel only REFLECTS \
+         confluence, so a normalized YES is upgrade-only. Analysis-only."
   and wide_predicates =
     flag "--wide-predicate-domains" no_arg
       ~doc:

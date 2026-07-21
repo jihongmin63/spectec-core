@@ -78,7 +78,96 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
   let hint = MS.var_hint_fn tenv var_hints in
   MS.predicate_domains ~mode:predicates ~edges ~hint tbl sig_rules;
-  let sg sym arity = MS.signature tbl sym arity in
+  let sg0 sym arity = MS.signature tbl sym arity in
+  (* [--crc-normalize] introduces the chain operators [crcu<id>]/[crck<id>] that
+     {!Rewrite_system.crc_unravel} builds. They are not IL symbols, so [tbl] has
+     no signature and [sg0] defaults them to all-[Val] -- which widens every
+     chain-step pattern variable to [Val] and costs the CRC spurious overlaps.
+     Recover a real signature for each from the emitted rules:
+       - [crck<id>(v..)] is a keep container: its argument sorts are its carried
+         variables' inferred sorts, its result the shared fresh sort [CrcKeep];
+       - [crcu<id>(s, k)] is a chain step: [s]'s sort as the first argument,
+         [CrcKeep] as the second, the chained head's result sort as the range.
+     A carried variable is typed authoritatively in its PRODUCER rule -- the one
+     rewriting TO [crcu<id>]: [f(..) = crcu0(..)] still carries the original head
+     [f] (so its real hints/arg sorts apply), and a deeper step
+     [crcu i (..) = crcu (i+1) (..)] is well-typed only once the smaller-id
+     operators already have real sorts. So fill [crc_sigs] in ascending id order
+     (= level order: {!Rewrite_system.crc_unravel} gives level-0 groups the
+     lowest ids) with [sg] consulting the table as it grows, resolving each
+     step's dependencies first. This narrowing is sound exactly as the rest of
+     the order-sorted encoding is: a carried variable keeps the sort of the value
+     it actually holds (its binding site), so no real critical pair is lost, only
+     spurious ones. Inert when no crcu/crck is present ([crc_sigs] empty, [sg] =
+     [sg0]) -- a no-flag or inline-only run is byte-identical. *)
+  let crc_sigs : (string, string list * string) Hashtbl.t = Hashtbl.create 16 in
+  let sg sym arity =
+    match Hashtbl.find_opt crc_sigs sym with
+    | Some (a, r) when List.length a = arity -> (a, r)
+    | _ -> sg0 sym arity
+  in
+  let crc_keep = "CrcKeep" in
+  let starts p s =
+    String.length s >= String.length p && String.sub s 0 (String.length p) = p
+  in
+  let int_suffix s =
+    try int_of_string (String.sub s 4 (String.length s - 4)) with _ -> 0
+  in
+  let is_producer u = function
+    | R.App (f, [ _; R.App (k, _) ]) -> f = u && starts "crck" k
+    | _ -> false
+  in
+  let crcu_ids =
+    List.filter_map
+      (fun (r : R.rule) ->
+        match r.R.rhs with
+        | R.App (f, [ _; R.App (k, _) ]) when starts "crcu" f && starts "crck" k
+          ->
+            Some f
+        | _ -> None)
+      sys.R.rules
+    |> List.sort_uniq (fun a b -> compare (int_suffix a) (int_suffix b))
+  in
+  List.iter
+    (fun u ->
+      match
+        List.filter (fun (r : R.rule) -> is_producer u r.R.rhs) sys.R.rules
+      with
+      | [] -> ()
+      | prods ->
+          let typed =
+            List.map
+              (fun r -> (r, MS.infer_var_sorts edges sg (hint r) r))
+              prods
+          in
+          let r0, r0_vs = List.hd typed in
+          let k_name, kargs, subj =
+            match r0.R.rhs with
+            | R.App (_, [ s; R.App (kk, ka) ]) -> (kk, ka, s)
+            | _ -> assert false
+          in
+          (* crck<id> argument sorts: the meet over producers of each carried
+             variable's inferred sort (all siblings sharing a chain type it
+             identically, so the meet only guards against a forwarded-but-here-
+             untyped occurrence). *)
+          let karg_sort i =
+            List.fold_left
+              (fun cur (_, vs) ->
+                match List.nth kargs i with
+                | R.Var v -> MS.meet edges cur (MS.sort_of_var vs v)
+                | t -> MS.meet edges cur (MS.result_sort sg t))
+              MS.val_sort typed
+          in
+          Hashtbl.replace crc_sigs k_name
+            (List.mapi (fun i _ -> karg_sort i) kargs, crc_keep);
+          let subj_sort =
+            match subj with
+            | R.Var v -> MS.sort_of_var r0_vs v
+            | t -> MS.result_sort sg t
+          in
+          Hashtbl.replace crc_sigs u
+            ([ subj_sort; crc_keep ], MS.result_sort sg r0.R.lhs))
+    crcu_ids;
   (* Symbols to declare ops for: those used in the rules, plus all IL
      constructors and struct accessors (so a start term can be formed even when
      no rule mentions the case). Structural scalar constructors already occur in

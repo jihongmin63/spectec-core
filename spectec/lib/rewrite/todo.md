@@ -2106,6 +2106,21 @@ joinability로 인코딩하나 `$f`의 결정성을 몰라 self-overlap `#v#=v`�
 필수. termination은 unravel이 깔끔히 transfer되지만(우리 MTT가 그 용도), confluence는
 reflection만 성립 — 그래서 CRC에서 신중.
 
-**구현 상태**: Pass 1(inline) done·검증. unravel = Rewrite_system 패스로 구현 중
-(crcu/crck는 `MS.signature` 미지-심볼 fallback으로 `Val→Val` 자동 방출 → To_mfe 무수정,
-CrcKeep 대신 Val). prune은 기존 Python. sweep이 upgrade-only 채택 로직 담당.
+**구현 상태 (done)**: `--crc-normalize` = inline(Pass 1) + `crc_unravel` + `order_conds`
+([rewrite_system.ml], 커밋 7e748c8f). unravel의 `decompose`는 **App-패턴 binder만** 풀고
+bare-var binder는 조건으로 남긴다(uses=0 self-pair가 spurious crcu overlap 되는 것 방지).
+prune은 기존 Python 후처리 유지.
+
+**crcu/crck sort**: 처음엔 `MS.signature` 미지-심볼 fallback으로 `Val…→Val`(all-Val)로 방출 —
+**건전**(sort 확장 = overlap 추가 → 거짓 YES 불가)하나 체인-스텝 패턴 변수가 Val로 넓어져
+spurious overlap을 만들 수 있다(set_priorities all-Val TIMEOUT 실측). 이후 [to_mfe.ml]에서
+**실제 sort 복원**(`crc_sigs`): `crcu<id> : <subject sort> CrcKeep -> <함수 결과 sort>`,
+`crck<id> : <carried 변수 sort…> -> CrcKeep`. carried 변수는 producer 규칙(head=원래 `$f`라
+hint/arg-sort 유효)에서 타입되고, 다단계 체인은 id 오름차순(=레벨 순) 점진 처리로 의존성 해소
+(작은 id의 crcu/crck가 먼저 실제 sort를 얻어 다음 레벨 producer 타이핑에 쓰임). crcu/crck 없으면
+완전 inert(byte-identical). 이 narrowing은 나머지 order-sorted 인코딩과 동일하게 건전 —
+carried 변수가 binding-site의 실제 sort를 유지하므로 real 임계쌍 보존, spurious만 제거.
+
+**결과**: 5 write_value MAYBE→YES, bin_concat TIMEOUT→YES. 회귀: bin_bor/un_op YES 유지,
+join_text YES→MAYBE(unravel reflect-only, upgrade-only로 무해). set_priorities: all-Val
+TIMEOUT → **real-sort YES 0쌍 78s**(Python 프로토타입 동일 시간). sweep이 upgrade-only 채택 담당.
