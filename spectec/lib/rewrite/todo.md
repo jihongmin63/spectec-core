@@ -2107,7 +2107,7 @@ joinability로 인코딩하나 `$f`의 결정성을 몰라 self-overlap `#v#=v`�
 reflection만 성립 — 그래서 CRC에서 신중.
 
 **구현 상태 (done)**: `--crc-normalize` = inline(Pass 1) + `crc_unravel` + `order_conds`
-([rewrite_system.ml], 커밋 7e748c8f). unravel의 `decompose`는 **App-패턴 binder만** 풀고
+([rewrite_system.ml], new-rewrite `d109f982`). unravel의 `decompose`는 **App-패턴 binder만** 풀고
 bare-var binder는 조건으로 남긴다(uses=0 self-pair가 spurious crcu overlap 되는 것 방지).
 prune은 기존 Python 후처리 유지.
 

@@ -313,6 +313,59 @@ rule, so it is a no-op for this path.
 > theorising. Repointing `mfe.config` at a wrapper took five minutes and
 > collapsed the whole wrong story.**
 
+### CRC normalization (`--crc-normalize`) — remove determinacy critical pairs
+
+The CRC re-encodes a matching condition `$f(A) = t` as a joinability obligation
+and, not knowing `$f` is a function, raises a **determinacy critical pair** it
+cannot close (`#v# = v`). That single cause accounts for the five `$write_value*`
+MAYBEs and several large-slice TIMEOUTs. `--crc-normalize` rewrites those binders
+away before the checker runs. Analysis-surface only — execution, termination, and
+ChC never see it, and a run without the flag (or one that produces no chain
+operator) is byte-identical; opt-in because it is a verdict-shaping transform.
+
+Three levers, of different strength — this is the crux:
+
+- **inline** (`fold_premise_binders ~aggressive`) — inline every single-variable
+  binder `v := $f(A)`, dropping the use-once cap. Duplicating a deterministic
+  producer is an **equivalence** (preserves *and* reflects confluence), so it is
+  safe as a blanket and its verdict transfers to the original both ways.
+- **unravel** (`crc_unravel`) — turn a tuple/constructor binder
+  `tuple(v,b) := $f(A)` into a fresh `crcu`/`crck` chain, moving the binding into
+  an lhs pattern. Unraveling **reflects but does not preserve** confluence
+  (Marchiori 1996; Nishida–Sakai–Sakabe LMCS 2012): a YES on the unraveled module
+  proves the original confluent (soundness holds for these left-linear structural
+  rules), a MAYBE is inconclusive. So use it **upgrade-only** — run the plain CRC
+  first, normalize only its MAYBE/TIMEOUT symbols, promote a normalized YES, and
+  *never* downgrade an original YES. (Termination transfers cleanly under
+  unraveling — that is the MTT-replacement path above — but confluence only
+  reflects, hence the asymmetry.)
+- **real-sort** (`To_mfe`, `crc_sigs`) — `crcu`/`crck` are not IL symbols, so
+  `Maude_sorts.signature` defaults them to all-`Val`. That is *sound* (widening a
+  sort only adds overlaps, never a false YES) but widens the chain-step pattern
+  variables, and the spurious overlaps can cost the verdict (`$set_priorities`
+  TIMEOUTs under all-`Val`). Recover a real signature from the emitted rules:
+  `crck<id>` argument sorts = its carried variables' inferred sorts (typed in the
+  level-0 producer, whose lhs head is still the original `$f`), result a fresh
+  `CrcKeep`; `crcu<id>` = subject sort, `CrcKeep`, mapping to the function's result
+  sort. Deeper chain steps fill in ascending id (= level) order, each typed once
+  its dependencies have real sorts. The narrowing is sound like the rest of the
+  order-sorted encoding — a carried variable keeps the sort of the value it holds,
+  so only spurious pairs go.
+
+Measured (real-sort binary, `prune` companion, serial Maude): the five
+`$write_value*` MAYBEs close to YES; `$bin_concat` TIMEOUT→YES (inline+prune, no
+chain); `$set_priorities` YES 78 s (all-`Val` TIMEOUTs). `$bin_shl`/`$bin_shr`
+stay TIMEOUT (critical-pair blowup the pruning can't tame). One instructive
+regression: `$join_text` goes YES→MAYBE under normalization — the unravel leaves
+an **infeasible** sibling-chain pair
+`crcu1(#2,crck1(#1,t-sep)) = crcu0(cons(#1,#2),crck0) if len(cons(#1,#2))=bone /\ match-cons(#2)=true`
+(length 1 forces `#2 = nil`, yet `match-cons(#2)=true` needs a cons — a
+contradiction the CRC cannot discharge). It is not a sort problem (the overlap is
+structural, list ↔ cons), so real-sort leaves it, and it is harmless because
+upgrade-only never normalizes an already-YES symbol. It is the textbook case of
+unraveling reflecting but not preserving confluence. Fuller writeup and the
+sweep protocol live in [todo.md](spectec/lib/rewrite/todo.md) (2026-07-21).
+
 ## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
 
 MAYBE/TIMEOUT means *unproven*, not *defective*. A real defect needs a witness:
