@@ -40,8 +40,11 @@ MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 �
 상세·건전성 논증·구현 함정은 [CLAUDE.md](CLAUDE.md) "Do not route termination through MTT",
 경위와 측정 전문은 [lib/rewrite/todo.md](spectec/lib/rewrite/todo.md) 2026-07-19 research note.
 
-- **CRC**: YES 140 / TIMEOUT 8 / MAYBE 5  ·  **ChC**: YES 145 / - 8   *(2f9f8cba 기준)*
-  - MAYBE 5(전부 `$write_value*`)는 **`--crc-normalize`(upgrade-only)로 YES 승격** — 아래 "CRC 정규화" 참조.
+- **CRC**: YES 140 / TIMEOUT 8 / MAYBE 5   *(baseline `2f9f8cba` plain CRC)*  ·  **ChC**: YES 145 / - 8
+  - 표에서 **`YES*`** = `--crc-normalize`(upgrade-only)로 닫힌 것. MAYBE 5(전부 `$write_value*`)와
+    `$bin_concat`(TIMEOUT) → YES ⇒ **정규화 적용 시 CRC YES 146 / TIMEOUT 7 / MAYBE 0**. 남은
+    TIMEOUT 7(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*`×4)은 현 바이너리로 미재측정.
+    기전은 아래 "CRC 정규화".
 - **term**: YES **153 / 153**
 - **MTT 경로였을 때는 YES 117 / MAYBE 12 / TIMEOUT 24였다.** MAYBE **12건 전부**와 TIMEOUT
   24건 중 **23건**이 닫혔고, 이진 산술 계열(`$bin_*`·`$un_*`·`$bitacc_*`·`$write_value*`)이
@@ -61,6 +64,8 @@ MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 �
   보존 경로를 모듈러 축에 적용하면 YES 150 / MAYBE 2 / TIMEOUT 1로, 오히려 직접 축보다
   나쁘다(keep-생성자가 인자 구조를 복제해 항이 커지는 비용이 산술 블랙박싱의 이득을
   넘어선다). 원자료는 `/tmp/claude-iterfuse/sp/results.tsv`.
+- 이와 함께 종전의 `new-commit helpers` 열(각 심볼이 쓰는 산술 빌트인 — 폐지된 모듈러 축에서
+  `abstract-builtins`가 블랙박싱하던 대상)도 표에서 제거했다. 모듈러 축을 안 쓰므로 무의미.
 - 예산: AProVE 자체 예산 300s로 스윕하고, 비-YES만 MTT와 같은 1200s로 재측정했다
   (`stage2.tsv`). 1200s가 필요했던 건 `$write_bits_from_value` 1건뿐이다.
 - `rules` 열이 종전과 다른 7행은 헬퍼 통합의 직접 효과다(변수별 collect 병합으로 감소:
@@ -87,161 +92,161 @@ baseline CRC(위 `2f9f8cba` 열)의 MAYBE 5(전부 `$write_value*`)를 분석-�
 건전성 방향·`crcu`/`crck` sort 복원·upgrade-only 프로토콜·`$join_text` 기전은
 [CLAUDE.md](CLAUDE.md) "CRC normalization (`--crc-normalize`)" 참조.
 
-| symbol | rules | CRC | ChC | term | new-commit helpers |
-|---|---|---|---|---|---|
-| `$annotationList_of_parameterIR` | 1 | YES | YES | YES |  |
-| `$ctk_of_typedExpressionIR` | 1 | YES | YES | YES |  |
-| `$empty_map` | 1 | YES | YES | YES |  |
-| `$empty_set` | 1 | YES | YES | YES |  |
-| `$empty_tableContext` | 1 | YES | YES | YES |  |
-| `$id_of_parameterIR` | 1 | YES | YES | YES |  |
-| `$invalidate_header` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_actionDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_actionTypeDefIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_constructorTypeDefIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_controlApplyMethodDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_controlApplyMethodTypeIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_definedFunctionDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_definedFunctionTypeDefIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_externFunctionDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_externFunctionTypeDefIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_parserApplyMethodDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_parserApplyMethodTypeIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_tableApplyMethodDef` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_tableApplyMethodTypeDefIR` | 1 | YES | YES | YES |  |
-| `$tableEntryPriorityOptIR_of_tableEntryIR` | 1 | YES | YES | YES |  |
-| `$type_of_typedExpressionIR` | 1 | YES | YES | YES |  |
-| `$type_of_typedLvalueIR` | 1 | YES | YES | YES |  |
-| `$parameterListIR_of_externMethodDef` | 1 | YES | YES | YES |  |
-| `$set_priority_of_tableEntryIR` | 1 | YES | YES | YES |  |
-| `$empty_callableDefEnv` | 2 | YES | YES | YES |  |
-| `$empty_callableTypeDefEnv` | 2 | YES | YES | YES |  |
-| `$empty_constructorDefEnv` | 2 | YES | YES | YES |  |
-| `$empty_constructorTypeDefEnv` | 2 | YES | YES | YES |  |
-| `$empty_frame` | 2 | YES | YES | YES |  |
-| `$empty_stateEnv` | 2 | YES | YES | YES |  |
-| `$empty_store` | 2 | YES | YES | YES |  |
-| `$empty_theta` | 2 | YES | YES | YES |  |
-| `$empty_typeDefEnv` | 2 | YES | YES | YES |  |
-| `$empty_typeFrame` | 2 | YES | YES | YES |  |
-| `$flatten_constOpt` | 2 | YES | YES | YES |  |
-| `$ite` | 2 | YES | YES | YES |  |
-| `$flatten_objectInitializerOptIR` | 2 | YES | YES | YES |  |
-| `$is_some` | 2 | YES | YES | YES |  |
-| `$opt_as_seq` | 2 | YES | YES | YES |  |
-| `$parameterListIR_of_externMethodTypeDefIR` | 2 | YES | YES | YES |  |
-| `$type_of_externMethodPrototypeIR` | 2 | YES | YES | YES |  |
-| `$callable_builtinMethod` | 3 | YES | YES | YES |  |
-| `$constructorTypeDef_of_externConstructorPrototypeIR` | 3 | YES | YES | YES |  |
-| `$constructor_of_externConstructorPrototypeIR` | 3 | YES | YES | YES |  |
-| `$empty_constraint` | 3 | YES | YES | YES |  |
-| `$instantiable_extern` | 3 | YES | YES | YES |  |
-| `$is_lpm_key_prime` | 3 | YES | YES | YES |  |
-| `$un_lnot` | 3 | YES | YES | YES |  |
-| `$join_tableEntryState` | 3 | YES | YES | YES |  |
-| `$filter` | 3 | YES | YES | YES |  |
-| `$is_concrete_extern_object_prime_prime` | 4 | YES | YES | YES |  |
-| `$is_default_parameterIR` | 4 | YES | YES | YES |  |
-| `$is_lpm_key` | 4 | YES | YES | YES |  |
-| `$concat_text` | 4 | YES | YES | YES |  |
-| `$exists` | 4 | YES | YES | YES |  |
-| `$flatten_blockElementStatementList` | 4 | YES | YES | YES |  |
-| `$flatten_controlLocalDeclarationList` | 4 | YES | YES | YES |  |
-| `$flatten_externConstructorOrMethodPrototypeList` | 4 | YES | YES | YES |  |
-| `$flatten_objectDeclarationList` | 4 | YES | YES | YES |  |
-| `$flatten_parserLocalDeclarationList` | 4 | YES | YES | YES |  |
-| `$flatten_parserStatementList` | 4 | YES | YES | YES |  |
-| `$flatten_selectCaseList` | 4 | YES | YES | YES |  |
-| `$flatten_switchCaseList` | 4 | YES | YES | YES |  |
-| `$flatten_tableActionList` | 4 | YES | YES | YES |  |
-| `$flatten_tableEntryList` | 4 | YES | YES | YES |  |
-| `$flatten_tableKeyList` | 4 | YES | YES | YES |  |
-| `$flatten_tablePropertyList` | 4 | YES | YES | YES |  |
-| `$flatten_typeFieldList` | 4 | YES | YES | YES |  |
-| `$forall` | 4 | YES | YES | YES |  |
-| `$join_flow` | 4 | YES | YES | YES |  |
-| `$flatten_prefixedNameIR` | 4 | YES | YES | YES |  |
-| `$add_action_tbl` | 5 | YES | YES | YES |  |
-| `$add_key_tbl` | 5 | YES | YES | YES |  |
-| `$codom_map` | 5 | YES | YES | YES |  |
-| `$dom_map` | 5 | YES | YES | YES |  |
-| `$enter_path_i` | 5 | YES | YES | YES |  |
-| `$flatten_p4program` | 5 | YES | YES | YES |  |
-| `$empty_typingContext` | 6 | YES | YES | YES |  |
-| `$is_tableActionsProperty` | 6 | YES | YES | YES |  |
-| `$is_tableKeysProperty` | 6 | YES | YES | YES |  |
-| `$tableCustomName` | 6 | YES | YES | YES |  |
-| `$enter_i` | 7 | YES | YES | YES |  |
-| `$enter_t` | 7 | YES | YES | YES |  |
-| `$exit_i` | 7 | YES | YES | YES |  |
-| `$exit_t` | 7 | YES | YES | YES |  |
-| `$requires_priority_prime` | 7 | YES | YES | YES |  |
-| `$empty_instContext` | 8 | YES | YES | YES |  |
-| `$requires_priority` | 8 | YES | YES | YES |  |
-| `$typedLvalueIR_as_typedExpressionIR` | 8 | YES | YES | YES |  |
-| `$join_ctk` | 9 | YES | YES | YES |  |
-| `$width_of_integerTypeIR` | 10 | YES | YES | YES |  |
-| `$inherit_i` | 10 | YES | YES | YES |  |
-| `$name` | 10 | YES | YES | YES |  |
-| `$un_plus` | 11 | YES | YES | YES |  |
-| `$callableId_IR` | 13 | YES | YES | YES |  |
-| `$objectId_ends_with` | 11 | YES | YES | YES |  |
-| `$callableId_of_externConstructorPrototypeIR` | 14 | YES | YES | YES |  |
-| `$prefixedTypeName` | 12 | YES | YES | YES |  |
-| `$join_text` | 13 | YES | YES | YES | bsucc |
-| `$resolve_constraint` | 9 | YES | YES | YES |  |
-| `$callableId_of_externMethodPrototypeIR` | 15 | YES | YES | YES |  |
-| `$flatten_nameList` | 13 | YES | YES | YES |  |
-| `$flatten_typeParameterList` | 13 | YES | YES | YES |  |
-| `$assignop_as_binop` | 13 | YES | YES | YES |  |
-| `$flatten_typeParameterListOpt` | 15 | YES | YES | YES |  |
-| `$is_tableDefaultActionProperty` | 16 | YES | YES | YES |  |
-| `$prefixedNonTypeName` | 19 | YES | YES | YES |  |
-| `$optional_annotation_of_parameterIR_prime_prime` | 20 | YES | YES | YES |  |
-| `$lvalue_as_expression` | 22 | YES | YES | YES |  |
-| `$starts_with` | 50 | YES | YES | YES | bsucc bpred bcompare |
-| `$strip_prefix_rec` | 53 | YES | YES | YES | bsucc bpred bcompare |
-| `$isValid_header` | 80 | YES | YES | YES |  |
-| `$ends_with` | 88 | YES | YES | YES | bsub bsucc bpred bcompare |
-| `$strip_suffix_rec` | 91 | YES | YES | YES | bsub bsucc bpred bcompare |
-| `$invalidate_headerUnion` | 87 | YES | YES | YES |  |
-| `$invalidate_value` | 87 | YES | YES | YES |  |
-| `$write_bits_from_value` | 103 | TIMEOUT | - | YES |  |
-| `$bin_mod` | 109 | YES | YES | YES | bsub bmod negate-int |
-| `$bin_div` | 113 | YES | YES | YES | bsub bdiv negate-int |
-| `$un_bnot` | 139 | YES | YES | YES | badd bmul bsub bpow-nat bneg negate-int |
-| `$bin_ge` | 183 | YES | YES | YES | badd bmul bsub bdiv negate-int |
-| `$bin_le` | 183 | YES | YES | YES | badd bmul bsub bdiv negate-int |
-| `$bin_gt` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |
-| `$bin_lt` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |
-| `$int_of_integerValue` | 184 | YES | YES | YES | badd bmul bsub bdiv negate-int |
-| `$nat_of_integerValue` | 187 | YES | YES | YES | badd bmul bsub bdiv negate-int nat-of-int |
-| `$bin_minus` | 193 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int |
-| `$bin_mul` | 193 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int |
-| `$bin_plus` | 193 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int |
-| `$un_minus` | 197 | YES | YES | YES | badd bmul bsub bdiv bmod bpow-nat negate-int |
-| `$bin_bxor` | 199 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int bxor |
-| `$bin_concat` | 200 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod negate-int |
-| `$set_priorities_of_tableEntryListIR_prime` | 200 | YES | YES | YES | badd bmul bsub bdiv negate-int nat-of-int |
-| `$bin_satminus` | 201 | YES | YES | YES | badd bmul bsub bdiv bmod bpow-nat negate-int |
-| `$bin_satplus` | 201 | YES | YES | YES | badd bmul bsub bdiv bmod bpow-nat negate-int |
-| `$bin_shl` | 201 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod negate-int |
-| `$bin_band` | 202 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int band |
-| `$bin_bor` | 202 | YES | YES | YES | badd bmul bsub bdiv bmod negate-int bor |
-| `$name_annotationToken` | 209 | YES | YES | YES | bsub bdiv bmod |
-| `$un_op` | 209 | YES | YES | YES | badd bmul bsub bdiv bmod bpow-nat bneg negate-int |
-| `$bin_shr` | 215 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod bpow-nat negate-int |
-| `$set_priorities_of_tableEntryListIR` | 226 | YES | YES | YES | badd bmul bsub bdiv negate-int nat-of-int |
-| `$name_annotation_opt` | 256 | YES | YES | YES | bsub bdiv bmod |
-| `$write_value_field_from_bits_prime` | 271 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
-| `$write_value_fields_from_bits_prime` | 271 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
-| `$write_value_from_bits_prime` | 271 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
-| `$write_values_from_bits_prime` | 271 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
-| `$write_value_from_bits` | 274 | MAYBE | YES | YES | badd bmul bsub bmod negate-int |
-| `$bitacc_range_op` | 283 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod negate-int nat-of-int band |
-| `$bitacc_offset_op` | 285 | TIMEOUT | - | YES | badd bmul bsub bdiv bmod negate-int nat-of-int band |
-| `$bitacc_range_replace_op` | 391 | TIMEOUT | - | YES | badd bmul bsub bdiv negate-int |
-| `$bitacc_offset_replace_op` | 394 | TIMEOUT | - | YES | badd bmul bsub bdiv negate-int nat-of-int |
+| symbol | rules | CRC | ChC | term |
+|---|---|---|---|---|
+| `$annotationList_of_parameterIR` | 1 | YES | YES | YES |
+| `$ctk_of_typedExpressionIR` | 1 | YES | YES | YES |
+| `$empty_map` | 1 | YES | YES | YES |
+| `$empty_set` | 1 | YES | YES | YES |
+| `$empty_tableContext` | 1 | YES | YES | YES |
+| `$id_of_parameterIR` | 1 | YES | YES | YES |
+| `$invalidate_header` | 1 | YES | YES | YES |
+| `$parameterListIR_of_actionDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_actionTypeDefIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_constructorTypeDefIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_controlApplyMethodDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_controlApplyMethodTypeIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_definedFunctionDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_definedFunctionTypeDefIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_externFunctionDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_externFunctionTypeDefIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_parserApplyMethodDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_parserApplyMethodTypeIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_tableApplyMethodDef` | 1 | YES | YES | YES |
+| `$parameterListIR_of_tableApplyMethodTypeDefIR` | 1 | YES | YES | YES |
+| `$tableEntryPriorityOptIR_of_tableEntryIR` | 1 | YES | YES | YES |
+| `$type_of_typedExpressionIR` | 1 | YES | YES | YES |
+| `$type_of_typedLvalueIR` | 1 | YES | YES | YES |
+| `$parameterListIR_of_externMethodDef` | 1 | YES | YES | YES |
+| `$set_priority_of_tableEntryIR` | 1 | YES | YES | YES |
+| `$empty_callableDefEnv` | 2 | YES | YES | YES |
+| `$empty_callableTypeDefEnv` | 2 | YES | YES | YES |
+| `$empty_constructorDefEnv` | 2 | YES | YES | YES |
+| `$empty_constructorTypeDefEnv` | 2 | YES | YES | YES |
+| `$empty_frame` | 2 | YES | YES | YES |
+| `$empty_stateEnv` | 2 | YES | YES | YES |
+| `$empty_store` | 2 | YES | YES | YES |
+| `$empty_theta` | 2 | YES | YES | YES |
+| `$empty_typeDefEnv` | 2 | YES | YES | YES |
+| `$empty_typeFrame` | 2 | YES | YES | YES |
+| `$flatten_constOpt` | 2 | YES | YES | YES |
+| `$ite` | 2 | YES | YES | YES |
+| `$flatten_objectInitializerOptIR` | 2 | YES | YES | YES |
+| `$is_some` | 2 | YES | YES | YES |
+| `$opt_as_seq` | 2 | YES | YES | YES |
+| `$parameterListIR_of_externMethodTypeDefIR` | 2 | YES | YES | YES |
+| `$type_of_externMethodPrototypeIR` | 2 | YES | YES | YES |
+| `$callable_builtinMethod` | 3 | YES | YES | YES |
+| `$constructorTypeDef_of_externConstructorPrototypeIR` | 3 | YES | YES | YES |
+| `$constructor_of_externConstructorPrototypeIR` | 3 | YES | YES | YES |
+| `$empty_constraint` | 3 | YES | YES | YES |
+| `$instantiable_extern` | 3 | YES | YES | YES |
+| `$is_lpm_key_prime` | 3 | YES | YES | YES |
+| `$un_lnot` | 3 | YES | YES | YES |
+| `$join_tableEntryState` | 3 | YES | YES | YES |
+| `$filter` | 3 | YES | YES | YES |
+| `$is_concrete_extern_object_prime_prime` | 4 | YES | YES | YES |
+| `$is_default_parameterIR` | 4 | YES | YES | YES |
+| `$is_lpm_key` | 4 | YES | YES | YES |
+| `$concat_text` | 4 | YES | YES | YES |
+| `$exists` | 4 | YES | YES | YES |
+| `$flatten_blockElementStatementList` | 4 | YES | YES | YES |
+| `$flatten_controlLocalDeclarationList` | 4 | YES | YES | YES |
+| `$flatten_externConstructorOrMethodPrototypeList` | 4 | YES | YES | YES |
+| `$flatten_objectDeclarationList` | 4 | YES | YES | YES |
+| `$flatten_parserLocalDeclarationList` | 4 | YES | YES | YES |
+| `$flatten_parserStatementList` | 4 | YES | YES | YES |
+| `$flatten_selectCaseList` | 4 | YES | YES | YES |
+| `$flatten_switchCaseList` | 4 | YES | YES | YES |
+| `$flatten_tableActionList` | 4 | YES | YES | YES |
+| `$flatten_tableEntryList` | 4 | YES | YES | YES |
+| `$flatten_tableKeyList` | 4 | YES | YES | YES |
+| `$flatten_tablePropertyList` | 4 | YES | YES | YES |
+| `$flatten_typeFieldList` | 4 | YES | YES | YES |
+| `$forall` | 4 | YES | YES | YES |
+| `$join_flow` | 4 | YES | YES | YES |
+| `$flatten_prefixedNameIR` | 4 | YES | YES | YES |
+| `$add_action_tbl` | 5 | YES | YES | YES |
+| `$add_key_tbl` | 5 | YES | YES | YES |
+| `$codom_map` | 5 | YES | YES | YES |
+| `$dom_map` | 5 | YES | YES | YES |
+| `$enter_path_i` | 5 | YES | YES | YES |
+| `$flatten_p4program` | 5 | YES | YES | YES |
+| `$empty_typingContext` | 6 | YES | YES | YES |
+| `$is_tableActionsProperty` | 6 | YES | YES | YES |
+| `$is_tableKeysProperty` | 6 | YES | YES | YES |
+| `$tableCustomName` | 6 | YES | YES | YES |
+| `$enter_i` | 7 | YES | YES | YES |
+| `$enter_t` | 7 | YES | YES | YES |
+| `$exit_i` | 7 | YES | YES | YES |
+| `$exit_t` | 7 | YES | YES | YES |
+| `$requires_priority_prime` | 7 | YES | YES | YES |
+| `$empty_instContext` | 8 | YES | YES | YES |
+| `$requires_priority` | 8 | YES | YES | YES |
+| `$typedLvalueIR_as_typedExpressionIR` | 8 | YES | YES | YES |
+| `$join_ctk` | 9 | YES | YES | YES |
+| `$width_of_integerTypeIR` | 10 | YES | YES | YES |
+| `$inherit_i` | 10 | YES | YES | YES |
+| `$name` | 10 | YES | YES | YES |
+| `$un_plus` | 11 | YES | YES | YES |
+| `$callableId_IR` | 13 | YES | YES | YES |
+| `$objectId_ends_with` | 11 | YES | YES | YES |
+| `$callableId_of_externConstructorPrototypeIR` | 14 | YES | YES | YES |
+| `$prefixedTypeName` | 12 | YES | YES | YES |
+| `$join_text` | 13 | YES | YES | YES |
+| `$resolve_constraint` | 9 | YES | YES | YES |
+| `$callableId_of_externMethodPrototypeIR` | 15 | YES | YES | YES |
+| `$flatten_nameList` | 13 | YES | YES | YES |
+| `$flatten_typeParameterList` | 13 | YES | YES | YES |
+| `$assignop_as_binop` | 13 | YES | YES | YES |
+| `$flatten_typeParameterListOpt` | 15 | YES | YES | YES |
+| `$is_tableDefaultActionProperty` | 16 | YES | YES | YES |
+| `$prefixedNonTypeName` | 19 | YES | YES | YES |
+| `$optional_annotation_of_parameterIR_prime_prime` | 20 | YES | YES | YES |
+| `$lvalue_as_expression` | 22 | YES | YES | YES |
+| `$starts_with` | 50 | YES | YES | YES |
+| `$strip_prefix_rec` | 53 | YES | YES | YES |
+| `$isValid_header` | 80 | YES | YES | YES |
+| `$ends_with` | 88 | YES | YES | YES |
+| `$strip_suffix_rec` | 91 | YES | YES | YES |
+| `$invalidate_headerUnion` | 87 | YES | YES | YES |
+| `$invalidate_value` | 87 | YES | YES | YES |
+| `$write_bits_from_value` | 103 | TIMEOUT | - | YES |
+| `$bin_mod` | 109 | YES | YES | YES |
+| `$bin_div` | 113 | YES | YES | YES |
+| `$un_bnot` | 139 | YES | YES | YES |
+| `$bin_ge` | 183 | YES | YES | YES |
+| `$bin_le` | 183 | YES | YES | YES |
+| `$bin_gt` | 184 | YES | YES | YES |
+| `$bin_lt` | 184 | YES | YES | YES |
+| `$int_of_integerValue` | 184 | YES | YES | YES |
+| `$nat_of_integerValue` | 187 | YES | YES | YES |
+| `$bin_minus` | 193 | YES | YES | YES |
+| `$bin_mul` | 193 | YES | YES | YES |
+| `$bin_plus` | 193 | YES | YES | YES |
+| `$un_minus` | 197 | YES | YES | YES |
+| `$bin_bxor` | 199 | YES | YES | YES |
+| `$bin_concat` | 200 | YES* | - | YES |
+| `$set_priorities_of_tableEntryListIR_prime` | 200 | YES | YES | YES |
+| `$bin_satminus` | 201 | YES | YES | YES |
+| `$bin_satplus` | 201 | YES | YES | YES |
+| `$bin_shl` | 201 | TIMEOUT | - | YES |
+| `$bin_band` | 202 | YES | YES | YES |
+| `$bin_bor` | 202 | YES | YES | YES |
+| `$name_annotationToken` | 209 | YES | YES | YES |
+| `$un_op` | 209 | YES | YES | YES |
+| `$bin_shr` | 215 | TIMEOUT | - | YES |
+| `$set_priorities_of_tableEntryListIR` | 226 | YES | YES | YES |
+| `$name_annotation_opt` | 256 | YES | YES | YES |
+| `$write_value_field_from_bits_prime` | 271 | YES* | YES | YES |
+| `$write_value_fields_from_bits_prime` | 271 | YES* | YES | YES |
+| `$write_value_from_bits_prime` | 271 | YES* | YES | YES |
+| `$write_values_from_bits_prime` | 271 | YES* | YES | YES |
+| `$write_value_from_bits` | 274 | YES* | YES | YES |
+| `$bitacc_range_op` | 283 | TIMEOUT | - | YES |
+| `$bitacc_offset_op` | 285 | TIMEOUT | - | YES |
+| `$bitacc_range_replace_op` | 391 | TIMEOUT | - | YES |
+| `$bitacc_offset_replace_op` | 394 | TIMEOUT | - | YES |
 
 ## 2. >500 슬라이스 (bigsweep · term = 모듈러 B · 27/127 확정)
 
