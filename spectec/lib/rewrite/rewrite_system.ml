@@ -261,7 +261,7 @@ let rec is_ctor_pattern (is_defined : string -> bool) = function
    threading (run before this) binds a [tuple(out, state)], not a bare [Var], so a
    threaded binder is skipped. Analysis-surface only: {!To_maude} keeps the [:=]
    matching condition its stuck-head guard relies on. *)
-let fold_premise_binders (t : t) : t =
+let fold_premise_binders ?(aggressive = false) (t : t) : t =
   let defined = Hashtbl.create 512 in
   List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
   let is_defined h = Hashtbl.mem defined h in
@@ -280,7 +280,16 @@ let fold_premise_binders (t : t) : t =
                 (fun n (l, r) -> n + count_var v l + count_var v r)
                 0 others
           in
-          if uses >= 1 && (is_alias || uses = 1) then Some (v, prod) else None
+          (* [aggressive] (CRC-only) drops the [uses = 1] cap: a
+             deterministic producer may be duplicated because the CRC
+             neither executes nor terminates the rules, only computes
+             critical pairs -- and inlining a single-var binder removes
+             the determinacy critical pair the [prod = v] condition
+             would otherwise raise. Still meaning-preserving (an
+             equivalence), unlike an unraveling. *)
+          if uses >= 1 && (aggressive || is_alias || uses = 1) then
+            Some (v, prod)
+          else None
       in
       (* fold: [v] a head variable destructured against a constructor pattern.
          Only a PURE accessor -- [v] used in no other condition -- is folded:
@@ -433,6 +442,170 @@ let order_conds (t : t) : t =
   let rules = List.map order_rule t.rules in
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
   { rules; vars }
+
+(* CRC-only normalization: an aggressive single-variable inline (the
+   [uses = 1] cap dropped) followed by a re-order. A condition
+   [$f(A) = v] binding a single variable makes the Church-Rosser checker
+   raise a determinacy critical pair ([$f] is a function, but the CRC
+   does not know that); inlining [v := $f(A)] removes the condition and
+   the pair. Inlining is an equivalence (meaning-preserving), so a
+   verdict on the normalized system transfers to the original -- unlike
+   an unraveling, which only REFLECTS confluence. Opt-in via
+   [--crc-normalize]; NOT part of the shared [ctrs_of_spec] surface, and
+   never seen by execution/termination/ChC. Tuple-pattern binders
+   ([$f(A) = tuple(v, b)]) are handled by the [crc_unravel] pass below
+   (reflect-only, so used UPGRADE-ONLY -- see there). *)
+(* Unravel every remaining binding condition [s = t] (t a non-variable pattern
+   introducing fresh variables -- [fold ~aggressive] above has already inlined
+   the single-variable ones) into a fresh [crcu]/[crck] chain, moving the
+   binding into a left-hand-side pattern. This removes the determinacy critical
+   pair a [tuple(v, b) := $f(A)] condition raises, at the cost of possibly
+   INTRODUCING sibling-overlap pairs: unraveling REFLECTS but does NOT PRESERVE
+   confluence (Marchiori 1996; Nishida-Sakai-Sakabe LMCS 2012). So the result is
+   used UPGRADE-ONLY -- a YES on the unraveled module proves the original
+   confluent (soundness holds for these left-linear structural rules); a MAYBE
+   is inconclusive and falls back to the original verdict.
+
+   Siblings sharing a head are kept from colliding by SHARING a [crcu]: the chain
+   operator is keyed by (current chain lhs, evaluated subject s), so rules that
+   reach the same point with the same subject reuse one entry step and let their
+   guards discriminate afterwards; kept variables ride in a [crck] container.
+   [crcu]/[crck] are declared nowhere -- {!Maude_sorts.signature} gives an
+   unknown symbol the default [Val ... -> Val], exactly what these encode (so
+   To_mfe needs no change and no fresh sort is introduced). [owise] rules are
+   left intact. *)
+let crc_unravel (t : t) : t =
+  let rec key_of = function
+    | Var v -> "#" ^ v
+    | App (f, args) -> f ^ "(" ^ String.concat "," (List.map key_of args) ^ ")"
+  in
+  let seg_vars (guards, s, tp) =
+    List.concat_map (fun (a, b) -> vars_of_term a @ vars_of_term b) guards
+    @ vars_of_term s @ vars_of_term tp
+  in
+  let decompose (r : rule) =
+    let bound = ref (vars_of_term r.lhs) in
+    let segs = ref [] and cur = ref [] in
+    List.iter
+      (fun ((s, tp) as c) ->
+        let fresh =
+          List.filter (fun v -> not (List.mem v !bound)) (vars_of_term tp)
+        in
+        (* Only a constructor/tuple pattern is unraveled: a BARE-VARIABLE
+           binder [s = v] is [fold]'s job (an unused one it leaves behind,
+           [uses = 0], forms only a trivial rhs=rhs self-pair, so keep it as a
+           condition rather than turn it into a spurious [crcu] overlap). *)
+        match tp with
+        | App _ when fresh <> [] ->
+            segs := (List.rev !cur, s, tp) :: !segs;
+            cur := [];
+            bound := !bound @ fresh
+        | _ ->
+            cur := c :: !cur;
+            bound := !bound @ fresh)
+      r.conds;
+    (List.rev !segs, List.rev !cur)
+  in
+  let decomp = List.map (fun r -> (r, decompose r)) t.rules in
+  let plain =
+    List.filter_map
+      (fun (r, (segs, _)) -> if segs = [] || r.owise then Some r else None)
+      decomp
+  in
+  let work =
+    List.filter_map
+      (fun (r, (segs, tail)) ->
+        if segs = [] || r.owise then None
+        else Some (ref r.lhs, ref (vars_of_term r.lhs), segs, tail, r.rhs))
+      decomp
+  in
+  if work = [] then t
+  else
+    let ids = Hashtbl.create 64 and next = ref 0 in
+    let id_of key =
+      match Hashtbl.find_opt ids key with
+      | Some i -> i
+      | None ->
+          let i = !next in
+          incr next;
+          Hashtbl.replace ids key i;
+          i
+    in
+    let emitted = ref [] in
+    let emit r = if not (List.mem r !emitted) then emitted := r :: !emitted in
+    let maxlvl =
+      List.fold_left
+        (fun m (_, _, segs, _, _) -> max m (List.length segs))
+        0 work
+    in
+    for lvl = 0 to maxlvl - 1 do
+      let groups = Hashtbl.create 16 and order = ref [] in
+      List.iter
+        (fun (chain, bnd, segs, tail, rhs) ->
+          if lvl < List.length segs then (
+            let guards, s, tp = List.nth segs lvl in
+            let later =
+              List.rev
+                (snd
+                   (List.fold_left
+                      (fun (i, acc) x ->
+                        (i + 1, if i > lvl then x :: acc else acc))
+                      (0, []) segs))
+            in
+            let rest =
+              List.concat_map seg_vars later
+              @ vars_of_term rhs
+              @ List.concat_map
+                  (fun (a, b) -> vars_of_term a @ vars_of_term b)
+                  tail
+            in
+            let carried = List.filter (fun v -> List.mem v rest) !bnd in
+            let key = key_of !chain ^ "|" ^ key_of s in
+            let cref, mref =
+              match Hashtbl.find_opt groups key with
+              | Some x -> x
+              | None ->
+                  let x = (ref [], ref []) in
+                  Hashtbl.replace groups key x;
+                  order := key :: !order;
+                  x
+            in
+            cref :=
+              !cref @ List.filter (fun v -> not (List.mem v !cref)) carried;
+            mref := !mref @ [ (chain, bnd, guards, s, tp) ]))
+        work;
+      List.iter
+        (fun key ->
+          let cref, mref = Hashtbl.find groups key in
+          let id = id_of key in
+          let u = Printf.sprintf "crcu%d" id
+          and kp = Printf.sprintf "crck%d" id in
+          let keep = App (kp, List.map (fun v -> Var v) !cref) in
+          List.iter
+            (fun (chain, bnd, guards, s, tp) ->
+              emit
+                {
+                  lhs = !chain;
+                  rhs = App (u, [ s; keep ]);
+                  conds = guards;
+                  owise = false;
+                };
+              chain := App (u, [ tp; keep ]);
+              bnd :=
+                !bnd
+                @ List.filter (fun v -> not (List.mem v !bnd)) (vars_of_term tp))
+            !mref)
+        (List.rev !order)
+    done;
+    List.iter
+      (fun (chain, _, _, tail, rhs) ->
+        emit { lhs = !chain; rhs; conds = tail; owise = false })
+      work;
+    let rules = plain @ List.rev !emitted in
+    { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+
+let crc_normalize (t : t) : t =
+  t |> fold_premise_binders ~aggressive:true |> crc_unravel |> order_conds
 
 (* Analysis-surface only: drop the [owise] equations before the CRC. An [owise]
    rule fires only where no sibling rule of the same operator matched, so every

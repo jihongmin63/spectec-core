@@ -201,6 +201,13 @@ let rewrite_command =
         " with --ctrs, over-approximate for the SCC: drop rule conditions and \
          linearize non-left-linear lhs (counterexamples stay sound; a \
          'complete' verdict for a transformed symbol proves nothing)"
+  and crc_normalize =
+    flag "--crc-normalize" no_arg
+      ~doc:
+        " with --ctrs, aggressively inline single-variable binders (dropping \
+         the fold's use-once cap) so the CRC raises no determinacy critical \
+         pair for them; meaning-preserving, analysis-only (leaves tuple \
+         binders untouched)"
   and wide_predicates =
     flag "--wide-predicate-domains" no_arg
       ~doc:
@@ -241,6 +248,7 @@ let rewrite_command =
         let sys' =
           if unconditional then
             Rewrite.Rewrite_system.(linearize_lhs (drop_conds sys))
+          else if crc_normalize then Rewrite.Rewrite_system.crc_normalize sys
           else sys
         in
         let fidelity = if sys' = sys then "exact" else "approx" in

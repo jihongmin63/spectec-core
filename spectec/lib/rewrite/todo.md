@@ -2082,3 +2082,30 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
          owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
          해소(둘 다 YES), $join_flow 회귀 없음, 2026-07-16 상세는 위 M1 블록)
 ```
+
+## CRC 정규화 패스 (2026-07-21): inline + unravel + prune, unravel은 reflect-only/upgrade-only
+
+CRC MAYBE의 원인 = **determinacy critical pair**: 조건 `$f(A)=v`를 CRC가 fresh-변수
+joinability로 인코딩하나 `$f`의 결정성을 몰라 self-overlap `#v#=v`를 못 닫는다. 세 레버:
+
+1. **inline** (`fold_premise_binders ~aggressive:true`, [rewrite_system.ml] Pass 1 — done):
+   single-var binder `$f(A)=v`를 use-count 무관 인라인. **등식(equivalence)** — preserve와
+   reflect 양방향, 안전. `--crc-normalize` 플래그. e2e 검증: bin_concat TIMEOUT→YES,
+   write_value MAYBE(5쌍, tuple binder 잔존).
+2. **unravel** (tuple binder `$f(A)=tuple(v,b)`를 U-체인으로): **confluence-reflecting,
+   NOT preserving** (Marchiori 1996; Nishida-Sakai-Sakabe LMCS 2012; Gmeiner-Gramlich-
+   Schernhammer RTA 2010). 즉 `R` confl ⇏ `U(R)` confl (join_text에서 YES→MAYBE 실측:
+   형제 U-entry의 infeasible 임계쌍), 하지만 soundness(좌선형 등) 하에 `U(R)` confl ⇒
+   `R` confl. **그래서 upgrade-only로만 사용**: `U(R)`이 YES면 `R`을 YES로 승격,
+   `U(R)`이 MAYBE/TIMEOUT이면 **원본 verdict 유지**(절대 하향 안 함). 형제 충돌을 줄이려
+   **생성자-disjoint entry**에 우선 적용.
+3. **prune** (`prune_slice_signature.py full`): 안 쓰는 시그니처 제거, tractability 회수.
+   rules 불변이라 CRC 결론 보존. 기존 Python 후처리 유지(OCaml 재구현 불필요).
+
+**건전성 방향 요약**: inline은 등식이라 blanket 가능; unravel은 reflect-only라 upgrade-only
+필수. termination은 unravel이 깔끔히 transfer되지만(우리 MTT가 그 용도), confluence는
+reflection만 성립 — 그래서 CRC에서 신중.
+
+**구현 상태**: Pass 1(inline) done·검증. unravel = Rewrite_system 패스로 구현 중
+(crcu/crck는 `MS.signature` 미지-심볼 fallback으로 `Val→Val` 자동 방출 → To_mfe 무수정,
+CrcKeep 대신 Val). prune은 기존 Python. sweep이 upgrade-only 채택 로직 담당.
