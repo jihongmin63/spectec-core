@@ -355,16 +355,23 @@ Three levers, of different strength — this is the crux:
 Measured (real-sort binary, `prune` companion, serial Maude): the five
 `$write_value*` MAYBEs close to YES; `$bin_concat` TIMEOUT→YES (inline+prune, no
 chain); `$set_priorities` YES 78 s (all-`Val` TIMEOUTs). `$bin_shl`/`$bin_shr`
-stay TIMEOUT (critical-pair blowup the pruning can't tame). One instructive
-regression: `$join_text` goes YES→MAYBE under normalization — the unravel leaves
-an **infeasible** sibling-chain pair
-`crcu1(#2,crck1(#1,t-sep)) = crcu0(cons(#1,#2),crck0) if len(cons(#1,#2))=bone /\ match-cons(#2)=true`
-(length 1 forces `#2 = nil`, yet `match-cons(#2)=true` needs a cons — a
-contradiction the CRC cannot discharge). It is not a sort problem (the overlap is
-structural, list ↔ cons), so real-sort leaves it, and it is harmless because
-upgrade-only never normalizes an already-YES symbol. It is the textbook case of
-unraveling reflecting but not preserving confluence. Fuller writeup and the
-sweep protocol live in [todo.md](spectec/lib/rewrite/todo.md) (2026-07-21).
+stay TIMEOUT (critical-pair blowup the pruning can't tame).
+
+`$join_text` first regressed YES→MAYBE under normalization — a lesson in *what*
+to unravel. `crc_unravel` was unraveling every constructor-pattern binder, but a
+determinacy critical pair only arises when the binder's SUBJECT is a
+defined-function call; a value destructure `text = cons(t-h2, t-t)` (subject a
+bound variable) has none, and `Reflect.hoist_matchers` respells `match_K(v)=true`
+into exactly that destructure so the CRC can see through it. Unraveling it split
+the destructure into a `crcu` consumer, leaving only the opaque
+`match-cons(text)=true` at the sibling overlap, so the CRC could no longer pair it
+against the base clause's `len=bone` (⟹ `text=nil`) to see the contradiction.
+Gating the unravel on a defined-function subject (`1dd1e43a`) restores
+`$join_text` to YES (0 pairs, 6 s) and leaves the `$write_value*`/`$set_priorities`
+chains (function-call subjects) untouched. Unraveling still only *reflects*
+confluence in theory, so the sweep stays upgrade-only as a safety net. Fuller
+writeup and the sweep protocol live in [todo.md](spectec/lib/rewrite/todo.md)
+(2026-07-21).
 
 ## Reading CRC / termination verdicts (MAYBE/TIMEOUT triage)
 

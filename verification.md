@@ -84,8 +84,10 @@ baseline CRC(위 `2f9f8cba` 열)의 MAYBE 5(전부 `$write_value*`)를 분석-�
   `$write_values_from_bits_prime`(139s) — 표의 MAYBE 5와 정확히 일치.
 - **회귀**: `$un_op`·`$bin_bor` YES 유지(inline-only, crcu 없어 byte-identical).
   `$set_priorities_of_tableEntryListIR` real-sort로 YES 0쌍 78s(all-Val이면 TIMEOUT).
-  `$join_text`만 정규화 시 YES→MAYBE(unravel이 남기는 infeasible 임계쌍, 원래 YES라
-  upgrade-only로 무해).
+  `$join_text`는 초기엔 정규화 시 YES→MAYBE였으나, 이는 `crc_unravel`이 값-destructure
+  (`text = cons(..)`, subject가 변수)를 불필요하게 unravel해 hoist_matchers가 만든
+  CRC-friendly 형태를 깬 **over-unravel**이었다. subject가 정의 함수일 때만 unravel하도록
+  게이트(`1dd1e43a`)해 **YES 0쌍 6s**로 교정.
 - **TIMEOUT 회수**: `$bin_concat` inline+prune으로 TIMEOUT→YES 259s. `$bin_shl`/`$bin_shr` 잔존.
 
 세 레버(inline=등식·blanket / unravel=reflect-only·upgrade-only / real-sort=건전한 narrowing)·

@@ -2094,8 +2094,10 @@ joinability로 인코딩하나 `$f`의 결정성을 몰라 self-overlap `#v#=v`�
    write_value MAYBE(5쌍, tuple binder 잔존).
 2. **unravel** (tuple binder `$f(A)=tuple(v,b)`를 U-체인으로): **confluence-reflecting,
    NOT preserving** (Marchiori 1996; Nishida-Sakai-Sakabe LMCS 2012; Gmeiner-Gramlich-
-   Schernhammer RTA 2010). 즉 `R` confl ⇏ `U(R)` confl (join_text에서 YES→MAYBE 실측:
-   형제 U-entry의 infeasible 임계쌍), 하지만 soundness(좌선형 등) 하에 `U(R)` confl ⇒
+   Schernhammer RTA 2010). 즉 `R` confl ⇏ `U(R)` confl (초기 join_text에서 YES→MAYBE로
+   관측됐으나, 이는 값-destructure over-unravel이었고 subject 게이트 `1dd1e43a`로 교정 —
+   아래 "over-unravel 교정" 참조; 이론상 non-preservation은 여전히 가능), 하지만
+   soundness(좌선형 등) 하에 `U(R)` confl ⇒
    `R` confl. **그래서 upgrade-only로만 사용**: `U(R)`이 YES면 `R`을 YES로 승격,
    `U(R)`이 MAYBE/TIMEOUT이면 **원본 verdict 유지**(절대 하향 안 함). 형제 충돌을 줄이려
    **생성자-disjoint entry**에 우선 적용.
@@ -2121,6 +2123,17 @@ hint/arg-sort 유효)에서 타입되고, 다단계 체인은 id 오름차순(=�
 완전 inert(byte-identical). 이 narrowing은 나머지 order-sorted 인코딩과 동일하게 건전 —
 carried 변수가 binding-site의 실제 sort를 유지하므로 real 임계쌍 보존, spurious만 제거.
 
-**결과**: 5 write_value MAYBE→YES, bin_concat TIMEOUT→YES. 회귀: bin_bor/un_op YES 유지,
-join_text YES→MAYBE(unravel reflect-only, upgrade-only로 무해). set_priorities: all-Val
-TIMEOUT → **real-sort YES 0쌍 78s**(Python 프로토타입 동일 시간). sweep이 upgrade-only 채택 담당.
+**결과**: 5 write_value MAYBE→YES, bin_concat TIMEOUT→YES. 회귀: bin_bor/un_op YES 유지.
+set_priorities: all-Val TIMEOUT → **real-sort YES 0쌍 78s**(Python 프로토타입 동일 시간).
+sweep이 upgrade-only 채택 담당.
+
+**over-unravel 교정 (new-rewrite `1dd1e43a`)**: `crc_unravel`이 조건 `s = tp`의 **패턴 `tp`만**
+보고 unravel해서, subject `s`가 **변수**인 값-destructure(`text = cons(..)`)까지 풀었다. 그런데
+determinacy CCP는 subject가 **함수 호출**일 때만 생긴다 — 변수-destructure는 CRC가 통일로 잘
+처리하고, `Reflect.hoist_matchers`가 `match_K(v)=true`를 바로 그 destructure로 respell하는 이유가
+그것이다(CRC가 볼 수 있게). 값-destructure를 unravel하면 destructure가 crcu consumer로 떨어져
+나가고 형제 overlap엔 opaque `match-cons`만 남아, CRC가 base 절의 `len=bone`(⟹ nil)과 못 엮어
+모순을 못 본다 — 이게 join_text YES→MAYBE의 진짜 원인이었다(reflect-only의 예가 아니라 고칠 수
+있는 버그). `decompose`를 **subject가 정의 함수일 때만** unravel하도록 게이트: join_text **YES
+0쌍 6s** 회복, write_value(5)/set_priorities(함수-subject) 무영향. unravel은 이론상 여전히
+reflect-only라 upgrade-only는 안전망으로 유지.
