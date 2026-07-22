@@ -60,9 +60,14 @@ let print_rule vs (r : R.rule) : string =
    it as a term. [false] emits it as a plain STOCK-Maude module ([mod ... endm
    .]) instead, for {!Maude_run.run_direct}/[run_batch_direct]'s direct
    (non-reflective) execution path, which runs a bare [maude] binary with
-   nothing loaded -- Full Maude's parenthesized form is not valid input there. *)
+   nothing loaded -- Full Maude's parenthesized form is not valid input there.
+   [prune_signature] is documented in to_mfe.mli (the slice-signature
+   prune). *)
 let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
-    ?(predicates = MS.Narrow) ?sig_rules (orig : spec) (sys : R.t) : string =
+    ?(prune_signature = false) ?(predicates = MS.Narrow) ?sig_rules
+    (orig : spec) (sys : R.t) : string =
+  if prune_signature && not full_maude then
+    invalid_arg "To_mfe.module_of_system: prune_signature requires full_maude";
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form. *)
   let orig = Defunctionalize.defunctionalize orig in
@@ -241,6 +246,60 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
       @ edge_sorts)
   in
   let sorts = MS.dedup (MS.val_sort :: mentioned) in
+  (* Per-rule variable sorts, computed once: the rule printer below needs them,
+     and the signature prune needs the sorts the printed annotations name. *)
+  let typed_rules =
+    List.map (fun r -> (r, MS.infer_var_sorts edges sg (hint r) r)) sys.R.rules
+  in
+  let inj_pairs = MS.dedup inj_subsorts in
+  (* [prune_signature]: keep only the ops the rules apply, the sorts those ops
+     and the rules' variable annotations name, and every sort on a subsort path
+     between two kept sorts. The interior of a path must survive (a rule may
+     pass a term to a distant position via a two-step chain; pruning the middle
+     sort leaves the slice ill-sorted, "no parse" -- P4 has 286 such chains),
+     but the closure must not follow the [< Val] edges, or it re-expands to the
+     whole lattice ([Val] tops every sort). Rules are untouched, so a checker's
+     verdict is preserved. *)
+  let op_sigs, inj_pairs, sorts =
+    if not prune_signature then (op_sigs, inj_pairs, sorts)
+    else
+      let used_sigs = MS.dedup (List.map (fun (s, n) -> (s, sg s n)) used) in
+      let annot =
+        List.concat_map
+          (fun (r, vs) -> List.map (MS.sort_of_var vs) (R.vars_of_rule r))
+          typed_rules
+      in
+      let needed =
+        MS.dedup
+          (MS.val_sort
+          :: (List.concat_map (fun (_, (args, res)) -> res :: args) used_sigs
+             @ List.filter (fun s -> List.mem s sorts) annot))
+      in
+      let edges = List.filter (fun (_, b) -> b <> MS.val_sort) inj_pairs in
+      let reach step =
+        let seen = Hashtbl.create 64 in
+        let rec go s =
+          if not (Hashtbl.mem seen s) then (
+            Hashtbl.replace seen s ();
+            List.iter go (step s))
+        in
+        List.iter go needed;
+        seen
+      in
+      let above =
+        reach (fun s ->
+            List.filter_map (fun (a, b) -> if a = s then Some b else None) edges)
+      and below =
+        reach (fun s ->
+            List.filter_map (fun (a, b) -> if b = s then Some a else None) edges)
+      in
+      let keep s =
+        List.mem s needed || (Hashtbl.mem above s && Hashtbl.mem below s)
+      in
+      ( used_sigs,
+        List.filter (fun (a, b) -> keep a && keep b) inj_pairs,
+        List.filter keep sorts )
+  in
   (* Execution mode only: the symbols that reduce away, and (for those with a
      known arity from [used]) their [{!To_maude.stuck_head_sym}] equations --
      see the [op_sigs] comment above. *)
@@ -263,7 +322,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
       ("  subsorts " ^ String.concat " " non_val ^ " < " ^ MS.val_sort ^ " .");
   List.iter
     (fun (sub, super) -> buf_line b ("  subsort " ^ sub ^ " < " ^ super ^ " ."))
-    (MS.dedup inj_subsorts);
+    inj_pairs;
   buf_line b "";
   (* Execution mode only: [or]/[and] are printed with only the two
      unconditional short-circuit equations (or(true,y)=true / or(false,y)=y,
@@ -357,8 +416,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
            ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
      done);
   buf_line b "";
-  let emit r =
-    let vs = MS.infer_var_sorts edges sg (hint r) r in
+  let emit (r, vs) =
     let line =
       if full_maude then print_rule vs r
       else
@@ -370,7 +428,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     in
     buf_line b ("  " ^ line)
   in
-  List.iter emit sys.R.rules;
+  List.iter emit typed_rules;
   if (not full_maude) && stuck_arities <> [] then (
     buf_line b "";
     List.iter (buf_line b) (To_maude.stuck_head_eqs stuck_arities));

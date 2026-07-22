@@ -221,6 +221,13 @@ let rewrite_command =
         "DIR with --ctrs, write EVERY symbol's slice to DIR/<symbol>.mod in \
          one translation instead of dumping one to stdout (the whole-spec \
          translation is the per-symbol cost of a sweep: ~50s each on p4)"
+  and prune_signature =
+    flag "--prune-signature" no_arg
+      ~doc:
+        " with --ctrs, declare only the signature the rules use (applied ops, \
+         their and the variable annotations' sorts, subsort-path interiors) \
+         instead of the whole spec's; the rules are untouched, so checker \
+         verdicts are preserved"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -253,7 +260,8 @@ let rewrite_command =
           else sys
         in
         let fidelity = if sys' = sys then "exact" else "approx" in
-        ( Rewrite.To_mfe.module_of_system ~predicates ~sig_rules spec_il sys',
+        ( Rewrite.To_mfe.module_of_system ~prune_signature ~predicates
+            ~sig_rules spec_il sys',
           fidelity )
       in
       match slice_dir with
