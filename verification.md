@@ -3,6 +3,24 @@
 CRC/ChC = Church-Rosser(합류성)/Coherence. 값 = YES / MAYBE / TIMEOUT / `-`(미도달).
 측정 이력·방법·MAYBE/TIMEOUT 해석은 **[verification-notes.md](verification-notes.md)** 참조.
 
+> **재현 커맨드 (2026-07-22 in-binary 통합, tip `57a99547`).** 이 표의 축들은 이제
+> 스크립트·스크래치패드 없이 바이너리 서브커맨드로 전수 재현한다. 세 분석 검사기는
+> 동일한 스윕 표면을 갖는다 — `--symbol NAME`(반복) 또는 `--all`(작은 슬라이스 먼저),
+> `--out sweep.tsv`(이미 기록된 심볼 skip → 재개 가능):
+>
+> - `term` = `main.exe termination --all --out term.tsv <specs>` — 구조 보존 unravel →
+>   AProVE(`lib/rewrite/unravel.ml`+`aprove.ml`). 단일: `termination --symbol NAME`,
+>   TRS만 보려면 `--emit-trs --symbol NAME`.
+> - `CRC`/`ChC` = `main.exe confluence --all --out crc.tsv <specs>`(구 `verify`). 행
+>   `<sym>\t<church-rosser>\t<coherence>`. MAYBE/TIMEOUT은 `--crc-normalize`로 upgrade-only
+>   재검(정규화+prune, YES면 `YES (normalized)`, 하향 없음).
+> - 충분완전성(SCC) = `main.exe scc --all --out scc.tsv <specs>` — CETA Maude 2.7 필요.
+> - 슬라이스 목록/크기 = `main.exe rewrite --list-symbols [--sizes] <specs>`,
+>   분석 모듈 덤프 = `rewrite --ctrs --symbol NAME [--prune-signature]`.
+>
+> 구 셸/파이썬 드라이버(`run-termination.sh`/`run-scc.sh`/`prune_slice_signature.py`
+> 등)는 기능이 전부 위 커맨드로 대체됐다 — 삭제는 아래 TODO(reverify 스윕 종료 게이트).
+
 ## 1. ≤500 종합 (153심볼)
 
 **`term` 열은 2026-07-19에 MTT를 걷어낸 새 방법으로 전수 재측정했다**
@@ -305,6 +323,18 @@ baseline CRC(위 `2f9f8cba` 열)의 MAYBE 5(전부 `$write_value*`)를 분석-�
       완전 포팅: `main.exe termination`(lib/rewrite/unravel.ml + aprove.ml). 10개 다양
       슬라이스에서 sp_unravel.py 출력과 byte-identical, trsA 골든과도 일치 검증.
       MTT 경로(run-termination.sh)는 폴백 없이 폐기(커밋 d3bf2847).
+- [x] **실행 경로 커맨드 통합** (2026-07-22 완료, tip `57a99547`). 검증 실행이 세 분석
+      서브커맨드로 모임 — `confluence`(구 verify)/`termination`/`scc`가 동일 스윕 표면
+      (`--symbol`/`--all`/`--out`), 심볼 리스팅은 `rewrite --list-symbols [--sizes]`,
+      프루닝은 `rewrite --ctrs --prune-signature`, upgrade는 `confluence --crc-normalize`.
+      위 "재현 커맨드" 콜아웃 참조.
+- [ ] **폐기 스크립트 삭제 (reverify 스윕 종료 후).** `run-scc.sh`/`run-scc-sweep.sh`
+      (→ `scc` 서브커맨드), `prune_slice_signature.py`(→ `rewrite --prune-signature`)는
+      기능이 in-binary로 대체됐다. **삭제 2중 게이트**: (1) 지금 도는 reverify phaseB가
+      메인 체크아웃의 `prune_slice_signature.py`를 shell out 하므로 스윕 종료 전 삭제 금지,
+      (2) `scc` 실 verdict는 CETA Maude 2.7 에셋 재확보 후 옛 `run-scc.sh`와 행 diff로
+      동등성 확인한 뒤 삭제(둘 다 CETA 부재로 현재 non-functional이라 급하지 않음; 필요 시
+      git history에서 부활 가능).
 - [ ] **keep-생성자 항 크기 최적화(선택).** 폐지한 모듈러 축에서 구조 보존이 MTT보다
       나빴던 3건(`$write_bits_from_value`, `$set_priorities_of_tableEntryListIR{,_prime}`)의
       원인이 keep-생성자의 인자 복제로 인한 항 크기 증가인지 확인(가설). 맞다면 escape하지

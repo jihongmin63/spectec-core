@@ -72,6 +72,51 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-22 — 【research note】 실행 경로를 in-binary 서브커맨드로 통합 (confluence/termination/scc 계열)
+
+> 스크립트·스크래치패드에 흩어져 있던 검증 실행 경로를 바이너리 서브커맨드로 모았다.
+> new-rewrite `b35215b3` → tip `57a99547`, 커밋 8개(각 단독 빌드 OK, **push 완료 시점은
+> 아래 참조**).
+
+**세 분석 검사기 = 하나의 균일 계열.** 분석 CTRS를 심볼별 슬라이스로 검사하는 셋이 동일한
+스윕 표면을 갖는다: `--symbol NAME`(반복) 또는 `--all`(작은 슬라이스 먼저), `--out
+sweep.tsv`(기록된 심볼 skip → 재개). `rewrite --ctrs`가 검사 대상을 만들고 `rewrite
+--list-symbols [--sizes]`가 슬라이스할 이름을 준다.
+
+- `confluence`(구 `verify`) — CRC+ChC(`Mfe.check`), 행 `<sym>\t<cr>\t<chc>`. 전체-시스템
+  모드 없음(임계쌍 폭발; 규칙 head가 정의마다 달라 `--all` per-symbol이 사실상 동등 sound).
+  `--crc-normalize`는 MAYBE/TIMEOUT만 정규화+prune 재검해 YES면 `YES (normalized)` 승격
+  (upgrade-only, 하향 절대 없음; `Mfe.check_normalize_upgrade`).
+- `termination` — 구조 보존 unravel(`unravel.ml`) → AProVE(`aprove.ml`, tools/aprove/runme).
+  `--emit-trs`/`--budget`. **MTT 완전 대체**(2026-07-19 note 참조).
+- `scc` — over-approx(drop_conds+linearize) → 프루닝된 `(fmod)`(To_mfe `?functional`) →
+  CETA Maude 2.7 + 구 MFE. 행 포맷은 옛 `run-scc.sh`와 byte 호환. CETA 에셋 부재로 실
+  verdict 미측정.
+
+**커밋 8개**: `d3bf2847`(MTT 사장 스크립트 삭제) · `1f9666dd`(Subproc 러너 추출) ·
+`c2d22823`(`rewrite --ctrs --prune-signature`, To_mfe `?prune_signature`) · `e518f5d4`
+(termination) · `b69e4f63`(scc) · `c269d5bd`(confluence `--crc-normalize`, 재시도 prune
+적용) · `4f0bc5a2`(docs) · `57a99547`(reorg: verify→confluence 재명명 + termination/scc와
+동일 스윕 구조, `--list-symbols`/`--sizes`를 rewrite로 이관, `--emit` 미추가=rewrite
+--ctrs --symbol 중복).
+
+**동등성 검증(전부 통과, verification.md 반영)**: (a) 프루닝 vs python `prune_slice_signature.py
+full` — 2354 슬라이스 전수에서 규칙/sort/subsort-edge 완전 동일(op 차이 189건은 python
+프루너의 오버로드-collapse 버그일 뿐, OCaml이 옳음). (b) `termination --emit-trs` vs
+sp_unravel.py — 10심볼 byte-identical + 153/153 HEAD 슬라이스가 측정 골든 TRS와 byte-identical.
+(e) `confluence --crc-normalize` — 정규화 불필요 심볼 plain YES, 승격 심볼 `YES (normalized)`
+(prune 없으면 signature-blowup으로 TIMEOUT 재현 못하던 결함을 재시도 prune으로 수정).
+유닛(test/rewrite) + cram(test/cli/analysis-commands.t: termination/scc emit·guard, prune,
+confluence guard, rewrite --list-symbols/--sizes) 추가.
+
+**⚠️ 폐기 스크립트 삭제는 게이트됨(미완).** `run-scc.sh`/`run-scc-sweep.sh`(→ `scc`),
+`prune_slice_signature.py`(→ `rewrite --prune-signature`)는 대체됐으나 아직 삭제 안 함:
+(1) 지금 도는 **reverify 스윕의 phaseB가 메인 체크아웃의 `prune_slice_signature.py`를 shell
+out** 하므로 스윕 종료 전 삭제 금지(`--mfe-dir /home/spectec-core/...`로 메인 도구 참조 확인),
+(2) `scc` 실 verdict는 CETA Maude 2.7 에셋 재확보 후 옛 `run-scc.sh`와 행 diff로 확인한 뒤
+삭제. 둘 다 CETA 부재로 현재 non-functional이라 급하지 않고, 필요 시 git history에서 부활 가능.
+`check_diff_p4.sh`/`check_diff_structural_p4.sh`(differential)는 스크립트로 **유지**.
+
 ### 2026-07-19 — 【research note】 termination MAYBE의 진짜 원인은 MTT의 unraveling이었다 — 구조 보존 unraveling + AProVE 직접으로 153/153
 
 > 이 항목은 그대로 research note로 옮겨 쓸 수 있게 서술한다. 아래 2026-07-17 항목이
