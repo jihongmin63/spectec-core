@@ -180,8 +180,8 @@ let rewrite_command =
   and ctrs =
     flag "--ctrs" no_arg
       ~doc:
-        " dump the analysis CTRS (single-sort Full Maude system, what verify \
-         checks) instead of the executable module"
+        " dump the analysis CTRS (single-sort Full Maude system, what \
+         confluence checks) instead of the executable module"
   and simplified =
     flag "--simplified" no_arg
       ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
@@ -189,7 +189,7 @@ let rewrite_command =
     flag "--symbol" (optional string)
       ~doc:
         "NAME with --ctrs, dump only this function/relation's dependency slice \
-         (the unit verify checks per-symbol)"
+         (the unit confluence checks per-symbol)"
   and relations_as_rules =
     flag "--relations-as-rules" no_arg
       ~doc:
@@ -228,6 +228,16 @@ let rewrite_command =
          their and the variable annotations' sorts, subsort-path interiors) \
          instead of the whole spec's; the rules are untouched, so checker \
          verdicts are preserved"
+  and list_symbols =
+    flag "--list-symbols" no_arg
+      ~doc:
+        " list the sliceable function/relation symbols (the names --symbol and \
+         the confluence/termination/scc checkers take) and exit"
+  and sizes =
+    flag "--sizes" no_arg
+      ~doc:
+        " with --list-symbols, also print each symbol's slice rule count \
+         (ascending) -- the cheap CRC tractability proxy"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -238,7 +248,27 @@ let rewrite_command =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
-    if simplified then
+    if list_symbols then
+      let syms = Rewrite.def_symbols spec_il in
+      if not sizes then Ok (String.concat "\n" syms)
+      else
+        (* Slice rule counts in one elaboration -- the cheap proxy for which
+           symbols' analysis is tractable (a small closure) vs which pull in the
+           whole system (the typing relations -> critical-pair blowup). *)
+        let system = Rewrite.rewrite_spec spec_il in
+        let rows =
+          List.map
+            (fun s ->
+              ( List.length
+                  (Rewrite.Rewrite_system.slice system ~roots:[ s ]).rules,
+                s ))
+            syms
+        in
+        let rows = List.sort compare rows in
+        Ok
+          (String.concat "\n"
+             (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows))
+    else if simplified then
       Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
@@ -297,35 +327,94 @@ let rewrite_command =
       Ok
         (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
 
-(* Confluence (Church-Rosser) and coherence of the spec's rewriting system via
-   the Maude Formal Environment. [Rewrite.rewrite_spec] builds the structural
-   CTRS, [--symbol] optionally slices it to one definition's dependency closure,
-   and [Rewrite.Mfe.check] runs the CRC and ChC in one Maude invocation; the
-   module is purely equational (every SpecTecx relation is input-moded). *)
-let verify_command =
+(* The per-symbol sweep plumbing [confluence], [termination] and [scc] share:
+   the requested slice roots (an explicit --symbol list, or --all ordered
+   smallest slice first, so a sweep front-loads the tractable results), and the
+   resumable --out protocol (append a TSV row per symbol; skip the symbols an
+   existing file already records -- how the retired shell sweeps survived
+   restarts). *)
+let sweep_roots system ~all ~symbols ~all_roots =
+  if all then
+    List.map
+      (fun s ->
+        ( List.length
+            (Rewrite.Rewrite_system.slice system ~roots:[ s ])
+              .Rewrite.Rewrite_system.rules,
+          s ))
+      all_roots
+    |> List.sort compare |> List.map snd
+  else symbols
+
+let recorded_symbols (path : string) : string list =
+  if not (Sys.file_exists path) then []
+  else
+    let ic = open_in path in
+    let rec go acc =
+      match input_line ic with
+      | line -> (
+          match String.index_opt line '\t' with
+          | Some i -> go (String.sub line 0 i :: acc)
+          | None -> go acc)
+      | exception End_of_file -> acc
+    in
+    let acc = go [] in
+    close_in ic;
+    acc
+
+(* Run [row_of] over every requested slice, printing each TSV row as it lands
+   (a sweep runs for hours; --out additionally makes it resumable). Returns
+   whether any row failed. *)
+let sweep_rows ~out ~roots ~row_of : bool =
+  let recorded = match out with Some p -> recorded_symbols p | None -> [] in
+  let oc =
+    Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
+  in
+  Fun.protect
+    ~finally:(fun () -> Option.iter close_out oc)
+    (fun () ->
+      List.fold_left
+        (fun failed sym ->
+          if List.mem sym recorded then failed
+          else
+            let line, row_failed = row_of sym in
+            print_endline line;
+            Option.iter
+              (fun oc ->
+                output_string oc (line ^ "\n");
+                flush oc)
+              oc;
+            failed || row_failed)
+        false roots)
+
+(* Per-symbol confluence (Church-Rosser) and coherence of the analysis CTRS via
+   the Maude Formal Environment ({!Rewrite.Mfe.check}, one Maude invocation for
+   both, the module being purely equational since every SpecTecx relation is
+   input-moded). Structured like {!termination_command}/{!scc_command}: a
+   [--symbol] list or an [--all] sweep of the sliceable symbols, one TSV row per
+   slice, resumable through [--out]. Whole-system CRC explodes on critical
+   pairs, so there is no whole-system mode -- and with each definition's rules
+   under their own head, [--all] over the slices is as sound as it. The listing
+   of sliceable symbols moved to [rewrite --list-symbols]. *)
+let confluence_command =
   Core.Command.basic
     ~summary:
-      "verify confluence (Church-Rosser) and coherence of a spec via the MFE"
+      "check per-symbol confluence (Church-Rosser) and coherence of the \
+       analysis CTRS via the MFE"
   @@
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
   let%map filenames = anon (sequence ("spec files" %: string))
   and color = Cli.Cli_args.Output.color_flag
-  and symbol =
-    flag "--symbol" (optional string)
-      ~doc:"NAME check only this function/relation's dependency slice"
-  and list_symbols =
-    flag "--list-symbols" no_arg
-      ~doc:" list the sliceable function/relation symbols and exit"
-  and sizes =
-    flag "--sizes" no_arg
-      ~doc:
-        " with --list-symbols, also print each symbol's slice rule count \
-         (ascending) -- the cheap CRC tractability proxy"
+  and symbols =
+    flag "--symbol" (listed string)
+      ~doc:"NAME check this function/relation's dependency slice (repeatable)"
+  and all =
+    flag "--all" no_arg
+      ~doc:" check every spec-defined symbol's slice, smallest slice first"
   and timeout =
     flag "--timeout"
       (optional_with_default 60 int)
-      ~doc:"S kill Maude after S seconds (default 60, 0 disables)"
+      ~doc:"S kill Maude after S seconds per symbol (default 60, 0 disables)"
   and maude_bin =
     flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary"
   and mfe_dir =
@@ -338,80 +427,57 @@ let verify_command =
          system and upgrade it to YES only when the retry proves it \
          (upgrade-only, never a downgrade); an upgraded verdict prints as 'YES \
          (normalized)'"
+  and out =
+    flag "--out" (optional string)
+      ~doc:
+        "TSV append each symbol's row here and skip symbols the file already \
+         records (a resumable sweep)"
   in
   fun () ->
-    Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
-        Format.printf "%s\n" out;
-        if failed then exit 1)
+    (match (all, symbols) with
+    | true, _ :: _ | false, [] ->
+        Format.eprintf "confluence needs --symbol NAME (repeatable) or --all@.";
+        exit 2
+    | _ -> ());
+    Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    if list_symbols then
-      let syms = Rewrite.def_symbols spec_il in
-      if not sizes then Ok (String.concat "\n" syms, false)
-      else
-        (* Slice rule counts in one elaboration -- the cheap proxy for which
-           symbols' CRC is tractable (a small closure) vs which pull in the whole
-           system (the typing relations -> critical-pair blowup -> TIMEOUT). *)
-        let system = Rewrite.rewrite_spec spec_il in
-        let rows =
-          List.map
-            (fun s ->
-              let n =
-                List.length
-                  (Rewrite.Rewrite_system.slice system ~roots:[ s ]).rules
-              in
-              (n, s))
-            syms
-        in
-        let rows = List.sort compare rows in
-        Ok
-          ( String.concat "\n"
-              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows),
-            false )
-    else
-      let system = Rewrite.rewrite_spec spec_il in
-      (* see the [rewrite --ctrs] path: a sliced module still declares the whole
-         system's predicate domains *)
-      let sig_rules = system.rules in
-      let system =
-        match symbol with
-        | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
-        | None -> system
-      in
-      let verdict = Rewrite.Mfe.string_of_verdict in
-      if crc_normalize then
-        let result : Rewrite.Mfe.upgrade_result =
-          Rewrite.Mfe.check_normalize_upgrade ~timeout ?maude_bin ?mfe_dir
-            ~sig_rules spec_il system
-        in
-        let checked (c : Rewrite.Mfe.checked) =
-          verdict c.verdict ^ if c.via_normalize then " (normalized)" else ""
-        in
-        let line =
-          Printf.sprintf "church-rosser: %s  coherence: %s" (checked result.crc)
-            (checked result.chc)
-        in
-        let ok =
-          result.crc.verdict = Rewrite.Mfe.Yes
-          && result.chc.verdict = Rewrite.Mfe.Yes
-        in
-        Ok (line, not ok)
-      else
-        let result : Rewrite.Mfe.result =
-          Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il
-            system
-        in
-        let line =
-          Printf.sprintf "church-rosser: %s  coherence: %s"
-            (verdict result.church_rosser)
-            (verdict result.coherence)
-        in
-        let ok =
-          result.church_rosser = Rewrite.Mfe.Yes
-          && result.coherence = Rewrite.Mfe.Yes
-        in
-        Ok (line, not ok)
+    let system = Rewrite.rewrite_spec spec_il in
+    (* see the [rewrite --ctrs] path: a sliced module still declares the whole
+       system's predicate domains *)
+    let sig_rules = system.rules in
+    let roots =
+      sweep_roots system ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+    in
+    let verdict = Rewrite.Mfe.string_of_verdict in
+    Ok
+      (sweep_rows ~out ~roots ~row_of:(fun sym ->
+           let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
+           if crc_normalize then
+             let r : Rewrite.Mfe.upgrade_result =
+               Rewrite.Mfe.check_normalize_upgrade ~timeout ?maude_bin ?mfe_dir
+                 ~sig_rules spec_il slice
+             in
+             let checked (c : Rewrite.Mfe.checked) =
+               verdict c.verdict
+               ^ if c.via_normalize then " (normalized)" else ""
+             in
+             ( Printf.sprintf "%s\t%s\t%s" sym (checked r.crc) (checked r.chc),
+               not
+                 (r.crc.verdict = Rewrite.Mfe.Yes
+                 && r.chc.verdict = Rewrite.Mfe.Yes) )
+           else
+             let r : Rewrite.Mfe.result =
+               Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il
+                 slice
+             in
+             ( Printf.sprintf "%s\t%s\t%s" sym
+                 (verdict r.church_rosser)
+                 (verdict r.coherence),
+               not
+                 (r.church_rosser = Rewrite.Mfe.Yes
+                 && r.coherence = Rewrite.Mfe.Yes) )))
 
 (* Emit the spec as an executable Maude module and run a start term through a
    local Maude binary (see {!Rewrite.Maude_run}). [--emit] dumps the module
@@ -890,64 +956,6 @@ let run_structural_command =
       in
       Ok (out, failed)
 
-(* The per-symbol sweep plumbing [termination] and [scc] share: the requested
-   slice roots (an explicit --symbol list, or --all ordered smallest slice
-   first, so a sweep front-loads the tractable results), and the resumable
-   --out protocol (append a TSV row per symbol; skip the symbols an existing
-   file already records -- how the retired shell sweeps survived restarts). *)
-let sweep_roots system ~all ~symbols ~all_roots =
-  if all then
-    List.map
-      (fun s ->
-        ( List.length
-            (Rewrite.Rewrite_system.slice system ~roots:[ s ])
-              .Rewrite.Rewrite_system.rules,
-          s ))
-      all_roots
-    |> List.sort compare |> List.map snd
-  else symbols
-
-let recorded_symbols (path : string) : string list =
-  if not (Sys.file_exists path) then []
-  else
-    let ic = open_in path in
-    let rec go acc =
-      match input_line ic with
-      | line -> (
-          match String.index_opt line '\t' with
-          | Some i -> go (String.sub line 0 i :: acc)
-          | None -> go acc)
-      | exception End_of_file -> acc
-    in
-    let acc = go [] in
-    close_in ic;
-    acc
-
-(* Run [row_of] over every requested slice, printing each TSV row as it lands
-   (a sweep runs for hours; --out additionally makes it resumable). Returns
-   whether any row failed. *)
-let sweep_rows ~out ~roots ~row_of : bool =
-  let recorded = match out with Some p -> recorded_symbols p | None -> [] in
-  let oc =
-    Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
-  in
-  Fun.protect
-    ~finally:(fun () -> Option.iter close_out oc)
-    (fun () ->
-      List.fold_left
-        (fun failed sym ->
-          if List.mem sym recorded then failed
-          else
-            let line, row_failed = row_of sym in
-            print_endline line;
-            Option.iter
-              (fun oc ->
-                output_string oc (line ^ "\n");
-                flush oc)
-              oc;
-            failed || row_failed)
-        false roots)
-
 (* Per-symbol termination via the structure-preserving unravel + a direct
    AProVE run ({!Rewrite.Termination}) -- deliberately NOT through MTT (whose
    condition-variable unraveling and hard-coded inner budget block exactly
@@ -1156,7 +1164,7 @@ let command =
       ("annotate", annotate_command);
       ("splice", splice_command);
       ("rewrite", rewrite_command);
-      ("verify", verify_command);
+      ("confluence", confluence_command);
       ("termination", termination_command);
       ("scc", scc_command);
       ("run", run_command);

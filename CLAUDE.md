@@ -153,22 +153,26 @@ become CTRS conditions; the result/output becomes the rhs.
 
 ## CLI entry points ([bin/main.ml](spectec/bin/main.ml))
 
-- **`rewrite [--ctrs] [--simplified] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--relations-as-rules] FILES…`**
+- **`rewrite [--ctrs] [--simplified] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--list-symbols] [--sizes] [--relations-as-rules] FILES…`**
   — default emits the executable Maude module (`To_maude.module_of_spec`).
   `--ctrs` dumps the analysis CTRS instead (`To_mfe.module_of_system`, what
-  `verify` sends the MFE); `--symbol` slices to one dependency closure and
+  `confluence` sends the MFE); `--symbol` slices to one dependency closure and
   `--slice-dir` dumps every slice in one translation. `--unconditional` (SCC)
   and `--crc-normalize` (CRC) are the verdict-shaping transforms documented
   below; `--prune-signature` keeps only the signature the rules use (rules
-  untouched, so verdicts are preserved). `--simplified` dumps the IL after
-  `Simplify` (currently a no-op, so this is identical to the input).
-- **`verify [--symbol NAME] [--crc-normalize] [--list-symbols] [--sizes] [--timeout S] [--maude-bin P] [--mfe-dir D] FILES…`**
-  — runs the MFE CRC+ChC (`Mfe.check`); exit 0 iff both verdicts are `YES`.
-  Whole-system CRC explodes on critical pairs — **`--symbol` per-slice checks
-  are the practical path**. `--crc-normalize` retries an inconclusive verdict
-  on the normalized system, upgrade-only (`YES (normalized)`; see the CRC
-  normalization section). `--list-symbols --sizes` ranks slices by rule count
-  (the cheap tractability proxy).
+  untouched, so verdicts are preserved). `--list-symbols` lists the sliceable
+  symbols (the names the `--symbol`/`--all` checkers take) and `--sizes` ranks
+  them by slice rule count — the cheap tractability proxy. `--simplified` dumps
+  the IL after `Simplify` (currently a no-op, so this is identical to the input).
+- **`confluence [--symbol NAME]… | --all [--crc-normalize] [--timeout S] [--maude-bin P] [--mfe-dir D] [--out TSV] FILES…`**
+  — per-slice MFE CRC+ChC (`Mfe.check`), one TSV row per symbol
+  `<sym>\t<church-rosser>\t<coherence>`; exit non-zero if any row is not
+  `YES`/`YES`. Whole-system CRC explodes on critical pairs, so (like
+  `termination`/`scc`) there is no whole-system mode — `--symbol` or `--all`
+  (which sweeps `def_symbols` smallest slice first) is required, and `--out`
+  makes the sweep resumable. `--crc-normalize` retries an inconclusive verdict
+  on the normalized (and pruned) system, upgrade-only (`YES (normalized)`; see
+  the CRC normalization section).
 - **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--out TSV] FILES…`**
   — proves per-slice termination by structure-preserving unravel + a direct
   AProVE run (`Termination.check`; **no MTT** — see below). Row per symbol:
@@ -207,7 +211,7 @@ Maude 3.5.1 at `spectec/tools/maude/maude`, MFE at `spectec/tools/mfe/`
 loop floods `>` at EOF), so the bridge reads under a timeout and SIGKILLs once
 both verdicts print.
 
-**Whole-system CRC explodes; per-symbol slices (`verify --symbol`) are the
+**Whole-system CRC explodes; per-symbol slices (`confluence --symbol`) are the
 practical unit.** Current calibration (counts, per-symbol tables, and the two
 recurring MAYBE causes — free RHS variables bound only by a premise, and owise
 overlap — with their fixes `fold_premise_binders`/`Reflect.owise`) is tracked in
@@ -369,7 +373,7 @@ Three levers, of different strength — this is the crux:
   proves the original confluent (soundness holds for these left-linear structural
   rules), a MAYBE is inconclusive. So use it **upgrade-only** — run the plain CRC
   first, normalize only its MAYBE/TIMEOUT symbols, promote a normalized YES, and
-  *never* downgrade an original YES. `verify --crc-normalize`
+  *never* downgrade an original YES. `confluence --crc-normalize`
   (`Mfe.check_normalize_upgrade`) automates exactly this per slice, printing an
   upgraded verdict as `YES (normalized)`. (Termination transfers cleanly under
   unraveling — that is the MTT-replacement path above — but confluence only

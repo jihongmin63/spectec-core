@@ -43,7 +43,7 @@ The MFE is not checked into this repo (it carries its own license and is sizable
    which loads the CRC and ChC tools, then point the bridge at it by either:
    - placing it at `spectec/tools/mfe/` (the default lookup path), or
    - setting `SPECTEC_MFE_DIR=/path/to/mfe`, or
-   - passing `--mfe-dir /path/to/mfe` (once the `verify` CLI is reintroduced).
+   - passing `--mfe-dir /path/to/mfe` to `confluence`.
 
 If no MFE is found the bridge reports a clean `ERROR: MFE not found …` rather than
 crashing.
@@ -238,13 +238,13 @@ single definition's dependency slice is fast:
 
 ```
 # from repo root; per-symbol slice is the practical path
-spectec/_build/default/bin/main.exe verify --list-symbols \
+spectec/_build/default/bin/main.exe rewrite --list-symbols \
   spectec/specs/impty/base/spec.spectec
-spectec/_build/default/bin/main.exe verify --symbol '$lookup' \
+spectec/_build/default/bin/main.exe confluence --symbol '$lookup' \
   spectec/specs/impty/base/spec.spectec
-#   church-rosser: YES  coherence: YES        (~1.4s)
+#   $lookup	YES	YES        (~1.4s)
 ```
 
-`verify --symbol NAME` slices to `NAME`'s downward dependency closure
+`confluence --symbol NAME` slices to `NAME`'s downward dependency closure
 (`Rewrite_system.slice`); the explosive roots (e.g. `Run_prog`, whose slice is
 the whole reachable system) report `TIMEOUT` rather than a false `Error`.

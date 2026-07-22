@@ -55,6 +55,17 @@ Usage errors exit 2:
   scc needs --symbol NAME (repeatable) or --all
   [2]
 
+confluence has the same per-symbol structure; it needs --symbol or --all too
+(neither, or both, is a usage error):
+
+  $ spectec confluence $SPEC
+  confluence needs --symbol NAME (repeatable) or --all
+  [2]
+
+  $ spectec confluence --all --symbol '$lookup' $SPEC
+  confluence needs --symbol NAME (repeatable) or --all
+  [2]
+
 scc --emit prints the exact checker input: an old-Full-Maude FUNCTIONAL module
 with the BOOL includes off and the signature pruned:
 
@@ -92,3 +103,28 @@ rule lines themselves are untouched:
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
   $ diff full.eqs pruned.eqs
+
+rewrite --list-symbols lists the sliceable symbols (the names --symbol/--all
+take); --sizes adds each slice's rule count, smallest first -- the cheap
+tractability proxy that used to live on verify (stderr elided for a stable
+snapshot):
+
+  $ spectec rewrite --list-symbols $SPEC
+  $lookup
+  Check_expr
+  Check_command
+  Check_prog
+  Eval_expr
+  Eval_command
+  Eval_prog
+  Run_prog
+
+  $ spectec rewrite --list-symbols --sizes $SPEC 2>/dev/null
+  16	$lookup
+  27	Check_expr
+  33	Check_command
+  34	Check_prog
+  131	Eval_expr
+  139	Eval_command
+  140	Eval_prog
+  159	Run_prog

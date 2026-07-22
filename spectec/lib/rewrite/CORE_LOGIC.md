@@ -551,7 +551,7 @@ SpecTecx 관계가 입력-모드(함수적)라서, 비입력-모드 관계를 `r
 > must be proved joinable:`; ChC coherent `… no rewrite with rules can happen at
 > non-overlapping positions of equations left-hand sides.`; verdict 없이 데드라인만
 > 지나면 `Timeout`. **전체 시스템 CRC는 critical-pair 폭증으로 안 끝나니
-> `verify --symbol NAME`의 per-symbol slice가 실사용 경로** (예: `$lookup` → YES/YES ~1.4s;
+> `confluence --symbol NAME`의 per-symbol slice가 실사용 경로** (예: `$lookup` → YES/YES ~1.4s;
 > `Run_prog`처럼 전체에 닿는 root는 `TIMEOUT`). 자세히 [tools/mfe/README.md](../../tools/mfe/README.md)
 > "Calibration"/"Performance".
 
@@ -566,7 +566,7 @@ SpecTecx 관계가 입력-모드(함수적)라서, 비입력-모드 관계를 `r
 > 전제를 `:=`/`=>` 조건으로 내보내므로 무관 — 분석 표면 join-condition `=` 근사의 발현이지
 > 번역 버그가 아니다. 슬라이스 모듈은 `rewrite --ctrs --symbol NAME`으로 덤프.
 
-> **p4 spec도 per-symbol으로 돈다 (sweep).** `verify --list-symbols --sizes`로 슬라이스
+> **p4 spec도 per-symbol으로 돈다 (sweep).** `rewrite --list-symbols --sizes`로 슬라이스
 > 크기를 한 번에 구해 tractable한 159개(≤200규칙)를 돌린 결과 104 YES / 33 MAYBE / 13
 > TIMEOUT / 9 degenerate(규칙 0개), >200규칙 415개는 전체-시스템급이라 미실행. 비합류
 > 33건은 **두 분석-표면 원인**으로 갈리며 둘 다 번역 버그가 아니다(실행 표면은
