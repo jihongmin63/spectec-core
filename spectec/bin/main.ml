@@ -864,6 +864,156 @@ let run_structural_command =
       in
       Ok (out, failed)
 
+(* The per-symbol sweep plumbing [termination] and [scc] share: the requested
+   slice roots (an explicit --symbol list, or --all ordered smallest slice
+   first, so a sweep front-loads the tractable results), and the resumable
+   --out protocol (append a TSV row per symbol; skip the symbols an existing
+   file already records -- how the retired shell sweeps survived restarts). *)
+let sweep_roots system ~all ~symbols ~all_roots =
+  if all then
+    List.map
+      (fun s ->
+        ( List.length
+            (Rewrite.Rewrite_system.slice system ~roots:[ s ])
+              .Rewrite.Rewrite_system.rules,
+          s ))
+      all_roots
+    |> List.sort compare |> List.map snd
+  else symbols
+
+let recorded_symbols (path : string) : string list =
+  if not (Sys.file_exists path) then []
+  else
+    let ic = open_in path in
+    let rec go acc =
+      match input_line ic with
+      | line -> (
+          match String.index_opt line '\t' with
+          | Some i -> go (String.sub line 0 i :: acc)
+          | None -> go acc)
+      | exception End_of_file -> acc
+    in
+    let acc = go [] in
+    close_in ic;
+    acc
+
+(* Run [row_of] over every requested slice, printing each TSV row as it lands
+   (a sweep runs for hours; --out additionally makes it resumable). Returns
+   whether any row failed. *)
+let sweep_rows ~out ~roots ~row_of : bool =
+  let recorded = match out with Some p -> recorded_symbols p | None -> [] in
+  let oc =
+    Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
+  in
+  Fun.protect
+    ~finally:(fun () -> Option.iter close_out oc)
+    (fun () ->
+      List.fold_left
+        (fun failed sym ->
+          if List.mem sym recorded then failed
+          else
+            let line, row_failed = row_of sym in
+            print_endline line;
+            Option.iter
+              (fun oc ->
+                output_string oc (line ^ "\n");
+                flush oc)
+              oc;
+            failed || row_failed)
+        false roots)
+
+(* Per-symbol termination via the structure-preserving unravel + a direct
+   AProVE run ({!Rewrite.Termination}) -- deliberately NOT through MTT (whose
+   condition-variable unraveling and hard-coded inner budget block exactly
+   these proofs; see CLAUDE.md). *)
+let termination_command =
+  Core.Command.basic
+    ~summary:
+      "prove per-symbol termination of the analysis CTRS (structure-preserving \
+       unravel + AProVE, no MTT)"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and symbols =
+    flag "--symbol" (listed string)
+      ~doc:"NAME check this function/relation's dependency slice (repeatable)"
+  and all =
+    flag "--all" no_arg
+      ~doc:" check every spec-defined symbol's slice, smallest slice first"
+  and budget =
+    flag "--budget"
+      (optional_with_default 300 int)
+      ~doc:
+        "S AProVE's own proof budget per symbol (default 300); the process is \
+         killed S+120s in"
+  and aprove_bin =
+    flag "--aprove-bin" (optional string)
+      ~doc:"PATH path to the AProVE runme wrapper"
+  and emit_trs =
+    flag "--emit-trs" no_arg
+      ~doc:
+        " print the unraveled TPDB TRS instead of running AProVE (exactly one \
+         --symbol)"
+  and out =
+    flag "--out" (optional string)
+      ~doc:
+        "TSV append each symbol's row here and skip symbols the file already \
+         records (a resumable sweep)"
+  in
+  fun () ->
+    (match (all, symbols, emit_trs) with
+    | true, _ :: _, _ | false, [], _ ->
+        Format.eprintf "termination needs --symbol NAME (repeatable) or --all@.";
+        exit 2
+    | _, _, true when all || List.length symbols <> 1 ->
+        Format.eprintf "--emit-trs takes exactly one --symbol@.";
+        exit 2
+    | _ -> ());
+    Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    let system = Rewrite.rewrite_spec spec_il in
+    let roots =
+      sweep_roots system ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+    in
+    if emit_trs then (
+      let slice =
+        Rewrite.Rewrite_system.slice system ~roots:[ List.hd roots ]
+      in
+      match Rewrite.Unravel.trs_of_system slice with
+      | Ok (trs, stats) ->
+          print_string trs;
+          Printf.eprintf "%s\n" (Rewrite.Unravel.string_of_stats stats);
+          Ok false
+      | Error msg ->
+          Printf.eprintf "unravel: %s\n" msg;
+          Ok true)
+    else
+      Ok
+        (sweep_rows ~out ~roots ~row_of:(fun sym ->
+             let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
+             let report : Rewrite.Termination.report =
+               Rewrite.Termination.check ?aprove_bin ~budget slice
+             in
+             let stats =
+               match report.stats with
+               | Some s -> Rewrite.Unravel.string_of_stats s
+               | None -> "-"
+             in
+             ( Printf.sprintf "%s\t%s\t%s" sym
+                 (Rewrite.Termination.string_of_verdict report.verdict)
+                 stats,
+               match report.verdict with
+               | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
+                   false
+               | _ -> true )))
+
+(* Per-symbol sufficient completeness via the CETA-enabled Maude 2.7 + old MFE
+   2.7.1 backend ({!Rewrite.Scc}); the row format is the retired run-scc.sh's,
+   byte-compatible so the two can be diffed. *)
 let command =
   let module P4 = Targets_p4.P4.Cli in
   let module Impty = Targets_impty.Impty.Cli in
@@ -876,6 +1026,7 @@ let command =
       ("splice", splice_command);
       ("rewrite", rewrite_command);
       ("verify", verify_command);
+      ("termination", termination_command);
       ("run", run_command);
       ("run-structural", run_structural_command);
       (P4.name, P4.command);
