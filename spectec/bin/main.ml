@@ -331,6 +331,13 @@ let verify_command =
   and mfe_dir =
     flag "--mfe-dir" (optional string)
       ~doc:"DIR directory holding the MFE (Full Maude + CRC/ChC loader)"
+  and crc_normalize =
+    flag "--crc-normalize" no_arg
+      ~doc:
+        " retry an inconclusive verdict (MAYBE/TIMEOUT) on the crc-normalized \
+         system and upgrade it to YES only when the retry proves it \
+         (upgrade-only, never a downgrade); an upgraded verdict prints as 'YES \
+         (normalized)'"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
@@ -372,20 +379,39 @@ let verify_command =
         | Some name -> Rewrite.Rewrite_system.slice system ~roots:[ name ]
         | None -> system
       in
-      let result : Rewrite.Mfe.result =
-        Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il system
-      in
       let verdict = Rewrite.Mfe.string_of_verdict in
-      let line =
-        Printf.sprintf "church-rosser: %s  coherence: %s"
-          (verdict result.church_rosser)
-          (verdict result.coherence)
-      in
-      let ok =
-        result.church_rosser = Rewrite.Mfe.Yes
-        && result.coherence = Rewrite.Mfe.Yes
-      in
-      Ok (line, not ok)
+      if crc_normalize then
+        let result : Rewrite.Mfe.upgrade_result =
+          Rewrite.Mfe.check_normalize_upgrade ~timeout ?maude_bin ?mfe_dir
+            ~sig_rules spec_il system
+        in
+        let checked (c : Rewrite.Mfe.checked) =
+          verdict c.verdict ^ if c.via_normalize then " (normalized)" else ""
+        in
+        let line =
+          Printf.sprintf "church-rosser: %s  coherence: %s" (checked result.crc)
+            (checked result.chc)
+        in
+        let ok =
+          result.crc.verdict = Rewrite.Mfe.Yes
+          && result.chc.verdict = Rewrite.Mfe.Yes
+        in
+        Ok (line, not ok)
+      else
+        let result : Rewrite.Mfe.result =
+          Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il
+            system
+        in
+        let line =
+          Printf.sprintf "church-rosser: %s  coherence: %s"
+            (verdict result.church_rosser)
+            (verdict result.coherence)
+        in
+        let ok =
+          result.church_rosser = Rewrite.Mfe.Yes
+          && result.coherence = Rewrite.Mfe.Yes
+        in
+        Ok (line, not ok)
 
 (* Emit the spec as an executable Maude module and run a start term through a
    local Maude binary (see {!Rewrite.Maude_run}). [--emit] dumps the module

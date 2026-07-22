@@ -31,6 +31,8 @@
 
 type verdict = Yes | No | Maybe | Timeout | Error of string
 type result = { church_rosser : verdict; coherence : verdict }
+type checked = { verdict : verdict; via_normalize : bool }
+type upgrade_result = { crc : checked; chc : checked }
 
 let string_of_verdict = function
   | Yes -> "YES"
@@ -167,8 +169,8 @@ let chc_verdict ~(timed_out : bool) (norm : string) : verdict =
   else if timed_out then Timeout
   else Error "could not find a coherence verdict in the MFE output"
 
-let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules (orig : Lang.Il.spec)
-    (system : Rewrite_system.t) : result =
+let check ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
+    ?sig_rules (orig : Lang.Il.spec) (system : Rewrite_system.t) : result =
   match resolve_mfe_dir mfe_dir with
   | Error msg -> { church_rosser = Error msg; coherence = Error msg }
   | Ok mfe_dir ->
@@ -195,7 +197,8 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules (orig : Lang.Il.spec)
            (spurious critical pairs possible)\n"
           unreflected;
       let module_text =
-        To_mfe.module_of_system ~module_name ?sig_rules orig system
+        To_mfe.module_of_system ~module_name ~prune_signature ?sig_rules orig
+          system
       in
       (* [load mfe.maude] starts the object loop; the module (already prefixed
          with [set include BOOL off .]) and the tool-selecting checks follow. *)
@@ -208,4 +211,55 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ?sig_rules (orig : Lang.Il.spec)
       {
         church_rosser = crc_verdict ~timed_out norm;
         coherence = chc_verdict ~timed_out norm;
+      }
+
+(* -------------------------------------------------------------------------- *)
+(* Upgrade-only normalization retry. *)
+
+let upgrade ~(original : verdict) ~(normalized : verdict) : verdict =
+  match (original, normalized) with
+  | (Maybe | Timeout), Yes -> Yes
+  | _ -> original
+
+let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
+    (orig : Lang.Il.spec) (system : Rewrite_system.t) : upgrade_result =
+  (* Pin the signature to the ORIGINAL system's rules, so the normalized re-run
+     declares the same domains (matching [rewrite --ctrs --crc-normalize],
+     whose signature also comes from the un-normalized system). *)
+  let sig_rules =
+    match sig_rules with Some r -> r | None -> system.Rewrite_system.rules
+  in
+  let base = check ?timeout ?maude_bin ?mfe_dir ~sig_rules orig system in
+  let exact =
+    {
+      crc = { verdict = base.church_rosser; via_normalize = false };
+      chc = { verdict = base.coherence; via_normalize = false };
+    }
+  in
+  let inconclusive = function Maybe | Timeout -> true | _ -> false in
+  if not (inconclusive base.church_rosser || inconclusive base.coherence) then
+    exact
+  else
+    let normalized_sys = Rewrite_system.crc_normalize system in
+    (* Nothing to normalize: re-running the checker on the identical module
+       could only re-roll a Timeout, not upgrade a verdict. *)
+    if normalized_sys = system then exact
+    else
+      (* Prune the retry's signature (verdict-preserving -- the rules are
+         untouched). The manual protocol this automates always pruned the
+         normalized module, and without it a normalized system whose original
+         TIMEOUT was signature-blowup keeps timing out over the whole
+         ~460-sort P4 signature instead of closing. The base check stays
+         unpruned, matching the plain [verify] baseline. *)
+      let n =
+        check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true ~sig_rules orig
+          normalized_sys
+      in
+      let component original normalized =
+        let v = upgrade ~original ~normalized in
+        { verdict = v; via_normalize = v <> original }
+      in
+      {
+        crc = component base.church_rosser n.church_rosser;
+        chc = component base.coherence n.coherence;
       }

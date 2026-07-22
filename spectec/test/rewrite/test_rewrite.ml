@@ -1,10 +1,12 @@
 (* Unit tests for the pure analysis-tool plumbing: the structure-preserving
-   unraveling ({!Rewrite.Unravel}) and the SCC output classification
+   unraveling ({!Rewrite.Unravel}), the upgrade-only verdict transfer
+   ({!Rewrite.Mfe.upgrade}), and the SCC output classification
    ({!Rewrite.Scc}). Everything process-shaped (Maude, AProVE) is exercised by
    the CLI cram tests and the calibration runs instead. *)
 
 module R = Rewrite.Rewrite_system
 module U = Rewrite.Unravel
+module Mfe = Rewrite.Mfe
 module Scc = Rewrite.Scc
 
 let failures = ref 0
@@ -144,6 +146,20 @@ let () =
   check "unravel/sanitized-var" (String.length trs > 0);
   check_str "unravel/sanitized-var text" trs
     "(VAR a_minus_b)\n(RULES\n  d_f(a_minus_b) -> a_minus_b\n)\n"
+
+(* ------------------------------------------------------------------------- *)
+(* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
+
+let () =
+  let up o n = Mfe.upgrade ~original:o ~normalized:n in
+  check "upgrade/maybe+yes" (up Mfe.Maybe Mfe.Yes = Mfe.Yes);
+  check "upgrade/timeout+yes" (up Mfe.Timeout Mfe.Yes = Mfe.Yes);
+  check "upgrade/maybe+maybe" (up Mfe.Maybe Mfe.Maybe = Mfe.Maybe);
+  check "upgrade/maybe+timeout" (up Mfe.Maybe Mfe.Timeout = Mfe.Maybe);
+  check "upgrade/never-downgrade" (up Mfe.Maybe Mfe.No = Mfe.Maybe);
+  check "upgrade/yes-stays" (up Mfe.Yes Mfe.Maybe = Mfe.Yes);
+  check "upgrade/no-stays" (up Mfe.No Mfe.Yes = Mfe.No);
+  check "upgrade/error-stays" (up (Mfe.Error "e") Mfe.Yes = Mfe.Error "e")
 
 (* ------------------------------------------------------------------------- *)
 (* Scc: output classification, calibrated phrases. *)
