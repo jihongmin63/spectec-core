@@ -18,8 +18,10 @@ CRC/ChC = Church-Rosser(합류성)/Coherence. 값 = YES / MAYBE / TIMEOUT / `-`(
 > - 슬라이스 목록/크기 = `main.exe rewrite --list-symbols [--sizes] <specs>`,
 >   분석 모듈 덤프 = `rewrite --ctrs --symbol NAME [--prune-signature]`.
 >
-> 구 셸/파이썬 드라이버(`run-termination.sh`/`run-scc.sh`/`prune_slice_signature.py`
-> 등)는 기능이 전부 위 커맨드로 대체됐다 — 삭제는 아래 TODO(reverify 스윕 종료 게이트).
+> 구 셸/파이썬 드라이버(`run-termination.sh`/`run-scc.sh`/`run-scc-sweep.sh`/
+> `prune_slice_signature.py`/`prune_modular.py`/`prune_root.py`)는 전부 위 커맨드로
+> 대체·**삭제 완료**(git history에서 부활 가능). differential 드라이버
+> `check_diff_p4.sh`/`check_diff_structural_p4.sh`는 서브커맨드 대체물이 없어 유지.
 
 ## 1. ≤500 종합 (153심볼)
 
@@ -328,13 +330,13 @@ baseline CRC(위 `2f9f8cba` 열)의 MAYBE 5(전부 `$write_value*`)를 분석-�
       (`--symbol`/`--all`/`--out`), 심볼 리스팅은 `rewrite --list-symbols [--sizes]`,
       프루닝은 `rewrite --ctrs --prune-signature`, upgrade는 `confluence --crc-normalize`.
       위 "재현 커맨드" 콜아웃 참조.
-- [ ] **폐기 스크립트 삭제 (reverify 스윕 종료 후).** `run-scc.sh`/`run-scc-sweep.sh`
-      (→ `scc` 서브커맨드), `prune_slice_signature.py`(→ `rewrite --prune-signature`)는
-      기능이 in-binary로 대체됐다. **삭제 2중 게이트**: (1) 지금 도는 reverify phaseB가
-      메인 체크아웃의 `prune_slice_signature.py`를 shell out 하므로 스윕 종료 전 삭제 금지,
-      (2) `scc` 실 verdict는 CETA Maude 2.7 에셋 재확보 후 옛 `run-scc.sh`와 행 diff로
-      동등성 확인한 뒤 삭제(둘 다 CETA 부재로 현재 non-functional이라 급하지 않음; 필요 시
-      git history에서 부활 가능).
+- [x] **폐기 스크립트 삭제** (2026-07-22 완료). `run-scc.sh`/`run-scc-sweep.sh`
+      (→ `scc` 서브커맨드), `prune_slice_signature.py`(→ `rewrite --prune-signature`)
+      삭제. 삭제 시점의 reverify 스윕은 이미 새 `confluence --all --crc-normalize`(in-binary
+      프루닝)로 옮겨가 python 프루너를 더는 호출하지 않아 게이트 해소됨.
+      **미검증 caveat**: `scc` 실 verdict는 CETA Maude 2.7 에셋 부재로 옛 `run-scc.sh`와
+      행 diff를 못 했다(모듈 방출 텍스트는 cram `scc --emit`로 byte 확인). 에셋 확보 시
+      `run-scc.sh`를 git history에서 부활시켜 대조할 수 있다.
 - [ ] **keep-생성자 항 크기 최적화(선택).** 폐지한 모듈러 축에서 구조 보존이 MTT보다
       나빴던 3건(`$write_bits_from_value`, `$set_priorities_of_tableEntryListIR{,_prime}`)의
       원인이 keep-생성자의 인자 복제로 인한 항 크기 증가인지 확인(가설). 맞다면 escape하지

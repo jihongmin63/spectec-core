@@ -109,13 +109,14 @@ sp_unravel.py — 10심볼 byte-identical + 153/153 HEAD 슬라이스가 측정 
 유닛(test/rewrite) + cram(test/cli/analysis-commands.t: termination/scc emit·guard, prune,
 confluence guard, rewrite --list-symbols/--sizes) 추가.
 
-**⚠️ 폐기 스크립트 삭제는 게이트됨(미완).** `run-scc.sh`/`run-scc-sweep.sh`(→ `scc`),
-`prune_slice_signature.py`(→ `rewrite --prune-signature`)는 대체됐으나 아직 삭제 안 함:
-(1) 지금 도는 **reverify 스윕의 phaseB가 메인 체크아웃의 `prune_slice_signature.py`를 shell
-out** 하므로 스윕 종료 전 삭제 금지(`--mfe-dir /home/spectec-core/...`로 메인 도구 참조 확인),
-(2) `scc` 실 verdict는 CETA Maude 2.7 에셋 재확보 후 옛 `run-scc.sh`와 행 diff로 확인한 뒤
-삭제. 둘 다 CETA 부재로 현재 non-functional이라 급하지 않고, 필요 시 git history에서 부활 가능.
-`check_diff_p4.sh`/`check_diff_structural_p4.sh`(differential)는 스크립트로 **유지**.
+**폐기 스크립트 삭제 완료(2026-07-22).** `run-scc.sh`/`run-scc-sweep.sh`(→ `scc`),
+`prune_slice_signature.py`(→ `rewrite --prune-signature`) 삭제. 애초 게이트였던 "reverify
+phaseB가 메인의 python 프루너를 shell out" 조건은, 삭제 시점의 reverify 스윕이 이미 새
+`confluence --all --crc-normalize`(in-binary 프루닝)로 옮겨가 python을 안 부르면서 해소됐다.
+**caveat**: `scc` 실 verdict는 CETA Maude 2.7 에셋 부재로 옛 `run-scc.sh`와 행 diff 미실시
+(모듈 방출은 cram `scc --emit`로 byte 확인); 에셋 확보 시 git history에서 `run-scc.sh` 부활해
+대조 가능. `check_diff_p4.sh`/`check_diff_structural_p4.sh`(differential)는 서브커맨드
+대체물이 없어 스크립트로 **유지**.
 
 ### 2026-07-19 — 【research note】 termination MAYBE의 진짜 원인은 MTT의 unraveling이었다 — 구조 보존 unraveling + AProVE 직접으로 153/153
 
