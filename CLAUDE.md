@@ -87,13 +87,19 @@ is ground truth.
 | [maude/to_maude.ml](spectec/lib/rewrite/maude/to_maude.ml) / `.mli` | Execution backend: executable order-sorted Maude module (op decls, eq/rl, built-in delegations, `owise` totalization) plus the META-TERM start-term encoder (`print_meta_term`/`meta_term_of_value`) that `metaReduce` runs. |
 | [maude/of_maude.ml](spectec/lib/rewrite/maude/of_maude.ml) / `.mli` | Reverse of the start-term encoder: parses a Maude normal form back into an IL `value`; `canonicalize` normalizes gensym names and sorts map entries so both sides of the result-VALUE oracle compare equal. |
 | [maude/maude_run.ml](spectec/lib/rewrite/maude/maude_run.ml) / `.mli` | Runs an emitted module on a META-TERM start term via a local `maude` binary (`metaReduce`/`metaRewrite`/`metaSearch`); `run_batch` runs many starts in one Maude invocation (module internalized once). |
-| [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts. |
+| [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_normalize_upgrade` adds the upgrade-only `--crc-normalize` retry. |
+| [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
+| [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Structure-preserving unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
+| [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
+| [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
+| [scc.ml](spectec/lib/rewrite/scc.ml) / `.mli` | Sufficient completeness via CETA Maude 2.7 + old MFE 2.7.1: unconditional over-approximation, pruned functional module, verdict/fidelity/witness-domain classification (the `scc` subcommand). |
 
 Deleted from the old `rewrite` branch and **not reimplemented** (by design, not
-oversight): `prem_env.ml` (only fed the old `Simplify`), `cocoweb.ml`/
-`muterm.ml`/`aprove.ml`/`termination.ml` (COPS/TPDB confluence/termination web
-bridges — analysis confluence now goes through the MFE only; termination is
-driven externally, see below).
+oversight): `prem_env.ml` (only fed the old `Simplify`) and `cocoweb.ml`/
+`muterm.ml` (COPS/TPDB confluence/termination *web* bridges — analysis
+confluence now goes through the MFE only). Today's `aprove.ml`/`termination.ml`
+share those old names but are new *local*-process bridges (no web service, no
+Python), built on `subproc.ml`.
 
 ## The CTRS data model
 
@@ -147,17 +153,36 @@ become CTRS conditions; the result/output becomes the rhs.
 
 ## CLI entry points ([bin/main.ml](spectec/bin/main.ml))
 
-- **`rewrite [--ctrs] [--simplified] [--symbol NAME] [--relations-as-rules] FILES…`**
+- **`rewrite [--ctrs] [--simplified] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--relations-as-rules] FILES…`**
   — default emits the executable Maude module (`To_maude.module_of_spec`).
   `--ctrs` dumps the analysis CTRS instead (`To_mfe.module_of_system`, what
-  `verify` sends the MFE); `--symbol` slices to one dependency closure.
-  `--simplified` dumps the IL after `Simplify` (currently a no-op, so this is
-  identical to the input).
-- **`verify [--symbol NAME] [--list-symbols] [--sizes] [--timeout S] [--maude-bin P] [--mfe-dir D] FILES…`**
+  `verify` sends the MFE); `--symbol` slices to one dependency closure and
+  `--slice-dir` dumps every slice in one translation. `--unconditional` (SCC)
+  and `--crc-normalize` (CRC) are the verdict-shaping transforms documented
+  below; `--prune-signature` keeps only the signature the rules use (rules
+  untouched, so verdicts are preserved). `--simplified` dumps the IL after
+  `Simplify` (currently a no-op, so this is identical to the input).
+- **`verify [--symbol NAME] [--crc-normalize] [--list-symbols] [--sizes] [--timeout S] [--maude-bin P] [--mfe-dir D] FILES…`**
   — runs the MFE CRC+ChC (`Mfe.check`); exit 0 iff both verdicts are `YES`.
   Whole-system CRC explodes on critical pairs — **`--symbol` per-slice checks
-  are the practical path**. `--list-symbols --sizes` ranks slices by rule count
+  are the practical path**. `--crc-normalize` retries an inconclusive verdict
+  on the normalized system, upgrade-only (`YES (normalized)`; see the CRC
+  normalization section). `--list-symbols --sizes` ranks slices by rule count
   (the cheap tractability proxy).
+- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--out TSV] FILES…`**
+  — proves per-slice termination by structure-preserving unravel + a direct
+  AProVE run (`Termination.check`; **no MTT** — see below). Row per symbol:
+  `<sym>\t<YES|NO|MAYBE|TIMEOUT|DEGENERATE|ERROR>\t<stats>`. `--all` sweeps
+  `def_symbols` smallest slice first; `--out` makes the sweep resumable
+  (recorded symbols are skipped). `--emit-trs` prints the TPDB TRS instead of
+  running AProVE.
+- **`scc [--symbol NAME]… | --all [--timeout S] [--ceta-maude-bin P] [--mfe271-dir D] [--emit] [--out TSV] FILES…`**
+  — per-slice sufficient completeness via CETA Maude 2.7 + the old MFE 2.7.1
+  (`Scc.check`); the row format is the retired `run-scc.sh`'s
+  (`<sym>\t<verdict>\t<fidelity[/analysis:…][/dom:…]>\t[witness]`), including
+  the exact/approx fidelity and the witness-domain triage. `--all` sweeps every
+  defined head (the derived `subty_`/`match_`/`holds_` predicates included);
+  `--emit` prints the pruned functional module the checker sees.
 - **`run [--start TERM | --imp FILE… | --p4 FILE… -i DIR] [--emit] [--search|--rewrite] [--relations-as-rules] [--bound N] [--check-p4] [--maude-bin P] [--timeout S] FILES…`**
   — emits the execution module and runs a start term through a local Maude via
   reflection (`Maude_run`). `--imp`/`--p4` build the start term from a source
@@ -189,10 +214,10 @@ overlap — with their fixes `fold_premise_binders`/`Reflect.owise`) is tracked 
 [todo.md](spectec/lib/rewrite/todo.md) ("Mfe calibration") rather than
 duplicated here, since it shifts as reflection coverage grows.
 
-**Termination** is not wired through this OCaml library (no `termination.ml`);
-it runs externally via a Maude 2.7.1 + MTT + AProVE(Z3) stack
-(`spectec/tools/mfe/run-termination.sh <symbol>`) — see
-[tools/mfe/README.md](spectec/tools/mfe/README.md) for setup.
+**Termination** is wired through this library too: `main.exe termination`
+(`Termination.check` = `Unravel` + `Aprove`, needing only
+`tools/aprove/runme`). The old external Maude 2.7.1 + MTT stack
+(`run-termination.sh`) is retired — the section below is why.
 
 ### Do not route termination through MTT — unravel and call AProVE directly
 
@@ -244,14 +269,19 @@ its variables are bound by matching and the descent is syntactically visible.
     f(p1..pk)      -> u_1(s, <carried>)
     u_1(t, <carried>) -> r          -- t matched here; its variables are bound
 
-Then hand the plain TRS to `tools/aprove/runme <file.trs> <budget>` (WST mode).
+This is what `main.exe termination` does (`unravel.ml` builds the plain TRS
+from the CTRS values directly; `aprove.ml` hands it to
+`tools/aprove/runme <file.trs> <budget>`, WST mode; `--emit-trs` shows the
+TRS).
 
 **What `<carried>` is does not matter.** Marchiori's classic form (pass the lhs
 *variables*, flat) and a structure-preserving form (pass the lhs *argument list*
 verbatim inside an inert `k_N` constructor with no defining rule) were measured
 head to head on the same slices with the same AProVE: **both YES**, in 0–1 s.
-Prefer the simpler variable-passing form. (One trap either way: passing the bare
-lhs *term* makes the rule reproduce its own redex — AProVE correctly answers NO.)
+`unravel.ml` ships the structure-preserving form — it is the one the 153/153
+sweep and its golden TRSs were measured with. (One trap either way: passing the
+bare lhs *term* makes the rule reproduce its own redex — AProVE correctly
+answers NO.)
 
 Measured effect (153 ≤500-rule symbols): `term` goes from YES 117 / MAYBE 12 /
 TIMEOUT 24 through MTT to **YES 153/153**. The slices MTT could not close —
@@ -263,8 +293,9 @@ pipeline.
 The sort-predicate encoding (step 1) contributes bulk but is not the mechanism —
 the `equal` rewriting is.
 
-Implementing it correctly needs three details, each of which silently produces a
-wrong or malformed system if missed:
+Implementing it correctly needs three details (`unravel.ml` encodes all three,
+and its tests pin them), each of which silently produces a wrong or malformed
+system if missed:
 
 1. **Multi-condition chains must accumulate bound variables.** A condition can
    bind variables a later condition or the final rhs uses
@@ -290,11 +321,13 @@ are a subset) — the same safe direction MTT has. The corollary matters:
 artifact of the over-approximation, so treat NO as something to investigate, not
 a witness.
 
-Analysis-surface slices are safe inputs for this: they carry no `owise`, no
-`rl`/`crl`, no `assoc`/`comm`/`id:` attributes, no `:=`/`=>` conditions, no
-imports, and no mixfix — every declaration is prefix and single-line.
-Also note `prune_slice_signature.py full` prunes only the *signature*, never a
-rule, so it is a no-op for this path.
+Analysis-surface slices are safe inputs for this: they carry no `owise` (and
+should one appear, `unravel.ml` drops the attribute and keeps the rule — an
+over-approximation, the same safe direction), no `rl`/`crl`, no
+`assoc`/`comm`/`id:` attributes, no `:=`/`=>` conditions, no imports, and no
+mixfix. Signature pruning (`--prune-signature`) touches only the *signature*,
+never a rule — and the unraveling drops sorts anyway, so the termination path
+does not prune at all.
 
 > **Correction (2026-07-20).** The first version of this section claimed MTT
 > unravels by passing the condition's variables, that decomposing a structured
@@ -336,7 +369,9 @@ Three levers, of different strength — this is the crux:
   proves the original confluent (soundness holds for these left-linear structural
   rules), a MAYBE is inconclusive. So use it **upgrade-only** — run the plain CRC
   first, normalize only its MAYBE/TIMEOUT symbols, promote a normalized YES, and
-  *never* downgrade an original YES. (Termination transfers cleanly under
+  *never* downgrade an original YES. `verify --crc-normalize`
+  (`Mfe.check_normalize_upgrade`) automates exactly this per slice, printing an
+  upgraded verdict as `YES (normalized)`. (Termination transfers cleanly under
   unraveling — that is the MTT-replacement path above — but confluence only
   reflects, hence the asymmetry.)
 - **real-sort** (`To_mfe`, `crc_sigs`) — `crcu`/`crck` are not IL symbols, so
@@ -396,8 +431,9 @@ MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
   dependency-pair analysis, which was wrong. AProVE certifies the descent in
   about a second — but only if the premise's destructuring survives as a *match*.
   MTT rewrites it into an `equal(s,t) -> tt` test, which frees the pattern's
-  variables and makes the descent invisible. Unravel it yourself and these all
-  come back YES — see "Do not route termination through MTT" above.
+  variables and makes the descent invisible. `main.exe termination` unravels
+  structure-preservingly and these all come back YES — see "Do not route
+  termination through MTT" above.
 - Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
   (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
 - Acyclic call graph + large slice → pure tool-budget TIMEOUT.

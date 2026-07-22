@@ -239,9 +239,9 @@ MTT를 빼고 이 평범한 TRS를 `tools/aprove/runme <f>.trs <budget>`(WST)에
 
 #### 후속
 
-- [ ] unraveler를 `tools/mfe/`로 승격(현재 스크래치패드 `sp_unravel.py`+`sp_run.sh`).
-      `run-termination.sh`의 MTT 경로를 대체할 것. **단순한 변수 전달형으로 충분하다**
-      (구조 보존형과 동률). 폴백으로 MTT를 남길지는 §2 재측정 후 판단.
+- [x] unraveler 승격 (2026-07-22 완료): 스크립트가 아니라 in-binary `main.exe
+      termination`(unravel.ml/aprove.ml)으로 완전 포팅. 구조 보존형을 채택(측정
+      골든 trsA와 byte-identical하게 검증 가능해서); MTT 폴백은 두지 않고 경로 폐기.
 - [ ] 폐지한 모듈러 축에서 구조 보존이 MTT보다 나빴던 3건: 항 크기 가설 검증. 맞다면
       **escape하지 않는 인자는 keep에서 제외**하는 최적화로 닫힌다. 변수 전달형을 쓰면
       애초에 발생하지 않을 수도 있다(미확인).

@@ -60,27 +60,19 @@ crashing.
   Completeness Checker 2b"); Maude++ is NOT required just to load + run CRC/ChC.
 - Both are gitignored (own licenses, sizable) — see the repo `.gitignore`.
 
-## MTT (Maude Termination Tool) — runnable via the Maude 2.7.1 hook stack
+## Termination — `main.exe termination` (structure-preserving unravel + AProVE)
 
-The MTT bundled in *this* (3.5.1) MFE does not run: its `termCheck`/`writeToFile`
-hooks need **Maude++**, and its `MTT-transformations.1.5l.maude` is Maude-2.x
-syntax that stock Maude 3.5.1 rejects (unpatchable `TPDB-SIGN` errors). BUT the
-whole termination path **does run** on the matching Maude-2.7.1-era stack, which
-is obtainable and wired here (all gitignored, under `spectec/tools/`):
+`main.exe termination --symbol <sym> FILES…` proves per-slice termination
+in-binary: `lib/rewrite/unravel.ml` unravels the analysis slice
+structure-preservingly into a plain TPDB TRS (`--emit-trs` shows it) and
+`lib/rewrite/aprove.ml` hands it straight to AProVE. Only two gitignored
+pieces are needed (under `spectec/tools/`):
 
-1. **`tools/maude271-hooks/maude`** — Maude 2.7.1 *with external hooks* (the
-   `v2.7.1-ext-hooks` release of `maude-team/maude`, asset
-   `maude-2.7.1-hooks-linux.tar.gz`). Binds the `TerminationCheckerSymbol`
-   special ops (`termCheck`/`writeToFile`) that stock Maude leaves inert. Its
-   dir is exported as `MAUDE_LIB` (and holds `mfe.config`).
-2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the *old* MFE (`maude-team/MFE` tag
-   `mfe-2.7.1`). Bundles old Full Maude (`src/FM/full-maude27*.maude`, giving
-   `FULL-MAUDE-SIGN`, which the MTT transformations parse against) + **MTT 1.5j**.
-   Boots under the hook binary; banner lists `Maude Termination Tool 1.5j`.
-3. **`tools/aprove/aprove.jar`** — WST backend (`aprove-developers/aprove-releases`);
-   `tools/aprove/runme` runs `java -jar aprove.jar -u cli -t $2 -p plain -m wst $1`
-   and `tools/maude271-hooks/mfe.config` = `aprove <abs>/tools/aprove/runme .trs`.
-4. **`tools/z3/z3`** — the SMT backend AProVE actually uses (its default
+1. **`tools/aprove/aprove.jar`** — WST backend (`aprove-developers/aprove-releases`);
+   `tools/aprove/runme` runs `java -jar aprove.jar -u cli -t $2 -p plain -m wst $1`.
+   Resolution: `--aprove-bin`, then `SPECTEC_APROVE_BIN`, then
+   `spectec/tools/aprove/runme`.
+2. **`tools/z3/z3`** — the SMT backend AProVE actually uses (its default
    `SmtSolver = "z3"`; official download page lists Z3 ≥ 4.4.0, no license gate:
    `Z3Prover/z3` release asset `z3-*-x64-glibc-*.zip`). `runme` puts it on PATH.
    The WST strategy *also* has legacy `Engine = YICES` processors, but with no
@@ -90,28 +82,28 @@ is obtainable and wired here (all gitignored, under `spectec/tools/`):
    dependency [we] will update in the future"). yices/minisat2 would only be a
    faster path for arithmetic-heavy slices (SAT falls back to internal SAT4J).
 
-Run one slice with `tools/mfe/run-termination.sh <symbol>`: it dumps the
-analysis slice (`rewrite --ctrs --symbol`), rewrites the header to an old
-Full-Maude functional module (`set include BOOL[-OPS] off .` as commands,
-`mod`→`fmod`), then feeds `(select tool MTT .) (select external tool aprove .)`
-`(select path C;A .)` for conditional slices `(ct SPEC .)`. MTT transforms the
-(order-sorted, conditional) module to a TPDB CTRS — adding `isTerm`/`isThruth`
-sort guards — and `termCheck` shells out to AProVE per the `mfe.config` (its
-hardcoded per-call timeout was bumped 30→120 s in `mtt.maude`). Verified
-end-to-end via Z3: `FOO`, `$empty_map`, `$is_lpm_key_prime` → termination `YES`;
-arithmetic-heavy slices (`$un_op` — its transform drags in the whole int prelude)
-are slower and may return MAYBE/TIMEOUT without the yices KBO fast-path.
-
-So the gate can pair **CRC local confluence** with an **MTT/AProVE(Z3) termination
+So the gate pairs **CRC local confluence** with an **AProVE(Z3) termination
 proof** for full Church-Rosser. Standalone, the CRC still stands alone as local
 confluence + sort-decreasingness (the CTRS assumed terminating).
 
+**The MTT path is retired.** Termination used to run through the old external
+stack — Maude 2.7.1 with external hooks (`tools/maude271-hooks/`, release
+`v2.7.1-ext-hooks`, binding MTT's `termCheck`/`writeToFile`), the old MFE's
+MTT 1.5j, and a `run-termination.sh` driver. MTT's `equal(s,t) -> tt` condition
+encoding plus its hardcoded 120 s inner AProVE budget is exactly what produced
+the historical MAYBEs; the direct path closes them (153/153 YES). The full
+causal analysis lives in CLAUDE.md ("Do not route termination through MTT").
+`tools/maude271-hooks/maude` is still worth keeping on disk: it is the
+CETA-less binary the SCC plumbing smoke-test points at (below).
+
 ## SCC (Sufficient Completeness Checker) — the CETA-linked Maude 2.7 stack
 
-`./run-scc.sh <symbol> [timeout]` checks one analysis-CTRS slice for **sufficient
-completeness**: does every ground term reduce to a constructor term, or does some
-defined symbol get stuck for want of a matching rule? That is the static form of
-the completeness gap `check_diff_p4.sh` hunts empirically.
+`main.exe scc --symbol <sym> FILES…` checks one analysis-CTRS slice for
+**sufficient completeness**: does every ground term reduce to a constructor
+term, or does some defined symbol get stuck for want of a matching rule? That
+is the static form of the completeness gap `check_diff_p4.sh` hunts
+empirically. (`--all` sweeps every defined head, smallest slice first; `--out`
+makes the sweep resumable.)
 
 Two components, both gitignored, both obtained on demand:
 
@@ -122,23 +114,29 @@ Two components, both gitignored, both obtained on demand:
    has it** — despite its title, `v2.7.1-ext-hooks` ships the MTT hooks only
    (`strings maude | grep -ci ceta` → 0 for it and for stock 3.5.1, 111 here).
    Without CETA the SCC loads and selects fine, then refuses the check.
-2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the same old MFE the termination path uses;
-   its `src/SCC/scc.maude` is the SCC 2a bundle.
+   Resolution: `--ceta-maude-bin`, then `SPECTEC_CETA_MAUDE_BIN`, then
+   `spectec/tools/maude27-ceta/maude`.
+2. **`tools/mfe271/MFE-mfe-2.7.1/`** — the old MFE (`maude-team/MFE` tag
+   `mfe-2.7.1`); its `src/SCC/scc.maude` is the SCC 2a bundle. Resolution:
+   `--mfe271-dir`, then `SPECTEC_MFE271_DIR`, then
+   `spectec/tools/mfe271/MFE-mfe-2.7.1`.
 
-`SCC_MAUDE=<path>` overrides the binary — point it at the CETA-less
-`tools/maude271-hooks/maude` to exercise the whole pipeline and get
-`ERROR-NO-CETA`, which is how to smoke-test the plumbing.
+Pointing `--ceta-maude-bin` at the CETA-less `tools/maude271-hooks/maude`
+exercises the whole pipeline and gets `ERROR-NO-CETA`, which is how to
+smoke-test the plumbing.
 
 ### Reading a verdict
 
-`run-scc.sh` prints `<symbol> <verdict> <fidelity> [witness]`, and **the fidelity
-column decides what the verdict is worth**:
+`scc` prints `<symbol> <verdict> <fidelity> [witness]` (the retired
+`run-scc.sh`'s exact row format), and **the fidelity column decides what the
+verdict is worth**:
 
 - The SCC's `drop-bad-eqs` silently discards conditional and non-left-linear
-  equations, which on our surface would throw the slice away. So the script feeds
-  `rewrite --ctrs --unconditional`, which drops conditions and linearizes patterns
-  first. That **over-approximates matching**: it can hide a missing case, never
-  invent one.
+  equations, which on our surface would throw the slice away. So the bridge
+  first drops conditions and linearizes patterns
+  (`Rewrite_system.drop_conds`/`linearize_lhs`, the same transform as
+  `rewrite --ctrs --unconditional`). That **over-approximates matching**: it
+  can hide a missing case, never invent one.
 - ⇒ **COUNTEREXAMPLE is sound either way** (the witness names a constructor case no
   rule's lhs covers), while **COMPLETE only proves something for an `exact` slice**
   — one the transform did not have to touch.
@@ -196,49 +194,28 @@ against MFE-master + Maude 3.5.1.
   - ChC pending   -> the coherence header printed but not the coherent token
     (proof obligations remain) -> `Maybe`.
 
-## Signature pruning + modular (A/B) termination decomposition
+## Signature pruning
 
 `To_mfe` emits the whole ~460-sort / ~750-op P4 signature for **every** slice
-(only the rules are sliced). MTT's transform is superlinear in the signature, so
-even a 20-rule slice never finishes. Two layered fixes, both operating **only on
-the transient analysis `.mod`** (never the spec source, the OCaml
-prelude/`builtin.ml`, or the executable rewrite system):
+(only the rules are sliced), and the SCC's tree-automaton construction is
+superlinear in the signature. `rewrite --ctrs --prune-signature` (in-binary,
+the semantic equivalent of the retired `prune_slice_signature.py full`) keeps
+only the sorts/ops the rules actually use — a few dozen, bakery scale — plus
+every sort on a subsort path between two kept sorts; `scc` applies it
+automatically. It operates only on the emitted analysis module, never a rule,
+the spec source, or the executable system. The termination path does not prune
+at all: the unraveling drops sorts and never reads the signature.
 
-1. **Signature pruning** — `tools/mfe/prune_slice_signature.py` (mode `full`) keeps
-   only the sorts/ops the rules actually use (a few dozen, bakery scale). This
-   alone turned `$bin_div` from >900s TIMEOUT into **27s YES**. `run-termination.sh`
-   and the comprehensive sweep call it after the dump.
-
-2. **Modular decomposition** — `tools/mfe/prune_modular.py` (new; separate from the
-   sweep's pruner). Binary-encoded fixed-width arithmetic still TIMEOUTs full-mode,
-   because those slices drag in the width-normalizer `$bitstr_to_int` /
-   `$int_to_bitstr`. Since the combination is hierarchical (spec ops call the
-   arithmetic library, not vice versa) termination splits in two:
-   - **`abstract-builtins` (B)** — drop the arithmetic / terminating-builtin
-     defining rules, keep their op declarations (free constructors) → the spec
-     layer alone. AProVE `YES` ⇒ the spec op terminates *relative to arith as a
-     black box*. Used as an (NR)/stratification **detector**. This turned all
-     fixed-width arith + bitwise TIMEOUTs into **seconds-YES** (14 slices), and
-     `$strip_all_whitespace` from 50634 rules (its `eq(x,chr_32)` guard drags in
-     the whole Val-equality theory) to 5 rules by additionally abstracting
-     `eq`/`eqg`.
-   - **`arith-core` / `arith-pure` (A)** — keep only the arithmetic-library rules
-     (with / without the recursive `$`-helpers) → prove the library once.
-   Compose: `A ∧ B ⇒ whole terminates`, under **operational-termination**
-   side-conditions (every spec-rule *premise* symbol is R_arith-defined or
-   strictly lower in a well-founded stratification; lift the *closure* of `$`-spec
-   helpers reachable from spec RHS **and premises** — `$bitstr_to_int`, `$pow2`,
-   `$int_of_integerValue`, `nat_of_int`, …; arith-blindness of spec LHSs;
-   right-linearity in spec-sorted variables).
-
-Run a pre-built modular module through the same MTT/AProVE `ct`:
-`/tmp/modular/run_mod.sh <module.mod> [timeout]` (or fold it into a driver).
+(History: a *modular* A/B termination decomposition — abstract the arithmetic
+library as free constructors, prove the spec layer and the library separately —
+was prototyped in `prune_modular.py`/`prune_root.py` while MTT was the
+bottleneck. The direct unravel+AProVE path made it unnecessary — 153/153 YES
+without decomposition — and both scripts are retired with it.)
 
 ### ⚠️ Caveat — analysis surface, not executable surface
 
-`run-termination.sh` (and the sweep) check the `rewrite --ctrs` **analysis**
-surface, which **drops `owise`** (`rewrite_system.ml` `drop_owise` — justified for
-confluence only, NOT termination) and leaves **`isStuckHead` ruleless**. That is a
+`termination` checks the `rewrite --ctrs` **analysis** surface, which leaves
+**`isStuckHead` ruleless**. That is a
 strictly weaker system than the executable surface (`to_maude.ml`, which fully
 defines `isStuckHead`), so a termination `YES` here **does not certify executable
 termination**. Concrete witness: `$bitstr_to_int` non-terminates at `w=0` on the

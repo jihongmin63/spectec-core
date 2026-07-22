@@ -297,13 +297,14 @@ baseline CRC(위 `2f9f8cba` 열)의 MAYBE 5(전부 `$write_value*`)를 분석-�
 - [ ] **§2 >500 표 fresh 값 갱신.** bigfresh(현재 진행) 완주 시 27행 stale 표를 교체.
       term(B) 열은 MTT 경로 값이므로, 갱신 시 §1과 같은 구조 보존 경로로 재측정할 것
       (§1에서 MAYBE 11건 중 상당수가 닫힐 가능성이 높다).
-- [ ] **`term` 열의 기준 커밋 확인.** 측정은 `30d413ad` 덤프 기준인데 HEAD는 그 뒤로
-      술어 도메인 변경(`6e740f3e` 계열)을 포함한다. HEAD에서 153 슬라이스를 다시 덤프해
-      `30d413ad` 덤프와 대조할 것 — sort 태그만 달라졌다면 구조 보존 경로의 TRS는
-      byte-identical이므로 판정이 그대로다(재측정 불필요).
-- [ ] **구조 보존 unraveler를 `tools/mfe/`로 승격.** 현재는 스크래치패드 스크립트
-      (`/tmp/claude-iterfuse/sp_unravel.py` + `sp_run.sh`)로만 존재한다. `run-termination.sh`의
-      MTT C;A 경로를 이걸로 교체하고, 비-YES 시 MTT로 폴백하는 포트폴리오로 묶는 것이 목표.
+- [x] **`term` 열의 기준 커밋 확인** (2026-07-22 완료). HEAD에서 153 슬라이스를 재덤프해
+      unravel한 TRS가 측정 당시(`30d413ad`) 골든 TRS와 **153/153 byte-identical** —
+      술어 도메인 변경은 sort 태그에만 닿았고, sort를 지우는 구조 보존 경로에는 불변.
+      판정은 그대로 carry된다(재측정 불필요 확정).
+- [x] **구조 보존 unraveler 승격** (2026-07-22 완료). 스크립트 승격 대신 in-binary로
+      완전 포팅: `main.exe termination`(lib/rewrite/unravel.ml + aprove.ml). 10개 다양
+      슬라이스에서 sp_unravel.py 출력과 byte-identical, trsA 골든과도 일치 검증.
+      MTT 경로(run-termination.sh)는 폴백 없이 폐기(커밋 d3bf2847).
 - [ ] **keep-생성자 항 크기 최적화(선택).** 폐지한 모듈러 축에서 구조 보존이 MTT보다
       나빴던 3건(`$write_bits_from_value`, `$set_priorities_of_tableEntryListIR{,_prime}`)의
       원인이 keep-생성자의 인자 복제로 인한 항 크기 증가인지 확인(가설). 맞다면 escape하지
