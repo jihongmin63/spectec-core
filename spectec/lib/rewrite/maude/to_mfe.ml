@@ -61,11 +61,13 @@ let print_rule vs (r : R.rule) : string =
    .]) instead, for {!Maude_run.run_direct}/[run_batch_direct]'s direct
    (non-reflective) execution path, which runs a bare [maude] binary with
    nothing loaded -- Full Maude's parenthesized form is not valid input there.
-   [prune_signature] is documented in to_mfe.mli (the slice-signature
-   prune). *)
+   [functional]/[prune_signature] are documented in to_mfe.mli ({!Scc}'s
+   shape and the slice-signature prune). *)
 let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
-    ?(prune_signature = false) ?(predicates = MS.Narrow) ?sig_rules
-    (orig : spec) (sys : R.t) : string =
+    ?(functional = false) ?(prune_signature = false) ?(predicates = MS.Narrow)
+    ?sig_rules (orig : spec) (sys : R.t) : string =
+  if functional && not full_maude then
+    invalid_arg "To_mfe.module_of_system: functional requires full_maude";
   if prune_signature && not full_maude then
     invalid_arg "To_mfe.module_of_system: prune_signature requires full_maude";
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
@@ -311,10 +313,19 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   in
   let b = Buffer.create 4096 in
   (* The module declares its own [true]/[false]/[and]/[not]; turn the implicit
-     [BOOL] import off so they don't clash ("Ambiguous parsing"). *)
-  buf_line b "set include BOOL off .";
-  buf_line b "";
-  buf_line b ((if full_maude then "(mod " else "mod ") ^ module_name ^ " is");
+     [BOOL] import off so they don't clash ("Ambiguous parsing"). The
+     functional shape is fed to the OLD Full Maude loop, which takes the
+     include switches as parenthesized commands ([BOOL-OPS] too -- its BOOL
+     split differs from 3.5's). *)
+  if functional then (
+    buf_line b "(set include BOOL off .)";
+    buf_line b "(set include BOOL-OPS off .)")
+  else (
+    buf_line b "set include BOOL off .";
+    buf_line b "");
+  buf_line b
+    ((if functional then "(fmod " else if full_maude then "(mod " else "mod ")
+    ^ module_name ^ " is");
   let non_val = List.filter (fun s -> s <> MS.val_sort) sorts in
   buf_line b ("  sorts " ^ String.concat " " non_val ^ " " ^ MS.val_sort ^ " .");
   if non_val <> [] then
@@ -461,7 +472,8 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      trailing [.] -- one was mistaken for a dangling empty top-level sentence,
      "syntax error" right after any module, verified empirically); Full Maude's
      parenthesized form closes with [)], also no [.]. *)
-  buf_line b (if full_maude then "endm)" else "endm");
+  buf_line b
+    (if functional then "endfm)" else if full_maude then "endm)" else "endm");
   Buffer.contents b
 
 (* -------------------------------------------------------------------------- *)

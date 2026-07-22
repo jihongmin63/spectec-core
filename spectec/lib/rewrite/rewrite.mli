@@ -9,6 +9,7 @@ module Of_maude = Of_maude
 module Mfe = Mfe
 module Unravel = Unravel
 module Termination = Termination
+module Scc = Scc
 
 (** Translate an elaborated IL spec into a rewriting system.
 

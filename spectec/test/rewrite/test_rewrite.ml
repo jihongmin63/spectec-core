@@ -1,9 +1,11 @@
 (* Unit tests for the pure analysis-tool plumbing: the structure-preserving
-   unraveling ({!Rewrite.Unravel}). Everything process-shaped (Maude, AProVE)
-   is exercised by the CLI cram tests and the calibration runs instead. *)
+   unraveling ({!Rewrite.Unravel}) and the SCC output classification
+   ({!Rewrite.Scc}). Everything process-shaped (Maude, AProVE) is exercised by
+   the CLI cram tests and the calibration runs instead. *)
 
 module R = Rewrite.Rewrite_system
 module U = Rewrite.Unravel
+module Scc = Rewrite.Scc
 
 let failures = ref 0
 
@@ -142,6 +144,94 @@ let () =
   check "unravel/sanitized-var" (String.length trs > 0);
   check_str "unravel/sanitized-var text" trs
     "(VAR a_minus_b)\n(RULES\n  d_f(a_minus_b) -> a_minus_b\n)\n"
+
+(* ------------------------------------------------------------------------- *)
+(* Scc: output classification, calibrated phrases. *)
+
+let mod_text =
+  "(set include BOOL off .)\n\
+   (set include BOOL-OPS off .)\n\
+   (fmod SPEC is\n\
+  \  sorts NatV Val .\n\
+  \  op badd-carry : NatV NatV -> NatV [ctor] .\n\
+  \  op wide : Val -> Val .\n\
+  \  op over-list : List -> BoolV .\n\
+   endfm)\n"
+
+let () =
+  let classify = Scc.classify ~module_text:mod_text in
+  check "scc/no-ceta"
+    (classify
+       "Warning: The sufficient completeness checker is not fully available. \
+        Please use the trust command to assume that module SPEC IS \
+        SUFFICIENTLY COMPLETE."
+    = Scc.No_ceta);
+  check "scc/complete"
+    (classify
+       "Sufficient completeness check for SPEC\n\
+        Completeness counter-examples: none were found\n\
+        Freeness counter-examples: none were found\n\
+        Analysis: it is complete and it is sound"
+    = Scc.Complete);
+  (match
+     classify
+       "Sufficient completeness check for SPEC\n\
+        Completeness counter-examples: badd-carry(bzero,bzero) with sort NatV \
+        Freeness counter-examples: none were found\n\
+        Analysis: it is complete and it is sound"
+   with
+  | Scc.Counterexample { witness; sort; domain } ->
+      check_str "scc/counterexample witness" witness "badd-carry(bzero,bzero) ";
+      check_str "scc/counterexample sort" sort "NatV";
+      check "scc/counterexample domain" (domain = Scc.Narrow)
+  | _ -> check "scc/counterexample" false);
+  (match
+     classify
+       "Completeness counter-examples: wide(bone) with sort Val Freeness \
+        counter-examples: none were found"
+   with
+  | Scc.Counterexample { domain; _ } ->
+      check "scc/domain val-wide" (domain = Scc.Val_wide)
+  | _ -> check "scc/domain val-wide" false);
+  (match
+     classify
+       "Completeness counter-examples: over-list(nil) with sort BoolV Freeness \
+        counter-examples: none were found"
+   with
+  | Scc.Counterexample { domain; _ } ->
+      check "scc/domain elem-erased" (domain = Scc.Elem_erased)
+  | _ -> check "scc/domain elem-erased" false);
+  (match classify "Warning: no parse for SPEC-term ." with
+  | Scc.Error _ -> check "scc/no-parse" true
+  | _ -> check "scc/no-parse" false);
+  check "scc/timeout" (classify "half an output and then silence" = Scc.Timeout)
+
+let () =
+  check "scc/analysis"
+    (Scc.analysis_of_output
+       "blah\nAnalysis: it is complete and\nit is sound\nrest"
+    = Some "complete+sound");
+  check "scc/analysis-none" (Scc.analysis_of_output "no such line" = None)
+
+let () =
+  (* unconditional: a conditional rule is over-approximated (Approx); a plain
+     system passes through untouched (Exact). *)
+  let cond_sys =
+    system
+      [
+        rule
+          ~conds:[ (app "$g" [ v "x" ], app "true" []) ]
+          (app "$f" [ v "x" ])
+          (v "x");
+      ]
+  in
+  let uncond, fid = Scc.unconditional cond_sys in
+  check "scc/unconditional approx" (fid = Scc.Approx);
+  check "scc/unconditional conds dropped"
+    (List.for_all (fun (r : R.rule) -> r.conds = []) uncond.R.rules);
+  let plain_sys = system [ rule (app "$f" [ v "x" ]) (v "x") ] in
+  let same, fid = Scc.unconditional plain_sys in
+  check "scc/unconditional exact" (fid = Scc.Exact && same = plain_sys)
 
 let () =
   if !failures > 0 then (

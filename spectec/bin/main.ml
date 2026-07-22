@@ -1014,6 +1014,111 @@ let termination_command =
 (* Per-symbol sufficient completeness via the CETA-enabled Maude 2.7 + old MFE
    2.7.1 backend ({!Rewrite.Scc}); the row format is the retired run-scc.sh's,
    byte-compatible so the two can be diffed. *)
+let scc_command =
+  Core.Command.basic
+    ~summary:
+      "check per-symbol sufficient completeness of the analysis CTRS (CETA \
+       Maude 2.7 + old MFE SCC)"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and color = Cli.Cli_args.Output.color_flag
+  and symbols =
+    flag "--symbol" (listed string)
+      ~doc:"NAME check this symbol's dependency slice (repeatable)"
+  and all =
+    flag "--all" no_arg
+      ~doc:
+        " check every defined head's slice (including the derived \
+         subty_/match_/holds_ predicates), smallest slice first"
+  and timeout =
+    flag "--timeout"
+      (optional_with_default 600 int)
+      ~doc:"S kill the checker after S seconds per symbol (default 600)"
+  and ceta_bin =
+    flag "--ceta-maude-bin" (optional string)
+      ~doc:"PATH path to the CETA-enabled maude 2.7 binary"
+  and mfe271_dir =
+    flag "--mfe271-dir" (optional string)
+      ~doc:"DIR directory holding the old MFE 2.7.1 (bundles SCC 2a)"
+  and emit =
+    flag "--emit" no_arg
+      ~doc:
+        " print the pruned functional module the checker would see (exactly \
+         one --symbol)"
+  and out =
+    flag "--out" (optional string)
+      ~doc:
+        "TSV append each symbol's row here and skip symbols the file already \
+         records (a resumable sweep)"
+  in
+  fun () ->
+    (match (all, symbols, emit) with
+    | true, _ :: _, _ | false, [], _ ->
+        Format.eprintf "scc needs --symbol NAME (repeatable) or --all@.";
+        exit 2
+    | _, _, true when all || List.length symbols <> 1 ->
+        Format.eprintf "--emit takes exactly one --symbol@.";
+        exit 2
+    | _ -> ());
+    Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    let system = Rewrite.rewrite_spec spec_il in
+    (* the derived predicates -- subty_<T>, match_<T>_<K>, holds_<R> -- are the
+       SCC's most valuable targets, and no DecD/RelD declares them *)
+    let sig_rules = system.Rewrite.Rewrite_system.rules in
+    let roots =
+      sweep_roots system ~all ~symbols
+        ~all_roots:(Rewrite.Rewrite_system.defined_heads system)
+    in
+    if emit then (
+      let slice =
+        Rewrite.Rewrite_system.slice system ~roots:[ List.hd roots ]
+      in
+      let uncond, _ = Rewrite.Scc.unconditional slice in
+      print_string (Rewrite.Scc.module_text ~sig_rules spec_il uncond);
+      Ok false)
+    else
+      Ok
+        (sweep_rows ~out ~roots ~row_of:(fun sym ->
+             let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
+             let report : Rewrite.Scc.report =
+               Rewrite.Scc.check ~timeout ?ceta_bin ?mfe271_dir ~sig_rules
+                 spec_il slice
+             in
+             let fid =
+               (match report.fidelity with
+               | Rewrite.Scc.Exact -> "exact"
+               | Rewrite.Scc.Approx -> "approx")
+               ^ (match report.analysis with
+                 | Some a -> "/analysis:" ^ a
+                 | None -> "")
+               ^
+               match report.verdict with
+               | Rewrite.Scc.Counterexample { domain; _ } ->
+                   "/" ^ Rewrite.Scc.string_of_domain domain
+               | _ -> ""
+             in
+             match report.verdict with
+             | Rewrite.Scc.Degenerate ->
+                 (Printf.sprintf "%s\tDEGENERATE\t%s" sym fid, false)
+             | Rewrite.Scc.Complete ->
+                 (Printf.sprintf "%s\tCOMPLETE\t%s\t" sym fid, false)
+             | Rewrite.Scc.Counterexample { witness; sort; _ } ->
+                 ( Printf.sprintf "%s\tCOUNTEREXAMPLE\t%s\t%s: %s" sym fid
+                     witness sort,
+                   true )
+             | Rewrite.Scc.Timeout ->
+                 (Printf.sprintf "%s\tTIMEOUT\t%s\t" sym fid, true)
+             | Rewrite.Scc.No_ceta ->
+                 (Printf.sprintf "%s\tERROR-NO-CETA\t%s\t" sym fid, true)
+             | Rewrite.Scc.Error msg ->
+                 Printf.eprintf "scc: %s: %s\n" sym msg;
+                 (Printf.sprintf "%s\tERROR\t%s\t" sym fid, true)))
+
 let command =
   let module P4 = Targets_p4.P4.Cli in
   let module Impty = Targets_impty.Impty.Cli in
@@ -1027,6 +1132,7 @@ let command =
       ("rewrite", rewrite_command);
       ("verify", verify_command);
       ("termination", termination_command);
+      ("scc", scc_command);
       ("run", run_command);
       ("run-structural", run_structural_command);
       (P4.name, P4.command);

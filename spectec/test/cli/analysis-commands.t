@@ -1,6 +1,6 @@
-Analysis subcommands over the impty base spec: the termination TRS emitter
-and the signature prune. Everything here is translation-only (no
-Maude/AProVE), so the snapshots are stable.
+Analysis subcommands over the impty base spec: the termination TRS emitter,
+the SCC module emitter, and the signature prune. Everything here is
+translation-only (no Maude/AProVE), so the snapshots are stable.
 
   $ SPEC=../../specs/impty/base/spec.spectec
 
@@ -37,17 +37,42 @@ slice as a TPDB TRS (stats go to stderr):
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
   eqs=16 rules=23 u=7 k=7 vars=16 owise=0
+
 A symbol with no rules is DEGENERATE, not an error (no stats to report):
 
   $ spectec termination --symbol '$no-such-symbol' $SPEC
   $no-such-symbol	DEGENERATE	-
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
+
 Usage errors exit 2:
 
   $ spectec termination $SPEC
   termination needs --symbol NAME (repeatable) or --all
   [2]
+
+  $ spectec scc $SPEC
+  scc needs --symbol NAME (repeatable) or --all
+  [2]
+
+scc --emit prints the exact checker input: an old-Full-Maude FUNCTIONAL module
+with the BOOL includes off and the signature pruned:
+
+  $ spectec scc --emit --symbol '$lookup' $SPEC | head -3
+  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
+  reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
+  unconditional: dropped conditions from 2 rule(s) (2 rhs replaced by lhs)
+  unconditional: linearized 1 non-left-linear lhs
+  (set include BOOL off .)
+  (set include BOOL-OPS off .)
+  (fmod SPEC is
+
+An unknown symbol's slice is DEGENERATE for scc too (fidelity still reported):
+
+  $ spectec scc --symbol '$no-such-symbol' $SPEC
+  $no-such-symbol	DEGENERATE	exact
+  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
+  reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
 
 --prune-signature drops the op declarations the slice's rules never use; the
 rule lines themselves are untouched:

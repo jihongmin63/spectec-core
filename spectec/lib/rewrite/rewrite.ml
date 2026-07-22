@@ -9,6 +9,7 @@ module Of_maude = Of_maude
 module Mfe = Mfe
 module Unravel = Unravel
 module Termination = Termination
+module Scc = Scc
 module Defunctionalize = Defunctionalize
 module Gensym = Gensym
 module Builtin = Builtin
