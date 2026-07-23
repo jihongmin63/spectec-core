@@ -797,12 +797,11 @@ let sub_terms (acc : acc) = List.map (fun (v, (t, _)) -> (v, t)) acc.sub
    binding, [t = t'] to [eqg(t', t')] -- so [eqg(x, x) = true] collapses the
    guard. Off the diagonal [eqg] is stuck, which only leaves a pair
    undischarged (a conservative MAYBE, never a false YES). *)
-let eqg_sym = "eqg"
-let eqg_t (a : R.term) (b : R.term) : R.term = T.app_t eqg_sym [ a; b ]
+let eqg_t (a : R.term) (b : R.term) : R.term = T.app_t T.eqg_sym [ a; b ]
 
 let ensure_eqg ~scalars (sup : support) : unit =
-  if not (have sup eqg_sym) then
-    emit sup eqg_sym
+  if not (have sup T.eqg_sym) then
+    emit sup T.eqg_sym
       [ T.rule (eqg_t (T.var_t "x") (T.var_t "x")) (T.bool_t ~scalars true) ]
 
 let push_eq ~scalars (sup : support) (acc : acc) (a : R.term) (b : R.term) :

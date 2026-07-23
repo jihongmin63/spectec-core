@@ -51,8 +51,10 @@ let has_prefix p sym =
    as needed, so the domain has to be recovered from how they are used
    ({!predicate_domains}). *)
 let is_predicate (sym : string) : bool =
-  has_prefix "match_" sym || has_prefix "subty_" sym || has_prefix "holds_" sym
-  || sym = "eqg"
+  has_prefix T.match_prefix sym
+  || has_prefix T.subty_prefix sym
+  || has_prefix T.holds_prefix sym
+  || sym = T.eqg_sym
 
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
@@ -314,11 +316,10 @@ let infer_ranges (rules : R.rule list) : sigs =
     match sym with
     | "nil" | "cons" -> Some "List"
     | "none" | "some" -> Some "Opt"
-    | "true" | "false" | "and" | "or" | "not" | "eqg" -> Some "BoolV"
-    | _
-      when has_prefix "match_" sym || has_prefix "subty_" sym
-           || has_prefix "holds_" sym ->
-        Some "BoolV"
+    | "true" | "false" | "and" | "or" | "not" -> Some "BoolV"
+    (* the derived predicates ([match_]/[subty_]/[holds_]/[eqg]) all range over
+       [BoolV] too *)
+    | _ when is_predicate sym -> Some "BoolV"
     | _ -> None
   in
   let ranges : sigs = Hashtbl.create 64 in
