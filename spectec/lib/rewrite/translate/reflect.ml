@@ -78,6 +78,12 @@ module R = Rewrite_system
 module T = Ctrs_term
 module SI = Spec_index
 
+(* The shared context of the analysis-only passes: the scalar theory and the
+   (defunctionalized) spec the tables are read from. A future selective-rl
+   mode (the LTL [--rules-for] wiring) adds its rule-head selection here
+   instead of threading another label through every pass. *)
+type ctx = { scalars : T.scalar_theory; orig : spec }
+
 (* -------------------------------------------------------------------------- *)
 (* (B) discriminator hoist: respell an opaque matcher test [match_K(v) = true]
    as the structural equation [v = K(fresh..)], for a bare-variable subject
@@ -165,8 +171,8 @@ let owise_head_syms (sys : R.t) : string list =
 let head_sym (t : R.term) : string option =
   match t with R.App (f, _) -> Some f | R.Var _ -> None
 
-let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
-    =
+let hoist_matchers (ctx : ctx) (sys : R.t) : R.t =
+  let { scalars; orig } = ctx in
   let tbl = build_matcher_table orig in
   let yes = T.bool_t ~scalars true in
   let owise_heads = owise_head_syms sys in
@@ -255,7 +261,8 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
    rules are likewise total), and [not(X) ->* true] iff [X ->* false]. The swap
    preserves the variable set. Analysis-only, like {!owise} -- the executable
    surface keeps the original guards. *)
-let align_guards ~(scalars : T.scalar_theory) (sys : R.t) : R.t =
+let align_guards (ctx : ctx) (sys : R.t) : R.t =
+  let { scalars; orig = _ } = ctx in
   let tru = T.bool_t ~scalars true in
   let fls = T.bool_t ~scalars false in
   let flip b = if b then fls else tru in
@@ -354,8 +361,8 @@ type subty_family =
   | Always_true (* [subty_<S>(x) -> true]: type parameter fallback *)
   | Opaque of string (* unrecognized shape: do not expand *)
 
-let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
-    : R.t =
+let expand_subty_guards (ctx : ctx) (sys : R.t) : R.t =
+  let { scalars; orig } = ctx in
   let tbl = SI.of_spec orig in
   let mtbl = build_matcher_table orig in
   let yes = T.bool_t ~scalars true in
@@ -1560,8 +1567,8 @@ let gen_itercollect_holds ~scalars ~prep (tbl : SI.t) (sup : support)
 (* -------------------------------------------------------------------------- *)
 (* The pass. *)
 
-let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
-    (sys : R.t) : R.t =
+let owise (ctx : ctx) ~(effectful : string list) (sys : R.t) : R.t =
+  let { scalars; orig } = ctx in
   let tbl = SI.of_spec orig in
   let sup =
     {

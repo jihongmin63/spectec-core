@@ -82,22 +82,17 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    passes. *)
 let ctrs_of_spec (spec : Lang.Il.spec) : Rewrite_system.t =
   let dspec, sys = build_with To_ctrs.Structural spec in
-  let sys =
-    Reflect.hoist_matchers ~scalars:To_ctrs.Structural ~orig:dspec sys
-  in
-  let sys =
-    Reflect.expand_subty_guards ~scalars:To_ctrs.Structural ~orig:dspec sys
-  in
+  let ctx = { Reflect.scalars = To_ctrs.Structural; orig = dspec } in
+  let sys = Reflect.hoist_matchers ctx sys in
+  let sys = Reflect.expand_subty_guards ctx sys in
   let sys = Crc_surface.fold_premise_binders sys in
   (* Immediately after the fold, whose isStuckHead-guard prepend is the pass
      that breaks binding order -- and BEFORE {!Reflect.owise}, whose
      [gen_*_holds] generators thread their substitution through a helper
      rule's conditions in source order. *)
   let sys = Crc_surface.order_conds sys in
-  let sys = Reflect.align_guards ~scalars:To_ctrs.Structural sys in
-  Reflect.owise ~scalars:To_ctrs.Structural ~orig:dspec
-    ~effectful:(Gensym.effectful_syms sys)
-    sys
+  let sys = Reflect.align_guards ctx sys in
+  Reflect.owise ctx ~effectful:(Gensym.effectful_syms sys) sys
   (* [owise]'s own insertions preserve binding order (the success test goes
      immediately before the condition it guards; the sibling guard is
      appended last) -- the final normalization is idempotent insurance for
