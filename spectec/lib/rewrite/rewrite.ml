@@ -14,10 +14,9 @@ module Defunctionalize = Defunctionalize
 module Gensym = Gensym
 module Builtin = Builtin
 
-(* Simplify each rule and clause via the premise environment (structural
-   substitution + redundant-premise removal), then translate the result into the
-   CTRS representation; see [Pipeline.ctrs_of_spec] for the stages (and the
-   debug fallback that bypasses simplification). *)
+(* The analysis pipeline entry; see [Pipeline.ctrs_of_spec] for the stage
+   order. [To_ctrs] is the sole translation surface ([Simplify] is deliberately
+   the identity). *)
 let rewrite_spec : Lang.Il.spec -> Rewrite_system.t = Pipeline.ctrs_of_spec
 
 (* The function/relation symbols a spec defines, usable as slice roots for

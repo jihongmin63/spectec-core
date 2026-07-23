@@ -11,11 +11,10 @@ module Unravel = Unravel
 module Termination = Termination
 module Scc = Scc
 
-(** Translate an elaborated IL spec into a rewriting system.
-
-    Simplifies each relation rule and function clause via the premise
-    environment (structural substitution + redundant-premise removal) and
-    carries the result into the placeholder representation. *)
+(** Translate an elaborated IL spec into the analysis rewriting system:
+    defunctionalize, translate via {!To_ctrs} in the structural scalar theory,
+    thread gensym state, then apply the analysis-only reflection and folding
+    passes; see {!Pipeline.ctrs_of_spec} for the stage order. *)
 val rewrite_spec : Lang.Il.spec -> Rewrite_system.t
 
 (** The function/relation symbols a spec defines, in declaration order. Pair
