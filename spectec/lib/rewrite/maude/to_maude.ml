@@ -58,10 +58,6 @@ open Maude_sorts
 (* -------------------------------------------------------------------------- *)
 (* Condition classification. *)
 
-let rec vars_of_term = function
-  | R.Var v -> [ v ]
-  | R.App (_, ts) -> List.concat_map vars_of_term ts
-
 let is_relation rels = function
   | R.App (f, _) -> List.mem f rels
   | R.Var _ -> false
@@ -100,7 +96,7 @@ let cond_form ~(scalars : T.scalar_theory) rels ((l, r) : R.cond) :
 let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
     ((l, r) : R.cond) : string * string list =
   let fresh_of t =
-    List.filter (fun v -> not (List.mem v bound)) (vars_of_term t)
+    List.filter (fun v -> not (List.mem v bound)) (R.vars_of_term t)
   in
   let pl = print_term scalars vs l and pr = print_term scalars vs r in
   (* A matching condition [pat := subj] binding [vars]: it succeeds whenever
@@ -151,7 +147,9 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
    stays. *)
 let print_conds ~(scalars : T.scalar_theory) vs rels defined
     (lhs_vars : string list) (conds : R.cond list) : string =
-  let bnd bound t = List.for_all (fun v -> List.mem v bound) (vars_of_term t) in
+  let bnd bound t =
+    List.for_all (fun v -> List.mem v bound) (R.vars_of_term t)
+  in
   let ready bound ((l, r) : R.cond) =
     match cond_form ~scalars rels (l, r) with
     | `Rewrite | `Check -> bnd bound l
@@ -213,7 +211,7 @@ let print_rule ~(scalars : T.scalar_theory) vs rels defined (is_rel : bool)
   match r.R.conds with
   | [] -> head ^ attr ^ " ."
   | _ ->
-      let lhs_vars = vars_of_term r.R.lhs in
+      let lhs_vars = R.vars_of_term r.R.lhs in
       head ^ " if "
       ^ print_conds ~scalars vs rels defined lhs_vars r.R.conds
       ^ attr ^ " ."

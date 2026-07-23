@@ -412,16 +412,6 @@ let rec check_reflectable (tbl : tables) (effectful : string list)
         raise (Gate (Printf.sprintf "gensym-threaded %s" f));
       List.iter (check_reflectable tbl effectful succ) args
 
-let rec term_vars (t : R.term) : string list =
-  match t with
-  | R.Var v -> [ v ]
-  | R.App (_, args) -> List.concat_map term_vars args
-
-let rec subst (s : (string * R.term) list) (t : R.term) : R.term =
-  match t with
-  | R.Var v -> ( match List.assoc_opt v s with Some u -> u | None -> t)
-  | R.App (f, args) -> R.App (f, List.map (subst s) args)
-
 let rec ground (t : R.term) : bool =
   match t with R.Var _ -> false | R.App (_, args) -> List.for_all ground args
 
@@ -511,7 +501,8 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
           | R.App (_, [ R.App (c, ps) ]), rhs -> (
               match distinct_vars ps with
               | Some vs
-                when List.for_all (fun v -> List.mem v vs) (term_vars rhs) -> (
+                when List.for_all (fun v -> List.mem v vs) (R.vars_of_term rhs)
+                -> (
                   match acc with
                   | Members ms -> Members (ms @ [ (c, vs, rhs) ])
                   | Always_true -> Opaque "mixed member/fallback"
@@ -553,22 +544,22 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
     let subst_rule s (r : R.rule) =
       {
         r with
-        R.lhs = subst s r.R.lhs;
-        rhs = subst s r.R.rhs;
-        conds = List.map (fun (l, rr) -> (subst s l, subst s rr)) r.R.conds;
+        R.lhs = R.subst s r.R.lhs;
+        rhs = R.subst s r.R.rhs;
+        conds = List.map (fun (l, rr) -> (R.subst s l, R.subst s rr)) r.R.conds;
       }
     in
     let rec go fuel (r : R.rule) : R.rule =
       if fuel = 0 then r
       else
-        let lhs_vars = term_vars r.R.lhs in
+        let lhs_vars = R.vars_of_term r.R.lhs in
         (* a condition variable the head does not bind: existentially
            quantified, so a [w = t] condition on it (t a pure constructor
            term, no computation to duplicate) is eliminated exactly by
            substituting [w := t] through the rule *)
         let existential w t =
           (not (List.mem w lhs_vars))
-          && (not (List.mem w (term_vars t)))
+          && (not (List.mem w (R.vars_of_term t)))
           && pattern_safe t
         in
         (* one pass: rewrite the first condition a step applies to *)
@@ -590,7 +581,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
                   match List.find_opt (fun (mc, _, _) -> mc = c) ms with
                   | Some (_, ps, residual)
                     when List.length ps = List.length args ->
-                      let resid = subst (List.combine ps args) residual in
+                      let resid = R.subst (List.combine ps args) residual in
                       Some
                         {
                           r with
@@ -610,7 +601,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
               else raise Dead
           | (R.Var v, t) :: rest
             when Hashtbl.mem fresh_set v
-                 && (not (List.mem v (term_vars t)))
+                 && (not (List.mem v (R.vars_of_term t)))
                  && pattern_safe t ->
               Some
                 (subst_rule
@@ -618,7 +609,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
                    { r with R.conds = List.rev_append pre rest })
           | (t, R.Var v) :: rest
             when Hashtbl.mem fresh_set v
-                 && (not (List.mem v (term_vars t)))
+                 && (not (List.mem v (R.vars_of_term t)))
                  && pattern_safe t ->
               Some
                 (subst_rule
@@ -666,7 +657,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
           reason
       in
       let pick_guard (r : R.rule) =
-        let lhs_vars = term_vars r.R.lhs in
+        let lhs_vars = R.vars_of_term r.R.lhs in
         let rec find pre = function
           | [] -> None
           | (R.App (s, [ R.Var v ]), rr) :: rest
@@ -703,13 +694,14 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
                          let sf = List.map (fun _ -> fresh ()) ps in
                          let theta = [ (v, T.app_t c (List.map T.var_t sf)) ] in
                          let resid =
-                           subst
+                           R.subst
                              (List.combine ps (List.map T.var_t sf))
                              residual
                          in
                          let conds =
                            List.map
-                             (fun (l, rr) -> (subst theta l, subst theta rr))
+                             (fun (l, rr) ->
+                               (R.subst theta l, R.subst theta rr))
                              (pre @ rest)
                          in
                          let conds =
@@ -718,8 +710,8 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
                          in
                          let r' =
                            {
-                             R.lhs = subst theta r.R.lhs;
-                             rhs = subst theta r.R.rhs;
+                             R.lhs = R.subst theta r.R.lhs;
+                             rhs = R.subst theta r.R.rhs;
                              conds;
                              owise = r.R.owise;
                            }
@@ -1036,7 +1028,7 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
 let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
     (succ : string list) (acc : acc) ((l, r) : R.cond) : unit =
   let unbound t =
-    List.filter (fun v -> not (List.mem_assoc v acc.sub)) (term_vars t)
+    List.filter (fun v -> not (List.mem_assoc v acc.sub)) (R.vars_of_term t)
   in
   (match unbound l with
   | [] -> ()
@@ -1058,7 +1050,7 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
                 | Some [ t ] -> Some t.it
                 | _ -> None)))
   in
-  let sl = subst (sub_terms acc) l in
+  let sl = R.subst (sub_terms acc) l in
   check_reflectable tbl effectful succ sl;
   if r = T.bool_t ~scalars true then push acc sl
   else if r = T.bool_t ~scalars false then push acc (T.not_t sl)
@@ -1081,7 +1073,7 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
            join, reflectable as [eq] once its variables are bound *)
         match unbound r with
         | [] ->
-            let sr = subst (sub_terms acc) r in
+            let sr = R.subst (sub_terms acc) r in
             check_reflectable tbl effectful succ sr;
             push_eq ~scalars sup acc sl sr
         | v :: _ ->
@@ -1146,7 +1138,7 @@ let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
      defense in depth.) *)
   let is_ready ((l, r) : R.cond) =
     redundant_membership_test (l, r)
-    || List.for_all (fun v -> List.mem_assoc v acc.sub) (term_vars l)
+    || List.for_all (fun v -> List.mem_assoc v acc.sub) (R.vars_of_term l)
   in
   let rec schedule (remaining : R.cond list) : unit =
     let rec pick seen = function
@@ -1390,7 +1382,7 @@ let complement_clauses ~scalars (tbl : tables) (sup : support)
                  in
                  {
                    R.lhs = T.app_t f head_args;
-                   rhs = subst sub r.R.rhs;
+                   rhs = R.subst sub r.R.rhs;
                    conds;
                    owise = false;
                  })
@@ -1554,7 +1546,7 @@ let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
   let acc =
     {
       tests = [];
-      sub = List.map (fun v -> (v, (R.Var v, None))) (term_vars step.R.lhs);
+      sub = List.map (fun v -> (v, (R.Var v, None))) (R.vars_of_term step.R.lhs);
     }
   in
   List.iter
@@ -1640,7 +1632,9 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
           {
             tests = [];
             sub =
-              List.map (fun v -> (v, (R.Var v, None))) (term_vars step.R.lhs);
+              List.map
+                (fun v -> (v, (R.Var v, None)))
+                (R.vars_of_term step.R.lhs);
           }
         in
         List.iter

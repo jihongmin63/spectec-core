@@ -142,6 +142,13 @@ let rec count_var (v : string) = function
   | Var u -> if u = v then 1 else 0
   | App (_, ts) -> List.fold_left (fun n t -> n + count_var v t) 0 ts
 
+(* Substitute variables by name throughout a term (parallel, by association
+   list): a variable bound in [pairs] is replaced, all others are kept. *)
+let rec subst (pairs : (string * term) list) (t : term) : term =
+  match t with
+  | Var v -> ( match List.assoc_opt v pairs with Some t' -> t' | None -> t)
+  | App (sym, ts) -> App (sym, List.map (subst pairs) ts)
+
 (* Drop later duplicates, preserving first-occurrence order. *)
 let dedup_stable (xs : string list) : string list =
   let seen = Hashtbl.create 64 in

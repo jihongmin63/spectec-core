@@ -49,6 +49,10 @@ val vars_of_rule : rule -> string list
 (** Occurrences of variable [v] in a term. *)
 val count_var : string -> term -> int
 
+(** Substitute variables by name throughout a term (parallel, by association
+    list): a variable bound in the list is replaced, all others are kept. *)
+val subst : (string * term) list -> term -> term
+
 (** Drop later duplicates, preserving first-occurrence order. *)
 val dedup_stable : string list -> string list
 

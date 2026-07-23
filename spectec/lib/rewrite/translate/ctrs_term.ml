@@ -469,14 +469,6 @@ let yields_int (e : exp) : bool =
 let fresh_vars ?(prefix = "x") (n : int) : R.term list =
   List.init n (fun i -> var_t (Printf.sprintf "%s%d" prefix i))
 
-(* Substitute variables by name throughout a term. Used to rename a helper
-   body's element variables to the fresh per-step names its defining rule
-   introduces. *)
-let rec subst_term (pairs : (string * R.term) list) (t : R.term) : R.term =
-  match t with
-  | R.Var v -> ( match List.assoc_opt v pairs with Some t' -> t' | None -> t)
-  | R.App (sym, ts) -> R.App (sym, List.map (subst_term pairs) ts)
-
 (* The byte alphabet of a rule set's text literals, read back from the
    [chr_<n>] constants the rules contain (texts translate to char lists, so
    every byte in play appears as such a constant). *)
