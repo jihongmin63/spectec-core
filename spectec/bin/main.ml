@@ -472,8 +472,7 @@ let confluence_command =
                Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il
                  slice
              in
-             ( Printf.sprintf "%s\t%s\t%s" sym
-                 (verdict r.church_rosser)
+             ( Printf.sprintf "%s\t%s\t%s" sym (verdict r.church_rosser)
                  (verdict r.coherence),
                not
                  (r.church_rosser = Rewrite.Mfe.Yes
