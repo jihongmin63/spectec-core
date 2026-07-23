@@ -320,7 +320,7 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
     { r with R.conds }
   in
   let rules = List.map hoist_rule sys.R.rules in
-  { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
+  R.of_rules rules
 
 (* -------------------------------------------------------------------------- *)
 (* Comparison / negation guard alignment.
@@ -740,7 +740,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
       "reflect: subty expansion: %d clause(s) -> %d clone(s) (%d dead, %d \
        vacuous guard(s) dropped)\n"
       !clauses_expanded !clones_kept !clones_dead !vacuous_dropped;
-  { R.rules; vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) }
+  R.of_rules rules
 
 (* -------------------------------------------------------------------------- *)
 (* Support rules a guard may need: matcher families, struct accessors, and the

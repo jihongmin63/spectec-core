@@ -145,6 +145,12 @@ let dedup_stable (xs : string list) : string list =
         true))
     xs
 
+(* Rebuild a system from its rules, recomputing the variable list in stable
+   first-occurrence order. Every pass that filters, rewrites or extends the
+   rule list closes with this. *)
+let of_rules (rules : rule list) : t =
+  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+
 (* Every function symbol applied anywhere in a term (the [App] heads). *)
 let rec heads_of_term = function
   | Var _ -> []
@@ -211,8 +217,7 @@ let slice (t : t) ~(roots : string list) : t =
         | None -> false)
       t.rules
   in
-  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
-  { rules; vars }
+  of_rules rules
 
 (* -------------------------------------------------------------------------- *)
 (* Premise-binder normalization (analysis-surface confluence). *)
@@ -376,8 +381,7 @@ let fold_premise_binders ?(aggressive = false) (t : t) : t =
     { r with conds = List.filter (fun (l, rr) -> l <> rr) r.conds }
   in
   let rules = List.map fold_rule t.rules in
-  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
-  { rules; vars }
+  of_rules rules
 
 (* Restore every rule's conditions to binding order. A condition [s = t]
    evaluates [s] and matches the result against the pattern [t], so [s]'s
@@ -440,8 +444,7 @@ let order_conds (t : t) : t =
       { r with conds = schedule (vars_of_term r.lhs) r.conds [] }
   in
   let rules = List.map order_rule t.rules in
-  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
-  { rules; vars }
+  of_rules rules
 
 (* CRC-only normalization: an aggressive single-variable inline (the
    [uses = 1] cap dropped) followed by a re-order. A condition
@@ -618,8 +621,7 @@ let crc_unravel (t : t) : t =
       (fun (chain, _, _, tail, rhs) ->
         emit { lhs = !chain; rhs; conds = tail; owise = false })
       work;
-    let rules = plain @ List.rev !emitted in
-    { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+    of_rules (plain @ List.rev !emitted)
 
 let crc_normalize (t : t) : t =
   t |> fold_premise_binders ~aggressive:true |> crc_unravel |> order_conds
@@ -660,7 +662,7 @@ let drop_conds (t : t) : t =
       "unconditional: dropped conditions from %d rule(s) (%d rhs replaced by \
        lhs)\n"
       !dropped !identity_rhs;
-  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+  of_rules rules
 
 (* SCC-facing over-approximation, part 2: rename the second and later
    occurrences of any repeated LHS variable ([eqg(x, x)], [$iterproj]'s captured
@@ -714,7 +716,7 @@ let linearize_lhs (t : t) : t =
   if !linearized > 0 then
     Printf.eprintf "unconditional: linearized %d non-left-linear lhs\n"
       !linearized;
-  { rules; vars = dedup_stable (List.concat_map vars_of_rule rules) }
+  of_rules rules
 
 (* -------------------------------------------------------------------------- *)
 (* Maude lexical layer, shared by both Maude surfaces ({!To_maude} execution and

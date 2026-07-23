@@ -181,5 +181,4 @@ let thread ~scalars (sys : R.t) : R.t =
       @ List.map (issue_rule ~scalars) used_roots
       @ prime_eq_rules ~scalars (T.char_codes_of_rules sys.R.rules)
     in
-    let vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) in
-    { R.vars; rules }
+    R.of_rules rules

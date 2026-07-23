@@ -1597,9 +1597,7 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
       (type_rules @ char_rules @ iter_rules @ sub_rules @ extra_defs)
       body_rules
   in
-  let rules = type_rules @ body_rules in
-  let vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) in
-  { R.vars; rules }
+  R.of_rules (type_rules @ body_rules)
 
 (* The slice roots: the symbol each top-level function/relation defines, in spec
    order. *)
