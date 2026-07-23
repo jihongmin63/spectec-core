@@ -98,7 +98,9 @@ confluence/termination 검사용). `reachable_heads`/`refs_of_rule`/`defined_hea
 검사기-향 패스 패밀리는 별도 모듈이다: 분석(CRC) 정규화는 `crc_surface.ml`
 (`fold_premise_binders`/`order_conds`/`crc_unravel`/`crc_normalize`), SCC 과근사는
 `scc_surface.ml`(`drop_conds`/`linearize_lhs`). `rewrite_system.ml`에는 데이터
-모델·쿼리·슬라이싱·진단 프린터·Maude 철자 레이어만 남는다.
+모델·공유 term 어휘(`vars_of_term`/`subst`/`of_rules`)·슬라이싱·진단 프린터·CTRS-safe
+id 스크럽(`sanitize`)만 남는다 — Maude 철자(`_`→`-`)는 `maude/maude_ident.ml`
+(`id`/`var`, 구 `maude_id`/`maude_var`)로 분리됐다.
 
 ---
 

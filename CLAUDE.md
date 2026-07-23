@@ -34,7 +34,7 @@ updated per-change; this file is trimmed periodically).
 Lang.Il.spec ──Defunctionalize──▶ Simplify (identity) ──▶ To_ctrs.of_spec ~scalars ──▶ Gensym.thread
                                                               │
                         Structural scalars ──▶ Rewrite_system.t ──▶ Reflect (hoist_matchers/owise)
-                        (self-contained Peano/                       + fold_premise_binders
+                        (self-contained Peano/                       + Crc_surface folds
                          sign-magnitude/char-list/                        │
                          own-bool)                                        ▼
                                                                     To_mfe ──▶ MFE (CRC + ChC)
@@ -45,15 +45,17 @@ Lang.Il.spec ──Defunctionalize──▶ Simplify (identity) ──▶ To_ctr
 ```
 
 Two pipeline entries in [pipeline.ml](spectec/lib/rewrite/pipeline.ml):
-`ctrs_of_spec` (analysis: `~scalars:Structural`, plus three analysis-only final
-passes — `Reflect.hoist_matchers`, `Rewrite_system.fold_premise_binders`,
-`Reflect.owise` — that turn opaque guards into disjoint head patterns and
-owise/negation guards the MFE's CRC can discharge) and
-`maude_system_of_spec` (execution: `~scalars:Native`, a **direct** translation
-target, not a re-fold of the structural system). Both wrap the same core
-translation with `Defunctionalize` first and `Gensym.thread` last; each pass is
-the identity on a spec that doesn't use its feature (so `impty` goldens are
-untouched).
+`ctrs_of_spec` (analysis: `~scalars:Structural`, then a chain of analysis-only
+passes split across `Reflect` (`hoist_matchers`/`expand_subty_guards`/
+`align_guards`/`owise`) and `Crc_surface` (`fold_premise_binders`/`order_conds`)
+that turn opaque guards into disjoint head patterns and owise/negation guards the
+MFE's CRC can discharge — see `Pipeline.ctrs_of_spec` for the exact stage order)
+and `maude_system_of_spec` (execution: `~scalars:Native`, a **direct**
+translation target, not a re-fold of the structural system; exposed as
+`Rewrite.maude_system` so a run driver builds it once and threads it into the
+run encoders instead of each rebuilding it). Both wrap the same core translation
+with `Defunctionalize` first and `Gensym.thread` last; each pass is the identity
+on a spec that doesn't use its feature (so `impty` goldens are untouched).
 
 **`Simplify.simplify_spec` is deliberately the identity** in this project — the
 original `rewrite` branch ran semantics-preserving IL→IL rewriting here (a
@@ -68,21 +70,25 @@ is ground truth.
 
 | File | Role |
 |------|------|
-| [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: re-exports submodules, `rewrite_spec = Pipeline.ctrs_of_spec`, `def_symbols`. |
+| [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: re-exports submodules, `rewrite_spec = Pipeline.ctrs_of_spec`, `maude_system = Pipeline.maude_system_of_spec`, `def_symbols`. |
 | [pipeline.ml](spectec/lib/rewrite/pipeline.ml) / `.mli` | `ctrs_of_spec` (analysis) and `maude_system_of_spec` (execution); the shared `build`/`build_with` core. |
-| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, shared lexical layer (`sanitize`, `maude_id`, `maude_var`), `slice`/`reachable_heads`/`fold_premise_binders`/`drop_owise`. No Maude module emission (that's `maude/`). |
-| [translate/ctrs_term.ml](spectec/lib/rewrite/translate/ctrs_term.ml) | Symbol-naming vocabulary (`variant_sym`/`func_sym`/`rel_sym`/…), smart term/rule builders, `scalar_theory = Structural \| Native` and the mode-aware scalar leaf builders. The one place raw `R.App`/`R.Var` gets built. |
+| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are `crc_surface.ml`/`scc_surface.ml`), no Maude module emission (`maude/`). |
+| [crc_surface.ml](spectec/lib/rewrite/crc_surface.ml) / `.mli` | Analysis (CRC) normalization passes lifted out of the data model: `fold_premise_binders`, `order_conds`, `crc_unravel`, `crc_normalize`. |
+| [scc_surface.ml](spectec/lib/rewrite/scc_surface.ml) / `.mli` | SCC over-approximation passes: `drop_conds`, `linearize_lhs`. |
+| [translate/ctrs_term.ml](spectec/lib/rewrite/translate/ctrs_term.ml) | Symbol-naming vocabulary (`variant_sym`/`func_sym`/`rel_sym`/…) including the derived-predicate spellings (`match_`/`subty_`/`holds_` prefixes, `eqg`), smart term/rule builders, `scalar_theory = Structural \| Native` and the mode-aware scalar leaf builders. The one place raw `R.App`/`R.Var` gets built. |
 | [translate/prelude.ml](spectec/lib/rewrite/translate/prelude.ml) / `.mli` | Fixed rule set giving `Ctrs_term`'s symbols their semantics (bool/nat/int/list/option ops). `Native` drops `native_replaced_heads` (delegated by `To_maude` instead). |
 | [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`. Every SpecTecx relation is input-moded (`hint(input …)`), hence functional — relations translate like functions and emit as equations (`--relations-as-rules` is the only rl/crl path, a `--search` debugging override). The invariant is enforced at elaboration (`fetch_rel_input_dirs`: a hint-less relation defaults to all-input with a warning), so the translator needs no guard of its own. |
 | [translate/var_hints.ml](spectec/lib/rewrite/translate/var_hints.ml) / `.mli` | Per-symbol variable→IL-type map (from `VarE` notes), used only by `To_maude` to restore narrow declared types. |
+| [translate/spec_index.ml](spectec/lib/rewrite/translate/spec_index.ml) / `.mli` | One constructor/field/relation-signature index built per spec (physical-equality memo), so `Reflect`, `Of_maude`, `Maude_sorts` and `To_maude` derive their views from it instead of each re-walking the whole spec. |
 | [translate/simplify.ml](spectec/lib/rewrite/translate/simplify.ml) / `.mli` | **Identity** — see above. |
 | [translate/exp_map.ml](spectec/lib/rewrite/translate/exp_map.ml) / `.mli` | Shallow one-level IL traversal helpers (`map_subexps`/`subexps`/`exps_of_prem`), used by `Defunctionalize`. |
 | [translate/builtin.ml](spectec/lib/rewrite/translate/builtin.ml) / `.mli` | CTRS rules for P4's collection builtins (`BuiltinDecD`s the interpreter implements natively); fed to `of_spec` as `extra_defs`. |
 | [translate/gensym.ml](spectec/lib/rewrite/translate/gensym.ml) / `.mli` | Makes `$fresh_typeId`/`$fresh_tid` pure via state threading (`thread`, `effectful_syms`, `root_syms`, `seed_text`). Runs last in the pipeline; identity on gensym-free specs. |
 | [translate/defunctionalize.ml](spectec/lib/rewrite/translate/defunctionalize.ml) / `.mli` | Specializes away `def`-valued arguments by call-site specialization. Runs first; identity without `DefP` (e.g. impty). |
 | [translate/reflect.ml](spectec/lib/rewrite/translate/reflect.ml) / `.mli` | Analysis-only: `owise` (explicit sibling-disjointness guards + judgment reflection) and `hoist_matchers` (respell opaque `match_K` guards so `fold_premise_binders` can fold discriminators into head patterns). |
+| [maude/maude_ident.ml](spectec/lib/rewrite/maude/maude_ident.ml) / `.mli` | The Maude lexical layer shared by both Maude surfaces: `id` (operator id — `_`→`-`) and `var` (variable name), so operator/variable spellings agree. Was `maude_id`/`maude_var` in `rewrite_system.ml`. |
 | [maude/maude_theory.ml](spectec/lib/rewrite/maude/maude_theory.ml) / `.mli` | Native scalar vocabulary: wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) + literal builders, shared by `Ctrs_term`, `To_maude`, `Of_maude`. No fold pass (leaf builders emit these directly at translation time). |
-| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. The `match_`/`subty_`/`holds_` predicates are declared nowhere, so `predicate_domains` recovers each domain as the **join of every subject the rules pass it** (`--wide-predicate-domains` restores the old blanket `Val`); pass `~sig_rules` with the whole system when emitting a slice, or the domains collapse to their seed. |
+| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) / `.mli` | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. The `match_`/`subty_`/`holds_` predicates are declared nowhere, so `predicate_domains` recovers each domain as the **join of every subject the rules pass it** (`--wide-predicate-domains` restores the old blanket `Val`); pass `~sig_rules` with the whole system when emitting a slice, or the domains collapse to their seed. |
 | [maude/to_mfe.ml](spectec/lib/rewrite/maude/to_mfe.ml) | Analysis Maude surface: emits the structural CTRS as an order-sorted Full-Maude `(mod … endm)`. Consumed by `rewrite --ctrs` and `Mfe.check`. |
 | [maude/to_maude.ml](spectec/lib/rewrite/maude/to_maude.ml) / `.mli` | Execution backend: executable order-sorted Maude module (op decls, eq/rl, built-in delegations, `owise` totalization) plus the META-TERM start-term encoder (`print_meta_term`/`meta_term_of_value`) that `metaReduce` runs. |
 | [maude/of_maude.ml](spectec/lib/rewrite/maude/of_maude.ml) / `.mli` | Reverse of the start-term encoder: parses a Maude normal form back into an IL `value`; `canonicalize` normalizes gensym names and sorts map entries so both sides of the result-VALUE oracle compare equal. |
@@ -119,8 +125,9 @@ These **must agree** between the rule that defines a symbol and every rule that
 uses it.
 
 - `sanitize` (in `rewrite_system.ml`) scrubs a string to a CTRS-safe id
-  (`->` → `minus_gt`, `&&` → `amp_amp`); Maude surfaces further mangle `_`→`-`
-  (`maude_id`) and scrub variable names (`maude_var`).
+  (`->` → `minus_gt`, `&&` → `amp_amp`); the Maude surfaces further mangle `_`→`-`
+  (`Maude_ident.id`) and scrub variable names (`Maude_ident.var`) in
+  `maude/maude_ident.ml`.
 - Arity is folded into variant/case symbols (`variant_<origin>_<atoms>_<n>`).
 - `func_sym id` = `$` + sanitize (functions), `rel_sym id` = sanitize
   (relations). Constructors: `variant_sym`, `struct_sym`, `field_sym`,
@@ -153,7 +160,7 @@ become CTRS conditions; the result/output becomes the rhs.
 
 ## CLI entry points ([bin/main.ml](spectec/bin/main.ml))
 
-- **`rewrite [--ctrs] [--simplified] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--list-symbols] [--sizes] [--relations-as-rules] FILES…`**
+- **`rewrite [--ctrs] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--list-symbols] [--sizes] [--relations-as-rules] FILES…`**
   — default emits the executable Maude module (`To_maude.module_of_spec`).
   `--ctrs` dumps the analysis CTRS instead (`To_mfe.module_of_system`, what
   `confluence` sends the MFE); `--symbol` slices to one dependency closure and
@@ -162,8 +169,9 @@ become CTRS conditions; the result/output becomes the rhs.
   below; `--prune-signature` keeps only the signature the rules use (rules
   untouched, so verdicts are preserved). `--list-symbols` lists the sliceable
   symbols (the names the `--symbol`/`--all` checkers take) and `--sizes` ranks
-  them by slice rule count — the cheap tractability proxy. `--simplified` dumps
-  the IL after `Simplify` (currently a no-op, so this is identical to the input).
+  them by slice rule count — the cheap tractability proxy. (To inspect the
+  elaborated IL itself, use the `elab` command — `Simplify` is the identity, so
+  there is no separate "simplified" dump.)
 - **`confluence [--symbol NAME]… | --all [--crc-normalize] [--timeout S] [--maude-bin P] [--mfe-dir D] [--out TSV] FILES…`**
   — per-slice MFE CRC+ChC (`Mfe.check`), one TSV row per symbol
   `<sym>\t<church-rosser>\t<coherence>`; exit non-zero if any row is not
@@ -195,6 +203,11 @@ become CTRS conditions; the result/output becomes the rhs.
   typechecks each `--p4` program with the interpreter and diffs the RESULT
   value against Maude's (`Of_maude`) — the Phase D oracle. `--timeout` defaults
   to 0 (no limit); see "Performance notes" for why a fixed default cannot work.
+
+The `--all`/`--out` sweep machinery (root selection, resume, row formatting)
+shared by `confluence`/`termination`/`scc` lives in
+[lib/cli/analysis_sweep.ml](spectec/lib/cli/analysis_sweep.ml), not `bin/main.ml`
+— `bin/` keeps only the command wiring.
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
