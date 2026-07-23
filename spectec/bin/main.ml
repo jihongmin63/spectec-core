@@ -184,9 +184,8 @@ let whole_system_sig_rules (system : Rewrite.Rewrite_system.t) :
 (* Translate an elaborated IL spec to Maude. The default output is the
    executable, order-sorted Maude module ([Rewrite.To_maude.module_of_spec]) --
    the surface [run] executes. [--ctrs] instead dumps the analysis CTRS
-   (single-sort Full Maude system, the same text [verify] sends the MFE), and
-   [--simplified] the IL after the [Simplify] pre-pass; both are debug views of
-   the translation stages. *)
+   (single-sort Full Maude system, the same text [verify] sends the MFE), a
+   debug view of the translation stage. *)
 let rewrite_command =
   Core.Command.basic ~summary:"translate a spec to an executable Maude module"
   @@
@@ -199,9 +198,6 @@ let rewrite_command =
       ~doc:
         " dump the analysis CTRS (single-sort Full Maude system, what \
          confluence checks) instead of the executable module"
-  and simplified =
-    flag "--simplified" no_arg
-      ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
   and symbol =
     flag "--symbol" (optional string)
       ~doc:
@@ -285,8 +281,6 @@ let rewrite_command =
         Ok
           (String.concat "\n"
              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows))
-    else if simplified then
-      Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
       let sig_rules = whole_system_sig_rules system in
