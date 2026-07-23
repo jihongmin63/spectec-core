@@ -95,6 +95,11 @@ CRC(등식 confluence)/ChC가 소비(§6.5).
 confluence/termination 검사용). `reachable_heads`/`refs_of_rule`/`defined_head`가
 도달성 분석의 기본 연산.
 
+검사기-향 패스 패밀리는 별도 모듈이다: 분석(CRC) 정규화는 `crc_surface.ml`
+(`fold_premise_binders`/`order_conds`/`crc_unravel`/`crc_normalize`), SCC 과근사는
+`scc_surface.ml`(`drop_conds`/`linearize_lhs`). `rewrite_system.ml`에는 데이터
+모델·쿼리·슬라이싱·진단 프린터·Maude 철자 레이어만 남는다.
+
 ---
 
 ## 3. 번역 (`To_ctrs`) — 심장
@@ -577,7 +582,7 @@ SpecTecx 관계가 입력-모드(함수적)라서, 비입력-모드 관계를 `r
 > todo.md P2 `otherwise` 예측의 실제 발현, `$lookup`은 가드가 `match_*`라 회피). 자세한
 > 표는 [todo.md](todo.md) "Mfe calibration".
 >
-> **원인 (1)은 `Rewrite_system.fold_premise_binders`로 해소(done).** `ctrs_of_spec`
+> **원인 (1)은 `fold_premise_binders`(현 `crc_surface.ml`)로 해소(done).** `ctrs_of_spec`
 > 마지막에 전제로만 묶이는 변수를 규칙에 도로 접는다 — 출력 바인더 `(prod,v)`는 rhs로
 > 인라인, 순수 접근자 구조분해 `(v,K(..))`는 head 패턴으로 폴드(iteration helper 재귀
 > 바인더 포함). 분석 표면 전용(실행 모듈 byte-identical). **수술적**으로 제한: 가드 절

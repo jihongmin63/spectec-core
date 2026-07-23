@@ -180,7 +180,7 @@ let variant_case (tbl : tables) (ty : string) (ctor : string) :
    (matcher symbol -> its constructor + arity) mirrors [build_tables]'s
    [ctor_types] construction, walked backwards.
 
-   [Rewrite_system.fold_premise_binders] only recognizes a condition shaped
+   [Crc_surface.fold_premise_binders] only recognizes a condition shaped
    [Var v = K(..)] / [K(..) = Var v], so an opaque [match_K(v) = true] guard
    never qualifies -- this respelling is what lets a head-bound discriminator
    variable fold into the constructor pattern the guard tests, turning a
@@ -289,7 +289,7 @@ let hoist_matchers ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t) : R.t
     (* [v]'s ONLY other occurrence destructures it against the very constructor
        the matcher tests, so [match_K(v) = true] restates what [v = K(..)]
        already says: dropping it loses nothing and frees
-       {!Rewrite_system.fold_premise_binders} (whose "used in no other
+       {!Crc_surface.fold_premise_binders} (whose "used in no other
        condition" gate the matcher itself was tripping) to fold the destructure
        into the head. *)
     let restated_by_destructure i (v : string) (ctor : string) : bool =
@@ -1140,7 +1140,7 @@ let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
      picking whichever remaining condition is already satisfiable (its [l]'s
      free variables are bound) until none are; whatever is left is fed through
      in original order so a genuinely unreflectable rule still raises its
-     ordinary [Gate]. ({!Rewrite_system.order_conds} now normalizes the
+     ordinary [Gate]. ({!Crc_surface.order_conds} now normalizes the
      pipeline's conds to binding order upstream, but this scheduler also
      credits [redundant_membership_test] conds as ready, so it stays as
      defense in depth.) *)
@@ -1597,7 +1597,7 @@ let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
      arguments, ANDed with the recursive success;
    - anything else: the element is discarded and the reflected step
      conditions are and-folded, as for [$iterall]. A general collect can
-     ALSO be unconditional here -- {!Rewrite_system.fold_premise_binders}
+     ALSO be unconditional here -- {!Crc_surface.fold_premise_binders}
      folds a let-destructure condition into the step's lhs pattern -- and
      then the fold is simply empty (success is just the recursive call). *)
 let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
@@ -1720,7 +1720,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   let is_itercollect f = has_prefix "$itercollect" f in
   let is_iter_helper f = is_iterall f || is_itercollect f in
   (* A dependency can sit anywhere in a condition term, not just as its LHS's
-     own head: {!Rewrite_system.fold_premise_binders} (the pass just before
+     own head: {!Crc_surface.fold_premise_binders} (the pass just before
      this one) inlines a premise's output binder at its use sites, so a
      collecting helper's call can end up nested inside another condition's
      arguments (e.g. a later [$iterall]'s stream argument) instead of

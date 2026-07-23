@@ -20,7 +20,7 @@ val owise :
 (** Respell an opaque matcher test [match_K(v) = true] (from a
     [CaseP]/[OptP]/[ListP] `Cons`/`Nil` guard) as the structural equation
     [v = K(fresh..)], for a bare-variable subject [v] no OTHER condition of the
-    same rule mentions, so {!Rewrite_system.fold_premise_binders} -- run
+    same rule mentions, so {!Crc_surface.fold_premise_binders} -- run
     immediately after this pass -- can fold a head-bound discriminator variable
     into the constructor pattern it tests. A subject [v] a companion condition
     also mentions (e.g. a separate destructuring [let K(x, y) = v] alongside the

@@ -285,8 +285,8 @@ let rewrite_command =
       let emit sys =
         let sys' =
           if unconditional then
-            Rewrite.Rewrite_system.(linearize_lhs (drop_conds sys))
-          else if crc_normalize then Rewrite.Rewrite_system.crc_normalize sys
+            Rewrite.Scc_surface.(linearize_lhs (drop_conds sys))
+          else if crc_normalize then Rewrite.Crc_surface.crc_normalize sys
           else sys
         in
         let fidelity = if sys' = sys then "exact" else "approx" in
@@ -734,7 +734,7 @@ let run_command =
    ({!Rewrite.rewrite_spec}/{!Rewrite.To_mfe}) -- the third oracle leg
    (todo.md "CTRS(구조적) differential"): unlike [run] (the [Native] execution
    module, {!Rewrite.To_maude}), this actually EXECUTES the surface
-   {!Rewrite.Reflect.owise}/{!Rewrite.Rewrite_system.fold_premise_binders} feed
+   {!Rewrite.Reflect.owise}/{!Rewrite.Crc_surface.fold_premise_binders} feed
    the MFE confluence/coherence checker, so a semantic bug those analysis-only
    passes introduced (previously invisible to byte-identical goldens + CRC/ChC
    verdicts alone) would show up here as a wrong decoded result. Mirrors

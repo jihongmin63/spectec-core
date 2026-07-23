@@ -48,18 +48,17 @@ val check :
   result
 
 (** The upgrade-only verdict transfer: a [normalized] YES proves the [original]
-    system's property (the {!Rewrite_system.crc_normalize} inline is an
-    equivalence and its unravel REFLECTS confluence -- Marchiori 1996;
-    Nishida-Sakai-Sakabe LMCS 2012), so an inconclusive original ([Maybe]/
-    [Timeout]) is upgraded to [Yes] and NOTHING ELSE ever changes: any other
-    normalized outcome keeps the original verdict (never a downgrade -- a
-    normalized MAYBE says nothing about the original, since the unravel does not
-    preserve confluence). *)
+    system's property (the {!Crc_surface.crc_normalize} inline is an equivalence
+    and its unravel REFLECTS confluence -- Marchiori 1996; Nishida-Sakai-Sakabe
+    LMCS 2012), so an inconclusive original ([Maybe]/ [Timeout]) is upgraded to
+    [Yes] and NOTHING ELSE ever changes: any other normalized outcome keeps the
+    original verdict (never a downgrade -- a normalized MAYBE says nothing about
+    the original, since the unravel does not preserve confluence). *)
 val upgrade : original:verdict -> normalized:verdict -> verdict
 
 (** [check] followed by an upgrade-only retry: when a component verdict is
     inconclusive ([Maybe]/[Timeout]), the system is re-checked with
-    {!Rewrite_system.crc_normalize} applied AND its signature pruned
+    {!Crc_surface.crc_normalize} applied AND its signature pruned
     ([~prune_signature:true], verdict-preserving), and each component is
     {!upgrade}d independently. A system the normalization leaves unchanged is
     not re-run. The base check stays unpruned, matching the plain {!check}

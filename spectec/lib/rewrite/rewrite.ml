@@ -1,4 +1,6 @@
 module Rewrite_system = Rewrite_system
+module Crc_surface = Crc_surface
+module Scc_surface = Scc_surface
 module To_ctrs = To_ctrs
 module Simplify = Simplify
 module To_maude = To_maude

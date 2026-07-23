@@ -22,7 +22,7 @@ module T = Ctrs_term
       wrappers, and nothing is imported ([set include BOOL off .] so the
       module's own [true]/[false]/[and]/[not] stand);
     - conditions stay in the CTRS join form [s = t] in source order -- which
-      {!Rewrite_system.order_conds} has normalized to binding order, so a
+      {!Crc_surface.order_conds} has normalized to binding order, so a
       condition's evaluated side only uses variables an earlier pattern bound
       (the MFE analyses the equations; it does not need {!To_maude}'s [:=]/[=>]
       operational scheduling, [isStuckHead] guards, delegation equations, or
@@ -87,7 +87,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   MS.predicate_domains ~mode:predicates ~edges ~hint tbl sig_rules;
   let sg0 sym arity = MS.signature tbl sym arity in
   (* [--crc-normalize] introduces the chain operators [crcu<id>]/[crck<id>] that
-     {!Rewrite_system.crc_unravel} builds. They are not IL symbols, so [tbl] has
+     {!Crc_surface.crc_unravel} builds. They are not IL symbols, so [tbl] has
      no signature and [sg0] defaults them to all-[Val] -- which widens every
      chain-step pattern variable to [Val] and costs the CRC spurious overlaps.
      Recover a real signature for each from the emitted rules:
@@ -100,7 +100,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      [f] (so its real hints/arg sorts apply), and a deeper step
      [crcu i (..) = crcu (i+1) (..)] is well-typed only once the smaller-id
      operators already have real sorts. So fill [crc_sigs] in ascending id order
-     (= level order: {!Rewrite_system.crc_unravel} gives level-0 groups the
+     (= level order: {!Crc_surface.crc_unravel} gives level-0 groups the
      lowest ids) with [sg] consulting the table as it grows, resolving each
      step's dependencies first. This narrowing is sound exactly as the rest of
      the order-sorted encoding is: a carried variable keeps the sort of the value

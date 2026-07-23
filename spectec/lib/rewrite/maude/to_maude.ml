@@ -145,7 +145,7 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
    rather than loop.
 
    The analysis pipeline now pre-orders conditions upstream
-   ({!Rewrite_system.order_conds}), but this system arrives via the Native
+   ({!Crc_surface.order_conds}), but this system arrives via the Native
    pipeline, which does not -- and the [cond_form]-aware readiness here is
    this printer's own rendering concern either way, so the local scheduler
    stays. *)

@@ -76,7 +76,7 @@ let resolve_mfe271_dir = function
                  SPECTEC_MFE271_DIR (see spectec/tools/mfe/README.md)"))
 
 let unconditional (slice : R.t) : R.t * fidelity =
-  let uncond = R.linearize_lhs (R.drop_conds slice) in
+  let uncond = Scc_surface.linearize_lhs (Scc_surface.drop_conds slice) in
   (uncond, if uncond = slice then Exact else Approx)
 
 let module_text ?sig_rules (orig : Lang.Il.spec) (uncond : R.t) : string =

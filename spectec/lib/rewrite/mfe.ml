@@ -239,7 +239,7 @@ let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
   if not (inconclusive base.church_rosser || inconclusive base.coherence) then
     exact
   else
-    let normalized_sys = Rewrite_system.crc_normalize system in
+    let normalized_sys = Crc_surface.crc_normalize system in
     (* Nothing to normalize: re-running the checker on the identical module
        could only re-roll a Timeout, not upgrade a verdict. *)
     if normalized_sys = system then exact

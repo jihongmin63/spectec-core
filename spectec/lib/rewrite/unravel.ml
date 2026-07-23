@@ -46,7 +46,7 @@ let vars_of (t : R.term) : string list = R.dedup_stable (R.vars_of_term t)
 let subset (xs : string list) (ys : string list) : bool =
   List.for_all (fun x -> List.mem x ys) xs
 
-(* Greedy binding-order schedule (the {!R.order_conds} convention): repeatedly
+(* Greedy binding-order schedule (the {!Crc_surface.order_conds} convention): repeatedly
    take the first condition whose evaluated side is fully bound, then treat its
    pattern side as a binder. [None] on a residue nothing can bind (a cycle). *)
 let schedule_conds (lhs_vars : string list) (conds : R.cond list) :
