@@ -187,7 +187,7 @@ let parse (input : string) : mt =
 (* Forward tables: maude symbol -> the IL constructor it spells. *)
 
 type tables = {
-  tenv : (string, deftyp') Hashtbl.t;  (** alias resolution, like {!To_maude} *)
+  si : Spec_index.t;  (** the shared spec index (alias resolution) *)
   variants : (string, string * mixop * typ' list) Hashtbl.t;
       (** [maude_id (variant_sym origin mixop)] -> (origin, mixop, field types)
       *)
@@ -195,42 +195,23 @@ type tables = {
       (** [maude_id (struct_sym t)] -> (t, fields) *)
 }
 
-let case_origin_mixop (tc : typcase) : string * mixop =
-  (tc.origin.it.synid.it, Mixfix.to_mixop tc.notation.it)
-
+(* Re-key the shared index's constructor tables by Maude identifier: decode
+   reads symbols back from Maude output, so lookups arrive Maude-spelled. *)
 let build_tables (orig : spec) : tables =
-  let tenv = Hashtbl.create 256 in
+  let si = Spec_index.of_spec orig in
   let variants = Hashtbl.create 512 in
   let structs = Hashtbl.create 256 in
-  List.iter
-    (fun def ->
-      match def.it with
-      | TypD { synid = tid; deftyp = dt; _ } -> (
-          Hashtbl.replace tenv tid.it dt.it;
-          match dt.it with
-          | VariantT typcases ->
-              List.iter
-                (fun (tc : typcase) ->
-                  let origin, mixop = case_origin_mixop tc in
-                  let ftyps =
-                    List.map (fun t -> t.it) (Mixfix.args tc.notation.it)
-                  in
-                  Hashtbl.replace variants
-                    (R.maude_id (T.variant_sym origin mixop))
-                    (origin, mixop, ftyps))
-                typcases
-          | StructT fields ->
-              let fields = List.map (fun (a, t) -> (a, t.it)) fields in
-              Hashtbl.replace structs
-                (R.maude_id (T.struct_sym tid.it))
-                (tid.it, fields)
-          | PlainT _ -> ())
-      | _ -> ())
-    orig;
-  { tenv; variants; structs }
+  Hashtbl.iter
+    (fun sym payload -> Hashtbl.replace variants (R.maude_id sym) payload)
+    si.Spec_index.variant_cases;
+  Hashtbl.iter
+    (fun sym payload -> Hashtbl.replace structs (R.maude_id sym) payload)
+    si.Spec_index.struct_fields;
+  { si; variants; structs }
 
 (* One-slot memo on the spec (physical equality), like {!To_maude.meta_signature}:
-   a whole batch decodes against the same spec, so the tables are built once. *)
+   a whole batch decodes against the same spec, so the derived tables are built
+   once. *)
 let memo : (spec * tables) option ref = ref None
 
 let tables_of (orig : spec) : tables =
@@ -241,15 +222,8 @@ let tables_of (orig : spec) : tables =
       memo := Some (orig, t);
       t
 
-(* Follow [syntax T = U] aliases to the underlying type (mirrors
-   {!To_maude.sort_of_typ}'s alias handling). *)
-let rec resolve (tbl : tables) (ty : typ') : typ' =
-  match ty with
-  | VarT { synid; _ } -> (
-      match Hashtbl.find_opt tbl.tenv synid.it with
-      | Some (PlainT u) -> resolve tbl u.it
-      | _ -> ty)
-  | _ -> ty
+(* Follow [syntax T = U] aliases to the underlying type. *)
+let resolve (tbl : tables) (ty : typ') : typ' = Spec_index.resolve tbl.si ty
 
 (* -------------------------------------------------------------------------- *)
 (* Decode a parsed term to an IL value, threading the expected type. *)

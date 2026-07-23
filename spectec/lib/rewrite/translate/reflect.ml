@@ -76,108 +76,13 @@ open Common.Source
 open Lang.Il
 module R = Rewrite_system
 module T = Ctrs_term
-
-(* -------------------------------------------------------------------------- *)
-(* Tables read off the (defunctionalized) spec. *)
-
-type tables = {
-  typdefs : (string, deftyp') Hashtbl.t; (* type name -> definition *)
-  ctor_types : (string, string list) Hashtbl.t; (* variant sym -> type names *)
-  funcsigs : (string, typ list * typ) Hashtbl.t; (* $f -> params, result *)
-  relsigs : (string, typ list) Hashtbl.t; (* Rel -> input types *)
-  fieldsigs : (string, typ') Hashtbl.t; (* field_<ty>_<a> -> field type *)
-  rel_outs : (string, typ list) Hashtbl.t; (* Rel -> output types *)
-}
-
-let build_tables (orig : spec) : tables =
-  let tbl =
-    {
-      typdefs = Hashtbl.create 64;
-      ctor_types = Hashtbl.create 256;
-      funcsigs = Hashtbl.create 64;
-      relsigs = Hashtbl.create 64;
-      fieldsigs = Hashtbl.create 256;
-      rel_outs = Hashtbl.create 64;
-    }
-  in
-  List.iter
-    (fun (def : def) ->
-      match def.it with
-      | TypD { synid; deftyp; _ } -> (
-          if not (Hashtbl.mem tbl.typdefs synid.it) then
-            Hashtbl.add tbl.typdefs synid.it deftyp.it;
-          match deftyp.it with
-          | VariantT typcases ->
-              List.iter
-                (fun (tc : typcase) ->
-                  let { synid = oid; _ } = tc.origin.it in
-                  let ctor =
-                    T.variant_sym oid.it (Mixfix.to_mixop tc.notation.it)
-                  in
-                  let tys =
-                    Option.value
-                      (Hashtbl.find_opt tbl.ctor_types ctor)
-                      ~default:[]
-                  in
-                  if not (List.mem synid.it tys) then
-                    Hashtbl.replace tbl.ctor_types ctor (tys @ [ synid.it ]))
-                typcases
-          | StructT fields ->
-              List.iter
-                (fun ((a, ft) : typfield) ->
-                  Hashtbl.replace tbl.fieldsigs (T.field_sym synid.it a) ft.it)
-                fields
-          | _ -> ())
-      | DecD { defid; params; typ; _ } ->
-          let exps =
-            List.filter_map
-              (fun p -> match p.it with ExpP t -> Some t | DefP _ -> None)
-              params
-          in
-          if List.length exps = List.length params then
-            Hashtbl.replace tbl.funcsigs (T.func_sym defid) (exps, typ)
-      | RelD { relid; reltyp; _ } ->
-          let typs = Mixfix.args (Mode.notation reltyp.it) in
-          let idxs = List.init (List.length typs) Fun.id in
-          let ins, outs = Mode.partition reltyp.it idxs in
-          Hashtbl.replace tbl.relsigs (T.rel_sym relid)
-            (List.map (List.nth typs) ins);
-          Hashtbl.replace tbl.rel_outs (T.rel_sym relid)
-            (List.map (List.nth typs) outs)
-      | BuiltinDecD _ -> ())
-    orig;
-  tbl
-
-(* Unwrap plain aliases down to a variant/struct/structural type. *)
-let rec resolve (tbl : tables) (t : typ') : typ' =
-  match t with
-  | VarT { synid; _ } -> (
-      match Hashtbl.find_opt tbl.typdefs synid.it with
-      | Some (PlainT u) -> resolve tbl u.it
-      | _ -> t)
-  | _ -> t
-
-(* The case of variant type [ty] whose generated symbol is [ctor]:
-   its mixop, field types, and [ty]'s case count. *)
-let variant_case (tbl : tables) (ty : string) (ctor : string) :
-    (mixop * typ list * int) option =
-  match Hashtbl.find_opt tbl.typdefs ty with
-  | Some (VariantT typcases) ->
-      List.find_map
-        (fun (tc : typcase) ->
-          let { synid = oid; _ } = tc.origin.it in
-          let mixop = Mixfix.to_mixop tc.notation.it in
-          if T.variant_sym oid.it mixop = ctor then
-            Some (mixop, Mixfix.args tc.notation.it, List.length typcases)
-          else None)
-        typcases
-  | _ -> None
+module SI = Spec_index
 
 (* -------------------------------------------------------------------------- *)
 (* (B) discriminator hoist: respell an opaque matcher test [match_K(v) = true]
    as the structural equation [v = K(fresh..)], for a bare-variable subject
    [v] that no OTHER condition of the same rule mentions. The reverse table
-   (matcher symbol -> its constructor + arity) mirrors [build_tables]'s
+   (matcher symbol -> its constructor + arity) mirrors {!Spec_index}'s
    [ctor_types] construction, walked backwards.
 
    [Crc_surface.fold_premise_binders] only recognizes a condition shaped
@@ -397,12 +302,12 @@ let has_prefix p s =
 (* Reject a guard component that mentions a relation call whose success is
    not reflected (not in [succ]), an iteration helper not yet in [succ], or a
    gensym state-threaded symbol. *)
-let rec check_reflectable (tbl : tables) (effectful : string list)
+let rec check_reflectable (tbl : SI.t) (effectful : string list)
     (succ : string list) (t : R.term) : unit =
   match t with
   | R.Var _ -> ()
   | R.App (f, args) ->
-      if Hashtbl.mem tbl.relsigs f && not (List.mem f succ) then
+      if Hashtbl.mem tbl.SI.relsigs f && not (List.mem f succ) then
         raise (Gate (Printf.sprintf "relation call %s" f));
       if
         (not (List.mem f succ))
@@ -451,7 +356,7 @@ type subty_family =
 
 let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
     : R.t =
-  let tbl = build_tables orig in
+  let tbl = SI.of_spec orig in
   let mtbl = build_matcher_table orig in
   let yes = T.bool_t ~scalars true in
   let no = T.bool_t ~scalars false in
@@ -464,7 +369,7 @@ let expand_subty_guards ~(scalars : T.scalar_theory) ~(orig : spec) (sys : R.t)
     sys.R.rules;
   let rules_of_head f = List.rev (Hashtbl.find_all by_head f) in
   let is_ctor c =
-    Hashtbl.mem tbl.ctor_types c
+    Hashtbl.mem tbl.SI.ctor_types c
     || List.mem c [ "tuple"; "cons"; "nil"; "none"; "some" ]
     || has_prefix "struct_" c
   in
@@ -788,9 +693,8 @@ let ensure_proj ?key (sup : support) (ctor : string) (arity : int) (i : int) :
 
 (* The total matcher family of variant type [ty] (mirrors [defs_of_typ]):
    regenerated when [prune_unused] dropped it. *)
-let ensure_matchers ~scalars (tbl : tables) (sup : support) (ty : string) : unit
-    =
-  match Hashtbl.find_opt tbl.typdefs ty with
+let ensure_matchers ~scalars (tbl : SI.t) (sup : support) (ty : string) : unit =
+  match Hashtbl.find_opt tbl.SI.typdefs ty with
   | Some (VariantT typcases) ->
       let cases =
         List.map
@@ -847,8 +751,8 @@ let ensure_prelude_matcher ~scalars (sup : support) (sym : string) : unit =
 
 (* Struct accessors (mirrors [defs_of_typ]'s accessor rules), regenerated if
    pruned. *)
-let ensure_accessors (tbl : tables) (sup : support) (ty : string) : unit =
-  match Hashtbl.find_opt tbl.typdefs ty with
+let ensure_accessors (tbl : SI.t) (sup : support) (ty : string) : unit =
+  match Hashtbl.find_opt tbl.SI.typdefs ty with
   | Some (StructT fields) ->
       let n = List.length fields in
       List.iteri
@@ -901,19 +805,19 @@ let push_eq ~scalars (sup : support) (acc : acc) (a : R.term) (b : R.term) :
 
 (* The variant type to type a pattern's matcher against: the expected type
    when the spec gives one, else the single type containing the constructor. *)
-let matcher_type (tbl : tables) (et : typ' option) (ctor : string) : string =
+let matcher_type (tbl : SI.t) (et : typ' option) (ctor : string) : string =
   let of_et =
     Option.bind et (fun t ->
-        match resolve tbl t with
-        | VarT { synid; _ } when Option.is_some (variant_case tbl synid.it ctor)
-          ->
+        match SI.resolve tbl t with
+        | VarT { synid; _ }
+          when Option.is_some (SI.variant_case tbl synid.it ctor) ->
             Some synid.it
         | _ -> None)
   in
   match of_et with
   | Some ty -> ty
   | None -> (
-      match Hashtbl.find_opt tbl.ctor_types ctor with
+      match Hashtbl.find_opt tbl.SI.ctor_types ctor with
       | Some [ ty ] -> ty
       | Some tys ->
           raise
@@ -924,10 +828,10 @@ let matcher_type (tbl : tables) (et : typ' option) (ctor : string) : string =
 
 (* Reflect sibling pattern [pat] against [subject] (a term over the owise
    rule's variables): push the boolean tests and extend the substitution. *)
-let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
+let rec ptest ~scalars (tbl : SI.t) (sup : support) (acc : acc)
     (subject : R.term) (et : typ' option) (pat : R.term) : unit =
   let elem_et iter_et =
-    match Option.map (resolve tbl) iter_et with
+    match Option.map (SI.resolve tbl) iter_et with
     | Some (IterT { typ; _ }) -> Some typ.it
     | _ -> None
   in
@@ -942,14 +846,14 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
      matcher path (their [eq] family may have been pruned). *)
   | R.App (c, _)
     when ground pat
-         && (not (Hashtbl.mem tbl.ctor_types c))
+         && (not (Hashtbl.mem tbl.SI.ctor_types c))
          && (not (has_prefix "struct_" c))
          && c <> "tuple" ->
       push_eq ~scalars sup acc subject pat
   | R.App ("tuple", ps) ->
       let n = List.length ps in
       let comp_ets =
-        match Option.map (resolve tbl) et with
+        match Option.map (SI.resolve tbl) et with
         | Some (TupleT ts) when List.length ts = n ->
             List.map (fun t -> Some t.it) ts
         | _ -> List.init n (fun _ -> None)
@@ -979,9 +883,9 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
       push acc (T.app_t "match_some" [ subject ]);
       let s0 = ensure_proj sup "some" 1 0 in
       ptest ~scalars tbl sup acc (T.app_t s0 [ subject ]) (elem_et et) p1
-  | R.App (c, ps) when Hashtbl.mem tbl.ctor_types c ->
+  | R.App (c, ps) when Hashtbl.mem tbl.SI.ctor_types c ->
       let ty = matcher_type tbl et c in
-      let mixop, field_typs, n_cases = Option.get (variant_case tbl ty c) in
+      let mixop, field_typs, n_cases = Option.get (SI.variant_case tbl ty c) in
       (* A single-case variant needs no discrimination, only projections. *)
       if n_cases > 1 then (
         ensure_matchers ~scalars tbl sup ty;
@@ -999,14 +903,14 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
   | R.App (c, ps) -> (
       (* struct literal? *)
       let struct_ty =
-        match Option.map (resolve tbl) et with
+        match Option.map (SI.resolve tbl) et with
         | Some (VarT { synid; _ }) when T.struct_sym synid.it = c ->
             Some synid.it
         | _ -> None
       in
       match struct_ty with
       | Some ty -> (
-          match Hashtbl.find_opt tbl.typdefs ty with
+          match Hashtbl.find_opt tbl.SI.typdefs ty with
           | Some (StructT fields) when List.length fields = List.length ps ->
               ensure_accessors tbl sup ty;
               List.iteri
@@ -1025,7 +929,7 @@ let rec ptest ~scalars (tbl : tables) (sup : support) (acc : acc)
    [succ] is threaded to {!check_reflectable} so an iteration helper already
    success-reflected in this attempt (or, after the attempt, in the final
    set) is not gated. *)
-let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
+let ctest ~scalars (tbl : SI.t) (sup : support) (effectful : string list)
     (succ : string list) (acc : acc) ((l, r) : R.cond) : unit =
   let unbound t =
     List.filter (fun v -> not (List.mem_assoc v acc.sub)) (R.vars_of_term t)
@@ -1040,13 +944,13 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
     match l with
     | R.Var v -> Option.join (Option.map snd (List.assoc_opt v acc.sub))
     | R.App (f, _) -> (
-        match Hashtbl.find_opt tbl.funcsigs f with
+        match Hashtbl.find_opt tbl.SI.funcsigs f with
         | Some (_, ret) -> Some ret.it
         | None -> (
-            match Hashtbl.find_opt tbl.fieldsigs f with
+            match Hashtbl.find_opt tbl.SI.fieldsigs f with
             | Some t -> Some t
             | None -> (
-                match Hashtbl.find_opt tbl.rel_outs f with
+                match Hashtbl.find_opt tbl.SI.rel_outs f with
                 | Some [ t ] -> Some t.it
                 | _ -> None)))
   in
@@ -1066,7 +970,7 @@ let ctest ~scalars (tbl : tables) (sup : support) (effectful : string list)
         push_eq ~scalars sup acc sl r
     | R.App (c, _)
       when not
-             (Hashtbl.mem tbl.ctor_types c
+             (Hashtbl.mem tbl.SI.ctor_types c
              || List.mem c [ "tuple"; "cons"; "nil"; "none"; "some" ]
              || has_prefix "struct_" c) -> (
         (* computed right-hand side (e.g. ["name" = $name(n)]): a symmetric
@@ -1095,7 +999,7 @@ let and_chain ~scalars (ts : R.term list) : R.term =
    heads already select the constructors, so it seeds enum positions by
    direct substitution instead -- keeping ground matcher constants out of
    the guard). *)
-let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
+let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (acc : acc) (s : R.rule) :
     R.term =
   (* variables the rule's OWN conditions bind to an exact constructor
@@ -1104,8 +1008,8 @@ let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
     List.filter_map
       (fun ((l, r) : R.cond) ->
         match (l, r) with
-        | R.Var v, R.App (c, _) when Hashtbl.mem tbl.ctor_types c -> Some v
-        | R.App (c, _), R.Var v when Hashtbl.mem tbl.ctor_types c -> Some v
+        | R.Var v, R.App (c, _) when Hashtbl.mem tbl.SI.ctor_types c -> Some v
+        | R.App (c, _), R.Var v when Hashtbl.mem tbl.SI.ctor_types c -> Some v
         | _ -> None)
       s.R.conds
   in
@@ -1174,7 +1078,7 @@ let sibling_conds_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
    [argtyps] the declared argument types when the spec gives them. [prep]
    pre-rewrites each condition (the judgment reflection substitutes
    [holds_<R>] heads before the reflectability check sees the raw relation). *)
-let sibling_guard ?(prep = Fun.id) ~scalars (tbl : tables) (sup : support)
+let sibling_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (ow_args : R.term list)
     (argtyps : typ' option list) (s : R.rule) : R.term =
   let s_args =
@@ -1220,10 +1124,10 @@ let max_complement = 16
 (* The nullary-constructor enumeration of a declared argument type, when it
    resolves to a variant with ONLY nullary constructors (the same typdefs
    walk as {!ensure_matchers}). *)
-let nullary_enum (tbl : tables) (et : typ' option) : string list option =
-  match Option.map (resolve tbl) et with
+let nullary_enum (tbl : SI.t) (et : typ' option) : string list option =
+  match Option.map (SI.resolve tbl) et with
   | Some (VarT { synid; _ }) -> (
-      match Hashtbl.find_opt tbl.typdefs synid.it with
+      match Hashtbl.find_opt tbl.SI.typdefs synid.it with
       | Some (VariantT typcases) ->
           let cs =
             List.map
@@ -1250,7 +1154,7 @@ type cpos = Enum of string list | Pass
    enumeration, [None] to fall back to the or-gate path. May raise [Gate]
    (an unreflectable sibling condition) -- the caller rolls [sup] back and
    falls back the same way. *)
-let complement_clauses ~scalars (tbl : tables) (sup : support)
+let complement_clauses ~scalars (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (f : string) (r : R.rule)
     (ow_args : R.term list) (argtyps : typ' option list)
     (siblings : R.rule list) : R.rule list option =
@@ -1418,15 +1322,15 @@ let complement_clauses ~scalars (tbl : tables) (sup : support)
    outputs -- the rhs is then a tuple) can only meet [= false] as a negation;
    a single bool output is syntactically ambiguous, so it is never
    respelled. *)
-let rel_output_kind (tbl : tables) (f : string) :
+let rel_output_kind (tbl : SI.t) (f : string) :
     [ `No_output | `Non_bool | `Maybe_bool ] =
-  match Hashtbl.find_opt tbl.rel_outs f with
+  match Hashtbl.find_opt tbl.SI.rel_outs f with
   | None | Some [] -> `No_output
   | Some [ t ] -> (
-      match resolve tbl t.it with
+      match SI.resolve tbl t.it with
       | BoolT -> `Maybe_bool
       | VarT { synid; _ } ->
-          if Hashtbl.mem tbl.typdefs synid.it then `Non_bool else `Maybe_bool
+          if Hashtbl.mem tbl.SI.typdefs synid.it then `Non_bool else `Maybe_bool
       | _ -> `Non_bool)
   | Some _ -> `Non_bool
 
@@ -1434,13 +1338,13 @@ let rel_output_kind (tbl : tables) (f : string) :
    its [holds_] spelling, for the assumed-reflectable set [succ]. Conditions
    binding an output variable are left alone, and a bool-literal rhs is only
    respelled when {!rel_output_kind} says it cannot be an output value. *)
-let replace_cond ~scalars (tbl : tables) (succ : string list) ((l, r) : R.cond)
-    : R.cond =
+let replace_cond ~scalars (tbl : SI.t) (succ : string list) ((l, r) : R.cond) :
+    R.cond =
   match l with
   | R.App (f, args) when List.mem f succ ->
       let bool_rhs b = r = T.bool_t ~scalars b in
       let respell =
-        if Hashtbl.mem tbl.relsigs f then
+        if Hashtbl.mem tbl.SI.relsigs f then
           match rel_output_kind tbl f with
           | `No_output -> bool_rhs true || bool_rhs false
           | `Non_bool -> bool_rhs false
@@ -1453,7 +1357,7 @@ let replace_cond ~scalars (tbl : tables) (succ : string list) ((l, r) : R.cond)
 (* [holds_<R>(x0..xn-1) = or(g_1 .. g_k)]: one g per rule of [R], built by the
    same machinery as the owise sibling guards (the rules ARE the siblings,
    the fresh argument variables the subjects). *)
-let gen_rel_holds ~scalars ~prep (tbl : tables) (sup : support)
+let gen_rel_holds ~scalars ~prep (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (name : string)
     (argtyps : typ' option list) (rules : R.rule list) : R.rule list =
   let arity =
@@ -1524,7 +1428,7 @@ let iter_spine_mismatches ~scalars (hname : string) (base_args : R.term list) :
 (* The totalized [$iterall] helper: the conditional cons-step (stuck when a
    step fails) becomes an unconditional and-fold, and the spine-length
    mismatches (multi-spine lockstep iteration) become explicit [false]. *)
-let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
+let gen_iterall_holds ~scalars ~prep (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (name : string)
     (rules : R.rule list) : R.rule list =
   let yes = T.bool_t ~scalars true in
@@ -1592,7 +1496,7 @@ let gen_iterall_holds ~scalars ~prep (tbl : tables) (sup : support)
      ALSO be unconditional here -- {!Crc_surface.fold_premise_binders}
      folds a let-destructure condition into the step's lhs pattern -- and
      then the fold is simply empty (success is just the recursive call). *)
-let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
+let gen_itercollect_holds ~scalars ~prep (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (name : string)
     (rules : R.rule list) : R.rule list =
   let is_base (r : R.rule) =
@@ -1624,7 +1528,7 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
   in
   let step_rhs =
     match elem with
-    | R.App (f, args) when step.R.conds = [] && Hashtbl.mem tbl.relsigs f ->
+    | R.App (f, args) when step.R.conds = [] && Hashtbl.mem tbl.SI.relsigs f ->
         List.iter (check_reflectable tbl effectful succ) args;
         and_chain ~scalars (R.App (T.holds_sym f, args) :: rec_holds)
     | _ ->
@@ -1658,7 +1562,7 @@ let gen_itercollect_holds ~scalars ~prep (tbl : tables) (sup : support)
 
 let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
     (sys : R.t) : R.t =
-  let tbl = build_tables orig in
+  let tbl = SI.of_spec orig in
   let sup =
     {
       defined =
@@ -1678,9 +1582,9 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
   (* Declared argument types of a defined symbol, when recoverable. *)
   let argtyps_of (f : string) (arity : int) : typ' option list =
     let typs =
-      match Hashtbl.find_opt tbl.funcsigs f with
+      match Hashtbl.find_opt tbl.SI.funcsigs f with
       | Some (params, _) -> Some params
-      | None -> Hashtbl.find_opt tbl.relsigs f
+      | None -> Hashtbl.find_opt tbl.SI.relsigs f
     in
     match typs with
     | Some ts when List.length ts = arity -> List.map (fun t -> Some t.it) ts
@@ -1709,7 +1613,7 @@ let owise ~(scalars : T.scalar_theory) ~(orig : spec) ~(effectful : string list)
      are value-binding pure stream transformers, so they never
      need one and are excluded here -- {!iter_helper_prefixes} allows them
      unconditionally already. *)
-  let is_rel f = Hashtbl.mem tbl.relsigs f in
+  let is_rel f = Hashtbl.mem tbl.SI.relsigs f in
   let is_iterall f = has_prefix "$iterall" f in
   let is_itercollect f = has_prefix "$itercollect" f in
   let is_iter_helper f = is_iterall f || is_itercollect f in
