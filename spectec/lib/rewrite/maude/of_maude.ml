@@ -1,6 +1,7 @@
 open Common.Source
 open Lang.Il
 module R = Rewrite_system
+module MI = Maude_ident
 module T = Ctrs_term
 
 (** Back-translate a Maude object term (the normal form {!Maude_run} prints as
@@ -25,7 +26,7 @@ module T = Ctrs_term
 
 (* Lexical layer: the forward table keys must match what Maude prints, so a
    constructor symbol is mangled with the same [_]->[-] map the emitter used
-   ({!Rewrite_system.maude_id}, referenced as [R.maude_id] below and shared with
+   ({!Maude_ident.id}, referenced as [MI.id] below and shared with
    both Maude surfaces). Variant/struct arms key the forward table by that
    maude-spelled symbol directly; only the scalar arms matching {!Ctrs_term}'s
    own underscored [chr_<code>]/[int_pos]/[int_neg] spelling undo the mangling
@@ -189,10 +190,9 @@ let parse (input : string) : mt =
 type tables = {
   si : Spec_index.t;  (** the shared spec index (alias resolution) *)
   variants : (string, string * mixop * typ' list) Hashtbl.t;
-      (** [maude_id (variant_sym origin mixop)] -> (origin, mixop, field types)
-      *)
+      (** [MI.id (variant_sym origin mixop)] -> (origin, mixop, field types) *)
   structs : (string, string * (atom * typ') list) Hashtbl.t;
-      (** [maude_id (struct_sym t)] -> (t, fields) *)
+      (** [MI.id (struct_sym t)] -> (t, fields) *)
 }
 
 (* Re-key the shared index's constructor tables by Maude identifier: decode
@@ -202,10 +202,10 @@ let build_tables (orig : spec) : tables =
   let variants = Hashtbl.create 512 in
   let structs = Hashtbl.create 256 in
   Hashtbl.iter
-    (fun sym payload -> Hashtbl.replace variants (R.maude_id sym) payload)
+    (fun sym payload -> Hashtbl.replace variants (MI.id sym) payload)
     si.Spec_index.variant_cases;
   Hashtbl.iter
-    (fun sym payload -> Hashtbl.replace structs (R.maude_id sym) payload)
+    (fun sym payload -> Hashtbl.replace structs (MI.id sym) payload)
     si.Spec_index.struct_fields;
   { si; variants; structs }
 
@@ -254,9 +254,9 @@ let rec bigint_of_binary (m : mt) : Bigint.t =
       Bigint.succ (Bigint.( * ) (Bigint.of_int 2) (bigint_of_binary p))
   | _ -> raise (Parse_error "expected a binary BNatV (bzero/bone/bd0/bd1)")
 
-(* Undo {!R.maude_id}'s [_]->[-] mangling on a parsed symbol, recovering
+(* Undo {!MI.id}'s [_]->[-] mangling on a parsed symbol, recovering
    {!Ctrs_term}'s own spelling. Injective because a CTRS id never contains [-]
-   (see {!R.maude_id}). The scalar arms that match [Ctrs_term]'s underscored
+   (see {!MI.id}). The scalar arms that match [Ctrs_term]'s underscored
    [chr_<code>]/[int_pos]/[int_neg] symbols need this because the parser reads
    the already-mangled ([chr-<code>]/[int-pos]/[int-neg]) spelling Maude prints;
    the variant/struct arms don't (they key the forward table by that mangled

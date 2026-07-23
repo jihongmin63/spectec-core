@@ -1,6 +1,7 @@
 open Common.Source
 open Lang.Il
 module R = Rewrite_system
+module MI = Maude_ident
 module T = Ctrs_term
 
 (** Order-sorted signature recovery shared by both Maude surfaces: the
@@ -56,7 +57,7 @@ let is_predicate (sym : string) : bool =
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
 let sort_of_name (n : string) : string =
-  String.capitalize_ascii (R.maude_id (R.sanitize n))
+  String.capitalize_ascii (MI.id (R.sanitize n))
 
 (* -------------------------------------------------------------------------- *)
 (* IL types -> sorts. *)
@@ -858,12 +859,12 @@ let sort_of_var (vs : (string, string) Hashtbl.t) (v : string) : string =
 
 let rec print_term scalars vs (t : R.term) : string =
   match t with
-  | R.Var v -> R.maude_var v ^ ":" ^ sort_of_var vs v
+  | R.Var v -> MI.var v ^ ":" ^ sort_of_var vs v
   (* a built-in literal (numeral / quoted string / bool): verbatim, never mangled *)
   | R.App (f, []) when is_literal scalars f -> f
-  | R.App (f, []) -> R.maude_id f
+  | R.App (f, []) -> MI.id f
   | R.App (f, args) ->
-      R.maude_id f ^ "("
+      MI.id f ^ "("
       ^ String.concat ", " (List.map (print_term scalars vs) args)
       ^ ")"
 

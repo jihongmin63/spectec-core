@@ -3,6 +3,7 @@ module Crc_surface = Crc_surface
 module Scc_surface = Scc_surface
 module To_ctrs = To_ctrs
 module Simplify = Simplify
+module Maude_ident = Maude_ident
 module To_maude = To_maude
 module Maude_sorts = Maude_sorts
 module To_mfe = To_mfe

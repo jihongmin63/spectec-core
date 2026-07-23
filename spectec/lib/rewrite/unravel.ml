@@ -17,7 +17,7 @@ let string_of_stats s =
    plus the [$] function prefix); [$] is not a TPDB identifier character, so it
    maps to the [d_] prefix. Variable names can carry arbitrary characters (a
    pretty-printed pattern); the non-plain ones go through {!R.sanitize} first,
-   exactly as the Maude surface's {!R.maude_var} does -- so this scrub composed
+   exactly as the Maude surface's {!Maude_ident.var} does -- so this scrub composed
    with the CTRS names equals the scratchpad unraveler's scrub composed with
    the printed Maude module. *)
 

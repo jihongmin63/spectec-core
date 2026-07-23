@@ -1,5 +1,6 @@
 open Lang.Il
 module R = Rewrite_system
+module MI = Maude_ident
 module MS = Maude_sorts
 module T = Ctrs_term
 
@@ -360,8 +361,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
           " [strat (1 0 2 0)]"
         else ctor_attr sym
       in
-      buf_line b
-        ("  op " ^ R.maude_id sym ^ " : " ^ dom ^ "-> " ^ res ^ attr ^ " ."))
+      buf_line b ("  op " ^ MI.id sym ^ " : " ^ dom ^ "-> " ^ res ^ attr ^ " ."))
     (List.sort compare op_sigs);
   (* Execution mode only, companion to dropping [comm] above: the mirror of
      [prelude.ml]'s [or_t]/[and_t] equations, argument order swapped, so a
@@ -388,7 +388,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      in quotes) finds it either way. *)
   if not full_maude then
     buf_line b
-      ("  op " ^ R.maude_id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort ^ " .");
+      ("  op " ^ MI.id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort ^ " .");
   (* Execution mode only: EVERY byte value's [chr_<code>] constructor (the
      structural char-list text encoding, {!Ctrs_term.chars_t}), not just the
      ones [used] happens to catch (a rule pattern rarely mentions a literal
@@ -402,8 +402,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      for code = 0 to 255 do
        let sym = T.chr_sym code in
        if not (List.mem sym already) then
-         buf_line b
-           ("  op " ^ R.maude_id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
+         buf_line b ("  op " ^ MI.id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
      done);
   buf_line b "";
   let emit (r, vs) =

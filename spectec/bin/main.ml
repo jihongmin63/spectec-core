@@ -819,7 +819,7 @@ let run_structural_command =
           resolved
       in
       let defined_heads =
-        List.map Rewrite.Rewrite_system.maude_id
+        List.map Rewrite.Maude_ident.id
           (Rewrite.Rewrite_system.defined_heads system)
       in
       let run_results =

@@ -88,13 +88,3 @@ val reachable_heads : roots:string list -> rule list -> (string, unit) Hashtbl.t
     defining rules plus their transitive downward dependencies); variables are
     recomputed. *)
 val slice : t -> roots:string list -> t
-
-(** A CTRS id ([A-Za-z0-9_$]+) as a Maude-safe id: [_] is a mixfix placeholder
-    in Maude, so it maps to [-] (injective, since CTRS ids never contain [-]).
-    Shared by both Maude surfaces so operator identifiers get one spelling. *)
-val maude_id : string -> string
-
-(** A CTRS variable name as a valid Maude variable identifier: names already
-    confined to [A-Za-z0-9_] render exactly as the {!maude_id} mangling; the
-    rest are run through {!sanitize} first. *)
-val maude_var : string -> string
