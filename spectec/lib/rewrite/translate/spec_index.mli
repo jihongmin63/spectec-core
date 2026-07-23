@@ -9,6 +9,9 @@
 open Lang.Il
 
 type t = {
+  typdef_order : (string * deftyp') list;
+      (** every [TypD] in spec declaration order (duplicates preserved), for
+          consumers whose derivation is order-sensitive *)
   typdefs : (string, deftyp') Hashtbl.t;  (** type name -> definition *)
   ctor_types : (string, string list) Hashtbl.t;
       (** variant sym -> type names, in declaration order *)

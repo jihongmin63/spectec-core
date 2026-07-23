@@ -1121,25 +1121,25 @@ let build_encode_index (orig : spec) : encode_index =
   let field_typs = Hashtbl.create 512 in
   let origins = Hashtbl.create 512 in
   List.iter
-    (fun def ->
-      match def.it with
-      | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ } ->
+    (fun ((tid, dt) : string * deftyp') ->
+      match dt with
+      | VariantT typcases ->
           List.iter
             (fun (tc : typcase) ->
               let nottyp = tc.notation in
               let key = mixop_key (Mixfix.to_mixop nottyp.it) in
-              let fkey = (tid.it, key) in
+              let fkey = (tid, key) in
               if not (Hashtbl.mem field_typs fkey) then
                 Hashtbl.replace field_typs fkey
                   (List.map (fun t -> t.it) (Mixfix.args nottyp.it));
-              let origin, _ = case_origin_mixop tc in
+              let origin, _ = Spec_index.case_origin_mixop tc in
               let prev =
                 Option.value (Hashtbl.find_opt origins key) ~default:[]
               in
-              Hashtbl.replace origins key ((tid.it, origin) :: prev))
+              Hashtbl.replace origins key ((tid, origin) :: prev))
             typcases
       | _ -> ())
-    orig;
+    (Spec_index.of_spec orig).Spec_index.typdef_order;
   (* Entries were prepended per key; restore declaration order. Snapshot the
      keys first -- replacing values while iterating the table is unspecified. *)
   let keys = Hashtbl.fold (fun k _ acc -> k :: acc) origins [] in
@@ -1214,15 +1214,15 @@ let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) : R.term
         List.fold_right (fun v acc -> T.cons_t (enc None v) acc) vs T.nil_t
     | TupleV vs -> T.tuple_t (List.map (enc None) vs)
     | StructV fields ->
-        let name = Option.value (typ_name_of v.note.typ) ~default:"anon" in
+        let name = Option.value (T.typ_name_of v.note.typ) ~default:"anon" in
         T.app_t (T.struct_sym name)
           (List.map (fun (_, fv) -> enc None fv) fields)
     | CaseV vc ->
-        let noted = Option.value (typ_name_of v.note.typ) ~default:"anon" in
+        let noted = Option.value (T.typ_name_of v.note.typ) ~default:"anon" in
         (* The type the PARENT field declares for this position, threaded down
            via [case_field_typs] as [expected]. This is the spec's own truth, so
            it outranks the value's note when the two disagree. *)
-        let expected_name = Option.bind expected typ_name_of in
+        let expected_name = Option.bind expected T.typ_name_of in
         let mixop = Mixfix.to_mixop vc in
         let args = Mixfix.args vc in
         (* The declared constructor is spelled with the case's DECLARING

@@ -10,6 +10,9 @@ open Lang.Il
 module T = Ctrs_term
 
 type t = {
+  typdef_order : (string * deftyp') list;
+      (** every [TypD] in spec declaration order (duplicates preserved), for
+          consumers whose derivation is order-sensitive *)
   typdefs : (string, deftyp') Hashtbl.t;  (** type name -> definition *)
   ctor_types : (string, string list) Hashtbl.t;
       (** variant sym -> type names, in declaration order *)
@@ -28,8 +31,17 @@ let case_origin_mixop (tc : typcase) : string * mixop =
   (tc.origin.it.synid.it, Mixfix.to_mixop tc.notation.it)
 
 let build (orig : spec) : t =
+  let typdef_order =
+    List.filter_map
+      (fun (def : def) ->
+        match def.it with
+        | TypD { synid; deftyp; _ } -> Some (synid.it, deftyp.it)
+        | _ -> None)
+      orig
+  in
   let idx =
     {
+      typdef_order;
       typdefs = Hashtbl.create 64;
       ctor_types = Hashtbl.create 256;
       variant_cases = Hashtbl.create 512;

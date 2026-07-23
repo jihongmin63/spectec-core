@@ -53,10 +53,6 @@ let is_predicate (sym : string) : bool =
   has_prefix "match_" sym || has_prefix "subty_" sym || has_prefix "holds_" sym
   || sym = "eqg"
 
-(* The named type a value/expression carries, if it is a [VarT]. *)
-let typ_name_of (typ : typ') : string option =
-  match typ with VarT { synid; _ } -> Some synid.it | _ -> None
-
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
 let sort_of_name (n : string) : string =
@@ -65,15 +61,13 @@ let sort_of_name (n : string) : string =
 (* -------------------------------------------------------------------------- *)
 (* IL types -> sorts. *)
 
-(* Index the spec's type definitions so [VarT] references and aliases resolve. *)
+(* Index the spec's type definitions so [VarT] references and aliases resolve
+   (last declaration wins, from {!Spec_index}'s ordered view). *)
 let type_env (orig : spec) : (string, deftyp') Hashtbl.t =
   let tbl = Hashtbl.create 64 in
   List.iter
-    (fun def ->
-      match def.it with
-      | TypD { synid = tid; deftyp = dt; _ } -> Hashtbl.replace tbl tid.it dt.it
-      | _ -> ())
-    orig;
+    (fun (n, dt) -> Hashtbl.replace tbl n dt)
+    (Spec_index.of_spec orig).Spec_index.typdef_order;
   tbl
 
 (* The sort of an IL type. Aliases ([syntax T = U]) and the [map = (pair)*]
@@ -272,12 +266,6 @@ let prelude_sigs (scalars : scalar_theory) :
     (string * (string list * string)) list =
   scalar_ctor_sigs scalars @ shared_op_sigs
 
-(* Variant case as seen from its containing type (mirrors
-   [To_ctrs.case_info_of_typcase]). *)
-let case_origin_mixop (tc : typcase) : string * Lang.Il.mixop =
-  let { synid = origin_id; _ } = tc.origin.it in
-  (origin_id.it, Mixfix.to_mixop tc.notation.it)
-
 (* Subsort edges (sub, super) and per-symbol signatures recovered from the
    original spec's type/relation/function declarations. *)
 (* The iteration/reflection layer synthesizes helpers ([$iterproj_..],
@@ -407,7 +395,7 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
           List.iter
             (fun (typcase : typcase) ->
               let nottyp = typcase.notation in
-              let origin, mixop = case_origin_mixop typcase in
+              let origin, mixop = Spec_index.case_origin_mixop typcase in
               let field_typs = Mixfix.args nottyp.it in
               let args = List.map (fun ft -> sort_of ft.it) field_typs in
               add (T.variant_sym origin mixop) (args, sort_of_name origin);
@@ -892,7 +880,7 @@ let il_ctor_syms (orig : spec) : string list =
       | TypD { deftyp = { it = VariantT typcases; _ }; _ } ->
           List.map
             (fun tc ->
-              let origin, mixop = case_origin_mixop tc in
+              let origin, mixop = Spec_index.case_origin_mixop tc in
               T.variant_sym origin mixop)
             typcases
       | TypD { synid = t; deftyp = { it = StructT _; _ }; _ } ->
