@@ -69,8 +69,8 @@ let build (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
    {!Reflect.owise} then replaces each reflectable [owise] rule's marker with
    the explicit "no earlier sibling applies" guard condition, so the checker
    discharges the owise/sibling pairs instead of flagging them (the
-   unreflectable remainder keeps its flag for {!Mfe}'s [drop_owise]
-   fallback). It also, system-wide (not only for owise rules), inserts a
+   unreflectable remainder keeps its flag; {!Mfe} warns when it reaches the
+   checker). It also, system-wide (not only for owise rules), inserts a
    [holds_<helper>(args) = true] test before any condition binding a
    success-reflected [$itercollect] helper's result -- the
    helper's own call site never carries a bool rhs for

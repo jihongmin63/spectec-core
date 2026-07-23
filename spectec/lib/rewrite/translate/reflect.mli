@@ -5,10 +5,10 @@
     MFE's Church-Rosser checker can discharge the owise/sibling critical pairs
     by hypothesis rewriting), and clear the [owise] flag. Symbols whose siblings
     are not yet reflectable (relation calls, iteration helpers, gensym-threaded
-    symbols, untypable shapes) are kept as-is with a stderr note; {!Mfe}'s
-    [drop_owise] fallback still covers them. Support rules a guard needs
-    (matcher families, struct accessors, payload projections) are appended when
-    the pruned system lacks them. *)
+    symbols, untypable shapes) are kept as-is with a stderr note; {!Mfe} warns
+    when such a rule reaches the checker. Support rules a guard needs (matcher
+    families, struct accessors, payload projections) are appended when the
+    pruned system lacks them. *)
 
 val owise :
   scalars:Ctrs_term.scalar_theory ->

@@ -183,8 +183,7 @@ let check ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
          ignores the [owise] attribute and will flag its structurally
          infeasible sibling overlaps as spurious critical pairs -- a
          conservative MAYBE, never a false YES. Warn so that regression is
-         attributable instead of silently dropping the rules (the old
-         [drop_owise] fallback). *)
+         attributable instead of silently dropping the rules. *)
       let unreflected =
         List.length
           (List.filter

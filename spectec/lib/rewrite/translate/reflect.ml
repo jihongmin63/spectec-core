@@ -41,7 +41,7 @@
    that guards it.
 
    Not every owise clause is reflectable yet. The pass SKIPS (keeping the
-   owise flag, so {!Mfe}'s [drop_owise] fallback still applies) any symbol
+   owise flag; {!Mfe} warns when such a rule reaches the checker) any symbol
    whose siblings involve: a relation call (needs the R? judgment reflection,
    the planned Phase 3), an iteration helper without a success reflection
    ([$iterall]/[$itercollect] when THIS attempt could not build
