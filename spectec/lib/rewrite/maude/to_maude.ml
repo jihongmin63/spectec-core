@@ -814,14 +814,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       ("nil", 0);
     ]
   in
-  let ctor_arities =
-    List.filter_map
-      (fun s ->
-        match Hashtbl.find_opt tbl s with
-        | Some (a, _) -> Some (s, List.length a)
-        | None -> None)
-      (il_declared_syms orig)
-  in
+  let ctor_arities = ctor_arities tbl orig in
   let ops = dedup (used @ delegated @ wrapper_arities @ ctor_arities) in
   let has_op sym = List.exists (fun (s, _) -> s = sym) ops in
   (* The symbols that reduce away: rule heads, plus the delegated operators.
@@ -835,13 +828,12 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
          defined_heads
       @ delegated)
   in
-  (* The [List]-precise overloads of [len]/[cat] (their base declarations are
-     [Text]-wide for inference, see [prelude_sigs]): a [cat] of two lists
-     parses at sort [List], so it can fill a list position statically. *)
+  (* The [List]-precise overloads of [len]/[cat]
+     ({!Maude_sorts.cat_list_sig}/[len_list_sig]): a [cat] of two lists parses
+     at sort [List], so it can fill a list position statically. *)
   let overload_sigs =
-    (if List.mem_assoc "len" delegated then [ ("len", ([ "List" ], "NatV")) ]
-     else [])
-    @ if has_op "cat" then [ ("cat", ([ "List"; "List" ], "List")) ] else []
+    (if List.mem_assoc "len" delegated then [ len_list_sig ] else [])
+    @ if has_op "cat" then [ cat_list_sig ] else []
   in
   let op_sigs =
     dedup
@@ -849,20 +841,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       @ overload_sigs
       @ [ (stuck_head_sym, ([ val_sort ], "Bool")) ])
   in
-  (* An empty text is the bare empty LIST ([TextE ""] has no [chr] to mark it,
-     see the empty-text-as-[nil] convention), but a [text]-typed position takes sort
-     [Text]. [List < Text] lets it (and any char list) inhabit those positions;
-     the [eq]/[cat] bridge equations above give it text semantics. Only when
-     [Text] is actually used as a signature sort. *)
-  let text_subsort =
-    if
-      List.exists
-        (fun (_, (args, res)) -> List.mem "Text" (res :: args))
-        op_sigs
-    then [ ("List", "Text") ]
-    else []
-  in
-  let inj_subsorts = inj_subsorts @ text_subsort in
+  let inj_subsorts = inj_subsorts @ text_subsort_edge op_sigs in
   (* Sorts named by op signatures, AND the endpoints of every injection subsort
      edge. A union type ([syntax baseTypeIR = primitiveTypeIR | numberTypeIR]) has
      no constructors of its own, so it surfaces only as a subsort SUPER

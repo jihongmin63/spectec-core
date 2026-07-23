@@ -1018,3 +1018,40 @@ let symbol_arities scalars (rules : R.rule list) : (string * int) list =
         r.R.conds)
     rules;
   Hashtbl.fold (fun pair () acc -> pair :: acc) acc []
+
+(* -------------------------------------------------------------------------- *)
+(* Assembly pieces shared verbatim by both module emitters ({!To_maude}
+   execution, {!To_mfe} analysis). Each emitter keeps its own gating -- which
+   op set triggers an overload, which mode adds an extra signature -- but the
+   pieces themselves have one spelling. *)
+
+(* Arities of every IL-declared constructor/accessor present in the recovered
+   signature table [tbl], so ops can be declared even when no rule mentions
+   the case (a start term must still be formable). *)
+let ctor_arities (tbl : sigs) (orig : spec) : (string * int) list =
+  List.filter_map
+    (fun s ->
+      match Hashtbl.find_opt tbl s with
+      | Some (a, _) -> Some (s, List.length a)
+      | None -> None)
+    (il_declared_syms orig)
+
+(* The [List]-precise overloads of [cat]/[len]: their base prelude signatures
+   are [Text]-wide (a char list is the only [Text] value), but both are also
+   used generically over any list, and a plain [List] argument is not a [Text]
+   (no subsort edge either way) -- without the overload such an application
+   parses ill-sorted and can never reduce. *)
+let cat_list_sig : string * (string list * string) =
+  ("cat", ([ "List"; "List" ], "List"))
+
+let len_list_sig : string * (string list * string) =
+  ("len", ([ "List" ], "NatV"))
+
+(* [List < Text], only when [Text] actually appears as a signature sort: an
+   empty text is the bare [nil] (a char [List]), so a char list must be able
+   to inhabit text-typed positions. *)
+let text_subsort_edge (op_sigs : (string * (string list * string)) list) :
+    (string * string) list =
+  if List.exists (fun (_, (args, res)) -> List.mem "Text" (res :: args)) op_sigs
+  then [ ("List", "Text") ]
+  else []

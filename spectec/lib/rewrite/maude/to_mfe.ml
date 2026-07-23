@@ -53,6 +53,54 @@ let print_rule vs (r : R.rule) : string =
   | [] -> head ^ attr ^ " ."
   | cs -> head ^ " if " ^ string_of_conds vs cs ^ attr ^ " ."
 
+(* [--prune-signature]: keep only the ops the rules apply, the sorts those ops
+   and the rules' variable annotations name, and every sort on a subsort path
+   between two kept sorts. The interior of a path must survive (a rule may
+   pass a term to a distant position via a two-step chain; pruning the middle
+   sort leaves the slice ill-sorted, "no parse" -- P4 has 286 such chains),
+   but the closure must not follow the [< Val] edges, or it re-expands to the
+   whole lattice ([Val] tops every sort). Rules are untouched, so a checker's
+   verdict is preserved. The signature-side counterpart of {!To_ctrs}'s rule
+   pruning ([prune_unused]). *)
+let prune_signature_view ~sg ~(used : (string * int) list) ~typed_rules
+    ~(inj_pairs : (string * string) list) ~(sorts : string list) =
+  let used_sigs = MS.dedup (List.map (fun (s, n) -> (s, sg s n)) used) in
+  let annot =
+    List.concat_map
+      (fun (r, vs) -> List.map (MS.sort_of_var vs) (R.vars_of_rule r))
+      typed_rules
+  in
+  let needed =
+    MS.dedup
+      (MS.val_sort
+      :: (List.concat_map (fun (_, (args, res)) -> res :: args) used_sigs
+         @ List.filter (fun s -> List.mem s sorts) annot))
+  in
+  let edges = List.filter (fun (_, b) -> b <> MS.val_sort) inj_pairs in
+  let reach step =
+    let seen = Hashtbl.create 64 in
+    let rec go s =
+      if not (Hashtbl.mem seen s) then (
+        Hashtbl.replace seen s ();
+        List.iter go (step s))
+    in
+    List.iter go needed;
+    seen
+  in
+  let above =
+    reach (fun s ->
+        List.filter_map (fun (a, b) -> if a = s then Some b else None) edges)
+  and below =
+    reach (fun s ->
+        List.filter_map (fun (a, b) -> if b = s then Some a else None) edges)
+  in
+  let keep s =
+    List.mem s needed || (Hashtbl.mem above s && Hashtbl.mem below s)
+  in
+  ( used_sigs,
+    List.filter (fun (a, b) -> keep a && keep b) inj_pairs,
+    List.filter keep sorts )
+
 (* Emit the order-sorted analysis module. [orig] is the elaborated IL spec (for
    sort recovery); [sys] is the structural CTRS ({!Rewrite.rewrite_spec}).
    [full_maude] (default [true], {!Mfe.check}'s use) wraps the module in Full
@@ -180,14 +228,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      no rule mentions the case). Structural scalar constructors already occur in
      the prelude rules, so [symbol_arities] covers them. *)
   let used = MS.symbol_arities Structural sys.R.rules in
-  let ctor_arities =
-    List.filter_map
-      (fun s ->
-        match Hashtbl.find_opt tbl s with
-        | Some (a, _) -> Some (s, List.length a)
-        | None -> None)
-      (MS.il_declared_syms orig)
-  in
+  let ctor_arities = MS.ctor_arities tbl orig in
   let ops = MS.dedup (used @ ctor_arities) in
   (* Execution mode ([full_maude = false]) additionally needs
      [{!To_maude.stuck_head_sym} : Val -> Bool] declared: {!To_maude.print_rule}
@@ -195,27 +236,20 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      it so a stuck subterm cannot silently masquerade as a bound value.
      Analysis mode never prints a [:=] matching condition (see [print_rule]
      below, the plain-[=] one), so it never needs the guard. *)
-  (* Execution mode only ([full_maude = false]): [cat]/[len]'s base signatures
-     ({!Maude_sorts.prelude_sigs}) are [Text]-wide (a char list is the only
-     [Text] value there is, see the [text_subsort] comment below), but both are
-     also used generically over any list ([to_ctrs.ml]'s [CatE]/[LenE]
-     translate arbitrary sequences, not just text), and a plain [List] argument
-     is not a [Text] (no subsort edge either way) -- so a [cat]/[len]
-     application over e.g. a declaration list parses ill-sorted and can never
-     reduce ({!To_maude}'s execution path already adds this same overload for
-     the native theory). Left out of analysis mode: {!Mfe.check}'s CRC/ChC
-     results for the existing spec are already established with the [Text]-only
-     signature in place, and this session has no way to re-verify them, so the
-     fix is scoped to the new, previously-untested execution path only. *)
+  (* Execution mode only ([full_maude = false]): the [List]-precise [cat]/[len]
+     overloads ({!Maude_sorts.cat_list_sig}/[len_list_sig]; [to_ctrs.ml]'s
+     [CatE]/[LenE] translate arbitrary sequences, not just text). Left out of
+     analysis mode: {!Mfe.check}'s CRC/ChC results for the existing spec are
+     already established with the [Text]-only signature in place, and this
+     session has no way to re-verify them, so the fix is scoped to the new,
+     previously-untested execution path only. *)
   let overload_sigs =
     if full_maude then []
     else
-      (if List.exists (fun (s, _) -> s = "cat") ops then
-         [ ("cat", ([ "List"; "List" ], "List")) ]
+      (if List.exists (fun (s, _) -> s = "cat") ops then [ MS.cat_list_sig ]
        else [])
       @
-      if List.exists (fun (s, _) -> s = "len") ops then
-        [ ("len", ([ "List" ], "NatV")) ]
+      if List.exists (fun (s, _) -> s = "len") ops then [ MS.len_list_sig ]
       else []
   in
   let op_sigs =
@@ -226,18 +260,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
       if full_maude then []
       else [ (To_maude.stuck_head_sym, ([ MS.val_sort ], "Bool")) ])
   in
-  (* An empty text is the bare [nil] (a char [List]); a [text]-typed position
-     takes sort [Text]. [List < Text] lets a char list inhabit those positions.
-     Only when [Text] is actually a signature sort. *)
-  let text_subsort =
-    if
-      List.exists
-        (fun (_, (args, res)) -> List.mem "Text" (res :: args))
-        op_sigs
-    then [ ("List", "Text") ]
-    else []
-  in
-  let inj_subsorts = inj_subsorts @ text_subsort in
+  let inj_subsorts = inj_subsorts @ MS.text_subsort_edge op_sigs in
   (* Sorts named by op signatures AND the endpoints of every injection edge (a
      union type surfaces only as a subsort super, so list it too). No built-in
      sorts here -- the structural theory imports nothing. *)
@@ -254,53 +277,9 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     List.map (fun r -> (r, MS.infer_var_sorts edges sg (hint r) r)) sys.R.rules
   in
   let inj_pairs = MS.dedup inj_subsorts in
-  (* [prune_signature]: keep only the ops the rules apply, the sorts those ops
-     and the rules' variable annotations name, and every sort on a subsort path
-     between two kept sorts. The interior of a path must survive (a rule may
-     pass a term to a distant position via a two-step chain; pruning the middle
-     sort leaves the slice ill-sorted, "no parse" -- P4 has 286 such chains),
-     but the closure must not follow the [< Val] edges, or it re-expands to the
-     whole lattice ([Val] tops every sort). Rules are untouched, so a checker's
-     verdict is preserved. *)
   let op_sigs, inj_pairs, sorts =
     if not prune_signature then (op_sigs, inj_pairs, sorts)
-    else
-      let used_sigs = MS.dedup (List.map (fun (s, n) -> (s, sg s n)) used) in
-      let annot =
-        List.concat_map
-          (fun (r, vs) -> List.map (MS.sort_of_var vs) (R.vars_of_rule r))
-          typed_rules
-      in
-      let needed =
-        MS.dedup
-          (MS.val_sort
-          :: (List.concat_map (fun (_, (args, res)) -> res :: args) used_sigs
-             @ List.filter (fun s -> List.mem s sorts) annot))
-      in
-      let edges = List.filter (fun (_, b) -> b <> MS.val_sort) inj_pairs in
-      let reach step =
-        let seen = Hashtbl.create 64 in
-        let rec go s =
-          if not (Hashtbl.mem seen s) then (
-            Hashtbl.replace seen s ();
-            List.iter go (step s))
-        in
-        List.iter go needed;
-        seen
-      in
-      let above =
-        reach (fun s ->
-            List.filter_map (fun (a, b) -> if a = s then Some b else None) edges)
-      and below =
-        reach (fun s ->
-            List.filter_map (fun (a, b) -> if b = s then Some a else None) edges)
-      in
-      let keep s =
-        List.mem s needed || (Hashtbl.mem above s && Hashtbl.mem below s)
-      in
-      ( used_sigs,
-        List.filter (fun (a, b) -> keep a && keep b) inj_pairs,
-        List.filter keep sorts )
+    else prune_signature_view ~sg ~used ~typed_rules ~inj_pairs ~sorts
   in
   (* Execution mode only: the symbols that reduce away, and (for those with a
      known arity from [used]) their [{!To_maude.stuck_head_sym}] equations --
