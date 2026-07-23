@@ -1054,9 +1054,8 @@ let module_of_spec ?(module_name = "SPEC") ?(relations_as_rules = false)
 (* The module's reducible symbols (functions/relations/ops, including the
    rule-less delegated operators) in Maude spelling, for {!Maude_run}'s stuck
    check: a normal form still mentioning one of these halted mid-evaluation.
-   The same system [module_of_spec] emits. *)
-let maude_defined_heads (orig : spec) : string list =
-  let sys = Pipeline.maude_system_of_spec orig in
+   Takes the same [sys] the caller emitted the module from ({!Rewrite.maude_system}). *)
+let maude_defined_heads (sys : R.t) : string list =
   List.map MI.id
     (dedup (R.defined_heads sys @ List.map fst (native_delegated sys)))
 
@@ -1328,8 +1327,9 @@ let meta_term_of_value (orig : spec) (v : value) : string =
    as a META-TERM ['rel[args]]. When the translated system threads [rel] with the
    gensym state ({!Gensym}), the seed is appended and the run normalizes to
    [tuple(result, final-state)] instead of the bare result. *)
-let meta_start_app (orig : spec) (rel : string) (args : string list) : string =
-  let threaded = Gensym.effectful_syms (Pipeline.maude_system_of_spec orig) in
+let meta_start_app (orig : spec) (system : R.t) (rel : string)
+    (args : string list) : string =
+  let threaded = Gensym.effectful_syms system in
   let args =
     if List.mem (R.sanitize rel) threaded then
       args

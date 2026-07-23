@@ -492,16 +492,13 @@ let relation_output_typs (orig : spec) (rel : string) : typ' list =
    [term] is the object-syntax normal form (as in {!Maude_run.Reduced}). A run
    that does not denote a clean value (e.g. a stuck term) raises
    {!Parse_error}. *)
-let values_of_result (orig : spec) ~(rel : string) (term : string) : value list
-    =
+let values_of_result (orig : spec) ~(rel : string) ~(system : R.t)
+    (term : string) : value list =
   let tbl = tables_of orig in
   let parsed = parse term in
   let out_typs = relation_output_typs orig rel in
   let nout = List.length out_typs in
-  let effectful =
-    List.mem (R.sanitize rel)
-      (Gensym.effectful_syms (Pipeline.maude_system_of_spec orig))
-  in
+  let effectful = List.mem (R.sanitize rel) (Gensym.effectful_syms system) in
   let total = nout + if effectful then 1 else 0 in
   (* The components of the result: a single output is the bare term; several (or
      a single output plus the threaded state) are a [tuple(..)]. *)

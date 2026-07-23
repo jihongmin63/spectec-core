@@ -569,8 +569,10 @@ let run_command =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
+    let system = Rewrite.maude_system spec_il in
     let module_text =
-      Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il
+      Rewrite.To_maude.module_of_system ~relations_as_rules ~predicates spec_il
+        system
     in
     if emit then Ok (module_text, false)
     else
@@ -579,7 +581,7 @@ let run_command =
         else if rewrite then Rewrite.Maude_run.Rewrite
         else Rewrite.Maude_run.Reduce
       in
-      let defined_heads = Rewrite.To_maude.maude_defined_heads spec_il in
+      let defined_heads = Rewrite.To_maude.maude_defined_heads system in
       let run_results =
         Rewrite.Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
           ~module_text
@@ -637,7 +639,7 @@ let run_command =
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
                       (Rewrite.Of_maude.values_of_result spec_il
-                         ~rel:"Program_ok" term)
+                         ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
                     ("result: MATCH", false)
@@ -864,7 +866,7 @@ let run_structural_command =
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
                       (Rewrite.Of_maude.values_of_result spec_il
-                         ~rel:"Program_ok" term)
+                         ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
                     ("result: MATCH", false)

@@ -230,7 +230,8 @@ let maude_start_term ~(includes : string list) ~(spec_il : Lang.Il.spec)
   let ( let* ) = Result.bind in
   let* value = Frontend.parse_file ~handler:Target.handler includes filename in
   let term = Rewrite.To_maude.meta_term_of_value spec_il value in
-  Ok (Rewrite.To_maude.meta_start_app spec_il "Program_ok" [ term ])
+  let system = Rewrite.maude_system spec_il in
+  Ok (Rewrite.To_maude.meta_start_app spec_il system "Program_ok" [ term ])
 
 (* Parse a P4 program to its parsed value, leaving the Maude encoding to the
    caller -- the [Structural] oracle leg counterpart of [maude_start_term],

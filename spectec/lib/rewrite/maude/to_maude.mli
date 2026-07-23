@@ -28,10 +28,11 @@ val module_of_spec :
   Lang.Il.spec ->
   string
 
-(** The module's reducible symbols (functions/relations/ops) in Maude spelling.
-    Pass to {!Maude_run.run} as [~defined_heads] so a normal form still
-    mentioning one of them is reported as stuck (a failed run). *)
-val maude_defined_heads : Lang.Il.spec -> string list
+(** The reducible symbols (functions/relations/ops) of an already-translated
+    system ({!Rewrite.maude_system}) in Maude spelling. Pass to {!Maude_run.run}
+    as [~defined_heads] so a normal form still mentioning one of them is
+    reported as stuck (a failed run). *)
+val maude_defined_heads : Rewrite_system.t -> string list
 
 (** Emit the module for an already-translated system (a
     {!Pipeline.maude_system_of_spec} result), given the [orig] spec it came from
@@ -96,10 +97,12 @@ val stuck_head_eqs : (string * int) list -> string list
 (** The start application of relation [rel] (an IL relation name, e.g.
     ["Program_ok"]) on already-encoded {e META-TERM} argument terms, as a Maude
     META-TERM (['rel[args]]) for {!Maude_run}'s reflective [metaReduce] path.
-    Appends the gensym seed when the translated system threads [rel]
+    Appends the gensym seed when the translated [system] threads [rel]
     ({!Gensym}); such a run normalizes to [tuple(result, final-state)] instead
-    of the bare result. *)
-val meta_start_app : Lang.Il.spec -> string -> string list -> string
+    of the bare result. [system] is the one the module was emitted from
+    ({!Rewrite.maude_system}). *)
+val meta_start_app :
+  Lang.Il.spec -> Rewrite_system.t -> string -> string list -> string
 
 (** Encode a value to a ground {!Rewrite_system.term} in [scalars]' theory --
     the inverse [Of_maude.decode]/[Of_mfe]-style back-translation decodes.

@@ -130,7 +130,8 @@ let maude_start_term ~(task : string) ~(spec_il : Lang.Il.spec)
   let* relation = relation_of_task task in
   let* value = Parse.parse_file ~handler:Target.handler filename in
   let term = Rewrite.To_maude.meta_term_of_value spec_il value in
-  Ok (Rewrite.To_maude.meta_start_app spec_il relation [ term ])
+  let system = Rewrite.maude_system spec_il in
+  Ok (Rewrite.To_maude.meta_start_app spec_il system relation [ term ])
 
 (* Parse an impty program to its [task] relation + parsed value, leaving the
    Maude encoding to the caller -- the [Structural] oracle leg
