@@ -72,6 +72,55 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-24 — refactor/rewrite-clean 통합 + termination 예산 사다리 + term 전수 재측정 — ✅ 완료
+
+**통합 (`160fef97`, merge).** `refactor/rewrite-clean`(17커밋)을 `new-rewrite`에 merge로
+합쳤다. rebase가 아니라 merge인 이유: (a) `verification.md`가 SHA로 앵커를 거는
+`new-rewrite` 히스토리를 rewrite하면 측정 기록의 추적성이 깨진다, (b) `git merge-tree`
+실측에서 충돌 파일이 `bin/main.ml`·`rewrite_system.ml` **2개뿐**인 반면 rebase는 17커밋을
+차례로 replay하며 `e179ce0d`(rewrite_system 분할)·`6022a3a5`(스윕 이관)에서 정면 충돌한다.
+
+해소 요지 — refactor의 레이아웃을 채택하고 그 위에 new-rewrite의 기능을 다시 앉혔다:
+- `Rewrite_system`은 refactor의 슬림판(검사기 패스는 `crc_surface`/`scc_surface`) + `slice`
+  뒤에 slicer 인덱스(`type slicer`/`make_slicer`/`slice_with`) 재삽입. slicer는 검사기 패스가
+  아니라 `slice`의 인덱스형 변종이므로 데이터 모델에 남는 게 맞다.
+- `main.ml`의 스윕 골격은 `Cli.Analysis_sweep`(`require_roots`/`roots`/`rows`/
+  `recorded_symbols`). 다만 **confluence는 `rows`로 표현할 수 없다** — `rows`는 심볼당 순차인데
+  new-rewrite의 confluence는 `Mfe.check_batch` 한 세션 + `on_result` 스트리밍 + inconclusive
+  보류/재시도다. 그래서 배치 블록은 유지하고 roots·resume·정규화 호출만 refactor 모듈로 돌렸다.
+- termination/scc는 `rows ~row_of` 안에서 `Subproc.timed`로 벽시계 열을 만든다.
+- `slice_size` 헬퍼는 slicer를 받도록 바꿔 세 커맨드가 인덱스를 공유한다.
+
+**무회귀 게이트 (통합 전후 실측).** 결정적 출력이 전부 byte-identical: `specs/p4`·`p4-old`·
+`impty/{base,closure}`의 `rewrite`(실행 모듈)와 `rewrite --ctrs`(분석 CTRS), p4
+`--slice-dir`의 **심볼별 슬라이스 2356개 전량 + `_fidelity.tsv`**, impty 골든
+(`specs/impty/base/spec.ctrs`), `--all` 루트 순서, resume 프로토콜, `scc --emit`. 유일한
+비동일 항목은 스윕 벽시계 열의 20.9초 대 20.8초(측정 지터)와 캡처 스크립트가 stderr에
+덧붙이던 `exit=0` 한 줄이다.
+- ⚠️ p4-old의 `--slice-dir` 전량 대조는 **생략**했다(p4 2356개가 같은 표면을 덮고, pre/post
+  각각 20여 분이 더 든다). p4-old는 `--ctrs`/`rewrite` 전문 대조로 남는다.
+
+**예산 사다리 (`a582c670` + 수정 `a1fd043b`).** `verification.md`의 `term초`가 난이도가
+아니라 `--budget` 설정값이었다는 진단에 대한 대응. `Termination.check`가 unravel된 TRS
+하나에 예산을 올려가며(5·20·80·…·cap) AProVE를 반복 호출하고 처음 답이 나온 rung을
+기록한다. 마지막 rung이 항상 cap이라 **판정은 바뀔 수 없다**. TSV 5열 추가, resume은 0열만
+읽으므로 옛 4열 파일과 호환.
+- ⚠️ **첫 구현은 AProVE `Error`를 영구 실패로 보고 cap으로 점프시켰고, 이는 틀렸다.**
+  `$bitacc_offset_op`은 예산 5에서 판정 줄 없이 6초 만에 끝나고(→ `Error "no YES/NO/MAYBE
+  line"`, 크래시와 구별 불가) **같은 TRS가 예산 20에서 22초에 YES**다. 답이 나오는 rung을
+  건너뛰고 1800초를 태웠다. 수정: 답(`Yes`/`No`)이 아니면 전부 등반하고, 진짜 영구 오류인
+  바이너리 부재만 사다리 진입 전에 한 번 검사한다. 판단은 순수 술어 `Termination.decisive`로
+  분리해 유닛 테스트가 잡는다(뮤테이션으로 이빨 확인).
+
+**전수 재측정 (`0621234d`, `2791cf01`).** 판정은 전부 불변, 시간만 제자리를 찾았다.
+- ≤500 (153심볼): **153/153 YES**, 3.61시간 → **291.3초(44.6배)**. 예산 5가 151심볼,
+  20이 2심볼(`$bitacc_{range,offset}_op`). 옛 표의 1위 `$bin_minus`(1800.5초)는 예산 5에 답한다.
+- \>500 (124심볼): **124/124 YES, 전부 예산 5, 479.7초.** 폐기된 모듈러-B 축의 MAYBE 11건이
+  전부 닫혔다. §2 표를 27행 stale 스냅샷에서 124행 직접 축으로 교체.
+- 밴드 분모 127 → 124는 iter 헬퍼 통합(2026-07-18)에 따른 세대 차이이지 버그가 아니다.
+
+**남는 일**: >500 구간의 CRC 전수 측정(심볼당 20~25분, 124심볼이면 2일 규모).
+
 ### 2026-07-24 — 【research note】 CRC 비용의 지배 요인은 맨변수 바인더 조건 — inline/unravel을 슬라이스별로 **선택**할 여지 — 논의/확인 필요
 
 > `verification.md` ≤500 슬라이스에서 CRC 시간이 규칙 수와 어긋나는 이상치를 추적하다,
