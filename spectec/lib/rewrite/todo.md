@@ -72,6 +72,52 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-24 — 【research note】 `--crc-normalize` 승격의 문헌 근거와 슬라이스별 WLL 실측 — 논의/확인 필요
+
+> unravel(reflect-only) 승격의 이론 근거를 원전으로 재검토하고(Gmeiner–Nishida–
+> Gramlich IWC 2013; Nishida–Sakai–Sakabe LMCS 8(3:4) 2012; Gmeiner WPTE'16 =
+> arXiv:1701.00638), 그 구문 전제를 분석 표면 전수에 기계 검사했다.
+
+**근거의 구조.** "정규화 YES → 원본 YES" 승격이 기대는 것은 GNG IWC 2013
+Lemma 2("U(R) confluent + U가 joinability-sound ⇒ R confluent")인데,
+joinability-soundness는 공짜가 아니다 — reduction-soundness가 이를 함의하지
+않는 반례가 같은 논문 Ex. 3에 있다. 그것이 성립하는 증명된 클래스는 (i)
+oriented **DCTRS**, (ii) **WLL**(규칙마다 `l, t_1..t_k`에 2회 이상 나오는
+변수는 `r, s_1..s_k`에 등장 금지), (iii) unraveling이 **U_conf꼴**(U-심볼을
+(lhs, 조건항)으로 키잉해 형제 규칙이 공유 — 우리 `crcu`의 (chain-lhs, subject)
+키잉과 동형)의 삼중 전제 하의 Thm 9. 대안 경로(WPTE'16 Thm 22: right-stable +
+U_seq(R) confluent **and terminating**)는 **U_opt(변수 운반 최적화판)에는
+성립하지 않는다**(Ex. 2) — *어떤* unraveling인지가 전제의 일부다.
+
+**실측 (2026-07-24, 분석 표면 74,945 규칙 / 2,356 head 전수 검사).**
+- 결정성(use-before-bind)·type-3(extra-var): **위반 0** — `order_conds` 실측과 정합.
+- **WLL: 전체 표면은 위반 273건.** 바인딩된 변수를 조건 패턴 자리에 재사용하는
+  동등성 테스트 인코딩(`$starts_with`의 `slice(t,…) = t-prefix`, `$lookup`의
+  key 매칭)이 원인. right-stability fresh 위반 247건; 별도 157건은
+  `none = $f(x)`꼴 방향 뒤집힌 가드(문헌 방향으로 읽으면 무해한 표기 artifact).
+- **승격이 실제 일어난 6개 슬라이스**(`$write_value*` 5종, `$bin_concat`)는
+  **plain·normalized 덤프 모두 위반 0**(WLL·right-stability·좌선형 전부 충족).
+  `$join_text`도 clean. WLL 위반 2건(rhs 재사용)을 가진 `$set_priorities_of_…`는
+  plain CRC가 이미 YES라 unravel soundness 비의존.
+
+**논의/확인 필요:**
+- [ ] **향후 승격 시 슬라이스별 WLL 재검사의 절차화.** 전체 표면이 WLL이 아닌
+  이상, 잔여 TIMEOUT 7 등 다른 심볼을 `--crc-normalize`로 승격하게 되면 그
+  슬라이스의 WLL을 먼저 확인해야 한다. `confluence --crc-normalize`에 검사를
+  내장할지(승격 전 WLL 검사, 위반 시 승격 거부 또는 경고), 수동 체크리스트로
+  둘지 결정 필요. 검사 자체는 `rewrite --ctrs --symbol NAME` 덤프의 eq/ceq를
+  파싱해 「(l, t₁..t_k)에 2회 이상 나오는 변수가 r/s_i에 등장하는가」를 세는
+  ~100줄 스크립트로 재현된다.
+- [ ] **crcu/crck 변형의 joinability-soundness 지위.** 정리들은 무sort TRS 위
+  U_seq/U_conf 원형에 대한 것이고 우리 것은 변형(함수-subject 바인더만 부분
+  unravel + keep-생성자 + order-sorted)이라 현재는 같은 증명 구조 안의 유추다.
+  자체 논증(tb-역번역 soundness를 우리 변형에 맞게)으로 격상할지, 유추인 채로
+  두고 upgrade-only 안전망을 계속 유지할지.
+- [ ] **방향 뒤집힌 가드 표기 통일 여부.** emitter가 `none = $f(x)`처럼 조건의
+  평가측/패턴측을 뒤집어 찍는 경우 157건 — Maude ceq 의미론(양측 정규화 후
+  비교)에선 무해하나, 조건의 방향을 가정하는 분석·검사 도구가 오독할 수 있다.
+  `s = t`(s 평가, t 패턴) 방향으로 통일할지 확인.
+
 ### 2026-07-22 — 【research note】 실행 경로를 in-binary 서브커맨드로 통합 (confluence/termination/scc 계열)
 
 > 스크립트·스크래치패드에 흩어져 있던 검증 실행 경로를 바이너리 서브커맨드로 모았다.
