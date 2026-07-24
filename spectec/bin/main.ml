@@ -1051,24 +1051,19 @@ let termination_command =
                | Some s -> Rewrite.Unravel.string_of_stats s
                | None -> "-"
              in
-             (* Columns 4 and 5 describe the ANSWERING run of the budget search
-                and nothing else: the seconds it took and the budget it had.
-                The rungs below it are excluded from both -- charging a symbol
-                for the budgets that found nothing is what made the old fixed
-                budget column read as difficulty. *)
+             (* The 4th column is the wall clock of the answering AProVE run of
+                the budget search: the rungs below it found nothing and are
+                excluded, so this is what the verdict cost, not what finding it
+                cost. ("-" when no AProVE ran -- DEGENERATE or an unravel
+                error.) *)
              let secs =
                match report.secs with
                | Some s -> Printf.sprintf "%.1f" s
                | None -> "-"
              in
-             let won =
-               match report.budget with
-               | Some b -> string_of_int b
-               | None -> "-"
-             in
-             ( Printf.sprintf "%s\t%s\t%s\t%s\t%s" sym
+             ( Printf.sprintf "%s\t%s\t%s\t%s" sym
                  (Rewrite.Termination.string_of_verdict report.verdict)
-                 stats secs won,
+                 stats secs,
                match report.verdict with
                | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
                    false

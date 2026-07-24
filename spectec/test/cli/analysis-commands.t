@@ -41,7 +41,7 @@ slice as a TPDB TRS (stats go to stderr):
 A symbol with no rules is DEGENERATE, not an error (no stats to report):
 
   $ spectec termination --symbol '$no-such-symbol' $SPEC
-  $no-such-symbol	DEGENERATE	-	-	-
+  $no-such-symbol	DEGENERATE	-	-
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
 

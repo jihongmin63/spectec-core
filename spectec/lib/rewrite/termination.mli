@@ -16,10 +16,6 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
 type report = {
   verdict : verdict;
   stats : Unravel.stats option;
-  budget : int option;
-      (** The budget the reported verdict came from -- the smallest rung of
-          {!budget_ladder} that answered, so for a [Yes] an upper bound on the
-          proof's real cost. [None] when no AProVE run happened. *)
   secs : float option;
       (** Wall clock of the ANSWERING run alone, not of the search: the rungs
           below it are excluded, so this is what the verdict cost rather than
@@ -28,9 +24,11 @@ type report = {
 
 val string_of_verdict : verdict -> string
 
-(** The budgets [check] tries, ascending, ending at [cap]. AProVE announces at
-    its deadline, so a run costs its budget whatever the proof was worth and
-    what measures a proof is the smallest budget that still answers. *)
+(** The budgets [check] tries, ascending, ending at [cap]. The ladder lets a
+    symbol AProVE would search to a large deadline stop at a small budget that
+    already answers, instead of running to the cap; the budget it stops at is a
+    mechanism detail, not reported (AProVE answers before its deadline for most
+    symbols, so the answering run's wall clock is the honest measurement). *)
 val budget_ladder : cap:int -> int list
 
 (** Whether a rung's verdict ends the climb. Only [Yes] and [No] do: they are

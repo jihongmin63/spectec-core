@@ -3,7 +3,6 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
 type report = {
   verdict : verdict;
   stats : Unravel.stats option;
-  budget : int option;
   secs : float option;
 }
 
@@ -56,11 +55,10 @@ let decisive : Aprove.verdict -> bool = function
 
 let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
   if system.Rewrite_system.rules = [] then
-    { verdict = Degenerate; stats = None; budget = None; secs = None }
+    { verdict = Degenerate; stats = None; secs = None }
   else
     match Unravel.trs_of_system system with
-    | Error msg ->
-        { verdict = Error msg; stats = None; budget = None; secs = None }
+    | Error msg -> { verdict = Error msg; stats = None; secs = None }
     | Ok (trs, stats) ->
         let run b =
           Subproc.timed (fun () -> Aprove.check ?aprove_bin ~budget:b ~trs ())
@@ -72,24 +70,19 @@ let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
             budget_ladder ~cap:budget
           else [ budget ]
         in
-        (* Only the ANSWERING rung is timed into the report. The rungs below it
-           found nothing, so folding their deadlines in would report the
-           search's cost as the proof's -- the very confusion this search was
-           built to remove. (The whole search's cost stays observable: it is the
-           sum over the rungs the reported budget names.) *)
+        (* [secs] times the ANSWERING run alone. The ladder exists so a symbol
+           AProVE would search to a large deadline stops at a small budget that
+           already answers ($un_bnot is YES at budget 5 in 5.5s, not 1800s); it
+           is a mechanism, not a measurement, so the budget it stopped at is not
+           reported -- AProVE answers before its deadline for most symbols
+           (171/277 finish under their budget), which leaves [secs] the only
+           honest per-symbol number. *)
         let rec probe = function
           | [] -> assert false
-          | [ last ] ->
-              let v, secs = run last in
-              (of_aprove v, last, secs)
+          | [ last ] -> run last
           | b :: rest ->
               let v, secs = run b in
-              if decisive v then (of_aprove v, b, secs) else probe rest
+              if decisive v then (v, secs) else probe rest
         in
-        let verdict, answered_at, secs = probe ladder in
-        {
-          verdict;
-          stats = Some stats;
-          budget = Some answered_at;
-          secs = Some secs;
-        }
+        let verdict, secs = probe ladder in
+        { verdict = of_aprove verdict; stats = Some stats; secs = Some secs }
