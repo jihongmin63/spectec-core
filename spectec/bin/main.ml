@@ -251,6 +251,12 @@ let rewrite_command =
       ~doc:
         " with --list-symbols, also print each symbol's slice rule count \
          (ascending) -- the cheap CRC tractability proxy"
+  and wll_check =
+    flag "--wll-check" no_arg
+      ~doc:
+        " report weak left-linearity per slice (TSV on stdout, summary on \
+         stderr) and exit: the premise the --crc-normalize unravel upgrade \
+         needs and does not yet check. Read-only, translates nothing else"
   in
   fun () ->
     Cli.Error_handling.guard ~color ~on_ok:(fun out -> Format.printf "%s\n" out)
@@ -281,6 +287,16 @@ let rewrite_command =
         Ok
           (String.concat "\n"
              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows))
+    else if wll_check then (
+      (* The instrumentation surface for the WLL premise. Every decision lives
+         in [Rewrite.Wll]; this only prints, so retiring the flag once the
+         promotion gate consumes the checker leaves the logic in place. *)
+      let system = Rewrite.rewrite_spec spec_il in
+      let tsv, summary =
+        Rewrite.Wll.report system ~syms:(Rewrite.def_symbols spec_il)
+      in
+      prerr_string summary;
+      Ok (String.trim tsv))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
       let sig_rules = whole_system_sig_rules system in

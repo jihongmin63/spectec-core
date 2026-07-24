@@ -240,6 +240,208 @@ let () =
      )\n"
 
 (* ------------------------------------------------------------------------- *)
+(* Wll: the premise the --crc-normalize unravel upgrade needs. A variable
+   repeated in the PATTERN basket (lhs + every condition pattern) may not appear
+   in the RIGHT basket (rhs + every evaluated side). *)
+
+module Wll = Rewrite.Wll
+
+(* [$g] is the only defined symbol in these fixtures, so [$g(..)] is a call and
+   every other application is a constructor. *)
+let defined h = h = "$g"
+let wll r = Wll.check_rule ~defined r
+
+let classes (rep : Wll.rule_report) =
+  List.map (fun (v : Wll.violation) -> v.Wll.cls) rep.Wll.violations
+
+let offending (rep : Wll.rule_report) =
+  R.dedup_stable
+    (List.concat_map (fun (v : Wll.violation) -> v.Wll.vars) rep.Wll.violations)
+
+let () =
+  (* Twice in the pattern basket AND on the right: the violation. With no
+     conditions at all, no re-orientation can reach it. *)
+  let rep = wll (rule (app "$h" [ v "a"; v "a" ]) (v "a")) in
+  check "wll/repeated-pattern-on-right" (classes rep = [ Wll.Blocked_rule ]);
+  check "wll/repeated-pattern-on-right vars" (offending rep = [ "a" ]);
+  (* Twice in the pattern basket but NOWHERE on the right: precisely what WLL
+     permits -- a non-left-linear rule that is still weakly left-linear. *)
+  check "wll/repeated-pattern-not-on-right"
+    ((wll (rule (app "$h" [ v "a"; v "a" ]) (app "nil" []))).Wll.violations = []);
+  (* Once in the pattern basket, on the right: the ordinary shape. *)
+  check "wll/single-pattern-on-right"
+    ((wll (rule (app "$h" [ v "a" ]) (v "a"))).Wll.violations = []);
+  (* The condition pattern joins the PATTERN basket, the evaluated side the
+     right one -- that is the whole reason the orientation matters. *)
+  check "wll/condition-pattern-counts"
+    (classes
+       (wll
+          (rule
+             ~conds:[ (app "$g" [ v "b" ], v "a") ]
+             (app "$h" [ v "a"; v "b" ])
+             (v "a")))
+    = [ Wll.Blocked_defined ])
+
+let () =
+  (* Class A: [a] is in the pattern basket twice (lhs, and the condition's
+     pattern side) and on the right (rhs). Flipping the condition -- legal, as
+     both sides are bound and neither is a call -- moves [a] out of the pattern
+     basket and [b] into it, and [b] is not on the right. *)
+  let r = rule ~conds:[ (v "b", v "a") ] (app "$h" [ v "a"; v "b" ]) (v "a") in
+  let rep = wll r in
+  check "wll/flippable" (classes rep = [ Wll.Flippable ]);
+  check "wll/flippable orientation" (rep.Wll.orientation = Some [ true ]);
+  (* The assignment must actually be a fix, not merely a label: re-check the
+     rule with the conditions it names flipped. *)
+  let flip (fl : bool list) (x : R.rule) : R.rule =
+    {
+      x with
+      R.conds =
+        List.map2 (fun f (s, p) -> if f then (p, s) else (s, p)) fl x.R.conds;
+    }
+  in
+  let fixed = flip (Option.get rep.Wll.orientation) r in
+  check "wll/flippable assignment really fixes it"
+    ((wll fixed).Wll.violations = [])
+
+let () =
+  (* Evaluated side is a call: flipping would head the pattern with a defined
+     symbol, which is what orient_conds exists to prevent. *)
+  check "wll/blocked-defined"
+    (classes
+       (wll
+          (rule
+             ~conds:[ (app "$g" [ v "a" ], v "w") ]
+             (app "$h" [ v "a"; v "w" ])
+             (v "w")))
+    = [ Wll.Blocked_defined ]);
+  (* The offending variable sits on BOTH sides of one condition, so that
+     condition feeds both baskets whichever way it faces. *)
+  check "wll/blocked-bothsides"
+    (classes
+       (wll
+          (rule
+             ~conds:[ (v "a", app "cons" [ v "a"; v "b" ]) ]
+             (app "$h" [ v "a"; v "b" ])
+             (v "a")))
+    = [ Wll.Blocked_bothsides ]);
+  (* The condition binds [c], so its direction is forced by the binding order
+     (flipped, the evaluated side would mention an unbound variable). *)
+  check "wll/blocked-binder"
+    (classes
+       (wll
+          (rule
+             ~conds:[ (v "a", app "cons" [ v "b"; v "c" ]) ]
+             (app "$h" [ v "a"; v "b" ])
+             (v "b")))
+    = [ Wll.Blocked_binder ]);
+  (* A call on both sides: orient_conds already had no good orientation. *)
+  check "wll/blocked-bothcall"
+    (classes
+       (wll
+          (rule
+             ~conds:[ (app "$g" [ v "a" ], app "$g" [ v "b" ]) ]
+             (app "$h" [ v "a"; v "b" ])
+             (v "b")))
+    = [ Wll.Blocked_bothcall ])
+
+let () =
+  (* Past the exhaustive search bound the answer is NOT KNOWN, and says so --
+     it is never quietly folded into "blocked". Thirteen free conditions, one
+     of which causes the violation. *)
+  let filler = List.init 12 (fun _ -> (v "c", v "d")) in
+  let rep =
+    wll
+      (rule
+         ~conds:((v "b", v "a") :: filler)
+         (app "$h" [ v "a"; v "b"; v "c"; v "d" ])
+         (v "a"))
+  in
+  check "wll/unknown-cap" (classes rep = [ Wll.Unknown_cap ]);
+  check "wll/unknown-cap no orientation" (rep.Wll.orientation = None);
+  (* One condition fewer and the same rule is searched to a verdict. *)
+  let rep' =
+    wll
+      (rule
+         ~conds:((v "b", v "a") :: List.tl filler)
+         (app "$h" [ v "a"; v "b"; v "c"; v "d" ])
+         (v "a"))
+  in
+  check "wll/just-under-cap" (classes rep' = [ Wll.Flippable ])
+
+let () =
+  (* The invariant a re-orientation pass rests on: flipping the free conditions
+     of a rule whose conditions are ALREADY in binding order (what
+     Crc_surface.order_conds leaves, and what every checked system has been
+     through) leaves the greedy schedule picking the same conditions in the
+     same order -- so the unravel chain keeps its shape.
+
+     "Already in binding order" is load-bearing: the greedy takes the EARLIEST
+     ready condition, so a flip can only make a LATER condition ready sooner,
+     which changes nothing while every earlier one is ready too. *)
+  let schedule_perm (lhs : R.term) (conds : R.cond list) : int list option =
+    match U.schedule_conds (R.dedup_stable (R.vars_of_term lhs)) conds with
+    | None -> None
+    | Some sched ->
+        let arr = Array.of_list conds in
+        let claimed = Array.make (Array.length arr) false in
+        Some
+          (List.map
+             (fun c ->
+               let rec go i =
+                 if (not claimed.(i)) && arr.(i) = c then (
+                   claimed.(i) <- true;
+                   i)
+                 else go (i + 1)
+               in
+               go 0)
+             sched)
+  in
+  let lhs = app "$h" [ v "a"; v "b"; v "c"; v "d" ] in
+  let conds = [ (app "$g" [ v "c" ], v "e"); (v "b", v "a") ] in
+  let r = rule ~conds lhs (v "a") in
+  let rep = wll r in
+  check "wll/invariant flippable" (rep.Wll.orientation = Some [ false; true ]);
+  let flipped =
+    List.map2
+      (fun f (s, p) -> if f then (p, s) else (s, p))
+      (Option.get rep.Wll.orientation)
+      conds
+  in
+  check "wll/invariant schedule unchanged"
+    (schedule_perm lhs conds = schedule_perm lhs flipped
+    && schedule_perm lhs conds = Some [ 0; 1 ])
+
+let () =
+  (* check_system takes the call predicate from the system: [$g] is defined by
+     a rule here, so the same condition that was Blocked_defined above stays
+     so, and slice_verdict aggregates. *)
+  let sys =
+    system
+      [
+        rule (app "$g" [ v "x" ]) (v "x");
+        rule
+          ~conds:[ (app "$g" [ v "a" ], v "w") ]
+          (app "$h" [ v "a"; v "w" ])
+          (v "w");
+      ]
+  in
+  let reps = Wll.check_system sys in
+  check "wll/check_system indexes" (List.length reps = 2);
+  check "wll/check_system clean rule" ((List.nth reps 0).Wll.violations = []);
+  check "wll/check_system violating rule"
+    (match (List.nth reps 1).Wll.violations with
+    | [ v ] ->
+        v.Wll.cls = Wll.Blocked_defined
+        && v.Wll.rule_index = 1 && v.Wll.head = "$h"
+    | _ -> false);
+  check "wll/slice_verdict blocked" (Wll.slice_verdict reps = Wll.Blocked);
+  check "wll/slice_verdict clean"
+    (Wll.slice_verdict
+       (Wll.check_system (system [ rule (app "$g" [ v "x" ]) (v "x") ]))
+    = Wll.Clean)
+
+(* ------------------------------------------------------------------------- *)
 (* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
 
 let () =

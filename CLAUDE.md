@@ -100,6 +100,7 @@ is ground truth.
 | [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_normalize_upgrade` adds the upgrade-only `--crc-normalize` retry. |
 | [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
 | [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Structure-preserving unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
+| [wll.ml](spectec/lib/rewrite/wll.ml) / `.mli` | Weak left-linearity of a system: the unraveling premise `--crc-normalize`'s upgrade needs and `Mfe.check_normalize_upgrade` does not yet check. Read-only; classifies each violation by whether re-orienting conditions could remove it. Reported by `rewrite --wll-check`. |
 | [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
 | [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
 | [scc.ml](spectec/lib/rewrite/scc.ml) / `.mli` | Sufficient completeness via CETA Maude 2.7 + old MFE 2.7.1: unconditional over-approximation, pruned functional module, verdict/fidelity/witness-domain classification (the `scc` subcommand). |
