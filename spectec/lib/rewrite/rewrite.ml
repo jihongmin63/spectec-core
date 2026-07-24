@@ -9,6 +9,7 @@ module Of_maude = Of_maude
 module Mfe = Mfe
 module Subproc = Subproc
 module Unravel = Unravel
+module Aprove = Aprove
 module Termination = Termination
 module Scc = Scc
 module Defunctionalize = Defunctionalize

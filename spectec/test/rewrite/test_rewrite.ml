@@ -1,12 +1,13 @@
 (* Unit tests for the pure analysis-tool plumbing: the structure-preserving
    unraveling ({!Rewrite.Unravel}), the upgrade-only verdict transfer
-   ({!Rewrite.Mfe.upgrade}), and the SCC output classification
-   ({!Rewrite.Scc}). Everything process-shaped (Maude, AProVE) is exercised by
-   the CLI cram tests and the calibration runs instead. *)
+   ({!Rewrite.Mfe.upgrade}), the SCC output classification ({!Rewrite.Scc}), and
+   the AProVE stop condition ({!Rewrite.Aprove.verdict_printed}). Running the
+   tools themselves is left to the CLI cram tests and the calibration runs. *)
 
 module R = Rewrite.Rewrite_system
 module U = Rewrite.Unravel
 module Mfe = Rewrite.Mfe
+module Aprove = Rewrite.Aprove
 module Subproc = Rewrite.Subproc
 module Scc = Rewrite.Scc
 
@@ -269,14 +270,16 @@ let () =
   Subproc.session_send sess "hello\n";
   let out, timed =
     Subproc.session_read sess
-      ~done_when:(fun b -> Subproc.contains b "hello") ~timeout:5
+      ~done_when:(fun b -> Subproc.contains b "hello")
+      ~timeout:5
   in
   check "session/echo" (Subproc.contains out "hello");
   check "session/echo-not-timed" (not timed);
   Subproc.session_send sess "world\n";
   let out2, _ =
     Subproc.session_read sess
-      ~done_when:(fun b -> Subproc.contains b "world") ~timeout:5
+      ~done_when:(fun b -> Subproc.contains b "world")
+      ~timeout:5
   in
   check "session/second-send" (Subproc.contains out2 "world");
   check "session/buffer-reset" (not (Subproc.contains out2 "hello"));
@@ -311,6 +314,25 @@ let () =
   check "timed/nonneg" (dt0 >= 0.0);
   let (), dt1 = Subproc.timed (fun () -> Unix.sleepf 0.05) in
   check "timed/measures-sleep" (dt1 >= 0.04)
+
+(* Aprove.verdict_printed: the stop condition Subproc polls over a buffer that
+   ends mid-read, so it must fire on a terminated verdict line and on nothing
+   else -- firing early ends the run on a verdict AProVE never gave. *)
+let () =
+  check "aprove/printed-yes" (Aprove.verdict_printed "some proof\nYES\n");
+  check "aprove/printed-maybe" (Aprove.verdict_printed "MAYBE\nProof:\n");
+  check "aprove/printed-crlf" (Aprove.verdict_printed "YES\r\n");
+  check "aprove/pending-empty" (not (Aprove.verdict_printed ""));
+  check "aprove/pending-narrative"
+    (not (Aprove.verdict_printed "Termination proof:\nDP problem\n"));
+  (* The whole point of the terminated-line rule: a read that breaks right
+     after a verdict token is still a partial line. *)
+  check "aprove/pending-partial-line" (not (Aprove.verdict_printed "YES"));
+  check "aprove/pending-partial-prefix"
+    (not (Aprove.verdict_printed "proof\nMAYBE"));
+  (* ...and the same buffer one chunk later, where it was never a verdict. *)
+  check "aprove/not-a-verdict-token"
+    (not (Aprove.verdict_printed "proof\nMAYBE_SUCH_RULE\n"))
 
 let () =
   if !failures > 0 then (
