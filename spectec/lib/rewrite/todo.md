@@ -72,6 +72,66 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-24 — WLL 체커 + 승격 게이트 (`wll.ml`, `Mfe.normalize_for_retry`) — ✅ 완료, Maude 재검 대기
+
+> `--crc-normalize` 승격의 전제(WLL)를 post-`orient_conds` 표면에서 재측정하고,
+> 승격 게이트로 소비했다. 워크트리 `wll-check`, 커밋 `85c4d57d`(체커) + `bc65cfb4`(게이트).
+> 이전 두 research note의 WLL 수치는 **pre-`orient_conds` 표면**의 것이라 아래가 정본이다.
+
+**실측 (p4, 74,945규칙 / 574 심볼).**
+
+| | 값 |
+|---|---|
+| 위반 규칙 | **106** (조건부 2,441 중) |
+| 클래스 | flippable 3 / blk-defined 53 / blk-bothsides 32 / blk-binder 9 / blk-bothcall 6 / blk-combination 5 / blk-rule 0 / cap 0 |
+| 조건 | 8,594 (free 1,804 / 양쪽-호출 15) |
+| 슬라이스 | 조건부 480 — clean 306 / partial 83 / blocked 90 / flippable-all 1 |
+
+- p4-old: 위반 111, **class A 0**. impty: 위반 2, **class A 0**.
+- 「위반 273 / 무거운 41 중 14 위반」은 pre-orient 수치라 **폐기**. 다만
+  `$bin_band` 2·`$bin_bor` 2·`$bin_satminus` 3은 그대로 재현됐고,
+  `$set_priorities_of_tableEntryListIR`는 2건 → **clean**(=`orient_conds`가 없앤 위반).
+- **승격 6슬라이스(`$write_value*` 5 + `$bin_concat`)와 CRC TIMEOUT 7이 전부 clean.**
+  게이트가 오늘 데이터에서 verdict를 바꿀 수 없는 이유가 이것이다(구성상 unravel 경로 유지).
+- `$starts_with`는 blocked(평가측이 defined 호출) — 재지향 불가.
+
+**조건 재지향(class A)은 no-go — 기록만 남긴다.** class A 3건은
+`$update_fieldValue`(rule 69313, `nameIR`)와 `Expr_eval_lctk`(rule 70848·70849,
+`boolValue`)뿐이다. 셋 다 승격 대상(6+7)이 아니라 **재지향해도 승격 가능 슬라이스가
+늘지 않는다**. 재지향으로 `Clean`이 되는 슬라이스는 `$update_fieldValue` 하나인데
+50,638규칙이라 CRC 사정권 밖이고, `Expr_eval_lctk` 계열은 blocked가 29~42건씩 남아
+`partial` 그대로다. 위반의 85%가 `blk-defined`+`blk-bothsides`인데 둘 다 방향으로는
+원리적으로 못 건드린다. → **`Wll.reorient`는 만들지 않았다.**
+
+**게이트.** `Mfe.normalize_for_retry`가 슬라이스의 WLL verdict로 정규화를 고른다 —
+clean이면 `crc_normalize`(inline+unravel, 승격 허용), 위반이면
+`Crc_surface.inline_only`(inline은 동치라 전제 불요). **어느 정규화인지를 고를 뿐
+재시도 여부는 안 바꾼다** — 강등된 슬라이스도 여전히 재검된다.
+- 승격 지점은 **두 곳**이었다: 플랜이 지목한 `Mfe.check_normalize_upgrade`는 실은
+  **호출자가 없고**, 실제 승격은 `main.ml`의 confluence 배치 경로에서 일어난다.
+  둘 다 게이트했다.
+- `confluence --crc-normalize`가 WLL verdict + 사용된 정규화 2열을 **뒤에** 덧붙인다
+  (opt-in 플래그일 때만 — 기본 스윕 포맷 무변경, resume은 0열만 읽어 옛 파일과 호환).
+- `rewrite --ctrs --crc-normalize` 덤프는 **게이트 미적용** — 번역 덤프이지 승격이 아니다.
+
+**무회귀.** `rewrite`/`rewrite --ctrs`(×p4·p4-old·impty{base,closure,recursion}),
+`--slice-dir` 2,356 슬라이스 + `_fidelity.tsv`, `--list-symbols`/`--sizes`/
+`--prune-signature`/`--unconditional`/`--crc-normalize`, impty 골든 전부
+**byte-identical**. `unravel.ml`은 무수정(`unravel.mli`에 `schedule_conds` export만).
+유닛 테스트 15블록 추가, 뮤테이션 2종으로 이빨 확인(위반 임계 `>= 2`→`>= 3`이 5건 kill,
+게이트 무력화가 `gate/violating picks inline` kill).
+
+**남은 것:**
+- [ ] **Maude 실측 재검** — `confluence --symbol` × (승격 6 + TIMEOUT 7)을 게이트 전/후로
+  돌려 verdict 동일 확인. 구성상 안 바뀌어야 하지만 실측이 남았다. 컨테이너가
+  `termination --all` 스윕 중이라 idle일 때만.
+- [ ] **재지향 불변식은 "이미 binding order"에 의존한다.** free 조건을 뒤집어도
+  `schedule_conds` 순열이 불변인 것은 조건이 이미 `order_conds`를 거쳤을 때뿐이다
+  (그리디가 **가장 이른** ready를 고르므로, 앞 조건이 전부 ready인 한 뒤 조건이 더 일찍
+  ready가 돼도 순서가 안 바뀐다). 소스 순서가 binding order가 아니면 성립하지 않는다 —
+  `wll/invariant schedule unchanged` 테스트가 이 전제를 명시적으로 건다. 언젠가
+  재지향을 하게 되면 이 조건을 먼저 확인할 것.
+
 ### 2026-07-24 — 【알려진 결함】 `sanitize`가 `$capture_avoiding_`와 `$capture_avoiding`를 한 심볼로 합친다 — 미수정
 
 `R.sanitize`(`rewrite_system.ml`)는 `_`를 **토큰 구분자로 버리고** 토큰을 다시 `_`로
@@ -211,7 +271,7 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
 **WLL 재검사 (독립 구현, 위 노트 수치 정확 재현).** 승격 6슬라이스 clean, `$join_text` clean,
 `$set_priorities_of_tableEntryListIR` **2건**, `$starts_with`는 `t-prefix:Text` 재사용 1건.
 - **CRC TIMEOUT 7개는 전부 WLL clean** — 승격 전제가 정확히 필요한 곳에서 성립한다.
-- 무거운 41 슬라이스 중 **27 clean / 14 위반**(`$bin_band`·`$bin_bor` 각 2, `$bin_satminus` 3,
+- (⚠️ pre-`orient_conds`) 무거운 41 슬라이스 중 **27 clean / 14 위반**(`$bin_band`·`$bin_bor` 각 2, `$bin_satminus` 3,
   `$set_priorities…` 2 등). 위반 슬라이스는 게이트를 완화해도 승격이 불가.
 
 **소스 수준 대안 (측정 완료).** `$callableId_IR`의 전제
@@ -223,7 +283,8 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
 **250.3초 → 0.7초**(verdict YES 유지). 같은 와일드카드 구조분해 전제가 명세에 **30군데**.
 
 **논의/확인 필요:**
-- [ ] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택.** 이 세션의 결론은 "둘 중 하나"가
+- [x] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택** — **완료 2026-07-24**
+  (`Mfe.normalize_for_retry`, 위 전용 절). 붙인 자리는 `Mfe` + confluence 배치 경로 둘 다. 원문: 이 세션의 결론은 "둘 중 하나"가
   아니라 "슬라이스마다 다름"이다. inline은 **동치**(양방향 전이, base 표면 가능),
   unravel은 **reflect-only**(upgrade-only, WLL 필요). 그러면 선택 규칙의 자연스러운 형태는
   「WLL clean이면 unravel(더 싸고 중첩쌍도 줄임), 아니면 inline(승격 못 하니 동치 유지)」.
@@ -273,7 +334,7 @@ U_seq(R) confluent **and terminating**)는 **U_opt(변수 운반 최적화판)�
 
 **실측 (2026-07-24, 분석 표면 74,945 규칙 / 2,356 head 전수 검사).**
 - 결정성(use-before-bind)·type-3(extra-var): **위반 0** — `order_conds` 실측과 정합.
-- **WLL: 전체 표면은 위반 273건.** 바인딩된 변수를 조건 패턴 자리에 재사용하는
+- **WLL: 전체 표면은 위반 273건.** (⚠️ pre-`orient_conds` 수치 — 폐기, 위 전용 절의 106건이 정본) 바인딩된 변수를 조건 패턴 자리에 재사용하는
   동등성 테스트 인코딩(`$starts_with`의 `slice(t,…) = t-prefix`, `$lookup`의
   key 매칭)이 원인. right-stability fresh 위반 247건; 별도 157건은
   `none = $f(x)`꼴 방향 뒤집힌 가드(문헌 방향으로 읽으면 무해한 표기 artifact).
@@ -283,7 +344,8 @@ U_seq(R) confluent **and terminating**)는 **U_opt(변수 운반 최적화판)�
   plain CRC가 이미 YES라 unravel soundness 비의존.
 
 **논의/확인 필요:**
-- [ ] **향후 승격 시 슬라이스별 WLL 재검사의 절차화.** 전체 표면이 WLL이 아닌
+- [x] **향후 승격 시 슬라이스별 WLL 재검사의 절차화** — **완료 2026-07-24**: 절차가 아니라
+  게이트로 자동화됐다(`Mfe.normalize_for_retry`, 위 전용 절). 원문: 전체 표면이 WLL이 아닌
   이상, 잔여 TIMEOUT 7 등 다른 심볼을 `--crc-normalize`로 승격하게 되면 그
   슬라이스의 WLL을 먼저 확인해야 한다. `confluence --crc-normalize`에 검사를
   내장할지(승격 전 WLL 검사, 위반 시 승격 거부 또는 경고), 수동 체크리스트로
