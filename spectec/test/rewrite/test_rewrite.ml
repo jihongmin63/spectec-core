@@ -442,6 +442,62 @@ let () =
     = Wll.Clean)
 
 (* ------------------------------------------------------------------------- *)
+(* Mfe.normalize_for_retry: the WLL gate on the --crc-normalize retry. *)
+
+module Crc = Rewrite.Crc_surface
+
+let () =
+  (* A WLL-clean slice earns the full normalization, and with it the upgrade
+     the unravel only licenses under that premise. *)
+  let clean =
+    system
+      [
+        rule (app "$g" [ v "x" ]) (v "x");
+        rule
+          ~conds:[ (app "$g" [ v "a" ], app "cons" [ v "h"; v "t" ]) ]
+          (app "$h" [ v "a" ])
+          (v "h");
+      ]
+  in
+  let r = Mfe.normalize_for_retry clean in
+  check "gate/clean picks unravel" (r.Mfe.normalization = Mfe.Unravel_upgrade);
+  check "gate/clean wll" (r.Mfe.wll = Rewrite.Wll.Clean);
+  check "gate/clean normalized is crc_normalize"
+    (r.Mfe.normalized = Crc.crc_normalize clean);
+  (* The same slice with one rule that violates WLL: [w] is in the pattern
+     basket twice (lhs and the condition pattern) and on the right. The retry
+     drops to the inline, which is an equivalence -- so the verdict still
+     transfers, but no longer rests on an unproved premise. *)
+  let violating =
+    system
+      [
+        rule (app "$g" [ v "x" ]) (v "x");
+        rule
+          ~conds:[ (app "$g" [ v "a" ], v "w") ]
+          (app "$h" [ v "a"; v "w" ])
+          (v "w");
+      ]
+  in
+  let r' = Mfe.normalize_for_retry violating in
+  check "gate/violating picks inline" (r'.Mfe.normalization = Mfe.Inline_only);
+  check "gate/violating wll" (r'.Mfe.wll = Rewrite.Wll.Blocked);
+  check "gate/violating normalized is inline_only"
+    (r'.Mfe.normalized = Crc.inline_only violating);
+  (* The gate picks WHICH normalization, never whether: both branches still
+     normalize, so a held slice never loses its retry. *)
+  check "gate/inline_only has no unravel operator"
+    (not
+       (List.exists
+          (fun (x : R.rule) ->
+            List.exists
+              (fun h -> String.length h >= 4 && String.sub h 0 4 = "crcu")
+              (R.refs_of_rule x))
+          (Crc.inline_only violating).R.rules));
+  check "gate/string_of_normalization"
+    (Mfe.string_of_normalization Mfe.Unravel_upgrade = "unravel"
+    && Mfe.string_of_normalization Mfe.Inline_only = "inline")
+
+(* ------------------------------------------------------------------------- *)
 (* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
 
 let () =

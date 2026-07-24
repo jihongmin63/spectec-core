@@ -31,3 +31,11 @@ val crc_unravel : Rewrite_system.t -> Rewrite_system.t
     Opt-in; never part of the shared {!Pipeline.ctrs_of_spec} surface, and never
     seen by execution/termination/ChC. *)
 val crc_normalize : Rewrite_system.t -> Rewrite_system.t
+
+(** {!crc_normalize} without the unravel:
+    [fold_premise_binders ~aggressive:true |> order_conds]. The inline is an
+    equivalence, so a verdict on the result transfers in BOTH directions and
+    needs no weak-left-linearity premise -- the normalization a slice that is
+    not WLL is retried under ({!Mfe.normalize_for_retry}), where the unravel
+    would only have licensed an unproved upgrade. *)
+val inline_only : Rewrite_system.t -> Rewrite_system.t

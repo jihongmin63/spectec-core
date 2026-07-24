@@ -21,7 +21,34 @@ type checked = { verdict : verdict; via_normalize : bool }
 
 type upgrade_result = { crc : checked; chc : checked }
 
+(** Which normalization an inconclusive slice is retried under.
+
+    [Unravel_upgrade] is the full {!Crc_surface.crc_normalize}: the unravel only
+    REFLECTS confluence in general, so a normalized YES may be carried back to
+    the original only for oriented DCTRSs that are also weakly left-linear
+    ({!Wll}). [Inline_only] is {!Crc_surface.inline_only}, an equivalence whose
+    verdict transfers in both directions with no premise at all -- what a slice
+    that violates WLL is retried under instead. *)
+type normalization = Unravel_upgrade | Inline_only
+
+(** [normalized] is the system the retry actually checks; [wll] is the slice's
+    weak-left-linearity verdict, which chose [normalization]. *)
+type retry = {
+  normalized : Rewrite_system.t;
+  normalization : normalization;
+  wll : Wll.slice_verdict;
+}
+
 val string_of_verdict : verdict -> string
+val string_of_normalization : normalization -> string
+
+(** The retry a slice earns: {!Crc_surface.crc_normalize} when its rules are
+    weakly left-linear, {!Crc_surface.inline_only} when they are not. This is
+    the gate closing the soundness hole the [--crc-normalize] upgrade had -- the
+    promotion used to run unconditionally, so a slice that was not WLL could
+    record an unproved YES. Both branches still normalize, so no slice loses its
+    retry; a non-WLL slice simply gets the weaker, legitimate one. *)
+val normalize_for_retry : Rewrite_system.t -> retry
 
 (** [batch_checks_done raw]: in a batched session where [raw] accumulates only
     the current symbols output, its CRC+ChC block is complete once the coherence

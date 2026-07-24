@@ -404,3 +404,11 @@ let crc_unravel (t : t) : t =
 
 let crc_normalize (t : t) : t =
   t |> fold_premise_binders ~aggressive:true |> crc_unravel |> order_conds
+
+(* The same chain with [crc_unravel] left out. The inline is an EQUIVALENCE, so
+   a verdict transfers in both directions and no weak-left-linearity premise is
+   needed -- which is the whole point: a slice that is not WLL may still be
+   normalized this far and have its verdict carried across legitimately, where
+   the unravel would only have licensed an unproved upgrade. *)
+let inline_only (t : t) : t =
+  t |> fold_premise_binders ~aggressive:true |> order_conds

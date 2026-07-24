@@ -388,7 +388,10 @@ let confluence_command =
         " retry an inconclusive verdict (MAYBE/TIMEOUT) on the crc-normalized \
          system and upgrade it to YES only when the retry proves it \
          (upgrade-only, never a downgrade); an upgraded verdict prints as 'YES \
-         (normalized)'"
+         (normalized)'. The unravel half of the normalization only licenses \
+         that upgrade for a weakly left-linear slice, so a slice that violates \
+         WLL is retried under the inline alone (an equivalence). Adds two \
+         columns: the WLL verdict and which normalization ran"
   and out =
     flag "--out" (optional string)
       ~doc:
@@ -434,9 +437,17 @@ let confluence_command =
        [--out] is resumable across a kill), instead of buffering the whole
        batch. *)
     (* The 4th column is the symbol's wall-clock seconds; for a normalized
-       verdict it is base + normalize time (the total spent reaching it). *)
-    let emit label crc chc secs row_failed =
+       verdict it is base + normalize time (the total spent reaching it).
+       [--crc-normalize] appends two more: the slice's WLL verdict and which
+       normalization the retry used ([-] on a row that had no retry). Appended,
+       never reordered, and only under the opt-in flag -- so the default sweep's
+       format is untouched and resume (which reads column 0) stays compatible
+       with files written before the columns existed. *)
+    let emit label crc chc secs extra row_failed =
       let line = Printf.sprintf "%s\t%s\t%s\t%.1f" label crc chc secs in
+      let line =
+        if crc_normalize then line ^ "\t" ^ String.concat "\t" extra else line
+      in
       print_endline line;
       Option.iter
         (fun oc ->
@@ -447,6 +458,7 @@ let confluence_command =
     in
     let emit_base label (r : Rewrite.Mfe.result) secs =
       emit label (verdict r.church_rosser) (verdict r.coherence) secs
+        [ "-"; "-" ]
         (not
            (r.church_rosser = Rewrite.Mfe.Yes && r.coherence = Rewrite.Mfe.Yes))
     in
@@ -469,12 +481,19 @@ let confluence_command =
             spec_il slices
         in
         if crc_normalize && Hashtbl.length pending > 0 then
+          (* The WLL gate: each held slice earns the unravel (and the upgrade
+             resting on it) only if it is weakly left-linear, otherwise the
+             equivalence-preserving inline alone. Every held slice is still
+             retried -- the gate picks WHICH normalization, never whether. *)
+          let retries = Hashtbl.create 16 in
           let norm_slices =
             List.filter_map
               (fun (sym, slice) ->
-                if Hashtbl.mem pending sym then
-                  let ns = Rewrite.Crc_surface.crc_normalize slice in
-                  if ns = slice then None else Some (sym, ns)
+                if Hashtbl.mem pending sym then (
+                  let r = Rewrite.Mfe.normalize_for_retry slice in
+                  Hashtbl.replace retries sym r;
+                  if r.Rewrite.Mfe.normalized = slice then None
+                  else Some (sym, r.Rewrite.Mfe.normalized))
                 else None)
               slices
           in
@@ -486,6 +505,7 @@ let confluence_command =
                 let (b : Rewrite.Mfe.result), b_secs =
                   Hashtbl.find pending label
                 in
+                let r = Hashtbl.find retries label in
                 let up o nn = Rewrite.Mfe.upgrade ~original:o ~normalized:nn in
                 let c = up b.church_rosser n.church_rosser in
                 let h = up b.coherence n.coherence in
@@ -494,14 +514,29 @@ let confluence_command =
                 in
                 emit label (show c b.church_rosser) (show h b.coherence)
                   (b_secs +. n_secs)
+                  [
+                    Rewrite.Wll.string_of_verdict r.Rewrite.Mfe.wll;
+                    Rewrite.Mfe.string_of_normalization
+                      r.Rewrite.Mfe.normalization;
+                  ]
                   (not (c = Rewrite.Mfe.Yes && h = Rewrite.Mfe.Yes));
                 Hashtbl.replace emitted label ())
               spec_il norm_slices
           in
-          (* inconclusive rows whose slice had nothing to normalize: emit base *)
+          (* inconclusive rows whose slice had nothing to normalize: emit base,
+             still recording the WLL verdict the gate computed for it *)
           Hashtbl.iter
             (fun label ((b : Rewrite.Mfe.result), b_secs) ->
-              if not (Hashtbl.mem emitted label) then emit_base label b b_secs)
+              if not (Hashtbl.mem emitted label) then
+                match Hashtbl.find_opt retries label with
+                | None -> emit_base label b b_secs
+                | Some r ->
+                    emit label (verdict b.church_rosser) (verdict b.coherence)
+                      b_secs
+                      [ Rewrite.Wll.string_of_verdict r.Rewrite.Mfe.wll; "-" ]
+                      (not
+                         (b.church_rosser = Rewrite.Mfe.Yes
+                         && b.coherence = Rewrite.Mfe.Yes)))
             pending);
     Ok !failed
 

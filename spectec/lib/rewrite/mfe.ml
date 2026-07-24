@@ -33,6 +33,17 @@ type verdict = Yes | No | Maybe | Timeout | Error of string
 type result = { church_rosser : verdict; coherence : verdict }
 type checked = { verdict : verdict; via_normalize : bool }
 type upgrade_result = { crc : checked; chc : checked }
+type normalization = Unravel_upgrade | Inline_only
+
+type retry = {
+  normalized : Rewrite_system.t;
+  normalization : normalization;
+  wll : Wll.slice_verdict;
+}
+
+let string_of_normalization = function
+  | Unravel_upgrade -> "unravel"
+  | Inline_only -> "inline"
 
 let string_of_verdict = function
   | Yes -> "YES"
@@ -239,6 +250,28 @@ let upgrade ~(original : verdict) ~(normalized : verdict) : verdict =
   | (Maybe | Timeout), Yes -> Yes
   | _ -> original
 
+(* Which normalization an inconclusive slice may be retried under. The unravel
+   only REFLECTS confluence in general; it preserves it -- so a normalized YES
+   proves the original -- for oriented DCTRSs that are additionally weakly
+   left-linear. So the premise decides the retry: WLL clean earns the unravel
+   and the upgrade with it, a violation is retried under the inline alone,
+   which is an equivalence and needs no premise. The verdict transfer is the
+   same {!upgrade} either way; what differs is whether it rests on a proof.
+
+   Both branches normalize, so this never SKIPS a retry a slice used to get --
+   only swaps in the weaker, legitimate one. *)
+let normalize_for_retry (system : Rewrite_system.t) : retry =
+  let wll = Wll.slice_verdict (Wll.check_system system) in
+  let normalization =
+    match wll with Wll.Clean -> Unravel_upgrade | _ -> Inline_only
+  in
+  let normalized =
+    match normalization with
+    | Unravel_upgrade -> Crc_surface.crc_normalize system
+    | Inline_only -> Crc_surface.inline_only system
+  in
+  { normalized; normalization; wll }
+
 let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
     (orig : Lang.Il.spec) (system : Rewrite_system.t) : upgrade_result =
   (* Pin the signature to the ORIGINAL system's rules, so the normalized re-run
@@ -258,7 +291,7 @@ let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
   if not (inconclusive base.church_rosser || inconclusive base.coherence) then
     exact
   else
-    let normalized_sys = Crc_surface.crc_normalize system in
+    let normalized_sys = (normalize_for_retry system).normalized in
     (* Nothing to normalize: re-running the checker on the identical module
        could only re-roll a Timeout, not upgrade a verdict. *)
     if normalized_sys = system then exact
