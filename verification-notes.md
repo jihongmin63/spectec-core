@@ -357,6 +357,21 @@ AProVE에 보이지 않았다. 즉 영향 슬라이스의 종전 YES는 **틀린
 행은 규칙 수 오름차순 한 줄로 세우고, 열 이름은 그 열을 만드는 서브커맨드(`confluence` /
 `termination`)와 일치시켰다.
 
+**표 확장 — 277 → 291행.** 스윕이 종전 두 표의 범위를 넘어 계속 돌면서 14심볼이 더 나왔다:
+규칙 0인 **DEGENERATE 9**(`$find_overloaded`·`$find_overloadeds_{named,unnamed}`·
+`$init_objectState`·`$match_overloaded_{named,unnamed}`·`$reduce_serenum_{binary,unary}`·
+`ExternFunctionCall_eval_lctk` — 선언만 있고 절이 없어 슬라이스가 비고, AProVE를 아예 안
+돌린다)와 **YES 5**(`ParameterType_alpha` 2,489규칙 6.1초, `ExternMethodType_alpha` 2,490
+6.1초, `Type_alpha` 2,572 6.2초, `$check_switchLabel_default` 50,638 285.4초,
+`$find_action_prime` 50,638 330.5초). 새 행의 confluence는 전부 `-`(미측정)다.
+
+`rules` 열은 `rewrite --list-symbols --sizes`를 권위 소스로 전 행 대조했고 **어긋난 행이
+없다**(0/277) — 두 표를 합치면서 크기 값이 밀리지 않았음을 뜻한다.
+
+**남은 범위.** 슬라이스 가능한 심볼은 574개이므로 표는 아직 291/574다. 스윕이 규칙 수
+오름차순이라 남은 283심볼은 전부 대형 슬라이스이고, 마지막 두 행(50,638규칙에 285~330초)이
+비용의 기울기를 보여준다 — 전수 완주는 별건으로 봐야 한다.
+
 ## 비-YES 행 해석 (≤500)
 
 CRC의 잔여 비-YES 7행(`$bin_shl`·`$bin_shr`·`$bitacc_offset_op`·`$bitacc_offset_replace_op`·
