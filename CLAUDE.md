@@ -211,6 +211,13 @@ Maude 3.5.1 at `spectec/tools/maude/maude`, MFE at `spectec/tools/mfe/`
 loop floods `>` at EOF), so the bridge reads under a timeout and SIGKILLs once
 both verdicts print.
 
+> **ChC (Coherence) measurement halted (from 2026-07-24).** `Mfe.check` still
+> runs both checkers and returns `{church_rosser; coherence}`, but across the
+> entire ≤500 sweep the ChC verdict tracked CRC exactly (CRC YES → ChC YES,
+> CRC unreached → ChC `-`) with no independent defect signal, so the tables and
+> summaries no longer carry a ChC column — axis dropped in
+> [verification.md](verification.md); rationale in [verification-notes.md](verification-notes.md).
+
 **Whole-system CRC explodes; per-symbol slices (`confluence --symbol`) are the
 practical unit.** Current calibration (counts, per-symbol tables, and the two
 recurring MAYBE causes — free RHS variables bound only by a premise, and owise
@@ -497,7 +504,7 @@ actually proves.
 |---|---|---|---|
 | `92618dc2` | 2026-07-10 | **differential**, full corpus, both surfaces: native completeness 0 / soundness 1 (issue1944) / Phase D 1227/1227 MATCH, and structural Phase D 1227/1227 MATCH / 0 MISMATCH ([spectec-structural-completeness-soundness.md](spectec-structural-completeness-soundness.md)) | CRC/term |
 | `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([verification-notes.md](verification-notes.md)) | differential |
-| `bff805ec` | 2026-07-23 | **CRC/ChC + termination, with per-symbol timing**: full 153-symbol ≤500 sweep re-measured on this tree with the `Subproc.timed` instrumentation — CRC/ChC YES 146 (5 normalized) / TIMEOUT 7, term YES 153/153. Times taken **serially** (one fresh process per symbol): parallel sharding was verified verdict-identical (0 false timeouts) but inflates heavy-symbol times up to ~40× under memory contention, so it is unfit for timing. `$bin_minus` term needs budget 1800; `$write_bits_from_value` term needs AProVE `-Xss512m` (proof-export stack overflow, not a search failure) ([verification.md](verification.md) / [verification-notes.md](verification-notes.md)) | differential |
+| `bff805ec` | 2026-07-23 | **CRC/ChC + termination, with per-symbol timing**: full 153-symbol ≤500 sweep re-measured on this tree with the `Subproc.timed` instrumentation — CRC/ChC YES 146 (5 normalized) / TIMEOUT 7, term YES 153/153. **ChC column halted 2026-07-24** (verdict always tracked CRC — dropped from the tables). Times taken **serially** (one fresh process per symbol): parallel sharding was verified verdict-identical (0 false timeouts) but inflates heavy-symbol times up to ~40× under memory contention, so it is unfit for timing. `$bin_minus` term needs budget 1800; `$write_bits_from_value` term needs AProVE `-Xss512m` (proof-export stack overflow, not a search failure) ([verification.md](verification.md) / [verification-notes.md](verification-notes.md)) | differential |
 
 **`5647b883` is the bisect anchor**: its analysis columns are current, and the
 only *executable*-surface commit separating it from the differential-verified

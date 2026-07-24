@@ -4,8 +4,14 @@
 커맨드, 측정 방법론, 시간·병렬 측정 소견, 커밋별 측정 이력, 그리고 비-YES 행의 해석(왜
 도구 한계이지 실제 결함이 아닌지)을 모은다.
 
-- **CRC/ChC** = Church-Rosser(합류성)/Coherence. 값 = YES / `YES*`(=`--crc-normalize`
-  upgrade-only로 닫힘) / MAYBE / TIMEOUT / `-`(미도달).
+> **ChC(Coherence) 측정 중단 (2026-07-24부).** 이후 스윕에서 ChC 열은 측정·기록하지
+> 않는다 — `verification.md`에서 축을 삭제했다. 근거: ≤500 전 구간에서 ChC 판정이
+> CRC와 항상 일치했고(CRC YES → ChC YES, CRC 미도달 → ChC `-`) 독립적인 결함 신호가
+> 없어, 별도 계측이 비용만 늘리고 정보를 더하지 않았다. `confluence` 서브커맨드는
+> 여전히 coherence 값을 내보내지만 표·요약에는 CRC만 싣는다.
+
+- **CRC** = Church-Rosser(합류성). 값 = YES / `YES*`(=`--crc-normalize`
+  upgrade-only로 닫힘) / MAYBE / TIMEOUT / `-`(미도달). **ChC 열은 2026-07-24부로 삭제**(위 참조).
 - **term** = 구조 보존 unravel → AProVE 직접(모듈러-B 아님).
 - 표의 `CRC초`/`term초` = 심볼당 **직렬 fresh 측정** 벽시계 초(아래 "시간·병렬 측정" 참조).
 
