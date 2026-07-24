@@ -165,6 +165,24 @@ let () =
     "(VAR a_minus_b)\n(RULES\n  d_f(a_minus_b) -> a_minus_b\n)\n"
 
 (* ------------------------------------------------------------------------- *)
+(* sanitize: the spellings the CTRS symbol names are built from. *)
+
+let () =
+  (* Interior underscores round-trip (the join restores them) and every non-name
+     character maps to its mnemonic. *)
+  check_str "sanitize/interior" (R.sanitize "add_action_tbl") "add_action_tbl";
+  check_str "sanitize/prime" (R.sanitize "callableId'") "callableId_prime";
+  check_str "sanitize/mnemonic" (R.sanitize "a-b") "a_minus_b";
+  (* Known limitation, recorded so a fix has a failing case to flip: a leading,
+     trailing or doubled underscore is dropped, so [$capture_avoiding_] and
+     [$capture_avoiding] -- two p4 functions of different arity -- share one
+     CTRS symbol and one slice. *)
+  check_str "sanitize/trailing-underscore-dropped" (R.sanitize "exists_")
+    "exists";
+  check "sanitize/known-collision"
+    (R.sanitize "capture_avoiding_" = R.sanitize "capture_avoiding")
+
+(* ------------------------------------------------------------------------- *)
 (* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
 
 let () =

@@ -72,6 +72,37 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-24 — 【알려진 결함】 `sanitize`가 `$capture_avoiding_`와 `$capture_avoiding`를 한 심볼로 합친다 — 미수정
+
+`R.sanitize`(`rewrite_system.ml`)는 `_`를 **토큰 구분자로 버리고** 토큰을 다시 `_`로
+잇는다. 그래서 내부 밑줄은 우연히 복원되지만 **선행·후행·연속 밑줄은 소실**된다.
+`To_ctrs.func_sym = "$" ^ sanitize`이므로 p4의 두 함수가 한 CTRS 심볼로 합쳐진다:
+
+```
+dec $capture_avoiding_(theta, typeParameterIR*, bound)         -- 3인자
+dec $capture_avoiding (theta, typeId*, typeId*, bound)          -- 4인자
+                    ↓ 둘 다 $capture_avoiding
+op $capture-avoiding : Set List List Set -> Val .               -- 분석 표면에
+op $capture-avoiding : Val Val Val Val Val -> Val .             -- 같은 이름 2회
+```
+
+**실측 범위** (`dec`/`relation` 574개 전수, 스크럽 재현):
+- 실제 충돌은 **이 1쌍뿐**. `--list-symbols`가 574행이지만 고유 이름은 573.
+- 후행 밑줄 이름은 30개(`$assoc_`·`$concat_`·`$filter_`·`$exists_`·`$forall_`·
+  `$init_`·`$is_some_`·`$opt_as_seq_`·생성된 `$itermap-…` 등)인데 짝이 없어 충돌은 안 한다.
+
+**수정을 시도했다가 되돌린 이유.** `_`를 이름 문자로 바꾸면(=`is_alnum`에 추가) 충돌은
+해소되고 심볼 수가 573→574가 되지만, 밑줄을 보존하는 어떤 방식이든 위 30개 이름이 전부
+바뀌어 **p4 분석 표면이 37,003줄 달라지고** impty 골든도 깨진다. 게다가 분리된 4인자 op의
+sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용이 관측됐다. 실익
+1쌍에 비해 파급이 크고 모든 기존 측정의 재검증이 필요하므로, 이 커밋에서는 한계를
+기록만 하고 코드는 손대지 않았다(`test_rewrite.ml`의 `sanitize/known-collision`이
+현재 동작을 고정해 두므로, 고칠 때 뒤집을 실패 케이스가 이미 있다).
+
+**고친다면**: 이름 보존(30개 변경 수용 + 골든·측정 재검증) 대 충돌 시에만 유일화
+(`func_sym`을 중앙 인덱스 경유로 바꿔야 — `maude_sorts`/`builtin`/`spec_index`가 각각
+독립 호출하므로 순수 함수로는 불가) 중 선택. 전자가 근본적이고, 후자는 이름이 인위적이 된다.
+
 ### 2026-07-24 — refactor/rewrite-clean 통합 + termination 예산 사다리 + term 전수 재측정 — ✅ 완료
 
 **통합 (`160fef97`, merge).** `refactor/rewrite-clean`(17커밋)을 `new-rewrite`에 merge로
