@@ -72,22 +72,41 @@ let schedule_conds (lhs_vars : string list) (conds : R.cond list) :
 let trs_of_system (t : R.t) : (string * stats, string) result =
   let exception Fail of string in
   try
-    (* One TPDB spelling per source name, and never two sources per spelling:
-       a collision would silently merge two distinct symbols (or a variable
-       with a constant, which the [(VAR ...)] header turns into a variable
-       everywhere). *)
+    (* One TPDB spelling per source name, and never two sources per spelling.
+       The scrub ({!R.sanitize}) is intentionally non-injective (its own doc
+       notes distinct inputs may collide), so a collision is resolved here.
+       Merging two symbols -- or a symbol with a variable -- is unsound: their
+       rules would alias (and the [(VAR ...)] header turns any shared spelling
+       into a variable everywhere), so that stays an error. Two distinct
+       VARIABLES are rule-local, so the later one takes a numbered spelling
+       instead of aborting the whole export. [spelling] maps a chosen spelling
+       to its owning source; [assigned] gives each source its final spelling so
+       repeat occurrences stay consistent. A source with no collision keeps its
+       bare scrub, so non-colliding systems are byte-identical to before. *)
     let spelling : (string, string) Hashtbl.t = Hashtbl.create 256 in
+    let assigned : (string, string) Hashtbl.t = Hashtbl.create 256 in
     let name kind source spelled =
-      (match Hashtbl.find_opt spelling spelled with
-      | Some prior when prior <> kind ^ source ->
-          raise
-            (Fail
-               (Printf.sprintf
-                  "TPDB identifier collision: %s and %s both spell %s" prior
-                  (kind ^ source) spelled))
-      | _ -> ());
-      Hashtbl.replace spelling spelled (kind ^ source);
-      spelled
+      let key = kind ^ source in
+      match Hashtbl.find_opt assigned key with
+      | Some final -> final
+      | None ->
+          let rec uniq cand i =
+            match Hashtbl.find_opt spelling cand with
+            | Some owner when owner <> key ->
+                if kind = "var " then
+                  uniq (Printf.sprintf "%s_%d" spelled i) (i + 1)
+                else
+                  raise
+                    (Fail
+                       (Printf.sprintf
+                          "TPDB identifier collision: %s and %s both spell %s"
+                          owner key spelled))
+            | _ -> cand
+          in
+          let final = uniq spelled 1 in
+          Hashtbl.replace spelling final key;
+          Hashtbl.replace assigned key final;
+          final
     in
     let sym f = name "sym " f (tpdb_sym f) in
     let var v = name "var " v (tpdb_var v) in

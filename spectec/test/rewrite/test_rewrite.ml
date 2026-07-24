@@ -143,6 +143,20 @@ let () =
   | Ok _ -> check "unravel/collision" false
 
 let () =
+  (* A variable is rule-local, so two distinct source variables that scrub to
+     one TPDB spelling are renamed apart, not merged -- contrast the symbol
+     collision above, where merging two functions would alias their rules and
+     must stay an error. Regression: the full typing/instantiation slices carry
+     both [x'] and [_x'], which the scrub ('_' -> "", '\'' -> "prime") collapses
+     to [x_prime]; the giants used to fail TPDB export outright. Both variables
+     must survive as distinct names (stats.vars = 2). *)
+  match
+    U.trs_of_system (system [ rule (app "$f" [ v "x'"; v "_x'" ]) (v "x'") ])
+  with
+  | Error _ -> check "unravel/var-collision" false
+  | Ok (_, stats) -> check "unravel/var-collision" (stats.U.vars = 2)
+
+let () =
   (* A non-plain variable name goes through the CTRS sanitize, matching the
      Maude surface's spelling of the same variable. *)
   let trs, _ = trs_exn (system [ rule (app "$f" [ v "a-b" ]) (v "a-b") ]) in
