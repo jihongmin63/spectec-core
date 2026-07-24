@@ -119,7 +119,10 @@ let session_start ?env ~(cmd : string list) () : session =
     Unix.create_process_env "/bin/sh"
       (Array.of_list
          ([
-            "/bin/sh"; "-c"; "ulimit -s unlimited 2>/dev/null; exec \"$@\""; "sh";
+            "/bin/sh";
+            "-c";
+            "ulimit -s unlimited 2>/dev/null; exec \"$@\"";
+            "sh";
           ]
          @ cmd))
       env r_in w_out w_out
@@ -147,15 +150,14 @@ let session_send (s : session) (data : string) : unit =
   let total = Bytes.length b in
   let rec write_from off =
     if off >= total then ()
-    else begin
+    else (
       session_drain s;
       match Unix.select [] [ s.w_in ] [] 0.1 with
       | exception Unix.Unix_error (Unix.EINTR, _, _) -> write_from off
       | _, [], _ -> write_from off
       | _ ->
           let n = Unix.write s.w_in b off (min 65536 (total - off)) in
-          write_from (off + n)
-    end
+          write_from (off + n))
   in
   write_from 0
 

@@ -24,9 +24,9 @@ type upgrade_result = { crc : checked; chc : checked }
 val string_of_verdict : verdict -> string
 
 (** [batch_checks_done raw]: in a batched session where [raw] accumulates only
-    the current symbols output, its CRC+ChC block is complete once the
-    coherence check output is followed by the next [MFE>] prompt. Serves as the
-    per-symbol [Subproc.run]/session [done_when] in a batched sweep. *)
+    the current symbols output, its CRC+ChC block is complete once the coherence
+    check output is followed by the next [MFE>] prompt. Serves as the per-symbol
+    [Subproc.run]/session [done_when] in a batched sweep. *)
 val batch_checks_done : string -> bool
 
 (** [check ?timeout ?maude_bin ?mfe_dir ?sig_rules orig system]. [orig] is the
@@ -85,9 +85,10 @@ val check_normalize_upgrade :
     stream carries each symbol's verdict under its own name. A symbol exceeding
     [timeout] is recorded [Timeout]/[Timeout] and the now-blocked session is
     respawned for the remaining symbols. Verdicts match {!check} run per symbol.
-    [prune_signature]/[sig_rules] are as in {!check}. [on_result label r secs] is
-    called as each symbol lands, [secs] being that symbol's wall-clock (the first
-    symbol of a (re)spawned session also carries the one-time Full Maude load). *)
+    [prune_signature]/[sig_rules] are as in {!check}. [on_result label r secs]
+    is called as each symbol lands, [secs] being that symbol's wall-clock (the
+    first symbol of a (re)spawned session also carries the one-time Full Maude
+    load). *)
 val check_batch :
   ?timeout:int ->
   ?maude_bin:string ->

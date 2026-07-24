@@ -159,8 +159,7 @@ let substr_index (s : string) (sub : string) : int option =
 let batch_checks_done (raw : string) : bool =
   match substr_index raw "Coherence checking of" with
   | None -> false
-  | Some i ->
-      Subproc.contains (String.sub raw i (String.length raw - i)) "MFE>"
+  | Some i -> Subproc.contains (String.sub raw i (String.length raw - i)) "MFE>"
 
 let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
   Subproc.run ~env:(child_env bin) ~done_when:checks_done
@@ -349,7 +348,8 @@ let check_batch ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
                    (String.concat "\n" (check_commands_for name)));
               let budget = if !first then timeout + load_budget else timeout in
               first := false;
-              Subproc.session_read s ~done_when:batch_checks_done ~timeout:budget)
+              Subproc.session_read s ~done_when:batch_checks_done
+                ~timeout:budget)
         in
         let r =
           if timed_out then (

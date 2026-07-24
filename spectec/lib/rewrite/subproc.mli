@@ -46,7 +46,6 @@ val normalize_ws : string -> string
     resolves regardless of the child's working directory. *)
 val absolute : string -> string
 
-
 (** A persistent child for batched sweeps: [session_start] pays the child's
     startup once, then many [session_send]/[session_read] cycles reuse it (a
     Full Maude load is ~100s, so per-symbol respawn dominates a sweep).
