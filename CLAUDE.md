@@ -54,8 +54,12 @@ and `maude_system_of_spec` (execution: `~scalars:Native`, a **direct**
 translation target, not a re-fold of the structural system; exposed as
 `Rewrite.maude_system` so a run driver builds it once and threads it into the
 run encoders instead of each rebuilding it). Both wrap the same core translation
-with `Defunctionalize` first and `Gensym.thread` last; each pass is the identity
-on a spec that doesn't use its feature (so `impty` goldens are untouched).
+with `Defunctionalize` first and `Gensym.thread` last, closing with
+`Rewrite_system.orient_conds` so every condition `(s, t)` carries the evaluated
+side first and never heads its pattern with a defined symbol (`order_conds`
+schedules on that split and `Unravel` lifts `t` into a helper's lhs, where a
+call there severs the chain); each pass is the identity on a spec that doesn't
+use its feature (so `impty` goldens are untouched).
 
 **`Simplify.simplify_spec` is deliberately the identity** in this project — the
 original `rewrite` branch ran semantics-preserving IL→IL rewriting here (a
@@ -72,7 +76,7 @@ is ground truth.
 |------|------|
 | [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: re-exports submodules, `rewrite_spec = Pipeline.ctrs_of_spec`, `maude_system = Pipeline.maude_system_of_spec`, `def_symbols`. |
 | [pipeline.ml](spectec/lib/rewrite/pipeline.ml) / `.mli` | `ctrs_of_spec` (analysis) and `maude_system_of_spec` (execution); the shared `build`/`build_with` core. |
-| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are `crc_surface.ml`/`scc_surface.ml`), no Maude module emission (`maude/`). |
+| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), the condition orientation invariant (`orient_conds`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are `crc_surface.ml`/`scc_surface.ml`), no Maude module emission (`maude/`). |
 | [crc_surface.ml](spectec/lib/rewrite/crc_surface.ml) / `.mli` | Analysis (CRC) normalization passes lifted out of the data model: `fold_premise_binders`, `order_conds`, `crc_unravel`, `crc_normalize`. |
 | [scc_surface.ml](spectec/lib/rewrite/scc_surface.ml) / `.mli` | SCC over-approximation passes: `drop_conds`, `linearize_lhs`. |
 | [translate/ctrs_term.ml](spectec/lib/rewrite/translate/ctrs_term.ml) | Symbol-naming vocabulary (`variant_sym`/`func_sym`/`rel_sym`/…) including the derived-predicate spellings (`match_`/`subty_`/`holds_` prefixes, `eqg`), smart term/rule builders, `scalar_theory = Structural \| Native` and the mode-aware scalar leaf builders. The one place raw `R.App`/`R.Var` gets built. |
