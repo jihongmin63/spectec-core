@@ -231,11 +231,11 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
   `vars_of_term`이 중복 제거를 **안 하므로**(출현 리스트 그대로) 새 헬퍼가 필요 없다.
   규칙당 선형이라 74,945규칙 전수가 1초 미만. 붙일 자리는
   `Mfe.check_normalize_upgrade`의 게이트 / `confluence` TSV 컬럼 / `rewrite --wll-check` 중 택일.
-- [ ] **선결 조건 — 뒤집힌 가드 157건의 방향 규약** (위 노트의 세 번째 항목). WLL은
-  `(l, t₁..t_k)`와 `(r, s₁..s_k)`를 정확히 갈라야 하는데 `none = $f(x)`꼴은 함수호출을 패턴
-  바구니에 넣는다. 거짓 위반과 놓친 위반이 둘 다 가능. **방향 통일이 WLL 체커보다 먼저다** —
-  반대로 하면 그 157건 위에서 조용히 틀린다. (위 재현 일치는 두 구현이 같은 naive fst/snd
-  가정을 공유한 결과일 수 있어, 방향 처리의 정당성 증거는 아니다.)
+- [x] **선결 조건 — 뒤집힌 가드의 방향 규약** — **해소 2026-07-24** (`bdceb303`,
+  `Rewrite_system.orient_conds`; 아래 전용 절). 실측 142건(analysis)/95건(execution)이었고
+  둘 다 0이 됐다. 이제 WLL 체커는 `(l, t₁..t_k)` = lhs + 각 조건의 `snd`, `(r, s₁..s_k)` =
+  rhs + 각 조건의 `fst`로 **슬롯을 그대로 믿어도 된다**. 다만 "양쪽 다 호출"인 잔여 15건은
+  방향이 여전히 임의이므로 체커가 따로 다뤄야 한다.
 - [ ] **base 표면에서 고칠 수 있는 부류를 따로 둘 것.** 죽은 바인더(uses=0)는 조건
   `$f(A) = v`를 `isStuckHead($f(A)) = false`로 치환하면 패턴측이 생성자가 되어 자유변수가
   사라진다(`fold_premise_binders`가 이미 쓰는 기계). **upgrade-only 강등 없이** 적용 가능.
@@ -295,10 +295,66 @@ U_seq(R) confluent **and terminating**)는 **U_opt(변수 운반 최적화판)�
   unravel + keep-생성자 + order-sorted)이라 현재는 같은 증명 구조 안의 유추다.
   자체 논증(tb-역번역 soundness를 우리 변형에 맞게)으로 격상할지, 유추인 채로
   두고 upgrade-only 안전망을 계속 유지할지.
-- [ ] **방향 뒤집힌 가드 표기 통일 여부.** emitter가 `none = $f(x)`처럼 조건의
-  평가측/패턴측을 뒤집어 찍는 경우 157건 — Maude ceq 의미론(양측 정규화 후
-  비교)에선 무해하나, 조건의 방향을 가정하는 분석·검사 도구가 오독할 수 있다.
-  `s = t`(s 평가, t 패턴) 방향으로 통일할지 확인.
+- [x] **방향 뒤집힌 가드 표기 통일** — **완료 2026-07-24** (`bdceb303`). "Maude ceq
+  의미론에선 무해한 표기 artifact"라는 이 항목의 판단은 **틀렸다**: unravel에서 체인이
+  끊겨 termination 판정의 전제가 깨진다. 아래 전용 절 참조.
+
+### 2026-07-24 — 조건 방향 규약 통일 (`orient_conds`) — ✅ 완료, 재측정 부채 발생
+
+**규약.** 조건 `(s, t)`는 `s`를 **평가**하고 결과를 패턴 `t`에 **매칭**한다
+(`Crc_surface.order_conds`가 명시하고 `Unravel.schedule_conds`가 그대로 읽는 규약).
+그런데 소스 등식 전제는 **소스 순서 그대로** 번역돼(`to_ctrs.ml`의 `EqOp` 케이스),
+명세가 호출을 뒤에 쓰면(`-- if eps = $f(x)`) 쌍이 뒤집힌 채로 나왔다.
+실측: **analysis 142건 / execution 95건**, **2356 슬라이스 중 282개**가 영향.
+
+**"무해한 표기"가 아니었다 — termination 건전성 구멍.** Maude의 `=` 조건은 양측을
+정규화 후 비교하므로 *찍히기만 하는* 곳에선 안 보인다. 그러나 unravel은 패턴측을
+헬퍼 규칙의 **lhs로 들어올리므로**, 패턴이 defined 심볼로 헤드되면 producer가 공급하는
+값과 **영원히 매칭되지 않는다**. `$find_name_annotation_opt` 실측:
+
+```
+d_find_name_annotation_opt(…) -> u_5(none, k_5(…))              ← producer
+u_5(d_find_name_annotation_opt(annotation), k_5(…)) -> u_6(…)   ← 불발
+u_6(true, k_6(…)) -> d_find_name_annotation_opt(annotationListNonEmpty)  ← 재귀가 갇힘
+```
+
+`u_5(none, …)`이 정규형이 되어 그 뒤 재귀가 AProVE에 안 보인다. `TRS 종료 ⟹ CTRS 종료`는
+TRS가 모든 CTRS 스텝을 시뮬레이션할 때만 성립하므로, **영향받은 슬라이스의 YES는
+틀린 게 아니라 미증명이었다**. `unravel.ml`의 자체 검사(미바인딩 rhs 변수)는 자유변수가
+없어서 못 잡고, 죽은 규칙은 오히려 종료를 쉽게 만든다 — 안전한 방향이 아니다.
+바로 옆 형제 절(`u_7`/`u_8`, 원래 정방향)이 대조군이다.
+
+**수정.** `Rewrite_system.orient_conds` — 패턴측이 defined 적용이고 평가측은 아닌 쌍만
+뒤집는다. 양쪽 다 호출인 경우(analysis 15건)는 더 나은 방향이 없어 그대로 둔다.
+`Pipeline.build_with` 말미에서 호출해 **두 표면 모두** 규약을 만족시킨다.
+`conds_of_prem`이 아니라 파이프라인 후단인 이유: 번역 시점엔 `defined_heads`가 없어
+IL 수준 추측이 필요한데, 후단에선 `order_conds`/`unravel`과 **정확히 같은** defined
+개념을 쓸 수 있고 `EqOp` 외의 생성 경로도 함께 덮인다.
+
+**무회귀 실측** (같은 트리에서 패스만 빼고 대조):
+
+| 표면 | 순수 방향 뒤집기 | 그 외 |
+|---|---|---|
+| p4 `--ctrs` | 143 | 1 (아래) |
+| p4 실행 | 90 | 1 (같은 줄) |
+| p4-old `--ctrs` | 68 | 0 |
+| p4-old 실행 | 28 | 0 |
+| impty base/closure (양 표면) | — | **byte-identical** |
+
+- 실행 표면 `:=`/`=>` 개수 불변(p4 6371/0, p4-old 6376/0) → **조건의 Maude 형태가 하나도
+  안 바뀌었다**. 순수 등호 조건의 좌우 교환뿐.
+- 유일한 비-flip 변경: `$iterall_…_ca113dfc_list_2` 한 줄에서 호출이 평가측으로 가며 sort
+  추론이 `id-param--hd`를 `Val`→`Text`로 회복. op 선언은 불변. 그 헬퍼는 절이 둘뿐이라
+  케이스 전수 확인 가능 — 헤드가 Text이고 일치/불일치/비-Text 세 경우 모두 발화·stuck이
+  동일(조건이 이미 Text 동등성을 요구). 그래도 **최종 권위는 differential**이다.
+- 유닛 테스트 5건(`orient/*`) 추가, 뮤테이션(뒤집기 무력화)으로 이빨 확인 — 2건 실패.
+  impty 골든 MATCH, `dune build @fmt`/`@test/rewrite/runtest` 통과.
+
+**⚠️ 재측정 부채**: analysis 표면이 바뀌었으므로 영향 282 슬라이스의 **CRC 열과 term 열이
+stale**이다. term은 "판정이 바뀔 수 있다"가 아니라 **"기존 YES 중 일부가 애초에 미증명"**
+이라는 성격이라 성격이 다르다. ≤500 밴드 확인된 대상: `$name_annotation_opt`(256규칙),
+`$set_priorities_of_tableEntryListIR`(226), `…_prime`(200),
+`$optional_annotation_of_parameterIR_prime_prime`(20), `$is_tableDefaultActionProperty`(16).
 
 ### 2026-07-22 — 【research note】 실행 경로를 in-binary 서브커맨드로 통합 (confluence/termination/scc 계열)
 
@@ -2343,6 +2399,7 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
 남은 작업:
 
 ```
+  → orient_conds(bdceb303) 이후 CRC/term 재측정                                [영향 282/2356 슬라이스. term은 "판정 변경 가능"이 아니라 "기존 YES 일부가 미증명"이라 우선순위 높음. 실행 표면은 sort 협소화 1줄뿐이라 differential은 전수 재실행에 묻어서 확인]
   → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조]
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → LTL 모델 검사로 P4 시간적 성질 검증                                        [신규 축; (P1) 선택적 rl 모드(= Kripke 전이, 유일한 하드 블로커) → (P2) modelCheck 배선(holds_R을 원자명제로) → header validity `[] ~ readInvalid` → parser/progress/preservation → (P3) 보조 search 일반화]
