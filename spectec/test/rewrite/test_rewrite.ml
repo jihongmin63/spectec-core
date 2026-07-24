@@ -368,6 +368,24 @@ let () =
               (true, 0) l))
        [ 5; 20; 100; 300; 1800 ])
 
+(* Termination.decisive: which rung verdict ends the climb. Only an answer
+   about the TRS does. An Error must NOT: AProVE at a budget too small to
+   finish prints no verdict line at all, which Aprove.check reports as an
+   Error that reads exactly like a crashed run -- and the same TRS answers at
+   the next rung. Stopping (or jumping to the cap) on Error skips the rung
+   that would have answered. *)
+let () =
+  check "decisive/yes" (Termination.decisive Aprove.Yes);
+  check "decisive/no" (Termination.decisive Aprove.No);
+  check "decisive/maybe" (not (Termination.decisive Aprove.Maybe));
+  check "decisive/timeout" (not (Termination.decisive Aprove.Timeout));
+  check "decisive/no-verdict-line-keeps-climbing"
+    (not
+       (Termination.decisive
+          (Aprove.Error "no YES/NO/MAYBE line in the AProVE output")));
+  check "decisive/any-error-keeps-climbing"
+    (not (Termination.decisive (Aprove.Error "anything at all")))
+
 let () =
   if !failures > 0 then (
     Printf.eprintf "%d test failure(s)\n" !failures;

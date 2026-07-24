@@ -29,6 +29,12 @@ val string_of_verdict : verdict -> string
     what measures a proof is the smallest budget that still answers. *)
 val budget_ladder : cap:int -> int list
 
+(** Whether a rung's verdict ends the climb. Only [Yes] and [No] do: they are
+    answers about the TRS. A too-small budget can leave AProVE with no verdict
+    line at all, which {!Aprove.check} reports as an [Error] indistinguishable
+    from a crash, so [Error] climbs like [Maybe] rather than settling. *)
+val decisive : Aprove.verdict -> bool
+
 (** [check ?aprove_bin ?budget system]: [system] is the already-sliced CTRS
     ({!Rewrite_system.slice}). A slice with no rules is [Degenerate] (nothing to
     prove); an unraveling failure is [Error] with no AProVE run. [aprove_bin] is

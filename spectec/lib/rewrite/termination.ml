@@ -38,6 +38,21 @@ let budget_ladder ~(cap : int) : int list =
   in
   if cap <= 5 then [ cap ] else go 5 []
 
+(* Which verdicts end the climb. [Yes] and [No] are answers about the TRS and a
+   larger budget cannot overturn them.
+
+   Everything else is "ask again with more time", INCLUDING [Error]. A small
+   budget is not just a MAYBE machine: on the $bitacc_offset_op TRS AProVE runs
+   out at budget 5 having printed nothing but its narrative, so
+   {!Aprove.check} reports "no YES/NO/MAYBE line" -- and the very same TRS
+   answers YES at budget 20. Treating that as a permanent failure (it looks like
+   one -- a crashed JVM reads identically) would skip the rung that answers and
+   fall through to the cap. The one error that really is permanent, a missing
+   binary, is checked once before the climb starts. *)
+let decisive : Aprove.verdict -> bool = function
+  | Aprove.Yes | Aprove.No -> true
+  | Aprove.Maybe | Aprove.Timeout | Aprove.Error _ -> false
+
 let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
   if system.Rewrite_system.rules = [] then
     { verdict = Degenerate; stats = None; budget = None }
@@ -56,15 +71,9 @@ let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
         let rec probe = function
           | [] -> assert false
           | [ last ] -> (of_aprove (run last), last)
-          (* [Yes]/[No] are answers; a bigger budget cannot change them. *)
-          | b :: rest -> (
-              match run b with
-              | (Aprove.Yes | Aprove.No) as v -> (of_aprove v, b)
-              | Aprove.Maybe | Aprove.Timeout -> probe rest
-              (* An Error is the run failing, not the budget running out (a
-                 missing binary, a crashed JVM, output with no verdict line):
-                 climbing would just repeat it, so settle it at [cap]. *)
-              | Aprove.Error _ -> probe [ budget ])
+          | b :: rest ->
+              let v = run b in
+              if decisive v then (of_aprove v, b) else probe rest
         in
         let verdict, answered_at = probe ladder in
         { verdict; stats = Some stats; budget = Some answered_at }
