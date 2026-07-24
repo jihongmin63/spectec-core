@@ -122,9 +122,12 @@ clean이면 `crc_normalize`(inline+unravel, 승격 허용), 위반이면
 게이트 무력화가 `gate/violating picks inline` kill).
 
 **남은 것:**
-- [ ] **Maude 실측 재검** — `confluence --symbol` × (승격 6 + TIMEOUT 7)을 게이트 전/후로
-  돌려 verdict 동일 확인. 구성상 안 바뀌어야 하지만 실측이 남았다. 컨테이너가
-  `termination --all` 스윕 중이라 idle일 때만.
+- [ ] **Maude 실측 재검 — 부분 완료.** `confluence --all --crc-normalize`로 크기 오름차순
+  126행(≤91규칙)까지 측정: **기존 표와 변화 0**, 재시도 0건이라 **게이트는 아직 개입한 적이
+  없다**(새 5·6열 전 행 `-`). 중단 지점은 `$write_bits_from_value`(103규칙, 기존 TIMEOUT)로
+  심볼당 20분 상한에 걸렸다. 게이트 효과가 걸린 승격 6 + TIMEOUT 7은 전부 그 뒤 구간에
+  있으므로 **별건 예산으로 이어서 돌 것**(`/tmp/crc-regate/crc.tsv`로 resume, 경위는
+  verification-notes.md).
 - [ ] **재지향 불변식은 "이미 binding order"에 의존한다.** free 조건을 뒤집어도
   `schedule_conds` 순열이 불변인 것은 조건이 이미 `order_conds`를 거쳤을 때뿐이다
   (그리디가 **가장 이른** ready를 고르므로, 앞 조건이 전부 ready인 한 뒤 조건이 더 일찍
