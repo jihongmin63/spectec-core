@@ -1055,9 +1055,17 @@ let termination_command =
                | Some s -> Rewrite.Unravel.string_of_stats s
                | None -> "-"
              in
-             ( Printf.sprintf "%s\t%s\t%s\t%.1f" sym
+             (* 5th column: the budget that answered. AProVE announces at its
+                deadline, so the seconds are the search's total cost while this
+                is what the proof was worth -- for a YES, an upper bound on it. *)
+             let won =
+               match report.budget with
+               | Some b -> string_of_int b
+               | None -> "-"
+             in
+             ( Printf.sprintf "%s\t%s\t%s\t%.1f\t%s" sym
                  (Rewrite.Termination.string_of_verdict report.verdict)
-                 stats secs,
+                 stats secs won,
                match report.verdict with
                | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
                    false

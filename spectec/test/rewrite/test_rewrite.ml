@@ -10,6 +10,7 @@ module Mfe = Rewrite.Mfe
 module Aprove = Rewrite.Aprove
 module Subproc = Rewrite.Subproc
 module Scc = Rewrite.Scc
+module Termination = Rewrite.Termination
 
 let failures = ref 0
 
@@ -333,6 +334,39 @@ let () =
   (* ...and the same buffer one chunk later, where it was never a verdict. *)
   check "aprove/not-a-verdict-token"
     (not (Aprove.verdict_printed "proof\nMAYBE_SUCH_RULE\n"))
+
+(* Termination.budget_ladder: the budgets a search tries, ascending. AProVE
+   announces at its deadline, so a rung costs its own budget -- the ladder must
+   start small, grow fast enough that overshooting stays cheap, and END AT THE
+   CAP so a search that runs out of rungs is exactly the single capped run it
+   replaces. *)
+let () =
+  check "ladder/default-cap"
+    (Termination.budget_ladder ~cap:300 = [ 5; 20; 80; 300 ]);
+  check "ladder/big-cap"
+    (Termination.budget_ladder ~cap:1800 = [ 5; 20; 80; 320; 1280; 1800 ]);
+  (* a cap that is already a rung is not repeated *)
+  check "ladder/cap-on-a-rung"
+    (Termination.budget_ladder ~cap:80 = [ 5; 20; 80 ]);
+  (* ...and one that is not lands as the final rung, never overshooting it *)
+  check "ladder/cap-off-a-rung"
+    (Termination.budget_ladder ~cap:100 = [ 5; 20; 80; 100 ]);
+  check "ladder/cap-below-first-rung" (Termination.budget_ladder ~cap:3 = [ 3 ]);
+  check "ladder/last-rung-is-cap"
+    (List.for_all
+       (fun cap ->
+         let l = Termination.budget_ladder ~cap in
+         l <> [] && List.nth l (List.length l - 1) = cap)
+       [ 1; 5; 6; 20; 21; 99; 300; 601; 1800 ]);
+  check "ladder/ascending"
+    (List.for_all
+       (fun cap ->
+         let l = Termination.budget_ladder ~cap in
+         fst
+           (List.fold_left
+              (fun (ok, prev) b -> (ok && b > prev, b))
+              (true, 0) l))
+       [ 5; 20; 100; 300; 1800 ])
 
 let () =
   if !failures > 0 then (

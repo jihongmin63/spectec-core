@@ -12,12 +12,27 @@
 *)
 
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
-type report = { verdict : verdict; stats : Unravel.stats option }
+
+type report = {
+  verdict : verdict;
+  stats : Unravel.stats option;
+  budget : int option;
+      (** The budget the reported verdict came from -- the smallest rung of
+          {!budget_ladder} that answered, so for a [Yes] an upper bound on the
+          proof's real cost. [None] when no AProVE run happened. *)
+}
 
 val string_of_verdict : verdict -> string
 
+(** The budgets [check] tries, ascending, ending at [cap]. AProVE announces at
+    its deadline, so a run costs its budget whatever the proof was worth and
+    what measures a proof is the smallest budget that still answers. *)
+val budget_ladder : cap:int -> int list
+
 (** [check ?aprove_bin ?budget system]: [system] is the already-sliced CTRS
     ({!Rewrite_system.slice}). A slice with no rules is [Degenerate] (nothing to
-    prove); an unraveling failure is [Error] with no AProVE run. [budget] and
-    [aprove_bin] are {!Aprove.check}'s. *)
+    prove); an unraveling failure is [Error] with no AProVE run. [aprove_bin] is
+    {!Aprove.check}'s; [budget] is the CAP of the budget search, whose last rung
+    it is -- so the verdict is the one a single [Aprove.check ~budget] would
+    have given, reached for as little time as the proof actually needs. *)
 val check : ?aprove_bin:string -> ?budget:int -> Rewrite_system.t -> report
