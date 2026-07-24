@@ -189,6 +189,38 @@ let defined_head (r : rule) : string option =
 let defined_heads (t : t) : string list =
   dedup_stable (List.filter_map defined_head t.rules)
 
+(* Restore the condition orientation invariant: a condition [(s, t)] EVALUATES
+   [s] and matches the result against the PATTERN [t], so a defined symbol --
+   one that rewrites away -- belongs on the evaluated side and never heads the
+   pattern. The translation renders a source equality premise in source order,
+   so a spec writing the call second ([-- if eps = $f(x)]) yields the inverted
+   pair.
+
+   Maude's [=] condition reduces both sides before comparing, so the inversion
+   is invisible wherever a condition is only ever printed ({!To_maude}, which
+   additionally re-orients when rendering). Every consumer that READS the split
+   is affected: {!Crc_surface.order_conds} schedules on the evaluated side, and
+   {!Unravel} lifts the pattern into a helper rule's lhs -- where a pattern
+   headed by a defined symbol can never match the value the producer supplies,
+   severing the chain and hiding whatever the clause's rhs would have reached
+   from the termination prover.
+
+   Flip exactly the pairs whose pattern side is a defined application while the
+   evaluated side is not. A condition with a call on both sides has no better
+   orientation available and is left as emitted. *)
+let orient_conds (t : t) : t =
+  let defined = Hashtbl.create 512 in
+  List.iter (fun s -> Hashtbl.replace defined s ()) (defined_heads t);
+  let is_call = function
+    | App (head, _) -> Hashtbl.mem defined head
+    | Var _ -> false
+  in
+  let orient ((s, pat) as cond : cond) : cond =
+    if is_call pat && not (is_call s) then (pat, s) else cond
+  in
+  of_rules
+    (List.map (fun r -> { r with conds = List.map orient r.conds }) t.rules)
+
 (* The function symbols reachable from [roots], following each reached symbol's
    defining rules in [rules] transitively (downward dependency closure). Used
    both to prune unreachable definitions and to slice the system to one

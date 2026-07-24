@@ -183,6 +183,63 @@ let () =
     (R.sanitize "capture_avoiding_" = R.sanitize "capture_avoiding")
 
 (* ------------------------------------------------------------------------- *)
+(* orient_conds: a defined symbol belongs on a condition's evaluated side. *)
+
+(* [$f] is defined by the first rule, so it counts as a call; the conditions
+   under test sit on the last rule. *)
+let def_f = rule (app "$f" [ v "x" ]) (v "x")
+
+let orient_last (rules : R.rule list) : R.cond list =
+  let out = (R.orient_conds (system rules)).R.rules in
+  (List.nth out (List.length out - 1)).R.conds
+
+let subject conds = rule ~conds (app "$h" [ v "a" ]) (v "a")
+
+let () =
+  (* Inverted (the shape a source premise [-- if eps = $f(x)] emits): the call
+     sits in the pattern slot and is flipped back. *)
+  check "orient/flips-inverted"
+    (orient_last [ def_f; subject [ (app "none" [], app "$f" [ v "a" ]) ] ]
+    = [ (app "$f" [ v "a" ], app "none" []) ]);
+  (* Already canonical: the pass is the identity, so a well-formed system is
+     untouched and re-running it changes nothing. *)
+  check "orient/keeps-canonical"
+    (orient_last [ def_f; subject [ (app "$f" [ v "a" ], app "none" []) ] ]
+    = [ (app "$f" [ v "a" ], app "none" []) ]);
+  (* A call on both sides has no better orientation to pick. *)
+  check "orient/leaves-both-calls"
+    (orient_last [ def_f; subject [ (app "$f" [ v "a" ], app "$f" [ v "b" ]) ] ]
+    = [ (app "$f" [ v "a" ], app "$f" [ v "b" ]) ]);
+  (* A value destructure names no defined symbol either side. *)
+  check "orient/leaves-destructure"
+    (orient_last [ def_f; subject [ (v "a", app "cons" [ v "h"; v "t" ]) ] ]
+    = [ (v "a", app "cons" [ v "h"; v "t" ]) ])
+
+let () =
+  (* Why the invariant earns its pass: {!Unravel} lifts the pattern side into a
+     helper's lhs. Left inverted, that lhs is [u_1(d_f(a), ..)] while the
+     producer supplies [u_1(none, ..)] -- the two never match, so the chain and
+     every recursion behind it go dead, and the termination prover sees a
+     system it was never asked about. *)
+  let sys = system [ def_f; subject [ (app "none" [], app "$f" [ v "a" ]) ] ] in
+  let broken, _ = trs_exn sys in
+  check_str "orient/unravel-chain-severed-when-inverted" broken
+    "(VAR a x)\n\
+     (RULES\n\
+    \  d_f(x) -> x\n\
+    \  d_h(a) -> u_1(none, k_1(a))\n\
+    \  u_1(d_f(a), k_1(a)) -> a\n\
+     )\n";
+  let fixed, _ = trs_exn (R.orient_conds sys) in
+  check_str "orient/unravel-chain-connected-when-oriented" fixed
+    "(VAR a x)\n\
+     (RULES\n\
+    \  d_f(x) -> x\n\
+    \  d_h(a) -> u_1(d_f(a), k_1(a))\n\
+    \  u_1(none, k_1(a)) -> a\n\
+     )\n"
+
+(* ------------------------------------------------------------------------- *)
 (* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
 
 let () =

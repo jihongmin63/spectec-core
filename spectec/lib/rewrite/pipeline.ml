@@ -30,6 +30,9 @@ let build_with (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
     (* Last: thread the gensym state, so both surfaces see the same pure
        gensym. *)
     |> Gensym.thread ~scalars
+    (* ... then canonicalize condition orientation, so both surfaces satisfy
+       the (evaluated, pattern) invariant every downstream reader assumes. *)
+    |> Rewrite_system.orient_conds
   in
   (spec, sys)
 

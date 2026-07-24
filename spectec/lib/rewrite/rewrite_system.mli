@@ -78,6 +78,14 @@ val defined_head : rule -> string option
     stuck (reduction halted mid-evaluation). *)
 val defined_heads : t -> string list
 
+(** Restore the condition orientation invariant: a condition [(s, t)] evaluates
+    [s] and matches the result against the pattern [t], so a defined symbol
+    belongs on the evaluated side and never heads the pattern. A source equality
+    premise is rendered in source order, so [-- if eps = $f(x)] arrives
+    inverted; this flips exactly those pairs back. Consumers that read the split
+    ({!Crc_surface.order_conds}, {!Unravel}) depend on it. *)
+val orient_conds : t -> t
+
 (** The function symbols reachable from [roots], following each reached symbol's
     defining rules transitively (downward dependency closure). Used both to
     prune unreachable definitions and to slice the system to one symbol's
