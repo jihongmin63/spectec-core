@@ -1,9 +1,11 @@
 # P4 structural CTRS — 검증 결과 (표)
 
-## 종합 (315심볼)
+## 종합
 
-**termination**: YES 306 / 306 측정 · 비종료 후보 0 · 규칙 0(DEGENERATE, AProVE 미실행) 9. 답한 단계의 벽시계 합 8360.8초.
-**confluence**: YES 162 · - 135 · TIMEOUT 12 · YES* 5 · MAYBE 1.
+| 축 | YES | YES* | NO | MAYBE | TIMEOUT | DEGENERATE | `-` | 계 | 합계 초 |
+|---|---|---|---|---|---|---|---|---|---|
+| confluence | 162 | 5 | 0 | 1 | 12 | — | 135 | 315 | — |
+| termination | 306 | — | 0 | — | — | 9 | — | 315 | 8360.8 |
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
