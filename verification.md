@@ -175,36 +175,134 @@
 | `$bitacc_range_replace_op` | 391 | TIMEOUT | YES | >1800 | 5.6 | 5 |
 | `$bitacc_offset_replace_op` | 394 | TIMEOUT | YES | >1800 | 5.6 | 5 |
 
-## 2. >500 슬라이스 (bigsweep · term = 모듈러 B · 27/127 확정)
+## 2. >500 슬라이스 (bigsweep · 124/124 측정)
 
-| # | symbol | rules | CRC | term(B) | 종료(term) 시간 |
-|---|---|---|---|---|---|
-| 1 | `$flatten_namedExpressionList` | 748 | YES | MAYBE | 2061s |
-| 2 | `$expression_as_lvalue` | 764 | MAYBE | YES | 4352s |
-| 3 | `$flatten_realTypeArgumentList` | 767 | YES | MAYBE | 2154s |
-| 4 | `$flatten_typeArgumentList` | 777 | TIMEOUT | MAYBE | 2115s |
-| 5 | `$flatten_expressionList` | 780 | TIMEOUT | MAYBE | 2142s |
-| 6 | `$flatten_argumentList` | 782 | TIMEOUT | MAYBE | 2172s |
-| 7 | `$flatten_forUpdateStatementList` | 788 | YES | YES | 3413s |
-| 8 | `$is_singleton_list_expression` | 810 | YES | YES | 2148s |
-| 9 | `$flatten_simpleKeysetExpressionList` | 823 | TIMEOUT | MAYBE | 2387s |
-| 10 | `$flatten_annotationList` | 866 | YES | YES | 3377s |
-| 11 | `$add_annotationList` | 867 | YES | YES | 6261s |
-| 12 | `$flatten_parameterList` | 872 | YES | YES | 4345s |
-| 13 | `$flatten_constructorParameterListOpt` | 876 | YES | YES | 4416s |
-| 14 | `$is_externConstructorPrototype` | 878 | YES | YES | 3192s |
-| 15 | `$is_externMethodPrototype` | 881 | YES | YES | 3227s |
-| 16 | `$callableId_prime` | 882 | YES | YES | 4500s |
-| 17 | `$callableId` | 883 | YES | YES | 4540s |
-| 18 | `$constructorId_of_externConstructorPrototype` | 884 | YES | YES | 4622s |
-| 19 | `$expressionNonBrace_as_expression` | 885 | TIMEOUT | YES | 5001s |
-| 20 | `$constructorId` | 887 | YES | YES | 4719s |
-| 21 | `$callableId_of_externMethodPrototype` | 889 | YES | YES | 4769s |
-| 22 | `$optional_annotation_of_parameterIR_prime` | 893 | YES | MAYBE | 4706s |
-| 23 | `$optional_annotation_of_parameterIR` | 895 | YES | MAYBE | 4808s |
-| 24 | `$is_optional_parameterIR` | 896 | YES | MAYBE | 4835s |
-| 25 | `$flatten_forInitStatementList` | 905 | YES | YES | 5598s |
-| 26 | `$split_externConstructorOrMethodPrototypeList` | 942 | YES | MAYBE | 14734s |
-| 27 | `$flatten_parserStateList` | 1029 | YES | MAYBE | 10134s |
+**요약 (term, 124심볼)**: YES 124. 비종료 후보 0.
+**CRC 열은 옛 bigsweep 값을 그대로 옮긴 것**(이번에 재측정한 축은 term뿐, `-`는 미도달).
 
-**27개 요약**: CRC YES 21 / MAYBE 1 / TIMEOUT 5 · term(B) YES 16 / MAYBE 11 · 비종료·비합류 후보 0.
+| # | symbol | rules | CRC | term | term초 | term예산 |
+|---|---|---|---|---|---|---|
+| 1 | `$flatten_namedExpressionList` | 748 | YES | YES | 1.5 | 5 |
+| 2 | `$flatten_realTypeArgumentList` | 748 | YES | YES | 1.5 | 5 |
+| 3 | `$flatten_expressionList` | 749 | TIMEOUT | YES | 1.5 | 5 |
+| 4 | `$flatten_typeArgumentList` | 749 | TIMEOUT | YES | 1.5 | 5 |
+| 5 | `$expression_as_lvalue` | 766 | MAYBE | YES | 4.1 | 5 |
+| 6 | `$flatten_argumentList` | 784 | TIMEOUT | YES | 6.1 | 5 |
+| 7 | `$flatten_simpleKeysetExpressionList` | 789 | TIMEOUT | YES | 1.5 | 5 |
+| 8 | `$flatten_forUpdateStatementList` | 790 | YES | YES | 2.3 | 5 |
+| 9 | `$is_singleton_list_expression` | 812 | YES | YES | 1.6 | 5 |
+| 10 | `$add_annotationList` | 867 | YES | YES | 1.7 | 5 |
+| 11 | `$flatten_annotationList` | 868 | YES | YES | 2.4 | 5 |
+| 12 | `$flatten_parameterList` | 874 | YES | YES | 2.5 | 5 |
+| 13 | `$flatten_constructorParameterListOpt` | 876 | YES | YES | 2.4 | 5 |
+| 14 | `$is_externConstructorPrototype` | 880 | YES | YES | 1.8 | 5 |
+| 15 | `$is_externMethodPrototype` | 883 | YES | YES | 1.8 | 5 |
+| 16 | `$callableId_prime` | 884 | YES | YES | 2.5 | 5 |
+| 17 | `$callableId` | 885 | YES | YES | 2.5 | 5 |
+| 18 | `$constructorId_of_externConstructorPrototype` | 886 | YES | YES | 2.5 | 5 |
+| 19 | `$callableId_of_externMethodPrototype` | 887 | YES | YES | 2.5 | 5 |
+| 20 | `$constructorId` | 887 | YES | YES | 2.5 | 5 |
+| 21 | `$expressionNonBrace_as_expression` | 887 | TIMEOUT | YES | 2.1 | 5 |
+| 22 | `$optional_annotation_of_parameterIR_prime` | 893 | YES | YES | 2.0 | 5 |
+| 23 | `$optional_annotation_of_parameterIR` | 895 | YES | YES | 2.0 | 5 |
+| 24 | `$is_optional_parameterIR` | 896 | YES | YES | 2.1 | 5 |
+| 25 | `$flatten_forInitStatementList` | 907 | YES | YES | 2.7 | 5 |
+| 26 | `$split_externConstructorOrMethodPrototypeList` | 940 | YES | YES | 2.3 | 5 |
+| 27 | `$flatten_parserStateList` | 1029 | YES | YES | 0.6 | 5 |
+| 28 | `$name_annotation` | 1125 | - | YES | 6.1 | 5 |
+| 29 | `$name_annotation_default` | 1127 | - | YES | 6.1 | 5 |
+| 30 | `$cast_header_stack` | 1192 | - | YES | 0.6 | 5 |
+| 31 | `$cast_header` | 1194 | - | YES | 0.6 | 5 |
+| 32 | `$cast_struct` | 1194 | - | YES | 0.6 | 5 |
+| 33 | `$compat_lnot` | 1194 | - | YES | 5.7 | 5 |
+| 34 | `$nestable_constructor_package` | 1194 | - | YES | 5.6 | 5 |
+| 35 | `$resolve_type_alias` | 1194 | - | YES | 5.7 | 5 |
+| 36 | `$callTargetKey_prime` | 1195 | - | YES | 0.6 | 5 |
+| 37 | `$compat_bnot` | 1195 | - | YES | 5.6 | 5 |
+| 38 | `$compat_divmod` | 1195 | - | YES | 5.6 | 5 |
+| 39 | `$compat_logical` | 1195 | - | YES | 5.8 | 5 |
+| 40 | `$cast_bool` | 1196 | - | YES | 5.9 | 5 |
+| 41 | `$compat_array_index` | 1196 | - | YES | 5.6 | 5 |
+| 42 | `$compat_bitslice_offset_index` | 1196 | - | YES | 5.8 | 5 |
+| 43 | `$compat_bitslice_offset_width` | 1196 | - | YES | 5.7 | 5 |
+| 44 | `$compat_bitslice_range_index` | 1196 | - | YES | 5.8 | 5 |
+| 45 | `$compat_uplusminus` | 1196 | - | YES | 5.6 | 5 |
+| 46 | `$nestable_constructor_control` | 1196 | - | YES | 5.9 | 5 |
+| 47 | `$nestable_constructor_parser` | 1196 | - | YES | 5.8 | 5 |
+| 48 | `$nestable_controlApplyMethod` | 1196 | - | YES | 5.6 | 5 |
+| 49 | `$nestable_headerStack` | 1196 | - | YES | 5.7 | 5 |
+| 50 | `$nestable_headerUnion` | 1196 | - | YES | 5.6 | 5 |
+| 51 | `$definable_constructor` | 1197 | - | YES | 5.6 | 5 |
+| 52 | `$nestable_constructor_extern` | 1197 | - | YES | 5.6 | 5 |
+| 53 | `$nestable_externFunction` | 1197 | - | YES | 5.7 | 5 |
+| 54 | `$nestable_externMethod` | 1197 | - | YES | 5.6 | 5 |
+| 55 | `$nestable_new_in_enum_serializable` | 1197 | - | YES | 5.6 | 5 |
+| 56 | `$nestable_parserApplyMethod` | 1197 | - | YES | 5.7 | 5 |
+| 57 | `$compat_switch` | 1198 | - | YES | 5.6 | 5 |
+| 58 | `$compat_table_lpm_ternary_range_key` | 1198 | - | YES | 5.7 | 5 |
+| 59 | `$nestable_new` | 1198 | - | YES | 5.7 | 5 |
+| 60 | `$parameterListIR_of_functionTypeDefIR` | 1198 | - | YES | 0.6 | 5 |
+| 61 | `$typedExpressionIR_as_typedLvalueIR` | 1198 | - | YES | 0.6 | 5 |
+| 62 | `$compat_concat` | 1199 | - | YES | 5.8 | 5 |
+| 63 | `$callTargetKey` | 1200 | - | YES | 0.6 | 5 |
+| 64 | `$compat_table_exact_optional_key` | 1202 | - | YES | 5.6 | 5 |
+| 65 | `$callableTypeIR_of_callableTypeDefIR` | 1203 | - | YES | 0.6 | 5 |
+| 66 | `$compat_shift` | 1203 | - | YES | 5.7 | 5 |
+| 67 | `$nestable_enum_serializable` | 1203 | - | YES | 5.7 | 5 |
+| 68 | `$typeParameterListIR_of_callableTypeDefIR` | 1203 | - | YES | 0.6 | 5 |
+| 69 | `$flatten_keysetExpressionIR` | 1206 | - | YES | 0.6 | 5 |
+| 70 | `$is_static_assert_callableTypeIR` | 1206 | - | YES | 0.6 | 5 |
+| 71 | `$nestable_tuple_in_set` | 1206 | - | YES | 5.7 | 5 |
+| 72 | `$parameterListIR_of_methodTypeDefIR` | 1206 | - | YES | 0.6 | 5 |
+| 73 | `$typeId_of_typeDefIR` | 1207 | - | YES | 0.6 | 5 |
+| 74 | `$typeParameterListIR_of_typeDefIR` | 1207 | - | YES | 0.6 | 5 |
+| 75 | `$nestable_sequence_in_set` | 1208 | - | YES | 5.6 | 5 |
+| 76 | `$nestable_struct_in_header` | 1208 | - | YES | 5.7 | 5 |
+| 77 | `$nestable_tuple` | 1208 | - | YES | 5.8 | 5 |
+| 78 | `$nestable_struct` | 1209 | - | YES | 5.8 | 5 |
+| 79 | `$nestable_definedFunction` | 1211 | - | YES | 5.8 | 5 |
+| 80 | `$nestable_action` | 1212 | - | YES | 5.7 | 5 |
+| 81 | `$nestable_list` | 1212 | - | YES | 5.8 | 5 |
+| 82 | `$is_equalable_typeIR` | 1213 | - | YES | 5.7 | 5 |
+| 83 | `$typeIR_of_typeDefIR` | 1213 | - | YES | 0.6 | 5 |
+| 84 | `$is_assignable_typeIR` | 1214 | - | YES | 5.7 | 5 |
+| 85 | `$nestable_typedef` | 1215 | - | YES | 5.7 | 5 |
+| 86 | `$init_tableKeys` | 1216 | - | YES | 1.4 | 5 |
+| 87 | `$compat_bitslice_base` | 1218 | - | YES | 5.7 | 5 |
+| 88 | `$nestable_header` | 1218 | - | YES | 5.7 | 5 |
+| 89 | `$is_defaultable_typeIR` | 1219 | - | YES | 5.7 | 5 |
+| 90 | `$parameterListIR_of_callableTypeDefIR` | 1221 | - | YES | 0.6 | 5 |
+| 91 | `$unroll_typeIR` | 1229 | - | YES | 5.8 | 5 |
+| 92 | `$is_table_application` | 1231 | - | YES | 5.7 | 5 |
+| 93 | `$nestable_set` | 1235 | - | YES | 5.8 | 5 |
+| 94 | `$sizeof_minSizeInBits_prime` | 1259 | - | YES | 5.7 | 5 |
+| 95 | `$sizeof_minSizeInBits` | 1260 | - | YES | 5.7 | 5 |
+| 96 | `$unroll_aliasType` | 1268 | - | YES | 5.7 | 5 |
+| 97 | `$result_concat` | 1269 | - | YES | 5.7 | 5 |
+| 98 | `$find_local_return_type_t` | 1270 | - | YES | 0.6 | 5 |
+| 99 | `$is_concrete_extern_object_prime` | 1278 | - | YES | 0.6 | 5 |
+| 100 | `$sizeof_maxSizeInBits_prime` | 1283 | - | YES | 5.7 | 5 |
+| 101 | `$sizeof_maxSizeInBits` | 1284 | - | YES | 5.7 | 5 |
+| 102 | `$is_monomorphic_typeDefIR` | 1289 | - | YES | 0.6 | 5 |
+| 103 | `$is_polymorphic_typeDefIR` | 1292 | - | YES | 0.6 | 5 |
+| 104 | `$resolve_inference_prime` | 1301 | - | YES | 5.7 | 5 |
+| 105 | `$parameterListIR_of_functionDef` | 1304 | - | YES | 0.6 | 5 |
+| 106 | `$resolve_inference` | 1306 | - | YES | 5.6 | 5 |
+| 107 | `$reduce_serenum` | 1310 | - | YES | 5.8 | 5 |
+| 108 | `$is_concrete_extern_object` | 1317 | - | YES | 5.7 | 5 |
+| 109 | `$update_mode_tbl` | 1337 | - | YES | 5.7 | 5 |
+| 110 | `$sizeof_minSizeInBytes` | 1347 | - | YES | 5.7 | 5 |
+| 111 | `$sizeof_maxSizeInBytes` | 1350 | - | YES | 5.7 | 5 |
+| 112 | `$sizeof` | 1375 | - | YES | 5.8 | 5 |
+| 113 | `$init_tableEntries` | 1406 | - | YES | 1.4 | 5 |
+| 114 | `$is_valid_bitslice` | 1431 | - | YES | 5.9 | 5 |
+| 115 | `$init_table` | 1462 | - | YES | 1.3 | 5 |
+| 116 | `$parameterListIR_of_methodDef` | 1551 | - | YES | 0.6 | 5 |
+| 117 | `$parameterListIR_of_callableDef` | 1565 | - | YES | 0.7 | 5 |
+| 118 | `$parameterListIR_of_constructorDef` | 1570 | - | YES | 0.6 | 5 |
+| 119 | `$subexpressions_of_argumentIR` | 1614 | - | YES | 5.7 | 5 |
+| 120 | `$subexpressions_of_argumentListIR` | 1614 | - | YES | 5.6 | 5 |
+| 121 | `$subexpressions_of_expressionIR` | 1614 | - | YES | 5.7 | 5 |
+| 122 | `$subexpressions_of_typedExpressionIR` | 1614 | - | YES | 5.7 | 5 |
+| 123 | `$subexpressions_of_typedExpressionListIR` | 1614 | - | YES | 5.7 | 5 |
+| 124 | `$name_expression` | 1840 | - | YES | 6.2 | 5 |

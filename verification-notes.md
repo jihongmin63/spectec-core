@@ -304,14 +304,22 @@ well-defined total 함수이며, 임계쌍 배타가 참이나 `Val`-wide subty 
 
 ## >500 구간 (bigsweep)
 
-`≤500` 종합 스윕 밖의 대형 슬라이스(501~2000규칙). 심볼당 1~4시간(프루닝해도 `kept≈rules`).
-verification.md §2의 27/127은 확정치, 나머지는 진행 중. 예산 사실상 무제한, `term(B)`=모듈러
-종료(§1과 달리 이 구간은 아직 모듈러-B 값 — 갱신 시 구조 보존 경로로 재측정할 것).
+`≤500` 종합 스윕 밖의 대형 슬라이스(501~2000규칙, **124심볼**).
+
+**term은 2026-07-24에 전수 재측정됐다(`a1fd043b`, §1과 같은 구조 보존 직접 축 + 예산 사다리,
+cap 1800): 124/124 YES, 전부 예산 5, 벽시계 합 479.7초.** 종전 §2가 이고 있던 `term(B)`
+(모듈러-B: `prune_modular.py abstract-builtins`로 산술 블랙박스) 열은 폐기했다 — 축이 다르고,
+그 축의 MAYBE 11건은 직접 축에서 전부 YES다. CRC 열은 이번에 재측정하지 않았고 옛 bigsweep
+값(27심볼분)만 §2에 남아 있다.
+
+**밴드 크기 127 → 124.** 옛 §2 제목의 분모 127은 과거 심볼 집합의 개수다. 현재 바이너리에서
+`501 < rules ≤ 2000`은 124이고(`big500_sized.tsv`, rules 748~1840), 줄어든 원인은 iter 헬퍼
+패밀리 통합(2026-07-18: `$iterapply`/`$iterproj` → `$itercollect`, `$unzip` → `$iterproj`)으로
+$-심볼 몇 개가 합쳐졌기 때문이다. 버그가 아니라 세대 차이다. 501~747 구간에는 심볼이 없다.
 
 **이 구간은 이진 산술 커밋과 무관하다.** helper 열이 전부 비어 있고, 심볼은 전부
 list-flatten / id-accessor / prototype-분류 / 코어션(`as_lvalue`) 계열이다. 대형인 이유는
-이들이 `subty-<T>` 여집합 가족을 슬라이스로 크게 끌어오기 때문. **27개 요약**: CRC YES 21 /
-MAYBE 1 / TIMEOUT 5 · term(B) YES 16 / MAYBE 11 · **NO(비종료)·비합류 후보 0.**
+이들이 `subty-<T>` 여집합 가족을 슬라이스로 크게 끌어오기 때문.
 
 ### CRC=TIMEOUT (5): `$flatten_{typeArgument,expression,argument,simpleKeysetExpression}List`, `$expressionNonBrace_as_expression`
 flatten 3절 구조(EMPTY / 싱글턴 `subty-elem=true` / 재귀 `match-comma=true`)에서 싱글턴·재귀
@@ -324,18 +332,18 @@ subty-disjointness가 슬라이스 규모 때문에 완주 못 하는 케이스.
 다수 무조건 원소 절 + 재귀 절. 위 subty-가드 배타를 CRC가 완전 discharge 못 한 잔여.
 well-defined 부분함수 — **false MAYBE.**
 
-### term(B)=MAYBE (11): flatten/optional/split 계열 — 전부 구조 감소, 감소가 전제에 숨음
-- **flatten MAYBE**: 재귀 인자 `xs`가 `x'=comma(xs,e)` **전제에서** 나와 `xs ⊂ x'`가 syntactic
-  subterm이 아님 → dependency-pair 분석이 감소를 못 봄. **종료하나 false MAYBE.**
-- **`$optional_annotation_of_parameterIR{,_prime}`, `$is_optional_parameterIR`**: 같은
-  리스트-감소 MAYBE. 종료.
-- **`$split_externConstructorOrMethodPrototypeList`**: `$flatten`+`$filter`×2+`$itermap`
-  합성 — helper들의 전제-인코딩 감소가 MAYBE로 전파. 종료.
+### 폐기된 `term(B)=MAYBE (11)` 항목 — 직접 축에서 전부 YES
+모듈러-B 축에서 MAYBE로 남던 flatten/optional/split 계열 11건(재귀 인자 `xs`가
+`x'=comma(xs,e)` **전제에서** 나와 `xs ⊂ x'`가 syntactic subterm이 아니라 dependency-pair
+분석이 감소를 못 본다는 해석이었다)은 구조 보존 직접 축에서 **전부 예산 5에 YES**다.
+그 MAYBE는 종료성에 대한 사실이 아니라 모듈러 인코딩의 성질이었다. §1이 2026-07-19에
+모듈러 축을 폐지한 것과 같은 결론이 이 구간에서도 확인된 셈이다.
 
 ### 총평 (>500)
-**진짜 비합류/비종료 후보 0.** CRC MAYBE/TIMEOUT = subty-여집합 배타의 CRC 미완주(규모),
-term MAYBE = 전제-인코딩 리스트 감소의 AProVE 미증명 — 둘 다 알려진 도구 근사이며 번역
-버그가 아니다.
+**term은 124/124 YES — 비종료 후보 0이고 미해결 term 행이 없다.** 남은 비-YES는 CRC 쪽뿐이고
+(옛 27심볼분 측정에서 MAYBE 1 / TIMEOUT 5), 그 원인은 subty-여집합 배타의 CRC 미완주(규모)로
+알려진 도구 근사이며 번역 버그가 아니다. **이 구간의 CRC 전수 측정은 미완이다** — 심볼당
+20~25분(구 드라이버 실측 1450초/심볼)이라 124심볼이면 2일 규모다.
 
 ---
 
@@ -352,8 +360,11 @@ term MAYBE = 전제-인코딩 리스트 감소의 AProVE 미증명 — 둘 다 �
   MTT 경로 폐기(커밋 d3bf2847).
 - [x] **실행 경로 커맨드 통합** (2026-07-22, tip `57a99547`). `confluence`/`termination`/`scc`
   동일 스윕 표면 + `rewrite --list-symbols`/`--ctrs --prune-signature`.
-- [ ] **§2 >500 표 fresh 값 갱신.** bigfresh 완주 시 27행 stale 표를 교체. term(B) 열은 MTT
-  경로 값이므로 §1과 같은 구조 보존 경로로 재측정할 것(MAYBE 11건 중 상당수 닫힐 가능성).
+- [x] **§2 >500 term 열 갱신** (2026-07-24, `a1fd043b`). 27행 stale 표를 124행으로 교체하고
+  `term(B)`(모듈러) 축을 §1과 같은 구조 보존 직접 축 + 예산 사다리로 재측정: **124/124 YES,
+  전부 예산 5, 합 479.7초**. 모듈러 축의 MAYBE 11건은 전부 닫혔다.
+- [ ] **§2 >500 CRC 열 전수 측정.** 이번에 잰 축은 term뿐이고 CRC는 옛 27심볼분만 있다.
+  심볼당 20~25분이라 124심볼은 2일 규모 — 별도 스윕이 필요하다.
 - [x] **폐기 스크립트 삭제** (2026-07-22 완료). `run-scc.sh`/`run-scc-sweep.sh`(→ `scc`),
   `prune_slice_signature.py`(→ `rewrite --prune-signature`) 삭제. 삭제 시점의 reverify 스윕은
   이미 `confluence --all --crc-normalize`(in-binary 프루닝)로 옮겨가 python 프루너를 더는
