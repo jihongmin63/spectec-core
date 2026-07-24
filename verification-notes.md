@@ -1,11 +1,163 @@
-# P4 structural CTRS 검증 — 설명·측정 이력·해석
+# P4 structural CTRS 검증 — 설명·방법·측정 이력·해석
 
-결과 표는 **[verification.md](verification.md)**. 이 문서는 방법론, 커밋별 측정 이력,
-그리고 비-YES 행의 해석(왜 도구 한계이지 실제 결함이 아닌지)을 정리한다.
+결과 **표는 [verification.md](verification.md)에만** 둔다(표만 깔끔하게). 이 문서는 재현
+커맨드, 측정 방법론, 시간·병렬 측정 소견, 커밋별 측정 이력, 그리고 비-YES 행의 해석(왜
+도구 한계이지 실제 결함이 아닌지)을 모은다.
 
-## 종합 스윕 개요
+- **CRC/ChC** = Church-Rosser(합류성)/Coherence. 값 = YES / `YES*`(=`--crc-normalize`
+  upgrade-only로 닫힘) / MAYBE / TIMEOUT / `-`(미도달).
+- **term** = 구조 보존 unravel → AProVE 직접(모듈러-B 아님).
+- 표의 `CRC초`/`term초` = 심볼당 **직렬 fresh 측정** 벽시계 초(아래 "시간·병렬 측정" 참조).
 
-≤500규칙 153심볼을 CRC/ChC + 종료로 검증. term 열(§2 표)은 모듈러(B) 종료 측정치.
+---
+
+## 재현 커맨드 (2026-07-22 in-binary 통합, tip `57a99547` 이후)
+
+표의 축들은 스크립트·스크래치패드 없이 바이너리 서브커맨드로 전수 재현한다. 세 분석
+검사기는 동일한 스윕 표면을 갖는다 — `--symbol NAME`(반복) 또는 `--all`(작은 슬라이스
+먼저), `--out sweep.tsv`(이미 기록된 심볼 skip → 재개 가능):
+
+- `term` = `main.exe termination --all --out term.tsv <specs>` — 구조 보존 unravel →
+  AProVE(`lib/rewrite/unravel.ml`+`aprove.ml`). 단일: `termination --symbol NAME`,
+  TRS만 보려면 `--emit-trs --symbol NAME`. AProVE 자체 예산은 `--budget S`(기본 300,
+  프로세스는 S+120s에 kill).
+- `CRC`/`ChC` = `main.exe confluence --all --out crc.tsv <specs>`(구 `verify`). 행
+  `<sym>\t<church-rosser>\t<coherence>\t<secs>`. MAYBE/TIMEOUT은 `--crc-normalize`로
+  upgrade-only 재검(정규화+prune, YES면 `YES (normalized)`, 하향 없음). `--timeout S`.
+- 충분완전성(SCC) = `main.exe scc --all --out scc.tsv <specs>` — CETA Maude 2.7 필요.
+- 슬라이스 목록/크기 = `main.exe rewrite --list-symbols [--sizes] <specs>`,
+  분석 모듈 덤프 = `rewrite --ctrs --symbol NAME [--prune-signature]`.
+
+`confluence`/`termination`은 각 행 4번째 컬럼에 그 심볼의 벽시계 초(`Subproc.timed`)를
+찍는다 — CRC는 정규화가 필요했던 행이면 base+normalize 합, term은 slice+unravel+AProVE.
+
+구 셸/파이썬 드라이버(`run-termination.sh`/`run-scc.sh`/`run-scc-sweep.sh`/
+`prune_slice_signature.py`/`prune_modular.py`/`prune_root.py`)는 전부 위 커맨드로
+대체·**삭제 완료**(2026-07-22, git history에서 부활 가능). differential 드라이버
+`check_diff_p4.sh`/`check_diff_structural_p4.sh`는 서브커맨드 대체물이 없어 유지.
+
+---
+
+## 시간·병렬 측정 (2026-07-23, baseline `bff805ec`)
+
+CRC/ChC·term을 **심볼당 벽시계 시간과 함께** 전수 재측정했다. 측정에 쓴 바이너리는
+`bff805ec` + 이 세션의 계측 패치(`Subproc.timed`, `check_batch`/`termination`가 secs
+컬럼을 스트리밍). 원자료: CRC = `/tmp/claude-reverify/crc_full153.tsv`,
+term = `/tmp/claude-reverify/term_serial.tsv`.
+
+### 병렬 실행은 판정엔 안전하나 시간 측정엔 부적합
+
+프로세스 레벨 샤딩(심볼을 K개로 나눠 독립 프로세스 K개 동시 실행, 각자 독립 MFE 세션)을
+실측 검증했다. 각 프로세스는 **서로소·독립 슬라이스**를 결정적 검사기로 돌리므로 판정이
+옆 프로세스에 의존할 수 없다 — 구조적으로 안전하고, 실측으로도 확인됐다:
+
+- **판정 정확성: 완벽.** 153심볼 K=8 병렬의 판정은 확정본(CRC/ChC YES 146 / TIMEOUT 7)과
+  **완전 일치, 거짓 timeout 0.** upgrade-only 정규화가 base 검사가 경합으로 아슬아슬하게
+  timeout 나도 YES를 회복시킨다.
+- **그러나 시간은 심하게 오염.** 무거운 심볼(maude RSS 6~8GB)이 여럿 동시에 겹치면
+  메모리 압박·스왑으로 감속: `$bin_mul` fresh 43s → K=8 병렬 **1838s(≈40×)**,
+  `$bin_minus` 94s → 1708s. K=8·timeout=1800에서 peak 메모리 **92.9GB/124GB**로 천장 근접.
+  넉넉한 예산이라 판정은 안 뒤집혔지만(1708 < 1800), 예산이 빠듯하면 거짓 timeout이 될 수
+  있는 여백이었다.
+- **부수 소견**: 단일 세션에 모듈을 많이 쌓으면 모듈 테이블 성장으로 뒤 심볼이 느려진다
+  (`$bin_mul` fresh 세션 43s vs 16-모듈 세션 pos5 88s, ≈2×). MFE `load`는 사실상 0s라
+  세션 재사용의 이득이 없다 → **심볼당 fresh 세션이 오히려 빠르고 깨끗하다.**
+
+⇒ **판정용 전수 스윕은 병렬 OK, per-symbol 시간 측정은 직렬 필수.** 표의 시간 컬럼은
+아래 직렬 방식으로 측정했다.
+
+### 직렬 정확 측정 (표의 시간 컬럼 방식)
+
+경합·세션 degradation·거짓 timeout을 모두 피하려고, **심볼당 fresh 프로세스(fresh MFE
+세션)를 엄격히 직렬로** 돌렸다. 4번째 컬럼 secs는 그 심볼의 참 고립 검사 시간이다.
+
+- **CRC**: 146개 YES-able 심볼을 직렬 fresh로 측정(146/146 YES 재현, 거짓 timeout 0).
+  알려진 hard-timeout 7개(`$bin_shl`·`$bin_shr`·`$bitacc_*`×4·`$write_bits_from_value`)는
+  직렬로도 각 base 1800+normalize 1800을 소진해 시간 낭비이므로 스윕에서 제외하고 표엔
+  TIMEOUT(시간 `>1800`)으로 기록. 참값 예: `$bin_concat` 425.7s(fresh 세션에선 정규화
+  없이 base YES — 배치에서 1800이 필요했던 건 경합/degradation 탓), `$write_value*` 5형제
+  ~243–253s(정규화, 5개), `$bin_bor`/`$bin_band` ~143s, 나머지 대부분 <1s.
+- **term**: 153개를 직렬 fresh(AProVE budget 300)로 측정 → **153/153 YES**. budget 300에서
+  비-YES 2건은 1800으로 재시도:
+  - `$bin_minus`: budget 300에선 TIMEOUT(420s kill), **budget 1800에서 YES(1800s)** — AProVE가
+    이 산술 종료 증명에 300s 넘게 필요했을 뿐.
+  - `$write_bits_from_value`: budget 300·1800 모두 **ERROR**("no YES/NO/MAYBE line"). 원인은
+    AProVE 증명 탐색이 아니라 **결과 export의 JVM StackOverflowError**
+    (`ParallelExportManager.traverseProofTreeRecursively` — 증명 트리가 기본 스레드 스택보다
+    깊음)다. `tools/aprove/runme`가 `-Xss` 없이 `java -jar`를 부르는데(기본 ~512KB–1MB),
+    `-Xss512m` 래퍼로 감싸니 크래시 없이 **YES(1320s, budget 1200)**. 즉 종료는 증명되며,
+    ERROR는 순전히 export 스택 크기 아티팩트다. 표의 term초 1320.4s는 이 bigstack 측정값.
+  - 나머지 CRC hard-timeout(`$bin_shl`·`$bin_shr`·`$bitacc_*`×4)은 term에선 모두 YES
+    (~300–420s) — **CRC 난이도 ≠ term 난이도.**
+
+---
+
+## 측정 방법론 — term (구조 보존 unravel → AProVE 직접, MTT 안 씀)
+
+**`term` = 구조 보존 unraveling → AProVE 직접.** 슬라이스의 조건부 규칙을 좌변 인자
+목록을 정의 규칙 없는 불활성 생성자 `k_N`에 감싸 넘기는 방식으로 평범한 TRS로 만든 뒤,
+`tools/aprove/runme <f>.trs <budget>`(WST 모드)에 바로 던진다.
+`f(p1..pk) -> u(s, k(p1..pk))` / `u(t, k(p1..pk)) -> r` 꼴이다.
+
+**MTT는 쓰지 않는다.** MTT는 unravel을 하지 않고 조건부 TRS를 그대로 AProVE에 넘기면서,
+조건 `s = t`를 **`equal(s,t) -> tt`** 로 바꾼다(전역 규칙 `equal(X,X) -> tt` 동반). 우리
+조건은 *매칭* 조건이라 `text = cons(t_h2, t_t)`의 `t_h2`/`t_t`가 매칭으로 바인딩되는데,
+대칭 동등성 검사로 바뀌면 **자유 변수**가 되어 좌변에 나타나지 않는다 — extra-variable
+CTRS(Bergstra–Klop 3형)다. 재귀 인자 `cons(t_h2,t_t)`가 좌변 인자와 구문적 관계가 없어
+dependency pair로 정렬할 하강이 보이지 않고, 3형 종료 증명은 1/2형보다 훨씬 어렵다.
+unravel하면 `t`가 다시 **규칙 좌변의 패턴**이 되어 변수가 매칭으로 바인딩되고 하강이
+구문적으로 드러난다 — 이것이 이득의 전부다.
+**무엇을 날라 주는지는 무관하다**: Marchiori 고전형(좌변 *변수*를 평평하게)과 구조 보존형
+(좌변 *인자 목록*을 `k_N`에 그대로)을 같은 슬라이스·같은 AProVE로 맞대조하면 **둘 다
+0~1초에 YES**다.
+MTT 인코딩이 증명 *불가능*한 건 아니고 **비쌀 뿐**이다 — 캡처본에 예산을 충분히 주면 YES가
+나온다. 다만 `mtt.maude:90`이 AProVE를 **120초로 하드코딩** 호출하므로 그 비용이 곧바로
+MAYBE가 된다(우리가 준 1200s는 Maude *프로세스* 타임아웃이라 무관했다 — 예산을 늘려도
+판정이 안 바뀌던 이유다). 13-rule짜리 `$join_text`가 MTT 인코딩에서 >120초, 우리 TRS에서
+1초로 100배 이상 차이다.
+상세·건전성 논증·구현 함정은 [CLAUDE.md](CLAUDE.md) "Do not route termination through MTT",
+경위와 측정 전문은 [lib/rewrite/todo.md](spectec/lib/rewrite/todo.md) 2026-07-19 research note.
+
+**term 요약 (구조 보존 경로 도입 효과, 2026-07-19).**
+- MTT 경로였을 때는 YES 117 / MAYBE 12 / TIMEOUT 24였다. MAYBE **12건 전부**와 TIMEOUT
+  24건 중 **23건**이 닫혔고, 이진 산술 계열(`$bin_*`·`$un_*`·`$bitacc_*`·`$write_value*`)이
+  통째로 풀렸다. **인코딩은 한 줄도 고치지 않았다** — 원인은 번역도 AProVE도 아닌 MTT였다.
+- 종전 "AProVE 자동 전략의 도구 한계"로 적었던 3건(`$join_text`, `$invalidate_value`,
+  `$invalidate_headerUnion`)은 MTT로 1200s를 소진하고 MAYBE였으나 새 경로에서 **각 1초에
+  YES**다. 그 진단은 틀렸다.
+- ⚠️ 이 항목의 인과 설명은 2026-07-20에 정정됐다. 최초 서술("MTT의 unraveling이 인자를
+  분해해 부분항 관계를 역전시키므로 어떤 예산으로도 증명 불가")은 세 군데가 틀렸다(MTT는
+  unravel을 안 하고, 분해도 역전도 없으며, 예산만 주면 증명된다). **측정값(153/153)과 실무
+  결론(MTT를 거치지 말 것)은 불변**이고 기전만 틀렸었다. 경위는
+  [todo.md](spectec/lib/rewrite/todo.md) "방법론 반성".
+- 종전 병기하던 `term(모듈러B)` 열(`prune_modular.py abstract-builtins`로 산술을 블랙박스
+  처리)은 폐지했다. 직접 축이 153/153이 된 이상 존재 이유가 없다(같은 구조 보존 경로를
+  모듈러 축에 적용하면 오히려 YES 150 / MAYBE 2 / TIMEOUT 1로 나쁘다 — keep-생성자가 인자
+  구조를 복제해 항이 커지는 비용이 산술 블랙박싱의 이득을 넘어선다).
+
+---
+
+## 측정 방법론 — CRC 정규화 (`--crc-normalize`, upgrade-only) — 2026-07-21
+
+baseline CRC의 MAYBE 5(전부 `$write_value*`)를 분석-전용 정규화(inline + unravel +
+real-sort, **upgrade-only**)로 닫았다. 실측(real-sort 바이너리, `prune` 동반, 직렬 Maude,
+조기종료):
+
+- **MAYBE 5 → YES 0쌍**: `$write_value_from_bits`·`_prime`, `$write_value_field_from_bits_prime`,
+  `$write_value_fields_from_bits_prime`, `$write_values_from_bits_prime` — 표의 MAYBE 5와 일치.
+- **회귀**: `$un_op`·`$bin_bor` YES 유지(inline-only, crcu 없어 byte-identical).
+  `$set_priorities_of_tableEntryListIR` real-sort로 YES 0쌍 78s(all-Val이면 TIMEOUT).
+  `$join_text`는 초기엔 정규화 시 YES→MAYBE였으나, 이는 `crc_unravel`이 값-destructure
+  (`text = cons(..)`, subject가 변수)를 불필요하게 unravel해 hoist_matchers가 만든
+  CRC-friendly 형태를 깬 **over-unravel**이었다. subject가 정의 함수일 때만 unravel하도록
+  게이트(`1dd1e43a`)해 YES 0쌍 6s로 교정.
+- **TIMEOUT 회수**: `$bin_concat` inline+prune으로 TIMEOUT→YES. `$bin_shl`/`$bin_shr` 잔존.
+
+세 레버(inline=등식·blanket / unravel=reflect-only·upgrade-only / real-sort=건전한 narrowing)·
+건전성 방향·`crcu`/`crck` sort 복원·upgrade-only 프로토콜·`$join_text` 기전은
+[CLAUDE.md](CLAUDE.md) "CRC normalization (`--crc-normalize`)" 참조.
+
+---
 
 ## 측정 이력 (커밋별)
 
@@ -19,196 +171,123 @@ destructure already implies`).** 그 커밋이 `match_K(v)=true`를 동반 destr
 + `$write_value*` 5형제. 잔여 MAYBE 5: `$join_text`,
 `$set_priorities_of_tableEntryListIR{,_prime}` (슬라이스는 바뀌었으나 미해소),
 `$invalidate_value`/`$invalidate_headerUnion` (fix가 슬라이스를 전혀 바꾸지 않음 —
-접을 destructure-동반 matcher가 없다). `$bitacc_*`/`$write_bits_from_value`의 TIMEOUT은
-그대로지만 이 머신에선 모듈러(B) 한 건이 15~25분 걸려(대조군 `$bitacc_range_replace_op`
-= YES, 25분) 예산 문제와 구분되지 않는다.
+접을 destructure-동반 matcher가 없다).
 
 **CRC/ChC 열 재측정 (2026-07-13, 같은 커밋) — 변화 없음.** 같은 fold가 head를
 서로소화하니 CRC도 움직일 것으로 봤지만, 열의 값은 하나도 바뀌지 않았다.
 ① CRC가 YES가 아니던 행 중 `$join_ctk` `$assignop_as_binop` `$bin_satplus`
 `$bin_concat` `$bin_shl` `$bin_shr` `$write_bits_from_value`는 fold 전/후 분석
-슬라이스가 **바이트 동일**하다(접을 destructure-동반 matcher가 없다) — verdict가
-움직일 수 없으므로 재측정 대상이 아니다. ② 슬라이스가 실제로 바뀐 비-YES 행은
-`$write_value*` 5개(MAYBE)와 `$bitacc_*` 4개(TIMEOUT)뿐인데, `$write_value*`는 이
-머신에서 CRC가 아예 판정을 못 낸다(1800s 4× TIMEOUT, 단독 5400s 예산에서도 74분
-뒤 verdict 없이 ERROR) — 표의 MAYBE는 더 빠른 환경의 옛 측정값이라 그대로 둔다.
-③ **회귀 없음**: fold로 슬라이스가 바뀐 기존 YES 8개(`$concat_text` `$exists`
-`$forall` `$filter` `$flatten_p4program` `$flatten_nameList`
-`$flatten_typeParameterListOpt` `$lvalue_as_expression`)를 다시 돌려 전부
-CRC/ChC YES/YES 유지를 확인했다(7~10분/건). 즉 이 커밋의 순이익은 termination
-쪽에만 나타난다.
+슬라이스가 **바이트 동일**하다 — verdict가 움직일 수 없으므로 재측정 대상이 아니다.
+② 슬라이스가 실제로 바뀐 비-YES 행은 `$write_value*` 5개(MAYBE)와 `$bitacc_*` 4개
+(TIMEOUT)뿐이다. ③ **회귀 없음**: fold로 슬라이스가 바뀐 기존 YES 8개를 다시 돌려 전부
+CRC/ChC YES/YES 유지 확인. 즉 이 커밋의 순이익은 termination 쪽에만 나타난다.
 
-**CRC 열 후속 — 상보 비교 가드 정렬 (2026-07-13, `feat(rewrite): align
-complementary comparison/negation guards for the CRC`, a290977b).** 분석 전용
-패스 `Reflect.align_guards`가 조건 위치의 `lt`/`lt_int`(및 선두 `not`)을 정준
-`leq`/`leq_int` 술어의 반대 극성으로 재철자한다. `i<0`(arith shift) vs
-`i>=0`(logical shift)로 갈리는 형제 절이 번역 후 갖던 서로 다른 subject
-(`lt_int(X,0)=true` vs swapped `leq_int(0,X)=true`)를 **같은 subject
-`leq_int(0,X)`의 true/false 극성**으로 통일해, CRC가 가설 재작성으로 임계쌍을
-discharge한다.
+**CRC 열 후속 — 상보 비교 가드 정렬 (2026-07-13, `feat(rewrite): align complementary
+comparison/negation guards for the CRC`, a290977b).** 분석 전용 패스 `Reflect.align_guards`가
+조건 위치의 `lt`/`lt_int`(및 선두 `not`)을 정준 `leq`/`leq_int` 술어의 반대 극성으로
+재철자한다. `i<0`(arith shift) vs `i>=0`(logical shift)로 갈리는 형제 절이 갖던 서로 다른
+subject를 같은 subject의 true/false 극성으로 통일해, CRC가 가설 재작성으로 임계쌍을
+discharge한다. 대상은 상보 비교쌍을 가진 3심볼뿐(`$bin_satplus` MAYBE, `$bin_satminus`
+이미 YES, `$bin_shr` TIMEOUT). 축소 슬라이스 실측: `$bin_shr` MAYBE(6 임계쌍)→YES(0).
+전체 슬라이스는 산술 라이브러리 CP 폭발이 지배적이라 verdict가 그 아래 가린다(순이익은
+축소 슬라이스에서만 실측). 근본 원인은 sort — prelude bridge `lt_int(x,y)=not(leq_int(y,x))`가
+하위 sort `IntV`에 선언돼 `Val`-wide 복원 항에 발화 못 함. align_guards는 `leq_int`를 직접
+써 우회. (이 `Val`-wide 도메인 문제는 여러 산술/판정 심볼 공통이며 todo.md "subty_*/match_*
+op 도메인 협소화(P1)"와 같은 뿌리.)
 
-**대상은 상보 비교쌍을 가진 3심볼뿐**(전 p4 표면 pairscan): `$bin_satplus`
-(CRC **MAYBE**), `$bin_satminus`(이미 **YES**), `$bin_shr`(CRC **TIMEOUT**). 표의
-다른 비-YES 행(`$join_ctk`/`$assignop_as_binop` = match fall-through,
-`$bin_shl`/`$bin_concat`/`$write_*`/`$bitacc_*` = 산술 CP 폭발 TIMEOUT 또는 별
-원인)은 sign-split이 아니므로 이 패스와 무관하다.
+**`$join_ctk`/`$assignop_as_binop` CRC 열 재측정 (2026-07-16) — MAYBE → YES.** 7-13에서
+"match fall-through라 align_guards 대상 아님"으로 남겨뒀던 이 두 행의 진짜 원인 확정: 진짜
+비합류가 아니라, owise 반사가 만드는 왼쪽-중첩 `or(and(match,match)…)=false` 게이트에서 참
+disjunct가 깊이 묻히면 CRC feasibility 검사가 못 보는 **인코딩 아티팩트**였다. 수정:
+`Reflect.owise`에 **complement 열거** 구현(enum-dispatch owise를 미매치 생성자 튜플별 ground
+fall-through 절로 반사 → 절이 전부 ground·서로소 → 임계쌍 소멸). `$join_ctk` YES(5절),
+`$assignop_as_binop` YES(1절). 회귀 없음 확인. 상세는 todo.md M1 2026-07-16.
 
-**실측 (시그니처-축소 슬라이스 CRC, `ulimit -s unlimited`, Maude 3.5.1a/CRC 3t).**
-`$bin_shr` 자기-레이어 12절: 재철자 전 **MAYBE(6 임계쌍)** → 후 **YES(0)**;
-`$bin_satplus` 축소 슬라이스 **YES**. `$bin_satminus`는 동형(같은 상보 형태)이나
-축소 CRC가 산술 라이브러리 무게로 완주 미측정.
+### 2026-07-18 post-fix 전면 fresh 재검증 (CRC + AProVE 직접)
 
-**근본 원인 규명 — 왜 기존 bridge가 이걸 못 고쳤나.** prelude에는 이미
-`lt_int(x,y)=not(leq_int(y,x))` bridge가 있는데도 sign-split이 살아남았다. 이유는
-sort다: 여기서 `X=$bitstr_to_int(..)`의 복원 sort가 최상위 `Val`인데 bridge는
-하위 sort `IntV`에 선언돼 있어 **이 항에 발화하지 못한다**(bridge 있는 채로도 6
-임계쌍 생존 실측). align_guards는 `leq_int` 심볼을 직접 써 sort와 무관하게
-정렬하므로 우회한다. (이 `Val`-wide 도메인 문제는 아래 표의 여러 산술/판정
-심볼에 공통이며, todo.md의 "subty_*/match_* op 도메인 협소화(P1)" 항목과 같은
-뿌리다.)
+owise-complement 열거(`2f9f8cba`)·align_guards(`a290977b`) fix는 번역 덤프 자체를 바꾸므로,
+스테일 스윕을 전부 중단하고 **현재 바이너리로 153심볼을 하나씩 재번역**해 CRC를 처음부터
+재계산, termination은 AProVE 직접(`TERM_TMO=1200`, `CRC_TMO=2400`)으로 재측정. `/tmp/fresh500`,
+153/153 완주. 요약 — CRC: YES 140 / TIMEOUT 8 / MAYBE 5 · ChC: YES 145 / - 8 · term(AProVE
+직접): YES 117 / TIMEOUT 25 / MAYBE 11.
 
-**전체 슬라이스 재측정 결과 (2026-07-13, 같은 날) — 표 CRC 열 변화 없음.** 위
-실측은 **축소 슬라이스**이고 표는 **전체 슬라이스** 측정값이라 서로 다른 측정이다.
-CRC=MAYBE인 재측정 가능 3행을 전체 슬라이스로 다시 돌렸다(`verify --symbol`):
-- `$bin_satplus` → **CRC TIMEOUT**(과거 MAYBE에서 이 WSL 환경 악화로 완주 실패;
-  1900s 예산 소진). align_guards가 sign-split MAYBE의 **원인은 제거**했음이 축소
-  슬라이스로 확인됐으나, 전체 202규칙 슬라이스는 산술 라이브러리(`badd`/`bmul`)
-  임계쌍 폭발이 지배적이라 verdict가 그 아래 가린다.
-- `$join_ctk` → **MAYBE**, `$assignop_as_binop` → **MAYBE** (둘 다 무변화). 이
-  둘은 sign-split이 아니라 match fall-through라 애초에 align_guards 대상이 아니며,
-  YES→MAYBE 역행이 없음(무회귀)도 이 재측정으로 확인됐다.
-- `$write_value*` 5행은 이 환경에서 CRC가 완주하지 못해(1800s 다중 TIMEOUT)
-  재측정 불가.
+1. **fix 정정 재확인.** 스테일에서 MAYBE였던 `$join_ctk`·`$assignop_as_binop`이 fresh
+   전면 재검에서 CRC=YES/ChC=YES/term=YES. 회귀 0.
+2. **새 비합류/비종료 후보 0.** 비-YES 37행은 전부 산술/비트 슬라이스이며 알려진 도구 한계.
+3. **⭐ term 열은 여기서 AProVE 직접이다.** full-arith 25개 TIMEOUT은 AProVE가 이진 산술
+   종료를 1200s 내 못 찾은 것이고, 같은 심볼이 모듈러-B에선 전부 YES였다 — **정확성이 아니라
+   tractability.** 이후 2026-07-19에 구조 보존 unravel로 바꿔 153/153 YES 달성(위 term 요약).
 
-⇒ **align_guards의 순이익은 축소 슬라이스 CRC(sign-split 원인 제거)에서만 실측되고,
-전체 슬라이스 CRC verdict로는 산술 CP 폭발/환경 악화에 가려 드러나지 않는다.** 표의
-`$bin_satplus`/`$bin_shr` CRC 열은 더 빠른 환경의 옛 측정값을 유지한다(위
-`$write_value*`와 같은 처리) — 다음 안정 환경에서 재측정 필요.
+---
 
-**`$join_ctk`/`$assignop_as_binop` CRC 열 재측정 (2026-07-16) — MAYBE → YES.** 위
-7/13 재측정에서 "match fall-through라 align_guards 대상이 아니다"로 남겨뒀던 이
-두 행의 진짜 원인을 이번에 확정: 진짜 비합류가 아니라, owise 반사가 만드는
-왼쪽-중첩 `or(and(match,match)…)=false` 게이트에서 참 disjunct가 깊이 묻히면 CRC의
-feasibility 검사가 못 보는 **인코딩 아티팩트**였다(todo.md M1 2026-07-15 진단).
-수정: `Reflect.owise`에 **complement 열거**를 구현(enum-dispatch owise를 or-gate
-대신 미매치 생성자 튜플별 ground fall-through 절로 반사 → 절이 전부 ground·서로소 →
-임계쌍 소멸). 전체 슬라이스 `verify --symbol`로 재측정: `$join_ctk` **CRC YES**(5절),
-`$assignop_as_binop` **CRC YES**(1절). 회귀 없음 확인(`$join_flow`도 같은 패스로
-새로 열거됐고 기존 YES 유지, impty `$lookup` 대조군 YES, 실행 표면 sha256 불변).
-상세는 todo.md M1 2026-07-16 항목.
+## 비-YES 행 해석 (≤500)
 
-## 2026-07-18 post-fix 전면 fresh 재검증 (CRC + AProVE 직접)
+CRC의 잔여 비-YES 7행(`$bin_shl`·`$bin_shr`·`$bitacc_offset_op`·`$bitacc_offset_replace_op`·
+`$bitacc_range_op`·`$bitacc_range_replace_op`·`$write_bits_from_value`)은 전부 **무한 비트폭
+재귀가 있는 비트벡터 산술 연산자**로, CRC 검사기의 산술 임계쌍 폭발로 예산 내 판정 불가다
+(1800s 직렬·병렬 모두 TIMEOUT). ChC는 이 행들에서 도달 못 함(`-`). **비합류 아님** — 이들은
+well-defined total 함수이며, 임계쌍 배타가 참이나 `Val`-wide subty 여집합 계산이 예산을
+넘는 것뿐이다. 나머지 146행은 CRC/ChC YES(정규화 5건 포함).
 
-위 재측정들은 7-09/7-10 번역 덤프를 재사용했다 — owise-complement 열거(`2f9f8cba`)·
-align_guards(`a290977b`) **이전** 산출물이다. fix는 번역 덤프 자체를 바꾸므로, 스테일
-스윕(smallcheck/bigsweep)을 전부 중단하고 **현재 바이너리(HEAD `2f9f8cba`)로 153심볼을
-하나씩 재번역**해 CRC를 처음부터 다시 계산했고, termination은 **모듈러-B가 아니라 AProVE
-직접**(시그니처 프루닝 → old-FullMaude fmod → `ct`, `TERM_TMO=1200`, `CRC_TMO=2400`)으로
-다시 돌렸다. `/tmp/fresh500`, **153/153 완주**.
-
-**요약** — CRC: YES 140 / TIMEOUT 8 / MAYBE 5 · ChC: YES 145 / - 8 · term(AProVE 직접): YES 117 / TIMEOUT 25 / MAYBE 11.
-
-1. **fix 정정, 전면 스윕에서 재확인.** 스테일에서 MAYBE였던 `$join_ctk`(9절)·
-   `$assignop_as_binop`(13절)이 fresh 전면 재검에서 **CRC=YES / ChC=YES / term=YES**.
-   위 7-16 `verify --symbol` 단발 측정이 독립 전면 스윕에서 재현됨. **회귀 0.**
-2. **새 비합류/비종료 후보 0.** CRC=YES 140개. 비-YES 37행은 전부 산술/비트 슬라이스이며,
-   아래 두 종류의 알려진 도구 한계다.
-3. **⭐ term 열은 여기서 AProVE 직접이다 — 모듈러-B와 다르다.** full-arith 25개 TIMEOUT
-   (`$bin_minus/mul/plus/satplus/satminus/band/bor/bxor`, `$un_minus/op`, …)은 **AProVE가
-   이진 산술 종료를 1200s 내 못 찾은 것**이고, **같은 심볼이 모듈러-B에선 전부 term=YES**
-   (아래 표 `term(모듈러B)` 열). AProVE 직접이 산술을 블랙박스하지 않아 생기는 차이 —
-   즉 **정확성이 아니라 tractability**이며, ≤500을 AProVE 직접으로 돌리기로 정할 때 예고된
-   결과다. CRC MAYBE/TIMEOUT도 같은 성질(Val-wide subty CP·산술 CP 폭발; ChC는 YES).
-
-**소결(≤500 fresh)**: post-fix 현재 바이너리·fresh 덤프에서도 **진짜 비합류/비종료 0**.
-스테일 MAYBE 2건(`$join_ctk`/`$assignop_as_binop`)은 fix로 YES 정정 확인. 비-YES는 전부
-tractability(AProVE 직접의 산술 미증명 = 모듈러-B에선 YES, 또는 대형 슬라이스 CP 예산).
-아래 표는 종전 모듈러-B 측정치이며, 이 fresh 재검은 그 결론(도구 근사이지 번역 버그 아님)을
-독립적으로 재확인한다.
-
-### 비-YES 37행 해석 (fresh, AProVE 직접)
-
-verification.md §1 표의 각 행이 왜 tractability(도구 근사)이고 실제 비합류/비종료가
-아닌지, 같은 해석끼리 묶어 정리한다.
-
-- term: 전제-인코딩 하강(양쪽 MAYBE, 종료함)
-  - `$join_text` `$invalidate_headerUnion` `$invalidate_value`
-
-- CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님)
-  - `$write_bits_from_value`
-
-- term: 전제-인코딩 하강 AProVE 미증명 → **모듈러-B=YES**
-  - `$un_bnot` `$bin_ge` `$bin_le` `$bin_gt` `$bin_lt` `$int_of_integerValue` `$nat_of_integerValue` `$name_annotationToken`
-
-- term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES**
-  - `$bin_minus` `$bin_mul` `$bin_plus` `$un_minus` `$bin_bxor` `$bin_satminus` `$bin_satplus` `$bin_band` `$bin_bor` `$un_op` `$name_annotation_opt`
-
-- CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES**
-  - `$bin_concat` `$bin_shl` `$bin_shr` `$bitacc_range_replace_op`
-
-- term: 양쪽 미해소(종료함)
-  - `$set_priorities_of_tableEntryListIR_prime` `$set_priorities_of_tableEntryListIR`
-
-- CRC Val-wide subty CP 잔여(ChC=YES, false MAYBE); term: AProVE가 full-arith 종료 못 찾음 → **모듈러-B=YES**
-  - `$write_value_field_from_bits_prime` `$write_value_fields_from_bits_prime` `$write_value_from_bits_prime` `$write_values_from_bits_prime` `$write_value_from_bits`
-
-- CRC 산술/비트 CP 폭발, 2400s 부족(비합류 아님); term: 최대 슬라이스 예산 초과(모듈러-B도 TIMEOUT)
-  - `$bitacc_range_op` `$bitacc_offset_op` `$bitacc_offset_replace_op`
+---
 
 ## >500 구간 (bigsweep)
 
-`≤500` 종합 스윕 밖의 대형 슬라이스(501~2000규칙). tmux 세션 `bigsweep`에서 심볼당
-1~4시간(프루닝해도 `kept≈rules` — 실제로 시그니처 대부분을 씀). **아래 27/127은
-확정치, 나머지는 진행 중.** 예산 `CRC_TMO=TERM_TMO=2592000`(사실상 무제한),
-`term(B)`=모듈러 종료.
+`≤500` 종합 스윕 밖의 대형 슬라이스(501~2000규칙). 심볼당 1~4시간(프루닝해도 `kept≈rules`).
+verification.md §2의 27/127은 확정치, 나머지는 진행 중. 예산 사실상 무제한, `term(B)`=모듈러
+종료(§1과 달리 이 구간은 아직 모듈러-B 값 — 갱신 시 구조 보존 경로로 재측정할 것).
 
-**중요: 이 구간은 오늘의 binenc(이진 산술) 커밋과 무관하다.** helper 열이 전부
-비어 있고(산술 helper 미사용), 심볼은 전부 **list-flatten / id-accessor /
-prototype-분류 / 코어션(`as_lvalue`)** 계열이다. 대형인 이유는 이들이
-`subty-<T>` 여집합(complement) 가족을 슬라이스로 크게 끌어오기 때문.
-
-**27개 요약**: CRC YES 21 / MAYBE 1 / TIMEOUT 5. term(B) YES 16 / MAYBE 11.
-**NO(비종료)·비합류 후보 0.**
-
-## MAYBE / TIMEOUT 실제 분석 (덤프 정적 분석)
+**이 구간은 이진 산술 커밋과 무관하다.** helper 열이 전부 비어 있고, 심볼은 전부
+list-flatten / id-accessor / prototype-분류 / 코어션(`as_lvalue`) 계열이다. 대형인 이유는
+이들이 `subty-<T>` 여집합 가족을 슬라이스로 크게 끌어오기 때문. **27개 요약**: CRC YES 21 /
+MAYBE 1 / TIMEOUT 5 · term(B) YES 16 / MAYBE 11 · **NO(비종료)·비합류 후보 0.**
 
 ### CRC=TIMEOUT (5): `$flatten_{typeArgument,expression,argument,simpleKeysetExpression}List`, `$expressionNonBrace_as_expression`
-flatten 3절 구조 —
-`$flatten(EMPTY)=nil` · `$flatten(x)=cons(x,nil) if subty-elem(x)=true` (싱글턴) ·
-`$flatten(x')=cat($flatten(xs),cons(e,nil)) if match-comma(x')=true /\ x'=comma(xs,e)` (재귀).
-싱글턴 절과 재귀 절이 같은 head에 겹치고, CRC는 두 가드
-`subty-elem(x)=true`(x가 원소)와 `match-comma(x)=true`(x가 콤마-노드)가
-**상호배타**임을 증명해야 discharge. 배타는 참이나(원소는 콤마-노드가 아님), 증명하려면
-`subty-<elem>` **여집합 가족(수백 규칙)** 전체에 대한 임계쌍 계산이 필요 →
-780+규칙·near-full 시그니처에서 **자원 소진해 verdict 없이 종료(TIMEOUT)**.
-→ **비합류 아님** (flatten은 EMPTY/싱글턴/재귀가 의미상 서로소·완전한 total 함수).
-이 구간은 `Reflect.expand_subty_guards`가 ≤500에서 풀던 subty-disjointness가
-**슬라이스 규모 때문에 CRC가 완주 못 하는** 케이스.
+flatten 3절 구조(EMPTY / 싱글턴 `subty-elem=true` / 재귀 `match-comma=true`)에서 싱글턴·재귀
+절이 같은 head에 겹치고, CRC는 두 가드가 상호배타임을 증명해야 discharge. 배타는 참이나
+증명하려면 `subty-<elem>` 여집합 가족(수백 규칙) 전체 임계쌍 계산 필요 → 자원 소진 TIMEOUT.
+**비합류 아님**(flatten은 total). `Reflect.expand_subty_guards`가 ≤500에서 풀던
+subty-disjointness가 슬라이스 규모 때문에 완주 못 하는 케이스.
 
 ### CRC=MAYBE (1): `$expression_as_lvalue` (764)
-identifier/nonTypeName 등 다수 무조건 원소 절 + memberAccess/indexAccess/slice/paren의
-재귀 절(base를 `$expression-as-lvalue`로 재귀). MAYBE는 위 subty-가드 배타를 CRC가
-완전 discharge 못 한 잔여(같은 가족). well-defined 부분함수 — **false MAYBE.**
+다수 무조건 원소 절 + 재귀 절. 위 subty-가드 배타를 CRC가 완전 discharge 못 한 잔여.
+well-defined 부분함수 — **false MAYBE.**
 
 ### term(B)=MAYBE (11): flatten/optional/split 계열 — 전부 구조 감소, 감소가 전제에 숨음
-- **flatten MAYBE** (`namedExpressionList`/`realTypeArgumentList`/`typeArgumentList`/
-  `expressionList`/`argumentList`/`simpleKeysetExpressionList`/`parserStateList`):
-  재귀 인자 `xs`가 `x'=comma(xs,e)` **전제에서** 나와 `xs ⊂ x'`(콤마-리스트 한 칸 감소)가
-  syntactic subterm이 아님 → dependency-pair 분석이 감소를 못 봄. **종료하나 false MAYBE.**
-  (7-12 fix가 `match_K ∧ v=K(..)`를 head로 접어 18개 중 13개를 풀었지만, 이 대형
-  슬라이스들은 fold 미적용/미해소분. YES로 바뀐 flatten들 — `forUpdateStatementList`
-  `annotationList` `parameterList` 등 —과 대비.)
-- **`$optional_annotation_of_parameterIR{,_prime}`, `$is_optional_parameterIR`**:
-  `$optional-...(p)=$optional-...-prime($annotationList-of-parameterIR(p))` — 재귀는
-  `-prime`가 annotation 리스트를 감소시키며 수행. 같은 리스트-감소 MAYBE. 종료.
-- **`$split_externConstructorOrMethodPrototypeList`** (14734s): 자기 재귀 아님 —
-  `$flatten` + `$filter`×2 + `$itermap` **합성**. 밑 helper들의 전제-인코딩 감소가
-  MAYBE로 전파. 종료(종료하는 helper들의 합성).
+- **flatten MAYBE**: 재귀 인자 `xs`가 `x'=comma(xs,e)` **전제에서** 나와 `xs ⊂ x'`가 syntactic
+  subterm이 아님 → dependency-pair 분석이 감소를 못 봄. **종료하나 false MAYBE.**
+- **`$optional_annotation_of_parameterIR{,_prime}`, `$is_optional_parameterIR`**: 같은
+  리스트-감소 MAYBE. 종료.
+- **`$split_externConstructorOrMethodPrototypeList`**: `$flatten`+`$filter`×2+`$itermap`
+  합성 — helper들의 전제-인코딩 감소가 MAYBE로 전파. 종료.
 
-## 총평 (>500 구간)
-- **진짜 비합류/비종료 후보 0.** CRC MAYBE/TIMEOUT = subty-여집합 배타의 CRC
-  미완주(규모), term MAYBE = 전제-인코딩 리스트 감소의 AProVE 미증명 — 둘 다 알려진
-  도구 근사이며 **번역 버그도, 오늘 binenc 변경과의 연관도 없다**(비-산술 슬라이스).
-- 나머지 100개(r=1122~2000, `$name_annotation`·`$sizeof_*`·`$compat_*`·`$name_expression`
-  등)는 진행 중. 여기 `$sizeof_*`(sum/max/min_nat)·`$name_expression`(strip_all_whitespace)
-  등 오늘 커밋 helper의 carrier가 있어 완주 시 binenc 관련 커버리지가 채워진다.
+### 총평 (>500)
+**진짜 비합류/비종료 후보 0.** CRC MAYBE/TIMEOUT = subty-여집합 배타의 CRC 미완주(규모),
+term MAYBE = 전제-인코딩 리스트 감소의 AProVE 미증명 — 둘 다 알려진 도구 근사이며 번역
+버그가 아니다.
+
+---
+
+## TODO
+
+- [x] **≤500 `term` 열 재측정 + 모듈러B 축 폐지** (2026-07-19). MTT 제거, 구조 보존
+  unravel → AProVE 직접으로 153/153 YES.
+- [x] **≤500 `CRC`/`ChC` 열 재측정** (2026-07-23). 현재 바이너리(`bff805ec`)로 전수
+  재측정 + 시간 계측. CRC/ChC YES 146 / TIMEOUT 7. 병렬(K=8)로 판정 확인 후, 시간은 직렬
+  fresh로 정확 측정(위 "시간·병렬 측정").
+- [x] **`term` 열의 기준 커밋 확인** (2026-07-22). HEAD 재덤프 unravel TRS가 측정 당시
+  골든과 153/153 byte-identical — sort 태그 변경은 구조 보존 경로에 불변.
+- [x] **구조 보존 unraveler 승격** (2026-07-22). in-binary 포팅(`termination` 서브커맨드),
+  MTT 경로 폐기(커밋 d3bf2847).
+- [x] **실행 경로 커맨드 통합** (2026-07-22, tip `57a99547`). `confluence`/`termination`/`scc`
+  동일 스윕 표면 + `rewrite --list-symbols`/`--ctrs --prune-signature`.
+- [ ] **§2 >500 표 fresh 값 갱신.** bigfresh 완주 시 27행 stale 표를 교체. term(B) 열은 MTT
+  경로 값이므로 §1과 같은 구조 보존 경로로 재측정할 것(MAYBE 11건 중 상당수 닫힐 가능성).
+- [x] **폐기 스크립트 삭제** (2026-07-22 완료). `run-scc.sh`/`run-scc-sweep.sh`(→ `scc`),
+  `prune_slice_signature.py`(→ `rewrite --prune-signature`) 삭제. 삭제 시점의 reverify 스윕은
+  이미 `confluence --all --crc-normalize`(in-binary 프루닝)로 옮겨가 python 프루너를 더는
+  호출하지 않아 게이트 해소. **미검증 caveat**: `scc` 실 verdict는 CETA Maude 2.7 에셋 부재로
+  옛 `run-scc.sh`와 행 diff를 못 했다(모듈 방출 텍스트는 cram `scc --emit`로 byte 확인). 에셋
+  확보 시 `run-scc.sh`를 git history에서 부활시켜 대조할 수 있다.
+- [ ] **keep-생성자 항 크기 최적화(선택).** 폐지한 모듈러 축에서 구조 보존이 MTT보다 나빴던
+  3건 원인이 keep-생성자 인자 복제인지 확인. §1 직접 축은 이미 153/153이라 급하지 않다.
