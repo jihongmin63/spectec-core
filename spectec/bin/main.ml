@@ -994,6 +994,17 @@ let termination_command =
       ~doc:
         "S AProVE's own proof budget per symbol (default 300); the process is \
          killed S+120s in"
+  and budget_from =
+    flag "--budget-from"
+      (optional_with_default 5 int)
+      ~doc:
+        "S start the budget ladder at S instead of 5, skipping the rungs below \
+         it -- over a stretch of slices already known to answer near the top \
+         rung the climb is pure waste (425s per symbol before the 1280 rung). \
+         The saving costs the ladder's guarantee: AProVE announces at its own \
+         deadline, so a rung above a symbol's real cost is reported AS that \
+         cost, and seconds measured this way are not comparable to \
+         default-ladder rows"
   and aprove_bin =
     flag "--aprove-bin" (optional string)
       ~doc:"PATH path to the AProVE runme wrapper"
@@ -1044,7 +1055,7 @@ let termination_command =
                Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
              in
              let report : Rewrite.Termination.report =
-               Rewrite.Termination.check ?aprove_bin ~budget slice
+               Rewrite.Termination.check ?aprove_bin ~budget ~budget_from slice
              in
              let stats =
                match report.stats with

@@ -28,8 +28,16 @@ val string_of_verdict : verdict -> string
     symbol AProVE would search to a large deadline stop at a small budget that
     already answers, instead of running to the cap; the budget it stops at is a
     mechanism detail, not reported (AProVE answers before its deadline for most
-    symbols, so the answering run's wall clock is the honest measurement). *)
-val budget_ladder : cap:int -> int list
+    symbols, so the answering run's wall clock is the honest measurement).
+
+    [from] (default 5) raises the first rung, skipping the climb through budgets
+    a region is already known to exceed -- over slices that all answer near 330s
+    the default ladder burns 425s per symbol before reaching the rung that
+    answers. The saving costs the ladder's guarantee: a rung set above a
+    symbol's real cost is reported as the cost whenever AProVE runs to its
+    deadline, so seconds measured with a raised [from] are not comparable to
+    default-ladder ones. *)
+val budget_ladder : ?from:int -> cap:int -> unit -> int list
 
 (** Whether a rung's verdict ends the climb. Only [Yes] and [No] do: they are
     answers about the TRS. A too-small budget can leave AProVE with no verdict
@@ -42,5 +50,12 @@ val decisive : Aprove.verdict -> bool
     prove); an unraveling failure is [Error] with no AProVE run. [aprove_bin] is
     {!Aprove.check}'s; [budget] is the CAP of the budget search, whose last rung
     it is -- so the verdict is the one a single [Aprove.check ~budget] would
-    have given, reached for as little time as the proof actually needs. *)
-val check : ?aprove_bin:string -> ?budget:int -> Rewrite_system.t -> report
+    have given, reached for as little time as the proof actually needs.
+    [budget_from] is {!budget_ladder}'s [from]: it skips the rungs below it, at
+    the cost of that "as little time as needed" guarantee. *)
+val check :
+  ?aprove_bin:string ->
+  ?budget:int ->
+  ?budget_from:int ->
+  Rewrite_system.t ->
+  report

@@ -31,12 +31,24 @@ let of_aprove : Aprove.verdict -> verdict = function
    Rungs grow by 4 so the total spent staying under an answer is about a third
    of the next rung: overshooting a proof's cost is cheap, and the ladder ends
    at [cap] so a search that runs out of rungs makes exactly the run a single
-   [cap] call would have made. *)
-let budget_ladder ~(cap : int) : int list =
+   [cap] call would have made.
+
+   [from] raises the first rung for a region already measured to sit far above
+   it. Climbing from 5 burns 5+20+80+320 = 425s before the 1280 rung even
+   starts, which is pure waste over a stretch of slices that all answer near
+   330s -- there [~from:1280] spends only the answering run. It is a
+   measurement trade, not a free speedup: the ladder exists to record the
+   SMALLEST budget that still answers, and AProVE announces at its own deadline
+   for every symbol that does not finish early, so a rung raised above a
+   symbol's real cost reports that rung instead of the cost. Raise it only
+   where the region's difficulty is already known, and do not compare the
+   seconds it produces against default-ladder rows. *)
+let budget_ladder ?(from = 5) ~(cap : int) () : int list =
+  let first = max 1 from in
   let rec go b acc =
     if b >= cap then List.rev (cap :: acc) else go (b * 4) (b :: acc)
   in
-  if cap <= 5 then [ cap ] else go 5 []
+  if cap <= first then [ cap ] else go first []
 
 (* Which verdicts end the climb. [Yes] and [No] are answers about the TRS and a
    larger budget cannot overturn them.
@@ -53,7 +65,8 @@ let decisive : Aprove.verdict -> bool = function
   | Aprove.Yes | Aprove.No -> true
   | Aprove.Maybe | Aprove.Timeout | Aprove.Error _ -> false
 
-let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
+let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
+    (system : Rewrite_system.t) : report =
   if system.Rewrite_system.rules = [] then
     { verdict = Degenerate; stats = None; secs = None }
   else
@@ -67,7 +80,7 @@ let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
            run whose message the caller reports. *)
         let ladder =
           if Sys.file_exists (Aprove.resolve_bin aprove_bin) then
-            budget_ladder ~cap:budget
+            budget_ladder ~from:budget_from ~cap:budget ()
           else [ budget ]
         in
         (* [secs] times the ANSWERING run alone. The ladder exists so a symbol
