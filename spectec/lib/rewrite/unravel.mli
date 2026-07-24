@@ -18,7 +18,7 @@
     each keep-constructor carries the original arguments plus every variable
     first bound by an earlier condition. Conditions are re-ordered greedily to
     binding order first (evaluated side fully bound; its pattern side then
-    binds), the same convention as {!Rewrite_system.order_conds}.
+    binds), the same convention as {!Crc_surface.order_conds}.
 
     Sorts and subsorts are dropped, so the TRS is an OVER-approximation (more
     terms match than in the typed system): termination of the TRS implies

@@ -59,7 +59,7 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
   `Rewrite.` 파사드로 세 서브커맨드 연결:
   - `rewrite` — 기본은 **실행 모듈**(`To_maude.module_of_spec`); `--ctrs`=분석 CTRS
     덤프(`string_of_system_maude ~rule_heads`, verify가 MFE에 넘기는 텍스트),
-    `--simplified`=Simplify 전처리 덤프, `--relations-as-rules`.
+    `--relations-as-rules`.
   - `verify` — MFE `Mfe.check`(CRC+ChC), `--symbol` 슬라이스·`--list-symbols`·
     `--timeout`/`--maude-bin`/`--mfe-dir`; 둘 다 YES 아니면 exit 1.
   - `run` — 현재 **모듈 emit만**(실행/`--imp`/`--p4`/`--check-p4`는 M2: `Maude_run`·

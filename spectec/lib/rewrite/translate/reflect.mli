@@ -1,3 +1,9 @@
+(** The shared context of the analysis-only passes: the scalar theory and the
+    (defunctionalized) spec the type/constructor tables are read from. A future
+    selective-rl mode (the LTL [--rules-for] wiring) adds its rule-head
+    selection here instead of threading another label through every pass. *)
+type ctx = { scalars : Ctrs_term.scalar_theory; orig : Lang.Il.spec }
+
 (** Analysis-only owise reflection: replace each [owise] rule's implicit "no
     earlier sibling applied" semantics with an explicit total-boolean guard
     condition [or(g_1 .. g_k) = false] (one [g_i] per preceding sibling clause,
@@ -5,22 +11,17 @@
     MFE's Church-Rosser checker can discharge the owise/sibling critical pairs
     by hypothesis rewriting), and clear the [owise] flag. Symbols whose siblings
     are not yet reflectable (relation calls, iteration helpers, gensym-threaded
-    symbols, untypable shapes) are kept as-is with a stderr note; {!Mfe}'s
-    [drop_owise] fallback still covers them. Support rules a guard needs
-    (matcher families, struct accessors, payload projections) are appended when
-    the pruned system lacks them. *)
+    symbols, untypable shapes) are kept as-is with a stderr note; {!Mfe} warns
+    when such a rule reaches the checker. Support rules a guard needs (matcher
+    families, struct accessors, payload projections) are appended when the
+    pruned system lacks them. *)
 
-val owise :
-  scalars:Ctrs_term.scalar_theory ->
-  orig:Lang.Il.spec ->
-  effectful:string list ->
-  Rewrite_system.t ->
-  Rewrite_system.t
+val owise : ctx -> effectful:string list -> Rewrite_system.t -> Rewrite_system.t
 
 (** Respell an opaque matcher test [match_K(v) = true] (from a
     [CaseP]/[OptP]/[ListP] `Cons`/`Nil` guard) as the structural equation
     [v = K(fresh..)], for a bare-variable subject [v] no OTHER condition of the
-    same rule mentions, so {!Rewrite_system.fold_premise_binders} -- run
+    same rule mentions, so {!Crc_surface.fold_premise_binders} -- run
     immediately after this pass -- can fold a head-bound discriminator variable
     into the constructor pattern it tests. A subject [v] a companion condition
     also mentions (e.g. a separate destructuring [let K(x, y) = v] alongside the
@@ -28,11 +29,7 @@ val owise :
     would not unblock the fold (both conditions would still mention [v]) and
     would only replace one inert condition with a noisier one. Analysis-only,
     like {!owise}. *)
-val hoist_matchers :
-  scalars:Ctrs_term.scalar_theory ->
-  orig:Lang.Il.spec ->
-  Rewrite_system.t ->
-  Rewrite_system.t
+val hoist_matchers : ctx -> Rewrite_system.t -> Rewrite_system.t
 
 (** Respell each top-level comparison / negation guard to the canonical
     [leq]/[leq_int] predicate at inverted polarity: [lt(a,b) = true] becomes
@@ -45,8 +42,7 @@ val hoist_matchers :
     cannot, because [X]'s recovered sort is the top [Val] rather than the
     bridge's [IntV]. Satisfiability-equivalent over the total structural
     predicates; preserves the variable set. Analysis-only, like {!owise}. *)
-val align_guards :
-  scalars:Ctrs_term.scalar_theory -> Rewrite_system.t -> Rewrite_system.t
+val align_guards : ctx -> Rewrite_system.t -> Rewrite_system.t
 
 (** (B') subty-guard head specialization: expand a clause guarded by a
     membership test [subty_<S>(v) = true] on a head-bound variable [v] into one
@@ -62,8 +58,4 @@ val align_guards :
     decide or kill the clone; destructuring equations decompose pointwise);
     unrecognized shapes are conservatively kept. Analysis-only, like {!owise}.
 *)
-val expand_subty_guards :
-  scalars:Ctrs_term.scalar_theory ->
-  orig:Lang.Il.spec ->
-  Rewrite_system.t ->
-  Rewrite_system.t
+val expand_subty_guards : ctx -> Rewrite_system.t -> Rewrite_system.t

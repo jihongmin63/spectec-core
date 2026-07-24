@@ -311,7 +311,7 @@ let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
    delimit each one's output: the resulting [result ...: ...] line is the
    boundary. Chosen unlikely to collide with any real normal form. No
    underscores (unlike a normal CTRS-derived identifier, this one is never fed
-   through {!Rewrite_system.maude_id}'s mangling): [run_batch]'s [Native] path
+   through {!Maude_ident.id}'s mangling): [run_batch]'s [Native] path
    quotes it as a Maude [String] literal (mangling wouldn't apply inside quotes
    anyway), but [run_batch_direct]'s [Structural] path
    ({!To_mfe.module_of_system}'s execution mode) declares it as a bare nullary

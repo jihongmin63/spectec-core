@@ -65,9 +65,20 @@ let variant_sym (origin : string) (mixop : mixop) : string =
   Printf.sprintf "variant_%s_%s_%d" (R.sanitize origin) (sanitize_mixop mixop)
     (Mixfix.arity mixop)
 
+(* The predicate symbol spellings, owned here (the symbol-naming module) so the
+   sort recovery that must recognize a predicate ({!Maude_sorts.is_predicate})
+   reads them from the one place that produces them, rather than re-guessing the
+   prefixes as string literals. [match_]/[subty_]/[holds_] are prefixes; [eqg] is
+   the whole generic-equality symbol ({!Reflect.eqg_t}). *)
+let match_prefix = "match_"
+let subty_prefix = "subty_"
+let holds_prefix = "holds_"
+let eqg_sym = "eqg"
+
 let match_sym (typ_name : string) (mixop : mixop) : string =
-  Printf.sprintf "match_%s_%s_%d" (R.sanitize typ_name) (sanitize_mixop mixop)
-    (Mixfix.arity mixop)
+  match_prefix
+  ^ Printf.sprintf "%s_%s_%d" (R.sanitize typ_name) (sanitize_mixop mixop)
+      (Mixfix.arity mixop)
 
 let struct_sym (typ_name : string) : string = "struct_" ^ R.sanitize typ_name
 
@@ -77,14 +88,14 @@ let field_sym (typ_name : string) (a : Mixfix.atom) : string =
 let upd_field_sym (typ_name : string) (a : Mixfix.atom) : string =
   "upd_field_" ^ R.sanitize typ_name ^ "_" ^ sanitize_atom a
 
-let subty_sym (typ_name : string) : string = "subty_" ^ R.sanitize typ_name
+let subty_sym (typ_name : string) : string = subty_prefix ^ R.sanitize typ_name
 let func_sym (id : id) : string = "$" ^ R.sanitize id.it
 let rel_sym (id : id) : string = R.sanitize id.it
 
 (* The boolean reflection of a judgment ({!Reflect}): "[sym] holds of these
    arguments". Takes the symbol, not the id, since the iteration helpers
    reflect their own generated symbols too. *)
-let holds_sym (sym : string) : string = "holds_" ^ sym
+let holds_sym (sym : string) : string = holds_prefix ^ sym
 
 (* Smart constructors. *)
 let var_t (name : string) : R.term = R.Var name
@@ -468,14 +479,6 @@ let yields_int (e : exp) : bool =
    definition-rule LHSs. [eq] rules need two disjoint sets, hence the prefix. *)
 let fresh_vars ?(prefix = "x") (n : int) : R.term list =
   List.init n (fun i -> var_t (Printf.sprintf "%s%d" prefix i))
-
-(* Substitute variables by name throughout a term. Used to rename a helper
-   body's element variables to the fresh per-step names its defining rule
-   introduces. *)
-let rec subst_term (pairs : (string * R.term) list) (t : R.term) : R.term =
-  match t with
-  | R.Var v -> ( match List.assoc_opt v pairs with Some t' -> t' | None -> t)
-  | R.App (sym, ts) -> R.App (sym, List.map (subst_term pairs) ts)
 
 (* The byte alphabet of a rule set's text literals, read back from the
    [chr_<n>] constants the rules contain (texts translate to char lists, so

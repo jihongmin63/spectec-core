@@ -1,6 +1,7 @@
 open Common.Source
 open Lang.Il
 module R = Rewrite_system
+module MI = Maude_ident
 module T = Ctrs_term
 
 (** Order-sorted signature recovery shared by both Maude surfaces: the
@@ -50,30 +51,26 @@ let has_prefix p sym =
    as needed, so the domain has to be recovered from how they are used
    ({!predicate_domains}). *)
 let is_predicate (sym : string) : bool =
-  has_prefix "match_" sym || has_prefix "subty_" sym || has_prefix "holds_" sym
-  || sym = "eqg"
-
-(* The named type a value/expression carries, if it is a [VarT]. *)
-let typ_name_of (typ : typ') : string option =
-  match typ with VarT { synid; _ } -> Some synid.it | _ -> None
+  has_prefix T.match_prefix sym
+  || has_prefix T.subty_prefix sym
+  || has_prefix T.holds_prefix sym
+  || sym = T.eqg_sym
 
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
 let sort_of_name (n : string) : string =
-  String.capitalize_ascii (R.maude_id (R.sanitize n))
+  String.capitalize_ascii (MI.id (R.sanitize n))
 
 (* -------------------------------------------------------------------------- *)
 (* IL types -> sorts. *)
 
-(* Index the spec's type definitions so [VarT] references and aliases resolve. *)
+(* Index the spec's type definitions so [VarT] references and aliases resolve
+   (last declaration wins, from {!Spec_index}'s ordered view). *)
 let type_env (orig : spec) : (string, deftyp') Hashtbl.t =
   let tbl = Hashtbl.create 64 in
   List.iter
-    (fun def ->
-      match def.it with
-      | TypD { synid = tid; deftyp = dt; _ } -> Hashtbl.replace tbl tid.it dt.it
-      | _ -> ())
-    orig;
+    (fun (n, dt) -> Hashtbl.replace tbl n dt)
+    (Spec_index.of_spec orig).Spec_index.typdef_order;
   tbl
 
 (* The sort of an IL type. Aliases ([syntax T = U]) and the [map = (pair)*]
@@ -272,12 +269,6 @@ let prelude_sigs (scalars : scalar_theory) :
     (string * (string list * string)) list =
   scalar_ctor_sigs scalars @ shared_op_sigs
 
-(* Variant case as seen from its containing type (mirrors
-   [To_ctrs.case_info_of_typcase]). *)
-let case_origin_mixop (tc : typcase) : string * Lang.Il.mixop =
-  let { synid = origin_id; _ } = tc.origin.it in
-  (origin_id.it, Mixfix.to_mixop tc.notation.it)
-
 (* Subsort edges (sub, super) and per-symbol signatures recovered from the
    original spec's type/relation/function declarations. *)
 (* The iteration/reflection layer synthesizes helpers ([$iterproj_..],
@@ -325,11 +316,10 @@ let infer_ranges (rules : R.rule list) : sigs =
     match sym with
     | "nil" | "cons" -> Some "List"
     | "none" | "some" -> Some "Opt"
-    | "true" | "false" | "and" | "or" | "not" | "eqg" -> Some "BoolV"
-    | _
-      when has_prefix "match_" sym || has_prefix "subty_" sym
-           || has_prefix "holds_" sym ->
-        Some "BoolV"
+    | "true" | "false" | "and" | "or" | "not" -> Some "BoolV"
+    (* the derived predicates ([match_]/[subty_]/[holds_]/[eqg]) all range over
+       [BoolV] too *)
+    | _ when is_predicate sym -> Some "BoolV"
     | _ -> None
   in
   let ranges : sigs = Hashtbl.create 64 in
@@ -407,7 +397,7 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
           List.iter
             (fun (typcase : typcase) ->
               let nottyp = typcase.notation in
-              let origin, mixop = case_origin_mixop typcase in
+              let origin, mixop = Spec_index.case_origin_mixop typcase in
               let field_typs = Mixfix.args nottyp.it in
               let args = List.map (fun ft -> sort_of ft.it) field_typs in
               add (T.variant_sym origin mixop) (args, sort_of_name origin);
@@ -870,12 +860,12 @@ let sort_of_var (vs : (string, string) Hashtbl.t) (v : string) : string =
 
 let rec print_term scalars vs (t : R.term) : string =
   match t with
-  | R.Var v -> R.maude_var v ^ ":" ^ sort_of_var vs v
+  | R.Var v -> MI.var v ^ ":" ^ sort_of_var vs v
   (* a built-in literal (numeral / quoted string / bool): verbatim, never mangled *)
   | R.App (f, []) when is_literal scalars f -> f
-  | R.App (f, []) -> R.maude_id f
+  | R.App (f, []) -> MI.id f
   | R.App (f, args) ->
-      R.maude_id f ^ "("
+      MI.id f ^ "("
       ^ String.concat ", " (List.map (print_term scalars vs) args)
       ^ ")"
 
@@ -892,7 +882,7 @@ let il_ctor_syms (orig : spec) : string list =
       | TypD { deftyp = { it = VariantT typcases; _ }; _ } ->
           List.map
             (fun tc ->
-              let origin, mixop = case_origin_mixop tc in
+              let origin, mixop = Spec_index.case_origin_mixop tc in
               T.variant_sym origin mixop)
             typcases
       | TypD { synid = t; deftyp = { it = StructT _; _ }; _ } ->
@@ -1030,3 +1020,40 @@ let symbol_arities scalars (rules : R.rule list) : (string * int) list =
         r.R.conds)
     rules;
   Hashtbl.fold (fun pair () acc -> pair :: acc) acc []
+
+(* -------------------------------------------------------------------------- *)
+(* Assembly pieces shared verbatim by both module emitters ({!To_maude}
+   execution, {!To_mfe} analysis). Each emitter keeps its own gating -- which
+   op set triggers an overload, which mode adds an extra signature -- but the
+   pieces themselves have one spelling. *)
+
+(* Arities of every IL-declared constructor/accessor present in the recovered
+   signature table [tbl], so ops can be declared even when no rule mentions
+   the case (a start term must still be formable). *)
+let ctor_arities (tbl : sigs) (orig : spec) : (string * int) list =
+  List.filter_map
+    (fun s ->
+      match Hashtbl.find_opt tbl s with
+      | Some (a, _) -> Some (s, List.length a)
+      | None -> None)
+    (il_declared_syms orig)
+
+(* The [List]-precise overloads of [cat]/[len]: their base prelude signatures
+   are [Text]-wide (a char list is the only [Text] value), but both are also
+   used generically over any list, and a plain [List] argument is not a [Text]
+   (no subsort edge either way) -- without the overload such an application
+   parses ill-sorted and can never reduce. *)
+let cat_list_sig : string * (string list * string) =
+  ("cat", ([ "List"; "List" ], "List"))
+
+let len_list_sig : string * (string list * string) =
+  ("len", ([ "List" ], "NatV"))
+
+(* [List < Text], only when [Text] actually appears as a signature sort: an
+   empty text is the bare [nil] (a char [List]), so a char list must be able
+   to inhabit text-typed positions. *)
+let text_subsort_edge (op_sigs : (string * (string list * string)) list) :
+    (string * string) list =
+  if List.exists (fun (_, (args, res)) -> List.mem "Text" (res :: args)) op_sigs
+  then [ ("List", "Text") ]
+  else []

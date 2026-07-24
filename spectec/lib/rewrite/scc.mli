@@ -43,8 +43,8 @@ type report = {
 
 val string_of_domain : domain -> string
 
-(** The SCC-facing over-approximation ({!Rewrite_system.drop_conds} +
-    {!Rewrite_system.linearize_lhs}) and whether it changed the slice. *)
+(** The SCC-facing over-approximation ({!Scc_surface.drop_conds} +
+    {!Scc_surface.linearize_lhs}) and whether it changed the slice. *)
 val unconditional : Rewrite_system.t -> Rewrite_system.t * fidelity
 
 (** The exact module text fed to the checker: the {!To_mfe} order-sorted surface

@@ -164,12 +164,28 @@ let splice_command =
     let spec_pl = annotate ~henv spec_sl |> shorten in
     Ok (spec, spec_pl)
 
+(* Slice-size measure for {!Cli.Analysis_sweep.roots}'s smallest-first
+   ordering, over the sweep's shared head index. *)
+let slice_size slicer sym =
+  List.length
+    (Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ])
+      .Rewrite.Rewrite_system.rules
+
+(* The signature is recovered from the WHOLE system even when the emitted
+   module is a slice or otherwise transformed: a predicate's domain is the
+   join of its call sites, and slicing/condition-dropping delete call sites,
+   so recovering from the transformed rules would declare a narrower domain
+   than the module that actually runs -- and an SCC verdict about that domain
+   would be about a system nobody executes. *)
+let whole_system_sig_rules (system : Rewrite.Rewrite_system.t) :
+    Rewrite.Rewrite_system.rule list =
+  system.Rewrite.Rewrite_system.rules
+
 (* Translate an elaborated IL spec to Maude. The default output is the
    executable, order-sorted Maude module ([Rewrite.To_maude.module_of_spec]) --
    the surface [run] executes. [--ctrs] instead dumps the analysis CTRS
-   (single-sort Full Maude system, the same text [verify] sends the MFE), and
-   [--simplified] the IL after the [Simplify] pre-pass; both are debug views of
-   the translation stages. *)
+   (single-sort Full Maude system, the same text [verify] sends the MFE), a
+   debug view of the translation stage. *)
 let rewrite_command =
   Core.Command.basic ~summary:"translate a spec to an executable Maude module"
   @@
@@ -182,9 +198,6 @@ let rewrite_command =
       ~doc:
         " dump the analysis CTRS (single-sort Full Maude system, what \
          confluence checks) instead of the executable module"
-  and simplified =
-    flag "--simplified" no_arg
-      ~doc:" dump the simplified IL spec (debug: inspect the Simplify pre-pass)"
   and symbol =
     flag "--symbol" (optional string)
       ~doc:
@@ -268,25 +281,17 @@ let rewrite_command =
         Ok
           (String.concat "\n"
              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows))
-    else if simplified then
-      Ok (Lang.Il.Print.string_of_spec (Rewrite.Simplify.simplify_spec spec_il))
     else if ctrs then
       let system = Rewrite.rewrite_spec spec_il in
-      (* The signature is recovered from the WHOLE system even when the dump is
-         a slice or condition-dropped: a predicate's domain is the join of its
-         call sites, and both transforms delete call sites, so recovering from
-         the transformed rules would declare a narrower domain than the module
-         that actually runs -- and an SCC verdict about that domain would be
-         about a system nobody executes. *)
-      let sig_rules = system.rules in
+      let sig_rules = whole_system_sig_rules system in
       (* the module text, and whether [--unconditional] had to over-approximate
          this slice to get it past the SCC's drop-bad-eqs filter (a COMPLETE
          verdict proves nothing when it did) *)
       let emit sys =
         let sys' =
           if unconditional then
-            Rewrite.Rewrite_system.(linearize_lhs (drop_conds sys))
-          else if crc_normalize then Rewrite.Rewrite_system.crc_normalize sys
+            Rewrite.Scc_surface.(linearize_lhs (drop_conds sys))
+          else if crc_normalize then Rewrite.Crc_surface.crc_normalize sys
           else sys
         in
         let fidelity = if sys' = sys then "exact" else "approx" in
@@ -326,65 +331,6 @@ let rewrite_command =
     else
       Ok
         (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
-
-(* The per-symbol sweep plumbing [confluence], [termination] and [scc] share:
-   the requested slice roots (an explicit --symbol list, or --all ordered
-   smallest slice first, so a sweep front-loads the tractable results), and the
-   resumable --out protocol (append a TSV row per symbol; skip the symbols an
-   existing file already records -- how the retired shell sweeps survived
-   restarts). *)
-let sweep_roots slicer ~all ~symbols ~all_roots =
-  if all then
-    List.map
-      (fun s ->
-        ( List.length
-            (Rewrite.Rewrite_system.slice_with slicer ~roots:[ s ])
-              .Rewrite.Rewrite_system.rules,
-          s ))
-      all_roots
-    |> List.sort compare |> List.map snd
-  else symbols
-
-let recorded_symbols (path : string) : string list =
-  if not (Sys.file_exists path) then []
-  else
-    let ic = open_in path in
-    let rec go acc =
-      match input_line ic with
-      | line -> (
-          match String.index_opt line '\t' with
-          | Some i -> go (String.sub line 0 i :: acc)
-          | None -> go acc)
-      | exception End_of_file -> acc
-    in
-    let acc = go [] in
-    close_in ic;
-    acc
-
-(* Run [row_of] over every requested slice, printing each TSV row as it lands
-   (a sweep runs for hours; --out additionally makes it resumable). Returns
-   whether any row failed. *)
-let sweep_rows ~out ~roots ~row_of : bool =
-  let recorded = match out with Some p -> recorded_symbols p | None -> [] in
-  let oc =
-    Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
-  in
-  Fun.protect
-    ~finally:(fun () -> Option.iter close_out oc)
-    (fun () ->
-      List.fold_left
-        (fun failed sym ->
-          if List.mem sym recorded then failed
-          else
-            let line, row_failed = row_of sym in
-            print_endline line;
-            Option.iter
-              (fun oc ->
-                output_string oc (line ^ "\n");
-                flush oc)
-              oc;
-            failed || row_failed)
-        false roots)
 
 (* Per-symbol confluence (Church-Rosser) and coherence of the analysis CTRS via
    the Maude Formal Environment ({!Rewrite.Mfe.check}, one Maude invocation for
@@ -434,24 +380,24 @@ let confluence_command =
          records (a resumable sweep)"
   in
   fun () ->
-    (match (all, symbols) with
-    | true, _ :: _ | false, [] ->
-        Format.eprintf "confluence needs --symbol NAME (repeatable) or --all@.";
-        exit 2
-    | _ -> ());
+    Cli.Analysis_sweep.require_roots ~cmd:"confluence" ~all ~symbols;
     Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     let system = Rewrite.rewrite_spec spec_il in
-    (* see the [rewrite --ctrs] path: a sliced module still declares the whole
-       system's predicate domains *)
-    let sig_rules = system.Rewrite.Rewrite_system.rules in
+    let sig_rules = whole_system_sig_rules system in
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots slicer ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+      Cli.Analysis_sweep.roots ~all ~symbols
+        ~all_roots:(Rewrite.def_symbols spec_il)
+        ~slice_size:(slice_size slicer)
     in
-    let recorded = match out with Some p -> recorded_symbols p | None -> [] in
+    let recorded =
+      match out with
+      | Some p -> Cli.Analysis_sweep.recorded_symbols p
+      | None -> []
+    in
     let todo = List.filter (fun s -> not (List.mem s recorded)) roots in
     let slices =
       List.map
@@ -465,9 +411,7 @@ let confluence_command =
       | _ -> false
     in
     let oc =
-      Option.map
-        (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p)
-        out
+      Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
     in
     let failed = ref false in
     (* Stream each symbol's row the moment it lands (so a sweep is observable and
@@ -487,7 +431,8 @@ let confluence_command =
     in
     let emit_base label (r : Rewrite.Mfe.result) secs =
       emit label (verdict r.church_rosser) (verdict r.coherence) secs
-        (not (r.church_rosser = Rewrite.Mfe.Yes && r.coherence = Rewrite.Mfe.Yes))
+        (not
+           (r.church_rosser = Rewrite.Mfe.Yes && r.coherence = Rewrite.Mfe.Yes))
     in
     Fun.protect
       ~finally:(fun () -> Option.iter close_out oc)
@@ -507,12 +452,12 @@ let confluence_command =
               else emit_base label r secs)
             spec_il slices
         in
-        if crc_normalize && Hashtbl.length pending > 0 then begin
+        if crc_normalize && Hashtbl.length pending > 0 then
           let norm_slices =
             List.filter_map
               (fun (sym, slice) ->
                 if Hashtbl.mem pending sym then
-                  let ns = Rewrite.Rewrite_system.crc_normalize slice in
+                  let ns = Rewrite.Crc_surface.crc_normalize slice in
                   if ns = slice then None else Some (sym, ns)
                 else None)
               slices
@@ -522,7 +467,9 @@ let confluence_command =
             Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
               ~prune_signature:true ~sig_rules
               ~on_result:(fun label (n : Rewrite.Mfe.result) n_secs ->
-                let (b : Rewrite.Mfe.result), b_secs = Hashtbl.find pending label in
+                let (b : Rewrite.Mfe.result), b_secs =
+                  Hashtbl.find pending label
+                in
                 let up o nn = Rewrite.Mfe.upgrade ~original:o ~normalized:nn in
                 let c = up b.church_rosser n.church_rosser in
                 let h = up b.coherence n.coherence in
@@ -539,10 +486,8 @@ let confluence_command =
           Hashtbl.iter
             (fun label ((b : Rewrite.Mfe.result), b_secs) ->
               if not (Hashtbl.mem emitted label) then emit_base label b b_secs)
-            pending
-        end);
+            pending);
     Ok !failed
-
 
 (* Emit the spec as an executable Maude module and run a start term through a
    local Maude binary (see {!Rewrite.Maude_run}). [--emit] dumps the module
@@ -687,8 +632,10 @@ let run_command =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
+    let system = Rewrite.maude_system spec_il in
     let module_text =
-      Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il
+      Rewrite.To_maude.module_of_system ~relations_as_rules ~predicates spec_il
+        system
     in
     if emit then Ok (module_text, false)
     else
@@ -697,7 +644,7 @@ let run_command =
         else if rewrite then Rewrite.Maude_run.Rewrite
         else Rewrite.Maude_run.Reduce
       in
-      let defined_heads = Rewrite.To_maude.maude_defined_heads spec_il in
+      let defined_heads = Rewrite.To_maude.maude_defined_heads system in
       let run_results =
         Rewrite.Maude_run.run_batch ?maude_bin ~timeout ~defined_heads ~mode
           ~module_text
@@ -755,7 +702,7 @@ let run_command =
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
                       (Rewrite.Of_maude.values_of_result spec_il
-                         ~rel:"Program_ok" term)
+                         ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
                     ("result: MATCH", false)
@@ -800,7 +747,7 @@ let run_command =
    ({!Rewrite.rewrite_spec}/{!Rewrite.To_mfe}) -- the third oracle leg
    (todo.md "CTRS(구조적) differential"): unlike [run] (the [Native] execution
    module, {!Rewrite.To_maude}), this actually EXECUTES the surface
-   {!Rewrite.Reflect.owise}/{!Rewrite.Rewrite_system.fold_premise_binders} feed
+   {!Rewrite.Reflect.owise}/{!Rewrite.Crc_surface.fold_premise_binders} feed
    the MFE confluence/coherence checker, so a semantic bug those analysis-only
    passes introduced (previously invisible to byte-identical goldens + CRC/ChC
    verdicts alone) would show up here as a wrong decoded result. Mirrors
@@ -937,7 +884,7 @@ let run_structural_command =
           resolved
       in
       let defined_heads =
-        List.map Rewrite.Rewrite_system.maude_id
+        List.map Rewrite.Maude_ident.id
           (Rewrite.Rewrite_system.defined_heads system)
       in
       let run_results =
@@ -982,7 +929,7 @@ let run_structural_command =
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
                       (Rewrite.Of_maude.values_of_result spec_il
-                         ~rel:"Program_ok" term)
+                         ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
                     ("result: MATCH", false)
@@ -1062,14 +1009,9 @@ let termination_command =
          records (a resumable sweep)"
   in
   fun () ->
-    (match (all, symbols, emit_trs) with
-    | true, _ :: _, _ | false, [], _ ->
-        Format.eprintf "termination needs --symbol NAME (repeatable) or --all@.";
-        exit 2
-    | _, _, true when all || List.length symbols <> 1 ->
-        Format.eprintf "--emit-trs takes exactly one --symbol@.";
-        exit 2
-    | _ -> ());
+    Cli.Analysis_sweep.require_roots ~cmd:"termination" ~all ~symbols;
+    if emit_trs then
+      Cli.Analysis_sweep.require_single_symbol ~flag:"--emit-trs" ~all ~symbols;
     Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
@@ -1079,7 +1021,9 @@ let termination_command =
        O(slice size) per symbol instead of rebuilding the index once per symbol *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots slicer ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+      Cli.Analysis_sweep.roots ~all ~symbols
+        ~all_roots:(Rewrite.def_symbols spec_il)
+        ~slice_size:(slice_size slicer)
     in
     if emit_trs then (
       let slice =
@@ -1095,7 +1039,7 @@ let termination_command =
           Ok true)
     else
       Ok
-        (sweep_rows ~out ~roots ~row_of:(fun sym ->
+        (Cli.Analysis_sweep.rows ~out ~roots ~row_of:(fun sym ->
              (* Wall-clock the slice+unravel+AProVE work; the 4th column is the
                 per-symbol seconds. *)
              let report, secs =
@@ -1162,27 +1106,24 @@ let scc_command =
          records (a resumable sweep)"
   in
   fun () ->
-    (match (all, symbols, emit) with
-    | true, _ :: _, _ | false, [], _ ->
-        Format.eprintf "scc needs --symbol NAME (repeatable) or --all@.";
-        exit 2
-    | _, _, true when all || List.length symbols <> 1 ->
-        Format.eprintf "--emit takes exactly one --symbol@.";
-        exit 2
-    | _ -> ());
+    Cli.Analysis_sweep.require_roots ~cmd:"scc" ~all ~symbols;
+    if emit then
+      Cli.Analysis_sweep.require_single_symbol ~flag:"--emit" ~all ~symbols;
     Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     let system = Rewrite.rewrite_spec spec_il in
-    (* the derived predicates -- subty_<T>, match_<T>_<K>, holds_<R> -- are the
-       SCC's most valuable targets, and no DecD/RelD declares them *)
-    let sig_rules = system.Rewrite.Rewrite_system.rules in
+    let sig_rules = whole_system_sig_rules system in
     (* one head index shared across the whole sweep (see termination_command) *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots slicer ~all ~symbols
+      (* every defined head, not just [def_symbols]: the derived predicates --
+         subty_<T>, match_<T>_<K>, holds_<R> -- are the SCC's most valuable
+         targets, and no DecD/RelD declares them *)
+      Cli.Analysis_sweep.roots ~all ~symbols
         ~all_roots:(Rewrite.Rewrite_system.defined_heads system)
+        ~slice_size:(slice_size slicer)
     in
     if emit then (
       let slice =
@@ -1193,8 +1134,10 @@ let scc_command =
       Ok false)
     else
       Ok
-        (sweep_rows ~out ~roots ~row_of:(fun sym ->
-             let slice = Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ] in
+        (Cli.Analysis_sweep.rows ~out ~roots ~row_of:(fun sym ->
+             let slice =
+               Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
+             in
              let report : Rewrite.Scc.report =
                Rewrite.Scc.check ~timeout ?ceta_bin ?mfe271_dir ~sig_rules
                  spec_il slice

@@ -1,6 +1,7 @@
 open Common.Source
 open Lang.Il
 module R = Rewrite_system
+module MI = Maude_ident
 module T = Ctrs_term
 
 (** Back-translate a Maude object term (the normal form {!Maude_run} prints as
@@ -25,7 +26,7 @@ module T = Ctrs_term
 
 (* Lexical layer: the forward table keys must match what Maude prints, so a
    constructor symbol is mangled with the same [_]->[-] map the emitter used
-   ({!Rewrite_system.maude_id}, referenced as [R.maude_id] below and shared with
+   ({!Maude_ident.id}, referenced as [MI.id] below and shared with
    both Maude surfaces). Variant/struct arms key the forward table by that
    maude-spelled symbol directly; only the scalar arms matching {!Ctrs_term}'s
    own underscored [chr_<code>]/[int_pos]/[int_neg] spelling undo the mangling
@@ -187,50 +188,30 @@ let parse (input : string) : mt =
 (* Forward tables: maude symbol -> the IL constructor it spells. *)
 
 type tables = {
-  tenv : (string, deftyp') Hashtbl.t;  (** alias resolution, like {!To_maude} *)
+  si : Spec_index.t;  (** the shared spec index (alias resolution) *)
   variants : (string, string * mixop * typ' list) Hashtbl.t;
-      (** [maude_id (variant_sym origin mixop)] -> (origin, mixop, field types)
-      *)
+      (** [MI.id (variant_sym origin mixop)] -> (origin, mixop, field types) *)
   structs : (string, string * (atom * typ') list) Hashtbl.t;
-      (** [maude_id (struct_sym t)] -> (t, fields) *)
+      (** [MI.id (struct_sym t)] -> (t, fields) *)
 }
 
-let case_origin_mixop (tc : typcase) : string * mixop =
-  (tc.origin.it.synid.it, Mixfix.to_mixop tc.notation.it)
-
+(* Re-key the shared index's constructor tables by Maude identifier: decode
+   reads symbols back from Maude output, so lookups arrive Maude-spelled. *)
 let build_tables (orig : spec) : tables =
-  let tenv = Hashtbl.create 256 in
+  let si = Spec_index.of_spec orig in
   let variants = Hashtbl.create 512 in
   let structs = Hashtbl.create 256 in
-  List.iter
-    (fun def ->
-      match def.it with
-      | TypD { synid = tid; deftyp = dt; _ } -> (
-          Hashtbl.replace tenv tid.it dt.it;
-          match dt.it with
-          | VariantT typcases ->
-              List.iter
-                (fun (tc : typcase) ->
-                  let origin, mixop = case_origin_mixop tc in
-                  let ftyps =
-                    List.map (fun t -> t.it) (Mixfix.args tc.notation.it)
-                  in
-                  Hashtbl.replace variants
-                    (R.maude_id (T.variant_sym origin mixop))
-                    (origin, mixop, ftyps))
-                typcases
-          | StructT fields ->
-              let fields = List.map (fun (a, t) -> (a, t.it)) fields in
-              Hashtbl.replace structs
-                (R.maude_id (T.struct_sym tid.it))
-                (tid.it, fields)
-          | PlainT _ -> ())
-      | _ -> ())
-    orig;
-  { tenv; variants; structs }
+  Hashtbl.iter
+    (fun sym payload -> Hashtbl.replace variants (MI.id sym) payload)
+    si.Spec_index.variant_cases;
+  Hashtbl.iter
+    (fun sym payload -> Hashtbl.replace structs (MI.id sym) payload)
+    si.Spec_index.struct_fields;
+  { si; variants; structs }
 
 (* One-slot memo on the spec (physical equality), like {!To_maude.meta_signature}:
-   a whole batch decodes against the same spec, so the tables are built once. *)
+   a whole batch decodes against the same spec, so the derived tables are built
+   once. *)
 let memo : (spec * tables) option ref = ref None
 
 let tables_of (orig : spec) : tables =
@@ -241,15 +222,8 @@ let tables_of (orig : spec) : tables =
       memo := Some (orig, t);
       t
 
-(* Follow [syntax T = U] aliases to the underlying type (mirrors
-   {!To_maude.sort_of_typ}'s alias handling). *)
-let rec resolve (tbl : tables) (ty : typ') : typ' =
-  match ty with
-  | VarT { synid; _ } -> (
-      match Hashtbl.find_opt tbl.tenv synid.it with
-      | Some (PlainT u) -> resolve tbl u.it
-      | _ -> ty)
-  | _ -> ty
+(* Follow [syntax T = U] aliases to the underlying type. *)
+let resolve (tbl : tables) (ty : typ') : typ' = Spec_index.resolve tbl.si ty
 
 (* -------------------------------------------------------------------------- *)
 (* Decode a parsed term to an IL value, threading the expected type. *)
@@ -280,9 +254,9 @@ let rec bigint_of_binary (m : mt) : Bigint.t =
       Bigint.succ (Bigint.( * ) (Bigint.of_int 2) (bigint_of_binary p))
   | _ -> raise (Parse_error "expected a binary BNatV (bzero/bone/bd0/bd1)")
 
-(* Undo {!R.maude_id}'s [_]->[-] mangling on a parsed symbol, recovering
+(* Undo {!MI.id}'s [_]->[-] mangling on a parsed symbol, recovering
    {!Ctrs_term}'s own spelling. Injective because a CTRS id never contains [-]
-   (see {!R.maude_id}). The scalar arms that match [Ctrs_term]'s underscored
+   (see {!MI.id}). The scalar arms that match [Ctrs_term]'s underscored
    [chr_<code>]/[int_pos]/[int_neg] symbols need this because the parser reads
    the already-mangled ([chr-<code>]/[int-pos]/[int-neg]) spelling Maude prints;
    the variant/struct arms don't (they key the forward table by that mangled
@@ -518,16 +492,13 @@ let relation_output_typs (orig : spec) (rel : string) : typ' list =
    [term] is the object-syntax normal form (as in {!Maude_run.Reduced}). A run
    that does not denote a clean value (e.g. a stuck term) raises
    {!Parse_error}. *)
-let values_of_result (orig : spec) ~(rel : string) (term : string) : value list
-    =
+let values_of_result (orig : spec) ~(rel : string) ~(system : R.t)
+    (term : string) : value list =
   let tbl = tables_of orig in
   let parsed = parse term in
   let out_typs = relation_output_typs orig rel in
   let nout = List.length out_typs in
-  let effectful =
-    List.mem (R.sanitize rel)
-      (Gensym.effectful_syms (Pipeline.maude_system_of_spec orig))
-  in
+  let effectful = List.mem (R.sanitize rel) (Gensym.effectful_syms system) in
   let total = nout + if effectful then 1 else 0 in
   (* The components of the result: a single output is the bare term; several (or
      a single output plus the threaded state) are a [tuple(..)]. *)

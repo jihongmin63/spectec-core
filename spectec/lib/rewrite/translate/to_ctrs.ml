@@ -178,7 +178,7 @@ let step_hd (id : string) : string = id ^ "__hd"
 let step_tl (id : string) : string = id ^ "__tl"
 
 (* The per-step substitution renaming each co-iterated variable to its fresh head
-   variable, applied (via [subst_term]) to a helper's translated body. *)
+   variable, applied (via [R.subst]) to a helper's translated body. *)
 let elem_renaming (ids : string list) : (string * R.term) list =
   List.map (fun id -> (id, var_t (step_hd id))) ids
 
@@ -187,7 +187,7 @@ let elem_renaming (ids : string list) : (string * R.term) list =
    iteration over the full stream, so the per-step element must not be pushed
    inside it. A bare iterated variable `x*`/`x?` is the element-list itself, so
    it is renamed like a plain occurrence. Used in place of [elem_renaming] +
-   [subst_term] where the body may contain such a re-binding. *)
+   [R.subst] where the body may contain such a re-binding. *)
 let rec rename_step_exp (ids : string list) (e : exp) : exp =
   match e.it with
   | VarE id when List.mem id.it ids ->
@@ -461,7 +461,7 @@ and upd_of_path ~scalars (base : R.term) (path : path) (v : R.term) : R.term =
    [step_hd] naming with [rename_step_exp], so a variable the head binds and the
    consuming body reuses lands on the same name. *)
 let elem_pat_of_binder ~scalars (e : binder_entry) : R.term =
-  subst_term
+  R.subst
     (elem_renaming (iter_var_ids e.be_vars))
     (term_of_exp ~scalars e.be_body)
 
@@ -557,9 +557,7 @@ let iter_proj_defs ~scalars (e : exp) : (string * R.rule list) list =
   | IterE (body, (iter, vars)) ->
       let fv_terms = List.map var_t (captured_fvs (Free.free_exp body) vars) in
       let ids = iter_var_ids vars in
-      let elem_pat =
-        subst_term (elem_renaming ids) (term_of_exp ~scalars body)
-      in
+      let elem_pat = R.subst (elem_renaming ids) (term_of_exp ~scalars body) in
       List.map
         (fun v ->
           let sym = iter_proj_sym body iter v in
@@ -1165,7 +1163,7 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
              output call's result normalizes to [output_term]'s tuple in
              [comps] order, matching [tuple_pat]. *)
           | Some (call, _) -> (
-              let elem = subst_term (elem_renaming bound_ids) call in
+              let elem = R.subst (elem_renaming bound_ids) call in
               match iter with
               | List ->
                   [
@@ -1597,9 +1595,7 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
       (type_rules @ char_rules @ iter_rules @ sub_rules @ extra_defs)
       body_rules
   in
-  let rules = type_rules @ body_rules in
-  let vars = R.dedup_stable (List.concat_map R.vars_of_rule rules) in
-  { R.vars; rules }
+  R.of_rules (type_rules @ body_rules)
 
 (* The slice roots: the symbol each top-level function/relation defines, in spec
    order. *)
