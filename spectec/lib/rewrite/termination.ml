@@ -4,6 +4,7 @@ type report = {
   verdict : verdict;
   stats : Unravel.stats option;
   budget : int option;
+  secs : float option;
 }
 
 let string_of_verdict = function
@@ -55,12 +56,15 @@ let decisive : Aprove.verdict -> bool = function
 
 let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
   if system.Rewrite_system.rules = [] then
-    { verdict = Degenerate; stats = None; budget = None }
+    { verdict = Degenerate; stats = None; budget = None; secs = None }
   else
     match Unravel.trs_of_system system with
-    | Error msg -> { verdict = Error msg; stats = None; budget = None }
+    | Error msg ->
+        { verdict = Error msg; stats = None; budget = None; secs = None }
     | Ok (trs, stats) ->
-        let run b = Aprove.check ?aprove_bin ~budget:b ~trs () in
+        let run b =
+          Subproc.timed (fun () -> Aprove.check ?aprove_bin ~budget:b ~trs ())
+        in
         (* A missing binary is an Error at every rung; skip straight to the one
            run whose message the caller reports. *)
         let ladder =
@@ -68,12 +72,24 @@ let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
             budget_ladder ~cap:budget
           else [ budget ]
         in
+        (* Only the ANSWERING rung is timed into the report. The rungs below it
+           found nothing, so folding their deadlines in would report the
+           search's cost as the proof's -- the very confusion this search was
+           built to remove. (The whole search's cost stays observable: it is the
+           sum over the rungs the reported budget names.) *)
         let rec probe = function
           | [] -> assert false
-          | [ last ] -> (of_aprove (run last), last)
+          | [ last ] ->
+              let v, secs = run last in
+              (of_aprove v, last, secs)
           | b :: rest ->
-              let v = run b in
-              if decisive v then (of_aprove v, b) else probe rest
+              let v, secs = run b in
+              if decisive v then (of_aprove v, b, secs) else probe rest
         in
-        let verdict, answered_at = probe ladder in
-        { verdict; stats = Some stats; budget = Some answered_at }
+        let verdict, answered_at, secs = probe ladder in
+        {
+          verdict;
+          stats = Some stats;
+          budget = Some answered_at;
+          secs = Some secs;
+        }

@@ -1040,30 +1040,33 @@ let termination_command =
     else
       Ok
         (Cli.Analysis_sweep.rows ~out ~roots ~row_of:(fun sym ->
-             (* Wall-clock the slice+unravel+AProVE work; the 4th column is the
-                per-symbol seconds. *)
-             let report, secs =
-               Rewrite.Subproc.timed (fun () ->
-                   let slice =
-                     Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
-                   in
-                   (Rewrite.Termination.check ?aprove_bin ~budget slice
-                     : Rewrite.Termination.report))
+             let slice =
+               Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
+             in
+             let report : Rewrite.Termination.report =
+               Rewrite.Termination.check ?aprove_bin ~budget slice
              in
              let stats =
                match report.stats with
                | Some s -> Rewrite.Unravel.string_of_stats s
                | None -> "-"
              in
-             (* 5th column: the budget that answered. AProVE announces at its
-                deadline, so the seconds are the search's total cost while this
-                is what the proof was worth -- for a YES, an upper bound on it. *)
+             (* Columns 4 and 5 describe the ANSWERING run of the budget search
+                and nothing else: the seconds it took and the budget it had.
+                The rungs below it are excluded from both -- charging a symbol
+                for the budgets that found nothing is what made the old fixed
+                budget column read as difficulty. *)
+             let secs =
+               match report.secs with
+               | Some s -> Printf.sprintf "%.1f" s
+               | None -> "-"
+             in
              let won =
                match report.budget with
                | Some b -> string_of_int b
                | None -> "-"
              in
-             ( Printf.sprintf "%s\t%s\t%s\t%.1f\t%s" sym
+             ( Printf.sprintf "%s\t%s\t%s\t%s\t%s" sym
                  (Rewrite.Termination.string_of_verdict report.verdict)
                  stats secs won,
                match report.verdict with

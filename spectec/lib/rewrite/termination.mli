@@ -20,6 +20,10 @@ type report = {
       (** The budget the reported verdict came from -- the smallest rung of
           {!budget_ladder} that answered, so for a [Yes] an upper bound on the
           proof's real cost. [None] when no AProVE run happened. *)
+  secs : float option;
+      (** Wall clock of the ANSWERING run alone, not of the search: the rungs
+          below it are excluded, so this is what the verdict cost rather than
+          what finding it cost. [None] when no AProVE run happened. *)
 }
 
 val string_of_verdict : verdict -> string
