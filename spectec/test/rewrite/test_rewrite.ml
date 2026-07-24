@@ -7,6 +7,7 @@
 module R = Rewrite.Rewrite_system
 module U = Rewrite.Unravel
 module Mfe = Rewrite.Mfe
+module Subproc = Rewrite.Subproc
 module Scc = Rewrite.Scc
 
 let failures = ref 0
@@ -248,6 +249,68 @@ let () =
   let plain_sys = system [ rule (app "$f" [ v "x" ]) (v "x") ] in
   let same, fid = Scc.unconditional plain_sys in
   check "scc/unconditional exact" (fid = Scc.Exact && same = plain_sys)
+
+(* Mfe.batch_checks_done: in a batched session, a symbols read buffer holds
+   only that symbols output; its block is complete once the coherence check
+   output is followed by the next MFE prompt. *)
+let () =
+  let d = Mfe.batch_checks_done in
+  check "batch-done/complete"
+    (d "MFE> Coherence checking of S1\nnon-overlapping ...\nMFE> ");
+  check "batch-done/chc-running"
+    (not (d "MFE> Coherence checking of S1\nAll critical pairs"));
+  check "batch-done/crc-only"
+    (not (d "MFE> Church-Rosser check for S1\nlocally-confluent.\nMFE> "))
+
+(* Subproc session: send to a live childs stdin and read its echoed stdout
+   without respawning (the batched-sweep primitive). Exercised with [cat]. *)
+let () =
+  let sess = Subproc.session_start ~cmd:[ "/bin/cat" ] () in
+  Subproc.session_send sess "hello\n";
+  let out, timed =
+    Subproc.session_read sess
+      ~done_when:(fun b -> Subproc.contains b "hello") ~timeout:5
+  in
+  check "session/echo" (Subproc.contains out "hello");
+  check "session/echo-not-timed" (not timed);
+  Subproc.session_send sess "world\n";
+  let out2, _ =
+    Subproc.session_read sess
+      ~done_when:(fun b -> Subproc.contains b "world") ~timeout:5
+  in
+  check "session/second-send" (Subproc.contains out2 "world");
+  check "session/buffer-reset" (not (Subproc.contains out2 "hello"));
+  Subproc.session_kill sess
+
+(* Rewrite_system.slicer: repeated slicing shares one head index; slice_with
+   must match the one-shot slice on every root set. *)
+let () =
+  let sys =
+    system
+      [
+        rule (app "$f" [ v "x" ]) (app "$g" [ v "x" ]);
+        rule (app "$g" [ v "x" ]) (v "x");
+        rule (app "$h" [ v "x" ]) (v "x");
+      ]
+  in
+  let sl = R.make_slicer sys in
+  check "slicer/matches-f"
+    (R.slice_with sl ~roots:[ "$f" ] = R.slice sys ~roots:[ "$f" ]);
+  check "slicer/matches-h"
+    (R.slice_with sl ~roots:[ "$h" ] = R.slice sys ~roots:[ "$h" ]);
+  check "slicer/reachable-count"
+    (List.length (R.slice_with sl ~roots:[ "$f" ]).R.rules = 2)
+
+(* Subproc.timed: wraps a thunk, returning its result paired with the wall-clock
+   seconds it took. The value passes through unchanged and the elapsed is a
+   non-negative float that reflects real time spent (a sweep records it per
+   symbol). *)
+let () =
+  let v, dt0 = Subproc.timed (fun () -> 42) in
+  check "timed/value" (v = 42);
+  check "timed/nonneg" (dt0 >= 0.0);
+  let (), dt1 = Subproc.timed (fun () -> Unix.sleepf 0.05) in
+  check "timed/measures-sleep" (dt1 >= 0.04)
 
 let () =
   if !failures > 0 then (

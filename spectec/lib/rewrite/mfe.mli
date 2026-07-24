@@ -23,6 +23,12 @@ type upgrade_result = { crc : checked; chc : checked }
 
 val string_of_verdict : verdict -> string
 
+(** [batch_checks_done raw]: in a batched session where [raw] accumulates only
+    the current symbols output, its CRC+ChC block is complete once the
+    coherence check output is followed by the next [MFE>] prompt. Serves as the
+    per-symbol [Subproc.run]/session [done_when] in a batched sweep. *)
+val batch_checks_done : string -> bool
+
 (** [check ?timeout ?maude_bin ?mfe_dir ?sig_rules orig system]. [orig] is the
     elaborated IL spec, from which {!To_mfe} recovers each operator's sort.
     [sig_rules] are the rules the signature is recovered from (default:
@@ -73,3 +79,23 @@ val check_normalize_upgrade :
   Lang.Il.spec ->
   Rewrite_system.t ->
   upgrade_result
+
+(** [check_batch ... slices] checks many [(label, slice)] pairs in ONE MFE
+    session, paying the ~100s Full Maude load once instead of once per symbol.
+    Each slice is emitted as a uniquely-named module, so the session's output
+    stream carries each symbol's verdict under its own name. A symbol exceeding
+    [timeout] is recorded [Timeout]/[Timeout] and the now-blocked session is
+    respawned for the remaining symbols. Verdicts match {!check} run per symbol.
+    [prune_signature]/[sig_rules] are as in {!check}. [on_result label r secs] is
+    called as each symbol lands, [secs] being that symbol's wall-clock (the first
+    symbol of a (re)spawned session also carries the one-time Full Maude load). *)
+val check_batch :
+  ?timeout:int ->
+  ?maude_bin:string ->
+  ?mfe_dir:string ->
+  ?prune_signature:bool ->
+  ?sig_rules:Rewrite_system.rule list ->
+  ?on_result:(string -> result -> float -> unit) ->
+  Lang.Il.spec ->
+  (string * Rewrite_system.t) list ->
+  (string * result) list

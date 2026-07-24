@@ -142,6 +142,26 @@ let checks_done (raw : string) : bool =
   Subproc.contains raw "Coherence checking of "
   && trailing_prompt_run raw >= 200
 
+(* In a batched MFE session (one load, many modules) a symbols read buffer
+   holds only that symbols output. Its CRC+ChC block is complete once the
+   coherence check output is followed by the next [MFE>] prompt -- unlike the
+   single-run [checks_done], no long prompt flood is needed (the next modules
+   commands follow immediately). *)
+let substr_index (s : string) (sub : string) : int option =
+  let n = String.length s and m = String.length sub in
+  let rec go i =
+    if i + m > n then None
+    else if String.sub s i m = sub then Some i
+    else go (i + 1)
+  in
+  go 0
+
+let batch_checks_done (raw : string) : bool =
+  match substr_index raw "Coherence checking of" with
+  | None -> false
+  | Some i ->
+      Subproc.contains (String.sub raw i (String.length raw - i)) "MFE>"
+
 let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
   Subproc.run ~env:(child_env bin) ~done_when:checks_done
     ~cmd:[ bin; "-no-banner" ] ~feed ~timeout ()
@@ -263,3 +283,90 @@ let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
         crc = component base.church_rosser n.church_rosser;
         chc = component base.coherence n.coherence;
       }
+
+(* -------------------------------------------------------------------------- *)
+(* Batched checking: one MFE session (single ~100s load) for many slices. *)
+
+(* Per-module check commands, named so a batched session's output stream carries
+   each symbol's verdict under its own module name (parsed by position). *)
+let check_commands_for (name : string) : string list =
+  [
+    "(select tool CRC .)";
+    Printf.sprintf "(check Church-Rosser %s .)" name;
+    "(select tool ChC .)";
+    Printf.sprintf "(check coherence %s .)" name;
+  ]
+
+(* [check_batch orig slices] checks each [(label, slice)] in ONE session, paying
+   the Full Maude load once. A symbol whose check exceeds [timeout] is recorded
+   [Timeout]/[Timeout] and the now-blocked session is killed and respawned for
+   the rest (the load is folded into the first symbol's -- and any respawn's --
+   deadline). Verdicts match {!check} run per symbol. *)
+let check_batch ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
+    ?sig_rules ?(on_result = fun _ _ _ -> ()) (orig : Lang.Il.spec)
+    (slices : (string * Rewrite_system.t) list) : (string * result) list =
+  match resolve_mfe_dir mfe_dir with
+  | Error msg ->
+      List.map
+        (fun (label, _) ->
+          let r = { church_rosser = Error msg; coherence = Error msg } in
+          on_result label r 0.0;
+          (label, r))
+        slices
+  | Ok mfe_dir ->
+      let bin = resolve_bin maude_bin in
+      let mfe_path = Subproc.absolute (Filename.concat mfe_dir mfe_entry) in
+      let env = child_env bin in
+      let load_budget = 240 in
+      let start_session () =
+        let s = Subproc.session_start ~env ~cmd:[ bin; "-no-banner" ] () in
+        Subproc.session_send s (Printf.sprintf "load %s\n" mfe_path);
+        s
+      in
+      let session = ref (Some (start_session ())) in
+      let first = ref true in
+      let check_one idx (label, slice) =
+        let s =
+          match !session with
+          | Some s -> s
+          | None ->
+              let s = start_session () in
+              session := Some s;
+              first := true;
+              s
+        in
+        let name = Printf.sprintf "S_%d" idx in
+        let module_text =
+          To_mfe.module_of_system ~module_name:name ~prune_signature ?sig_rules
+            orig slice
+        in
+        (* Wall-clock the send+read -- the actual checker work. The first symbol
+           in a (re)spawned session additionally pays the ~100s Full Maude load,
+           since [load] executes lazily on the session's first read. *)
+        let (block, timed_out), elapsed =
+          Subproc.timed (fun () ->
+              Subproc.session_send s
+                (Printf.sprintf "%s%s\n" module_text
+                   (String.concat "\n" (check_commands_for name)));
+              let budget = if !first then timeout + load_budget else timeout in
+              first := false;
+              Subproc.session_read s ~done_when:batch_checks_done ~timeout:budget)
+        in
+        let r =
+          if timed_out then (
+            Subproc.session_kill s;
+            session := None;
+            { church_rosser = Timeout; coherence = Timeout })
+          else
+            let norm = Subproc.normalize_ws block in
+            {
+              church_rosser = crc_verdict ~timed_out:false norm;
+              coherence = chc_verdict ~timed_out:false norm;
+            }
+        in
+        on_result label r elapsed;
+        (label, r)
+      in
+      let results = List.mapi check_one slices in
+      (match !session with Some s -> Subproc.session_kill s | None -> ());
+      results

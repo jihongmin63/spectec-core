@@ -28,6 +28,10 @@ val run :
   unit ->
   string * bool
 
+(** [timed f] runs [f] and returns its result paired with the wall-clock seconds
+    it took ([Unix.gettimeofday] delta) -- a sweep records this per symbol. *)
+val timed : (unit -> 'a) -> 'a * float
+
 (** Whether [sub] occurs in [s] -- the primitive the verdict scanners build on.
 *)
 val contains : string -> string -> bool
@@ -41,3 +45,26 @@ val normalize_ws : string -> string
     path handed to a child tool (a [load] line, an exported library dir)
     resolves regardless of the child's working directory. *)
 val absolute : string -> string
+
+
+(** A persistent child for batched sweeps: [session_start] pays the child's
+    startup once, then many [session_send]/[session_read] cycles reuse it (a
+    Full Maude load is ~100s, so per-symbol respawn dominates a sweep).
+    [session_send] drains stdout while writing, so a feed larger than the pipe
+    buffer cannot deadlock against the unread output. *)
+type session
+
+val session_start : ?env:string array -> cmd:string list -> unit -> session
+
+(** [session_send s data] writes [data] to the live child's stdin. *)
+val session_send : session -> string -> unit
+
+(** [session_read s ~done_when ~timeout] reads the child's output accumulated
+    since the previous read until [done_when] holds over it or [timeout] seconds
+    pass, then clears the buffer so the next symbol starts fresh. Returns
+    [(output, timed_out)]. *)
+val session_read :
+  session -> done_when:(string -> bool) -> timeout:int -> string * bool
+
+(** SIGKILL the child and reap it. *)
+val session_kill : session -> unit

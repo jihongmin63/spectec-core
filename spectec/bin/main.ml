@@ -333,12 +333,12 @@ let rewrite_command =
    resumable --out protocol (append a TSV row per symbol; skip the symbols an
    existing file already records -- how the retired shell sweeps survived
    restarts). *)
-let sweep_roots system ~all ~symbols ~all_roots =
+let sweep_roots slicer ~all ~symbols ~all_roots =
   if all then
     List.map
       (fun s ->
         ( List.length
-            (Rewrite.Rewrite_system.slice system ~roots:[ s ])
+            (Rewrite.Rewrite_system.slice_with slicer ~roots:[ s ])
               .Rewrite.Rewrite_system.rules,
           s ))
       all_roots
@@ -446,38 +446,103 @@ let confluence_command =
     let system = Rewrite.rewrite_spec spec_il in
     (* see the [rewrite --ctrs] path: a sliced module still declares the whole
        system's predicate domains *)
-    let sig_rules = system.rules in
+    let sig_rules = system.Rewrite.Rewrite_system.rules in
+    let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots system ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+      sweep_roots slicer ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+    in
+    let recorded = match out with Some p -> recorded_symbols p | None -> [] in
+    let todo = List.filter (fun s -> not (List.mem s recorded)) roots in
+    let slices =
+      List.map
+        (fun sym ->
+          (sym, Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]))
+        todo
     in
     let verdict = Rewrite.Mfe.string_of_verdict in
-    Ok
-      (sweep_rows ~out ~roots ~row_of:(fun sym ->
-           let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
-           if crc_normalize then
-             let r : Rewrite.Mfe.upgrade_result =
-               Rewrite.Mfe.check_normalize_upgrade ~timeout ?maude_bin ?mfe_dir
-                 ~sig_rules spec_il slice
-             in
-             let checked (c : Rewrite.Mfe.checked) =
-               verdict c.verdict
-               ^ if c.via_normalize then " (normalized)" else ""
-             in
-             ( Printf.sprintf "%s\t%s\t%s" sym (checked r.crc) (checked r.chc),
-               not
-                 (r.crc.verdict = Rewrite.Mfe.Yes
-                 && r.chc.verdict = Rewrite.Mfe.Yes) )
-           else
-             let r : Rewrite.Mfe.result =
-               Rewrite.Mfe.check ~timeout ?maude_bin ?mfe_dir ~sig_rules spec_il
-                 slice
-             in
-             ( Printf.sprintf "%s\t%s\t%s" sym
-                 (verdict r.church_rosser)
-                 (verdict r.coherence),
-               not
-                 (r.church_rosser = Rewrite.Mfe.Yes
-                 && r.coherence = Rewrite.Mfe.Yes) )))
+    let inconclusive = function
+      | Rewrite.Mfe.Maybe | Rewrite.Mfe.Timeout -> true
+      | _ -> false
+    in
+    let oc =
+      Option.map
+        (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p)
+        out
+    in
+    let failed = ref false in
+    (* Stream each symbol's row the moment it lands (so a sweep is observable and
+       [--out] is resumable across a kill), instead of buffering the whole
+       batch. *)
+    (* The 4th column is the symbol's wall-clock seconds; for a normalized
+       verdict it is base + normalize time (the total spent reaching it). *)
+    let emit label crc chc secs row_failed =
+      let line = Printf.sprintf "%s\t%s\t%s\t%.1f" label crc chc secs in
+      print_endline line;
+      Option.iter
+        (fun oc ->
+          output_string oc (line ^ "\n");
+          flush oc)
+        oc;
+      if row_failed then failed := true
+    in
+    let emit_base label (r : Rewrite.Mfe.result) secs =
+      emit label (verdict r.church_rosser) (verdict r.coherence) secs
+        (not (r.church_rosser = Rewrite.Mfe.Yes && r.coherence = Rewrite.Mfe.Yes))
+    in
+    Fun.protect
+      ~finally:(fun () -> Option.iter close_out oc)
+      (fun () ->
+        (* YES rows stream out immediately; inconclusive rows wait for the
+           normalize retry (they are the minority). [pending] keeps each held
+           symbol's base result and base time. *)
+        let pending = Hashtbl.create 16 in
+        let _ =
+          Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
+            ~prune_signature:true ~sig_rules
+            ~on_result:(fun label (r : Rewrite.Mfe.result) secs ->
+              if
+                crc_normalize
+                && (inconclusive r.church_rosser || inconclusive r.coherence)
+              then Hashtbl.replace pending label (r, secs)
+              else emit_base label r secs)
+            spec_il slices
+        in
+        if crc_normalize && Hashtbl.length pending > 0 then begin
+          let norm_slices =
+            List.filter_map
+              (fun (sym, slice) ->
+                if Hashtbl.mem pending sym then
+                  let ns = Rewrite.Rewrite_system.crc_normalize slice in
+                  if ns = slice then None else Some (sym, ns)
+                else None)
+              slices
+          in
+          let emitted = Hashtbl.create 16 in
+          let _ =
+            Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
+              ~prune_signature:true ~sig_rules
+              ~on_result:(fun label (n : Rewrite.Mfe.result) n_secs ->
+                let (b : Rewrite.Mfe.result), b_secs = Hashtbl.find pending label in
+                let up o nn = Rewrite.Mfe.upgrade ~original:o ~normalized:nn in
+                let c = up b.church_rosser n.church_rosser in
+                let h = up b.coherence n.coherence in
+                let show v orig =
+                  verdict v ^ if v <> orig then " (normalized)" else ""
+                in
+                emit label (show c b.church_rosser) (show h b.coherence)
+                  (b_secs +. n_secs)
+                  (not (c = Rewrite.Mfe.Yes && h = Rewrite.Mfe.Yes));
+                Hashtbl.replace emitted label ())
+              spec_il norm_slices
+          in
+          (* inconclusive rows whose slice had nothing to normalize: emit base *)
+          Hashtbl.iter
+            (fun label ((b : Rewrite.Mfe.result), b_secs) ->
+              if not (Hashtbl.mem emitted label) then emit_base label b b_secs)
+            pending
+        end);
+    Ok !failed
+
 
 (* Emit the spec as an executable Maude module and run a start term through a
    local Maude binary (see {!Rewrite.Maude_run}). [--emit] dumps the module
@@ -1010,12 +1075,15 @@ let termination_command =
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
     let system = Rewrite.rewrite_spec spec_il in
+    (* one head index shared across the whole sweep -- [slice_with] then costs
+       O(slice size) per symbol instead of rebuilding the index once per symbol *)
+    let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots system ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
+      sweep_roots slicer ~all ~symbols ~all_roots:(Rewrite.def_symbols spec_il)
     in
     if emit_trs then (
       let slice =
-        Rewrite.Rewrite_system.slice system ~roots:[ List.hd roots ]
+        Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
       in
       match Rewrite.Unravel.trs_of_system slice with
       | Ok (trs, stats) ->
@@ -1028,18 +1096,24 @@ let termination_command =
     else
       Ok
         (sweep_rows ~out ~roots ~row_of:(fun sym ->
-             let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
-             let report : Rewrite.Termination.report =
-               Rewrite.Termination.check ?aprove_bin ~budget slice
+             (* Wall-clock the slice+unravel+AProVE work; the 4th column is the
+                per-symbol seconds. *)
+             let report, secs =
+               Rewrite.Subproc.timed (fun () ->
+                   let slice =
+                     Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
+                   in
+                   (Rewrite.Termination.check ?aprove_bin ~budget slice
+                     : Rewrite.Termination.report))
              in
              let stats =
                match report.stats with
                | Some s -> Rewrite.Unravel.string_of_stats s
                | None -> "-"
              in
-             ( Printf.sprintf "%s\t%s\t%s" sym
+             ( Printf.sprintf "%s\t%s\t%s\t%.1f" sym
                  (Rewrite.Termination.string_of_verdict report.verdict)
-                 stats,
+                 stats secs,
                match report.verdict with
                | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
                    false
@@ -1104,13 +1178,15 @@ let scc_command =
     (* the derived predicates -- subty_<T>, match_<T>_<K>, holds_<R> -- are the
        SCC's most valuable targets, and no DecD/RelD declares them *)
     let sig_rules = system.Rewrite.Rewrite_system.rules in
+    (* one head index shared across the whole sweep (see termination_command) *)
+    let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
-      sweep_roots system ~all ~symbols
+      sweep_roots slicer ~all ~symbols
         ~all_roots:(Rewrite.Rewrite_system.defined_heads system)
     in
     if emit then (
       let slice =
-        Rewrite.Rewrite_system.slice system ~roots:[ List.hd roots ]
+        Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
       in
       let uncond, _ = Rewrite.Scc.unconditional slice in
       print_string (Rewrite.Scc.module_text ~sig_rules spec_il uncond);
@@ -1118,7 +1194,7 @@ let scc_command =
     else
       Ok
         (sweep_rows ~out ~roots ~row_of:(fun sym ->
-             let slice = Rewrite.Rewrite_system.slice system ~roots:[ sym ] in
+             let slice = Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ] in
              let report : Rewrite.Scc.report =
                Rewrite.Scc.check ~timeout ?ceta_bin ?mfe271_dir ~sig_rules
                  spec_il slice

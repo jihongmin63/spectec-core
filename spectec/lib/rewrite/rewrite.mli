@@ -7,6 +7,7 @@ module To_mfe = To_mfe
 module Maude_run = Maude_run
 module Of_maude = Of_maude
 module Mfe = Mfe
+module Subproc = Subproc
 module Unravel = Unravel
 module Termination = Termination
 module Scc = Scc

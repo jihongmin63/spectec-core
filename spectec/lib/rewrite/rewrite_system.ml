@@ -214,6 +214,58 @@ let slice (t : t) ~(roots : string list) : t =
   let vars = dedup_stable (List.concat_map vars_of_rule rules) in
   { rules; vars }
 
+(* A reusable index for slicing the SAME system by many different roots (a
+   sweep slices once per symbol). [make_slicer] indexes each rule under its
+   defined head, keeping the rule's original position; [slice_with] then walks
+   the reachability closure and GATHERS only the reachable heads' rules (sorted
+   back into original order) -- it never rescans the whole rule list, so a
+   153-symbol sweep costs O(sum of slice sizes) instead of O(153 * total rules).
+   Its result is identical to {!slice}. *)
+type slicer = { by_head : (string, (int * rule) list) Hashtbl.t }
+
+let make_slicer (t : t) : slicer =
+  let by_head = Hashtbl.create 256 in
+  List.iteri
+    (fun i r ->
+      match defined_head r with
+      | Some head ->
+          let prev = try Hashtbl.find by_head head with Not_found -> [] in
+          Hashtbl.replace by_head head ((i, r) :: prev)
+      | None -> ())
+    t.rules;
+  { by_head }
+
+let slice_with (s : slicer) ~(roots : string list) : t =
+  let reachable = Hashtbl.create 256 in
+  let worklist = ref roots in
+  while !worklist <> [] do
+    match !worklist with
+    | [] -> ()
+    | head :: rest ->
+        worklist := rest;
+        if not (Hashtbl.mem reachable head) then (
+          Hashtbl.add reachable head ();
+          match Hashtbl.find_opt s.by_head head with
+          | Some irules ->
+              worklist :=
+                List.concat_map (fun (_, r) -> refs_of_rule r) irules
+                @ !worklist
+          | None -> ())
+  done;
+  let indexed =
+    Hashtbl.fold
+      (fun head () acc ->
+        match Hashtbl.find_opt s.by_head head with
+        | Some irules -> List.rev_append irules acc
+        | None -> acc)
+      reachable []
+  in
+  let sorted = List.sort (fun (i, _) (j, _) -> compare i j) indexed in
+  let rules = List.map snd sorted in
+  let vars = dedup_stable (List.concat_map vars_of_rule rules) in
+  { rules; vars }
+
+
 (* -------------------------------------------------------------------------- *)
 (* Premise-binder normalization (analysis-surface confluence). *)
 
