@@ -13,10 +13,16 @@
 > **예산은 안 적는다** — AProVE가 마감 전에 답하는 경우가 많아 예산은 실제 시간과 무관한
 > 천장이거나 초와 겹치므로, 초 하나가 유일한 정직한 심볼당 수치다. `DEGENERATE`는 규칙 0
 > (선언만 있고 절이 없는 심볼): 슬라이스가 비어 AProVE를 아예 안 돌린다.
+> **292행부터는 사다리의 시작 rung을 올려 쟀다**(`--budget-from`, `3988f2ec`). 이 구간은
+> 전부 170~360초에 답해서 5·20·80 rung이 헛돌기만 했다. 대신 「답하는 최소 예산」이라는
+> 사다리의 보장이 약해진다 — AProVE는 증명을 찾은 시점이 아니라 **자기 마감에** 판정을
+> 찍으므로, 마감에 걸린 행의 초는 비용이 아니라 rung 그 자체다. 이 표에서 그런 행은
+> `$find_typeDef_i`(1289.6초) 하나뿐이며 그 값은 **상한**이다.
 >
-> **범위**: 슬라이스 가능한 심볼은 574개고 이 표는 그중 **291행**이다. 나머지는 미측정 —
+> **범위**: 슬라이스 가능한 심볼은 574개고 이 표는 그중 **315행**이다. 나머지는 미측정 —
 > 스윕은 규칙 수 오름차순이라 남은 것은 전부 대형 슬라이스이고, 심볼당 수 분~수십 분이
-> 든다(`$find_action_prime` 50,638규칙이 330.5초).
+> 든다(`$find_action_prime` 50,638규칙이 330.5초). 스윕은 답을 못 내는 심볼이 나오면
+> 멈추도록 감시했는데, 여기까지 그런 심볼은 하나도 없었다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
 > 안전성 소견은 모두 **[verification-notes.md](verification-notes.md)**.
@@ -26,10 +32,10 @@
 > byte-identical로 보존하므로 유효하나, `bdceb303`은 분석 표면의 조건 방향을 바꾸므로
 > **confluence 열은 뒤집힌 조건을 포함한 슬라이스에 한해 stale**이다(대상·경위는 notes).
 
-## 종합 (291심볼)
+## 종합 (315심볼)
 
-**termination**: YES 282 / 282 측정 · 비종료 후보 0 · 규칙 0(DEGENERATE, AProVE 미실행) 9. 답한 단계의 벽시계 합 1394.1초.
-**confluence**: YES 162 · - 111 · TIMEOUT 12 · YES* 5 · MAYBE 1.
+**termination**: YES 306 / 306 측정 · 비종료 후보 0 · 규칙 0(DEGENERATE, AProVE 미실행) 9. 답한 단계의 벽시계 합 8360.8초.
+**confluence**: YES 162 · - 135 · TIMEOUT 12 · YES* 5 · MAYBE 1.
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -324,3 +330,27 @@
 | 289 | `Type_alpha` | 2572 | - | YES (6.2s) |
 | 290 | `$check_switchLabel_default` | 50638 | - | YES (285.4s) |
 | 291 | `$find_action_prime` | 50638 | - | YES (330.5s) |
+| 292 | `$update_fieldValue` | 50638 | - | YES (330.3s) |
+| 293 | `$add_store` | 50640 | - | YES (329.3s) |
+| 294 | `$callable_controlApplyMethod` | 50640 | - | YES (170.4s) |
+| 295 | `$callable_parserApplyMethod` | 50640 | - | YES (183.6s) |
+| 296 | `$in_set` | 50640 | - | YES (170.0s) |
+| 297 | `$find_action` | 50640 | - | YES (363.7s) |
+| 298 | `$instantiable_package` | 50640 | - | YES (171.0s) |
+| 299 | `$instantiable_table` | 50640 | - | YES (169.8s) |
+| 300 | `$callable_action` | 50642 | - | YES (175.5s) |
+| 301 | `$callable_externAbstractMethod` | 50642 | - | YES (166.3s) |
+| 302 | `$callable_externMethod` | 50642 | - | YES (168.9s) |
+| 303 | `$callable_tableApplyMethod` | 50642 | - | YES (168.3s) |
+| 304 | `$find_non_overloadeds` | 50642 | - | YES (292.1s) |
+| 305 | `$find_store` | 50642 | - | YES (329.8s) |
+| 306 | `$split_dataplane_parameters` | 50642 | - | YES (329.7s) |
+| 307 | `$directionless_trailing_prime` | 50643 | - | YES (351.9s) |
+| 308 | `$find_typeDef_i` | 50643 | - | YES (1289.6s) |
+| 309 | `$partition_parameterListIR` | 50643 | - | YES (159.3s) |
+| 310 | `$add_constructorDef_i` | 50644 | - | YES (330.3s) |
+| 311 | `$add_typeDef_i` | 50644 | - | YES (330.6s) |
+| 312 | `$instantiable_control` | 50644 | - | YES (162.7s) |
+| 313 | `$instantiable_parser` | 50644 | - | YES (160.7s) |
+| 314 | `$add_constructorDefs_i` | 50646 | - | YES (330.4s) |
+| 315 | `$merge_frames` | 50646 | - | YES (332.5s) |
