@@ -26,8 +26,9 @@
 >
 > **범위**: 슬라이스 가능한 심볼 574개 중 규칙 0(정의만 있고 절이 없는) 9개를 뺀 **565개
 > 전부**를 싣는다. 셀은 이번에 직접 측정한 것만 채웠다 — termination 308(YES 307·TIMEOUT 1),
-> confluence 140(전부 YES). 나머지는 `-`(미측정)이며, 스윕이 규칙 오름차순이라 미측정은 전부
-> 대형 슬라이스다(심볼당 수 분~수십 분). 두 축의 스윕은 tmux에서 계속 진행 중.
+> confluence 144(전부 YES). 나머지는 `-`(미측정)이며, 스윕이 규칙 오름차순이라 미측정은 전부
+> 대형 슬라이스다(심볼당 수 분~수십 분). confluence 스윕은 남은 421심볼을 심볼당 한 프로세스로
+> tmux에서 재개 중이고, termination 스윕은 멈춰 있다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
 > 안전성 소견은 모두 **[verification-notes.md](verification-notes.md)**.
@@ -35,13 +36,13 @@
 > **측정 기준**: 두 열 모두 `orient_conds`(`bdceb303`) 이후 tip(`c10bde20`)에서 **이번에
 > 직접 측정한 값만** 싣는다. 옛 `bff805ec` confluence 측정은 `orient_conds`가 분석 표면의
 > 조건 방향을 바꿔 stale해졌으므로 옮겨오지 않고, 재측정 못 한 셀은 `-`로 비웠다. 지금까지
-> confluence 재측정 140심볼은 **판정 변화 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 YES
+> confluence 재측정 144심볼은 **판정 변화 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 YES
 > 유지) — `orient_conds`는 측정된 범위에서 confluence-neutral이다.
 
 ## 종합 (565심볼)
 
 **termination**: 측정 308 — YES 307 · TIMEOUT 1 · 비종료 후보 0. 미측정 `-` 257. TIMEOUT 1건은 최상위 관계 `Program_inst`(61,345규칙)로, 20,480초 예산 내 미완일 뿐 비종료 witness가 아니다(도구 예산 한계).
-**confluence**: 측정 140 — YES 140. 미측정 `-` 425.
+**confluence**: 측정 144 — YES 144. 미측정 `-` 421.
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -200,15 +201,15 @@
 | 153 | `$bitacc_offset_replace_op` | 394 | - | YES (5.7s) |
 | 154 | `$flatten_namedExpressionList` | 748 | YES (1422.3s) | YES (1.5s) |
 | 155 | `$flatten_realTypeArgumentList` | 748 | - | YES (1.5s) |
-| 156 | `$flatten_expressionList` | 749 | - | YES (1.5s) |
+| 156 | `$flatten_expressionList` | 749 | YES (1421.8s) | YES (1.5s) |
 | 157 | `$flatten_typeArgumentList` | 749 | - | YES (1.5s) |
 | 158 | `$expression_as_lvalue` | 766 | - | YES (4.2s) |
 | 159 | `$flatten_argumentList` | 784 | - | YES (6.1s) |
-| 160 | `$flatten_simpleKeysetExpressionList` | 789 | - | YES (1.5s) |
+| 160 | `$flatten_simpleKeysetExpressionList` | 789 | YES (1611.5s) | YES (1.5s) |
 | 161 | `$flatten_forUpdateStatementList` | 790 | - | YES (2.3s) |
-| 162 | `$is_singleton_list_expression` | 812 | - | YES (1.7s) |
+| 162 | `$is_singleton_list_expression` | 812 | YES (1687.5s) | YES (1.7s) |
 | 163 | `$add_annotationList` | 867 | - | YES (1.8s) |
-| 164 | `$flatten_annotationList` | 868 | - | YES (2.5s) |
+| 164 | `$flatten_annotationList` | 868 | YES (1976.0s) | YES (2.5s) |
 | 165 | `$flatten_parameterList` | 874 | - | YES (2.4s) |
 | 166 | `$flatten_constructorParameterListOpt` | 876 | - | YES (2.5s) |
 | 167 | `$is_externConstructorPrototype` | 880 | - | YES (1.8s) |
