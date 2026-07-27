@@ -5,7 +5,7 @@
 > 경계는 측정 시기의 산물이지 성질의 구분이 아니었다. 열 이름은 이제 그 열을 만드는
 > 서브커맨드 이름과 같다(`main.exe confluence` / `main.exe termination`).
 > **confluence** = Church-Rosser(합류성): `YES` / `YES*`(=`--crc-normalize` upgrade-only로
-> 닫힘) / `MAYBE` / `TIMEOUT (>1800s)`(예산 내 미완) / `-`(미측정). **ChC(Coherence)는
+> 닫힘) / `MAYBE` / `TIMEOUT (>Xs)`(적힌 예산 X초 내 미완) / `-`(미측정). **ChC(Coherence)는
 > 2026-07-24부로 측정 중단·열 삭제**(사유·이력은 notes).
 > **termination** = 구조 보존 unravel → AProVE 직접. 그 초는 답을 낸 AProVE 실행 하나의
 > 벽시계다. 예산 사다리(5·20·80·…·cap)를 올라가며 답이 나오는 최소 예산에서 멈추는데,
@@ -26,9 +26,9 @@
 >
 > **범위**: 슬라이스 가능한 심볼 574개 중 규칙 0(정의만 있고 절이 없는) 9개를 뺀 **565개
 > 전부**를 싣는다. 셀은 이번에 직접 측정한 것만 채웠다 — termination 308(YES 307·TIMEOUT 1),
-> confluence 144(전부 YES). 나머지는 `-`(미측정)이며, 스윕이 규칙 오름차순이라 미측정은 전부
-> 대형 슬라이스다(심볼당 수 분~수십 분). confluence 스윕은 남은 421심볼을 심볼당 한 프로세스로
-> tmux에서 재개 중이고, termination 스윕은 멈춰 있다.
+> confluence 163(YES 150 · YES* 6 · TIMEOUT 7). 나머지는 `-`(미측정)이며, 스윕이 규칙
+> 오름차순이라 미측정은 전부 대형 슬라이스다(874규칙 이상). confluence 스윕은 남은 402심볼을
+> 심볼당 한 프로세스로 tmux에서 진행 중이고, termination 스윕은 멈춰 있다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
 > 안전성 소견은 모두 **[verification-notes.md](verification-notes.md)**.
@@ -36,13 +36,14 @@
 > **측정 기준**: 두 열 모두 `orient_conds`(`bdceb303`) 이후 tip(`c10bde20`)에서 **이번에
 > 직접 측정한 값만** 싣는다. 옛 `bff805ec` confluence 측정은 `orient_conds`가 분석 표면의
 > 조건 방향을 바꿔 stale해졌으므로 옮겨오지 않고, 재측정 못 한 셀은 `-`로 비웠다. 지금까지
-> confluence 재측정 144심볼은 **판정 변화 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 YES
-> 유지) — `orient_conds`는 측정된 범위에서 confluence-neutral이다.
+> confluence 재측정 163심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
+> 유지, `$expression_as_lvalue`만 옛 무-verdict에서 `YES*`로 올라섰다) — `orient_conds`는
+> 측정된 범위에서 confluence-neutral이다.
 
 ## 종합 (565심볼)
 
 **termination**: 측정 308 — YES 307 · TIMEOUT 1 · 비종료 후보 0. 미측정 `-` 257. TIMEOUT 1건은 최상위 관계 `Program_inst`(61,345규칙)로, 20,480초 예산 내 미완일 뿐 비종료 witness가 아니다(도구 예산 한계).
-**confluence**: 측정 144 — YES 144. 미측정 `-` 421.
+**confluence**: 측정 163 — YES 150 · YES* 6 · TIMEOUT 7. 미측정 `-` 402. TIMEOUT 7건은 `$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개로, 임계쌍 폭발에 예산이 먼저 소진된 것이며 비합류 witness가 아니다.
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -163,7 +164,7 @@
 | 115 | `$invalidate_value` | 87 | YES (8.0s) | YES (0.7s) |
 | 116 | `$ends_with` | 88 | YES (6.1s) | YES (0.6s) |
 | 117 | `$strip_suffix_rec` | 91 | YES (7.2s) | YES (0.5s) |
-| 118 | `$write_bits_from_value` | 103 | - | YES (6.0s) |
+| 118 | `$write_bits_from_value` | 103 | TIMEOUT (>2040s) | YES (6.0s) |
 | 119 | `$bin_mod` | 109 | YES (7.6s) | YES (0.6s) |
 | 120 | `$bin_div` | 113 | YES (9.9s) | YES (0.6s) |
 | 121 | `$un_bnot` | 139 | YES (19.4s) | YES (5.5s) |
@@ -179,36 +180,36 @@
 | 131 | `$un_minus` | 197 | YES (95.3s) | YES (5.8s) |
 | 132 | `$bin_bxor` | 199 | YES (107.3s) | YES (5.6s) |
 | 133 | `$bin_concat` | 200 | YES (555.6s) | YES (5.6s) |
-| 134 | `$set_priorities_of_tableEntryListIR_prime` | 200 | - | YES (5.7s) |
+| 134 | `$set_priorities_of_tableEntryListIR_prime` | 200 | YES (44.0s) | YES (5.7s) |
 | 135 | `$bin_satminus` | 201 | YES (45.4s) | YES (5.8s) |
 | 136 | `$bin_satplus` | 201 | YES (113.7s) | YES (5.8s) |
-| 137 | `$bin_shl` | 201 | - | YES (5.6s) |
+| 137 | `$bin_shl` | 201 | TIMEOUT (>4080s) | YES (5.6s) |
 | 138 | `$bin_band` | 202 | YES (142.9s) | YES (5.7s) |
 | 139 | `$bin_bor` | 202 | YES (1792.7s) | YES (5.8s) |
-| 140 | `$name_annotationToken` | 209 | - | YES (6.0s) |
+| 140 | `$name_annotationToken` | 209 | YES (54.6s) | YES (6.0s) |
 | 141 | `$un_op` | 209 | YES (48.4s) | YES (5.6s) |
-| 142 | `$bin_shr` | 215 | - | YES (5.8s) |
+| 142 | `$bin_shr` | 215 | TIMEOUT (>4080s) | YES (5.8s) |
 | 143 | `$set_priorities_of_tableEntryListIR` | 226 | YES (64.5s) | YES (5.7s) |
 | 144 | `$name_annotation_opt` | 256 | YES (151.7s) | YES (6.0s) |
-| 145 | `$write_value_field_from_bits_prime` | 271 | - | YES (5.8s) |
-| 146 | `$write_value_fields_from_bits_prime` | 271 | - | YES (5.8s) |
-| 147 | `$write_value_from_bits_prime` | 271 | - | YES (5.7s) |
-| 148 | `$write_values_from_bits_prime` | 271 | - | YES (5.8s) |
-| 149 | `$write_value_from_bits` | 274 | - | YES (5.8s) |
-| 150 | `$bitacc_range_op` | 283 | - | YES (21.5s) |
-| 151 | `$bitacc_offset_op` | 285 | - | YES (21.3s) |
-| 152 | `$bitacc_range_replace_op` | 391 | - | YES (5.6s) |
-| 153 | `$bitacc_offset_replace_op` | 394 | - | YES (5.7s) |
+| 145 | `$write_value_field_from_bits_prime` | 271 | YES* (252.6s) | YES (5.8s) |
+| 146 | `$write_value_fields_from_bits_prime` | 271 | YES* (251.8s) | YES (5.8s) |
+| 147 | `$write_value_from_bits_prime` | 271 | YES* (251.4s) | YES (5.7s) |
+| 148 | `$write_values_from_bits_prime` | 271 | YES* (252.2s) | YES (5.8s) |
+| 149 | `$write_value_from_bits` | 274 | YES* (261.2s) | YES (5.8s) |
+| 150 | `$bitacc_range_op` | 283 | TIMEOUT (>4086s) | YES (21.5s) |
+| 151 | `$bitacc_offset_op` | 285 | TIMEOUT (>4090s) | YES (21.3s) |
+| 152 | `$bitacc_range_replace_op` | 391 | TIMEOUT (>4080s) | YES (5.6s) |
+| 153 | `$bitacc_offset_replace_op` | 394 | TIMEOUT (>4080s) | YES (5.7s) |
 | 154 | `$flatten_namedExpressionList` | 748 | YES (1422.3s) | YES (1.5s) |
-| 155 | `$flatten_realTypeArgumentList` | 748 | - | YES (1.5s) |
+| 155 | `$flatten_realTypeArgumentList` | 748 | YES (1450.1s) | YES (1.5s) |
 | 156 | `$flatten_expressionList` | 749 | YES (1421.8s) | YES (1.5s) |
-| 157 | `$flatten_typeArgumentList` | 749 | - | YES (1.5s) |
-| 158 | `$expression_as_lvalue` | 766 | - | YES (4.2s) |
+| 157 | `$flatten_typeArgumentList` | 749 | YES (1455.6s) | YES (1.5s) |
+| 158 | `$expression_as_lvalue` | 766 | YES* (3198.2s) | YES (4.2s) |
 | 159 | `$flatten_argumentList` | 784 | - | YES (6.1s) |
 | 160 | `$flatten_simpleKeysetExpressionList` | 789 | YES (1611.5s) | YES (1.5s) |
-| 161 | `$flatten_forUpdateStatementList` | 790 | - | YES (2.3s) |
+| 161 | `$flatten_forUpdateStatementList` | 790 | YES (1728.2s) | YES (2.3s) |
 | 162 | `$is_singleton_list_expression` | 812 | YES (1687.5s) | YES (1.7s) |
-| 163 | `$add_annotationList` | 867 | - | YES (1.8s) |
+| 163 | `$add_annotationList` | 867 | YES (2023.9s) | YES (1.8s) |
 | 164 | `$flatten_annotationList` | 868 | YES (1976.0s) | YES (2.5s) |
 | 165 | `$flatten_parameterList` | 874 | - | YES (2.4s) |
 | 166 | `$flatten_constructorParameterListOpt` | 876 | - | YES (2.5s) |

@@ -372,6 +372,36 @@ AProVE에 보이지 않았다. 즉 영향 슬라이스의 종전 YES는 **틀린
 오름차순이라 남은 283심볼은 전부 대형 슬라이스이고, 마지막 두 행(50,638규칙에 285~330초)이
 비용의 기울기를 보여준다 — 전수 완주는 별건으로 봐야 한다.
 
+### 2026-07-26/27 confluence 재측정 — 배치에서 심볼당 프로세스로
+
+**왜 바꿨나.** `confluence --all --crc-normalize`는 MAYBE/TIMEOUT 행을 `pending`에
+붙잡아 두고 **배치 전체가 끝난 뒤**의 normalize 단계에서만 내보낸다(`bin/main.ml`의
+confluence 본문). 규칙 수가 큰 구간에 들어가면 심볼이 계속 예산을 소진하면서도 행이
+하나도 안 나오고, 중간에 죽이면 그 구간이 통째로 사라진다 — 실제로 07-25 15:35 이후
+**21.6시간 무출력**이었다.
+
+**어떻게 바꿨나.** 남은 심볼을 규칙 오름차순 목록으로 두고
+`confluence --symbol S --crc-normalize --timeout 1800 --out TSV`를 **심볼당 한 프로세스**로
+돌린다(바깥에 `timeout 5400` 안전망). 한 심볼이 끝날 때마다 행이 기록되므로 언제 끊어도
+손실이 없고, 심볼당 fresh 프로세스라 표의 직렬 시간 규약과도 맞는다.
+
+**예산의 실효값.** 단일 심볼도 `Mfe.check_batch`를 타므로 첫(=유일한) 심볼의 예산은
+`--timeout` + `load_budget 240` = **2040초**다. normalize 재시도는 새 세션이라 다시 2040초를
+받는다 — 정규화까지 간 TIMEOUT 행의 상한이 **4080초**인 이유이고, 표의 `TIMEOUT (>Xs)`의
+X가 그 값이다.
+
+**부수 효과: 배치가 느렸다.** 배치에서 미결로 붙잡혀 있던 심볼이 심볼당 프로세스에선
+`$set_priorities_of_tableEntryListIR_prime` 44.0초, `$name_annotationToken` 54.6초에 YES로
+끝났다(옛 `bff805ec` 값 43.7/53.3초와 일치). 공유 세션에 모듈을 계속 얹는 배치 방식이
+심볼당 비용을 부풀린 것으로 보인다.
+
+**옛 값 대비.** 이번에 채운 163심볼에서 **다운그레이드 0**. `$expression_as_lvalue`(766규칙)만
+옛 무-verdict에서 `YES*`(3198.2초)로 올라섰다.
+
+**무-verdict 1건.** `$flatten_argumentList`(784규칙)는 1643.2초 뒤 MFE 출력에 CRC verdict가
+없다. 옛 `bff805ec`에서도 같은 증상(444.2초)이라 이번 스윕의 사고가 아니라 재현되는 현상이며,
+표에는 `-`로 남겼다.
+
 ## 비-YES 행 해석 (≤500)
 
 CRC의 잔여 비-YES 7행(`$bin_shl`·`$bin_shr`·`$bitacc_offset_op`·`$bitacc_offset_replace_op`·
