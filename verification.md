@@ -26,8 +26,8 @@
 >
 > **범위**: 슬라이스 가능한 심볼 574개 중 규칙 0(정의만 있고 절이 없는) 9개를 뺀 **565개
 > 전부**를 싣는다. 셀은 이번에 직접 측정한 것만 채웠다 — termination 308(YES 307·TIMEOUT 1),
-> confluence 163(YES 150 · YES* 6 · TIMEOUT 7). 나머지는 `-`(미측정)이며, 스윕이 규칙
-> 오름차순이라 미측정은 전부 대형 슬라이스다(874규칙 이상). confluence 스윕은 남은 402심볼을
+> confluence 169(YES 150 · YES* 6 · TIMEOUT 13). 나머지는 `-`(미측정)이며, 스윕이 규칙
+> 오름차순이라 미측정은 전부 대형 슬라이스다(886규칙 이상). confluence 스윕은 남은 396심볼을
 > 심볼당 한 프로세스로 tmux에서 진행 중이고, termination 스윕은 멈춰 있다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
@@ -36,14 +36,14 @@
 > **측정 기준**: 두 열 모두 `orient_conds`(`bdceb303`) 이후 tip(`c10bde20`)에서 **이번에
 > 직접 측정한 값만** 싣는다. 옛 `bff805ec` confluence 측정은 `orient_conds`가 분석 표면의
 > 조건 방향을 바꿔 stale해졌으므로 옮겨오지 않고, 재측정 못 한 셀은 `-`로 비웠다. 지금까지
-> confluence 재측정 163심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
+> confluence 재측정 169심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
 > 유지, `$expression_as_lvalue`만 옛 무-verdict에서 `YES*`로 올라섰다) — `orient_conds`는
 > 측정된 범위에서 confluence-neutral이다.
 
 ## 종합 (565심볼)
 
 **termination**: 측정 308 — YES 307 · TIMEOUT 1 · 비종료 후보 0. 미측정 `-` 257. TIMEOUT 1건은 최상위 관계 `Program_inst`(61,345규칙)로, 20,480초 예산 내 미완일 뿐 비종료 witness가 아니다(도구 예산 한계).
-**confluence**: 측정 163 — YES 150 · YES* 6 · TIMEOUT 7. 미측정 `-` 402. TIMEOUT 7건은 `$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개로, 임계쌍 폭발에 예산이 먼저 소진된 것이며 비합류 witness가 아니다.
+**confluence**: 측정 169 — YES 150 · YES* 6 · TIMEOUT 13. 미측정 `-` 396. TIMEOUT 13건은 둘로 나뉜다 — 400규칙 이하의 비트벡터 산술 7건(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개)과, 874~885규칙 구간에서 예산(2040초)을 그대로 소진한 6건이다. 둘 다 임계쌍 폭발로 예산이 먼저 끝난 것이며 비합류 witness가 아니다.
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -211,12 +211,12 @@
 | 162 | `$is_singleton_list_expression` | 812 | YES (1687.5s) | YES (1.7s) |
 | 163 | `$add_annotationList` | 867 | YES (2023.9s) | YES (1.8s) |
 | 164 | `$flatten_annotationList` | 868 | YES (1976.0s) | YES (2.5s) |
-| 165 | `$flatten_parameterList` | 874 | - | YES (2.4s) |
-| 166 | `$flatten_constructorParameterListOpt` | 876 | - | YES (2.5s) |
-| 167 | `$is_externConstructorPrototype` | 880 | - | YES (1.8s) |
-| 168 | `$is_externMethodPrototype` | 883 | - | YES (1.8s) |
-| 169 | `$callableId_prime` | 884 | - | YES (2.5s) |
-| 170 | `$callableId` | 885 | - | YES (2.6s) |
+| 165 | `$flatten_parameterList` | 874 | TIMEOUT (>2055s) | YES (2.4s) |
+| 166 | `$flatten_constructorParameterListOpt` | 876 | TIMEOUT (>2058s) | YES (2.5s) |
+| 167 | `$is_externConstructorPrototype` | 880 | TIMEOUT (>2057s) | YES (1.8s) |
+| 168 | `$is_externMethodPrototype` | 883 | TIMEOUT (>2057s) | YES (1.8s) |
+| 169 | `$callableId_prime` | 884 | TIMEOUT (>2058s) | YES (2.5s) |
+| 170 | `$callableId` | 885 | TIMEOUT (>2058s) | YES (2.6s) |
 | 171 | `$constructorId_of_externConstructorPrototype` | 886 | - | YES (2.5s) |
 | 172 | `$callableId_of_externMethodPrototype` | 887 | - | YES (2.5s) |
 | 173 | `$constructorId` | 887 | - | YES (2.5s) |

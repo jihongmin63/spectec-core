@@ -398,6 +398,15 @@ X가 그 값이다.
 **옛 값 대비.** 이번에 채운 163심볼에서 **다운그레이드 0**. `$expression_as_lvalue`(766규칙)만
 옛 무-verdict에서 `YES*`(3198.2초)로 올라섰다.
 
+**874규칙 위는 예산이 먼저 끝난다.** 보류분을 털고 들어간 첫 6심볼
+(`$flatten_parameterList` 874 · `$flatten_constructorParameterListOpt` 876 ·
+`$is_externConstructorPrototype` 880 · `$is_externMethodPrototype` 883 · `$callableId_prime` 884 ·
+`$callableId` 885)이 **전부 2055~2058초 TIMEOUT**이다 —
+정규화가 슬라이스를 안 바꿔 재시도 없이 base 예산 2040초를 그대로 쓴 값이다. 748~868 구간이
+1450~2024초에 YES로 끝났던 것과 이어 보면 이 크기 대역이 1800초 예산의 경계다. 남은 396심볼은
+전부 이 위(중앙값 5만 규칙)이므로, 전수 완주는 예산을 키우거나(심볼당 수 시간) `--prune-signature`
+계열의 추가 축소 없이는 TIMEOUT 행만 쌓일 공산이 크다.
+
 **무-verdict 1건.** `$flatten_argumentList`(784규칙)는 1643.2초 뒤 MFE 출력에 CRC verdict가
 없다. 옛 `bff805ec`에서도 같은 증상(444.2초)이라 이번 스윕의 사고가 아니라 재현되는 현상이며,
 표에는 `-`로 남겼다.
