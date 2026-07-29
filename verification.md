@@ -26,9 +26,10 @@
 >
 > **범위**: 슬라이스 가능한 심볼 574개 중 규칙 0(정의만 있고 절이 없는) 9개를 뺀 **565개
 > 전부**를 싣는다. 셀은 이번에 직접 측정한 것만 채웠다 — termination 308(YES 307·TIMEOUT 1),
-> confluence 169(YES 150 · YES* 6 · TIMEOUT 13). 나머지는 `-`(미측정)이며, 스윕이 규칙
-> 오름차순이라 미측정은 전부 대형 슬라이스다(886규칙 이상). confluence 스윕은 남은 396심볼을
-> 심볼당 한 프로세스로 tmux에서 진행 중이고, termination 스윕은 멈춰 있다.
+> confluence 219(YES 150 · YES* 6 · TIMEOUT 63). 나머지는 `-`(미측정)이며, 스윕이 규칙
+> 오름차순이라 미측정은 무-verdict 1건(`$flatten_argumentList` 784규칙)을 빼면 전부
+> **1204규칙 이상**(중앙값 52,157)이다. confluence 스윕은 남은 346심볼을 심볼당 한 프로세스로
+> tmux에서 진행 중이고, termination 스윕은 멈춰 있다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
 > 안전성 소견은 모두 **[verification-notes.md](verification-notes.md)**.
@@ -36,14 +37,15 @@
 > **측정 기준**: 두 열 모두 `orient_conds`(`bdceb303`) 이후 tip(`c10bde20`)에서 **이번에
 > 직접 측정한 값만** 싣는다. 옛 `bff805ec` confluence 측정은 `orient_conds`가 분석 표면의
 > 조건 방향을 바꿔 stale해졌으므로 옮겨오지 않고, 재측정 못 한 셀은 `-`로 비웠다. 지금까지
-> confluence 재측정 169심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
+> confluence 재측정 219심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
 > 유지, `$expression_as_lvalue`만 옛 무-verdict에서 `YES*`로 올라섰다) — `orient_conds`는
-> 측정된 범위에서 confluence-neutral이다.
+> 측정된 범위에서 confluence-neutral이다. `$write_value*` 5행은 `n_var > 0` 가드를 넣은
+> 스펙(`8bf15510`)에서 다시 쟀고, 판정은 그대로 `YES*`다.
 
 ## 종합 (565심볼)
 
 **termination**: 측정 308 — YES 307 · TIMEOUT 1 · 비종료 후보 0. 미측정 `-` 257. TIMEOUT 1건은 최상위 관계 `Program_inst`(61,345규칙)로, 20,480초 예산 내 미완일 뿐 비종료 witness가 아니다(도구 예산 한계).
-**confluence**: 측정 169 — YES 150 · YES* 6 · TIMEOUT 13. 미측정 `-` 396. TIMEOUT 13건은 둘로 나뉜다 — 400규칙 이하의 비트벡터 산술 7건(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개)과, 874~885규칙 구간에서 예산(2040초)을 그대로 소진한 6건이다. 둘 다 임계쌍 폭발로 예산이 먼저 끝난 것이며 비합류 witness가 아니다.
+**confluence**: 측정 219 — YES 150 · YES* 6 · TIMEOUT 63. 미측정 `-` 346. TIMEOUT 63건은 둘로 나뉜다 — 400규칙 이하의 비트벡터 산술 7건(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개)과, **874~1203규칙 구간에서 예산(base 2040초, 정규화까지 가면 4080초)을 그대로 소진한 56건**이다. 둘 다 임계쌍 폭발로 예산이 먼저 끝난 것이며 비합류 witness가 아니다. 이 구간이 전부 TIMEOUT이라는 건 남은 346심볼(중앙값 52,157규칙)도 같은 예산으로는 같은 결과라는 뜻이라, 이 축을 더 밀려면 예산이 아니라 슬라이스를 줄여야 한다.
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -191,11 +193,11 @@
 | 142 | `$bin_shr` | 215 | TIMEOUT (>4080s) | YES (5.8s) |
 | 143 | `$set_priorities_of_tableEntryListIR` | 226 | YES (64.5s) | YES (5.7s) |
 | 144 | `$name_annotation_opt` | 256 | YES (151.7s) | YES (6.0s) |
-| 145 | `$write_value_field_from_bits_prime` | 271 | YES* (252.6s) | YES (5.8s) |
-| 146 | `$write_value_fields_from_bits_prime` | 271 | YES* (251.8s) | YES (5.8s) |
-| 147 | `$write_value_from_bits_prime` | 271 | YES* (251.4s) | YES (5.7s) |
-| 148 | `$write_values_from_bits_prime` | 271 | YES* (252.2s) | YES (5.8s) |
-| 149 | `$write_value_from_bits` | 274 | YES* (261.2s) | YES (5.8s) |
+| 145 | `$write_value_field_from_bits_prime` | 271 | YES* (261.7s) | YES (5.8s) |
+| 146 | `$write_value_fields_from_bits_prime` | 271 | YES* (263.8s) | YES (5.8s) |
+| 147 | `$write_value_from_bits_prime` | 271 | YES* (263.5s) | YES (5.7s) |
+| 148 | `$write_values_from_bits_prime` | 271 | YES* (266.0s) | YES (5.8s) |
+| 149 | `$write_value_from_bits` | 274 | YES* (278.1s) | YES (5.8s) |
 | 150 | `$bitacc_range_op` | 283 | TIMEOUT (>4086s) | YES (21.5s) |
 | 151 | `$bitacc_offset_op` | 285 | TIMEOUT (>4090s) | YES (21.3s) |
 | 152 | `$bitacc_range_replace_op` | 391 | TIMEOUT (>4080s) | YES (5.6s) |
@@ -217,56 +219,56 @@
 | 168 | `$is_externMethodPrototype` | 883 | TIMEOUT (>2057s) | YES (1.8s) |
 | 169 | `$callableId_prime` | 884 | TIMEOUT (>2058s) | YES (2.5s) |
 | 170 | `$callableId` | 885 | TIMEOUT (>2058s) | YES (2.6s) |
-| 171 | `$constructorId_of_externConstructorPrototype` | 886 | - | YES (2.5s) |
-| 172 | `$callableId_of_externMethodPrototype` | 887 | - | YES (2.5s) |
-| 173 | `$constructorId` | 887 | - | YES (2.5s) |
-| 174 | `$expressionNonBrace_as_expression` | 887 | - | YES (2.1s) |
-| 175 | `$optional_annotation_of_parameterIR_prime` | 893 | - | YES (2.3s) |
-| 176 | `$optional_annotation_of_parameterIR` | 895 | - | YES (2.3s) |
-| 177 | `$is_optional_parameterIR` | 896 | - | YES (2.5s) |
-| 178 | `$flatten_forInitStatementList` | 907 | - | YES (2.6s) |
-| 179 | `$split_externConstructorOrMethodPrototypeList` | 940 | - | YES (2.2s) |
-| 180 | `$flatten_parserStateList` | 1029 | - | YES (0.6s) |
-| 181 | `$name_annotation` | 1125 | - | YES (6.1s) |
-| 182 | `$name_annotation_default` | 1127 | - | YES (6.2s) |
-| 183 | `$cast_header_stack` | 1192 | - | YES (0.6s) |
-| 184 | `$cast_header` | 1194 | - | YES (0.6s) |
-| 185 | `$cast_struct` | 1194 | - | YES (0.6s) |
-| 186 | `$compat_lnot` | 1194 | - | YES (5.8s) |
-| 187 | `$nestable_constructor_package` | 1194 | - | YES (5.7s) |
-| 188 | `$resolve_type_alias` | 1194 | - | YES (5.7s) |
-| 189 | `$callTargetKey_prime` | 1195 | - | YES (0.6s) |
-| 190 | `$compat_bnot` | 1195 | - | YES (5.7s) |
-| 191 | `$compat_divmod` | 1195 | - | YES (5.7s) |
-| 192 | `$compat_logical` | 1195 | - | YES (5.7s) |
-| 193 | `$cast_bool` | 1196 | - | YES (5.8s) |
-| 194 | `$compat_array_index` | 1196 | - | YES (5.7s) |
-| 195 | `$compat_bitslice_offset_index` | 1196 | - | YES (5.7s) |
-| 196 | `$compat_bitslice_offset_width` | 1196 | - | YES (5.6s) |
-| 197 | `$compat_bitslice_range_index` | 1196 | - | YES (5.7s) |
-| 198 | `$compat_uplusminus` | 1196 | - | YES (5.6s) |
-| 199 | `$nestable_constructor_control` | 1196 | - | YES (5.7s) |
-| 200 | `$nestable_constructor_parser` | 1196 | - | YES (5.7s) |
-| 201 | `$nestable_controlApplyMethod` | 1196 | - | YES (5.7s) |
-| 202 | `$nestable_headerStack` | 1196 | - | YES (5.7s) |
-| 203 | `$nestable_headerUnion` | 1196 | - | YES (5.6s) |
-| 204 | `$definable_constructor` | 1197 | - | YES (5.8s) |
-| 205 | `$nestable_constructor_extern` | 1197 | - | YES (5.6s) |
-| 206 | `$nestable_externFunction` | 1197 | - | YES (5.8s) |
-| 207 | `$nestable_externMethod` | 1197 | - | YES (5.8s) |
-| 208 | `$nestable_new_in_enum_serializable` | 1197 | - | YES (5.6s) |
-| 209 | `$nestable_parserApplyMethod` | 1197 | - | YES (5.6s) |
-| 210 | `$compat_switch` | 1198 | - | YES (5.8s) |
-| 211 | `$compat_table_lpm_ternary_range_key` | 1198 | - | YES (5.6s) |
-| 212 | `$nestable_new` | 1198 | - | YES (5.7s) |
-| 213 | `$parameterListIR_of_functionTypeDefIR` | 1198 | - | YES (0.6s) |
-| 214 | `$typedExpressionIR_as_typedLvalueIR` | 1198 | - | YES (0.6s) |
-| 215 | `$compat_concat` | 1199 | - | YES (5.7s) |
-| 216 | `$callTargetKey` | 1200 | - | YES (0.6s) |
-| 217 | `$compat_table_exact_optional_key` | 1202 | - | YES (5.7s) |
-| 218 | `$callableTypeIR_of_callableTypeDefIR` | 1203 | - | YES (0.6s) |
-| 219 | `$compat_shift` | 1203 | - | YES (5.7s) |
-| 220 | `$nestable_enum_serializable` | 1203 | - | YES (5.7s) |
+| 171 | `$constructorId_of_externConstructorPrototype` | 886 | TIMEOUT (>2059s) | YES (2.5s) |
+| 172 | `$callableId_of_externMethodPrototype` | 887 | TIMEOUT (>2059s) | YES (2.5s) |
+| 173 | `$constructorId` | 887 | TIMEOUT (>2059s) | YES (2.5s) |
+| 174 | `$expressionNonBrace_as_expression` | 887 | TIMEOUT (>2063s) | YES (2.1s) |
+| 175 | `$optional_annotation_of_parameterIR_prime` | 893 | TIMEOUT (>2058s) | YES (2.3s) |
+| 176 | `$optional_annotation_of_parameterIR` | 895 | TIMEOUT (>2058s) | YES (2.3s) |
+| 177 | `$is_optional_parameterIR` | 896 | TIMEOUT (>2058s) | YES (2.5s) |
+| 178 | `$flatten_forInitStatementList` | 907 | TIMEOUT (>2062s) | YES (2.6s) |
+| 179 | `$split_externConstructorOrMethodPrototypeList` | 940 | TIMEOUT (>4142s) | YES (2.2s) |
+| 180 | `$flatten_parserStateList` | 1029 | TIMEOUT (>2085s) | YES (0.6s) |
+| 181 | `$name_annotation` | 1125 | TIMEOUT (>4273s) | YES (6.1s) |
+| 182 | `$name_annotation_default` | 1127 | TIMEOUT (>4249s) | YES (6.2s) |
+| 183 | `$cast_header_stack` | 1192 | TIMEOUT (>2141s) | YES (0.6s) |
+| 184 | `$cast_header` | 1194 | TIMEOUT (>2140s) | YES (0.6s) |
+| 185 | `$cast_struct` | 1194 | TIMEOUT (>2141s) | YES (0.6s) |
+| 186 | `$compat_lnot` | 1194 | TIMEOUT (>2141s) | YES (5.8s) |
+| 187 | `$nestable_constructor_package` | 1194 | TIMEOUT (>2141s) | YES (5.7s) |
+| 188 | `$resolve_type_alias` | 1194 | TIMEOUT (>2141s) | YES (5.7s) |
+| 189 | `$callTargetKey_prime` | 1195 | TIMEOUT (>2141s) | YES (0.6s) |
+| 190 | `$compat_bnot` | 1195 | TIMEOUT (>2141s) | YES (5.7s) |
+| 191 | `$compat_divmod` | 1195 | TIMEOUT (>2142s) | YES (5.7s) |
+| 192 | `$compat_logical` | 1195 | TIMEOUT (>2142s) | YES (5.7s) |
+| 193 | `$cast_bool` | 1196 | TIMEOUT (>2142s) | YES (5.8s) |
+| 194 | `$compat_array_index` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 195 | `$compat_bitslice_offset_index` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 196 | `$compat_bitslice_offset_width` | 1196 | TIMEOUT (>2141s) | YES (5.6s) |
+| 197 | `$compat_bitslice_range_index` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 198 | `$compat_uplusminus` | 1196 | TIMEOUT (>2141s) | YES (5.6s) |
+| 199 | `$nestable_constructor_control` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 200 | `$nestable_constructor_parser` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 201 | `$nestable_controlApplyMethod` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 202 | `$nestable_headerStack` | 1196 | TIMEOUT (>2141s) | YES (5.7s) |
+| 203 | `$nestable_headerUnion` | 1196 | TIMEOUT (>2140s) | YES (5.6s) |
+| 204 | `$definable_constructor` | 1197 | TIMEOUT (>2141s) | YES (5.8s) |
+| 205 | `$nestable_constructor_extern` | 1197 | TIMEOUT (>2141s) | YES (5.6s) |
+| 206 | `$nestable_externFunction` | 1197 | TIMEOUT (>2141s) | YES (5.8s) |
+| 207 | `$nestable_externMethod` | 1197 | TIMEOUT (>2140s) | YES (5.8s) |
+| 208 | `$nestable_new_in_enum_serializable` | 1197 | TIMEOUT (>2141s) | YES (5.6s) |
+| 209 | `$nestable_parserApplyMethod` | 1197 | TIMEOUT (>2141s) | YES (5.6s) |
+| 210 | `$compat_switch` | 1198 | TIMEOUT (>2141s) | YES (5.8s) |
+| 211 | `$compat_table_lpm_ternary_range_key` | 1198 | TIMEOUT (>2140s) | YES (5.6s) |
+| 212 | `$nestable_new` | 1198 | TIMEOUT (>2141s) | YES (5.7s) |
+| 213 | `$parameterListIR_of_functionTypeDefIR` | 1198 | TIMEOUT (>2157s) | YES (0.6s) |
+| 214 | `$typedExpressionIR_as_typedLvalueIR` | 1198 | TIMEOUT (>4329s) | YES (0.6s) |
+| 215 | `$compat_concat` | 1199 | TIMEOUT (>2141s) | YES (5.7s) |
+| 216 | `$callTargetKey` | 1200 | TIMEOUT (>2141s) | YES (0.6s) |
+| 217 | `$compat_table_exact_optional_key` | 1202 | TIMEOUT (>2141s) | YES (5.7s) |
+| 218 | `$callableTypeIR_of_callableTypeDefIR` | 1203 | TIMEOUT (>2154s) | YES (0.6s) |
+| 219 | `$compat_shift` | 1203 | TIMEOUT (>2142s) | YES (5.7s) |
+| 220 | `$nestable_enum_serializable` | 1203 | TIMEOUT (>2141s) | YES (5.7s) |
 | 221 | `$typeParameterListIR_of_callableTypeDefIR` | 1203 | - | YES (0.6s) |
 | 222 | `$flatten_keysetExpressionIR` | 1206 | - | YES (0.6s) |
 | 223 | `$is_static_assert_callableTypeIR` | 1206 | - | YES (0.6s) |
