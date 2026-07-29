@@ -466,16 +466,33 @@ MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
   (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
 - Acyclic call graph + large slice → pure tool-budget TIMEOUT.
 
-**The one real family — binenc zero-width / zero-value boundary.**
-`$write_value_from_bits'` at `integerValue.V, n_var = 0`: two order-sensitive
-`def` clauses share the `V` constructor, but the general clause carries no
-`n_var ≠ 0` guard and no owise, so both fire at `n_var = 0` with different
-results (keep the original field vs overwrite with `$int_to_bitstr(0, …)`) — a
-latent non-confluence masked only by rule order. This is the root cause of all
-five `write_value*` CRC MAYBEs, and the same family as the
-`$bitstr_to_int` / `$int_to_bitstr` w=0 non-termination. **Lesson: when
+**The one real family — binenc zero-width / zero-value boundary (spec, fixed
+2026-07-29).** `$write_value_from_bits'` at `integerValue.V, n_var = 0`: two
+order-sensitive `def` clauses share the `V` constructor, but the general clause
+carried no `n_var ≠ 0` guard and no owise, so both fired at `n_var = 0` with
+different results (keep the original field vs overwrite with
+`$int_to_bitstr(0, …)`) — a latent non-confluence masked only by rule order. The
+guard the clause order was carrying is now written out in
+[2.1.2-value-aux.spectec](spectec/specs/p4/2-static-runtime/2.1.2-value-aux.spectec)
+as `-- if $(n_var > 0)`. The same family as the `$bitstr_to_int` /
+`$int_to_bitstr` w=0 non-termination, which is still open.
+
+This section used to call that overlap *the* root cause of the five
+`write_value*` CRC MAYBEs; measuring the fixed spec refutes that. The base CRC
+on `$write_value_from_bits_prime` is still `MAYBE` (118.8 s) and only
+`--crc-normalize` lifts it to YES, exactly as before the fix — so the operative
+cause of those MAYBEs is the determinacy critical pairs of the tuple binders
+(see the CRC-normalization section), and the `n_var = 0` overlap was a real
+order-dependence defect sitting on top of them, not their source.
+
+**Lessons: when
 translating order-sensitive `def` clauses that share a constructor, preserve the
-disambiguating guard (or owise); always check the 0-width / 0-value boundary.**
+disambiguating guard (or owise), and always check the 0-width / 0-value
+boundary. Spell a "≠ constant" guard on a nat/int as an arithmetic comparison —
+`=/=` translates to the *generic structural* `eq`, whose defining table (50,629
+rules) then joins the dependency closure and takes the slice from 271 rules to
+50,900; `$(n_var > 0)` uses the arithmetic prelude's `leq` and leaves the slice
+at 271. Re-measure `rewrite --list-symbols --sizes` after any such spec edit.**
 
 **Surfaces differ.** CRC/termination run on the `rewrite --ctrs` *analysis*
 surface (owise dropped, `isStuckHead` ruleless); confirm a real

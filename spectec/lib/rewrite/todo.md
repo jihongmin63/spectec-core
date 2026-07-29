@@ -72,6 +72,40 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-29 — `$write_value_from_bits'` n_var=0 경계 수정 — ✅ 완료. 가드 **철자**가 슬라이스 크기를 지배한다
+
+**결함(스펙 쪽).** `2.1.2-value-aux.spectec`의 varbit(`V`) 절 두 개가 `n_var = 0`에서 동시에
+발화한다 — 폭 0 절(필드 유지)과 일반 절(0비트를 디코드해 덮어씀). 인터프리터는 절 순서로 첫
+절을 골랐지만 그 순서는 CTRS에 없으므로, 번역하면 겹치는 등식 두 개가 된다(= `$write_value*`
+CRC MAYBE 5의 뿌리). 일반 절에 가드를 복원해 순서가 지던 disambiguation을 명시했다.
+
+**철자 선택이 결정적이다 — `=/=`는 값 우주 전체를 슬라이스로 끌어온다.** 처음 쓴
+`-- if n_var =/= 0`은 nat 비교가 아니라 **일반 구조 등식 `eq`** 로 번역된다. `eq`의 정의
+테이블(문자 9,025 + `variant-*` 전부, 합 50,629규칙)이 통째로 의존성 폐포에 들어와 슬라이스가
+**271규칙 → 50,900규칙**으로 폭발했고, CRC는 5심볼 전부 outer 5400초에 verdict 없이 kill됐다
+(종전 `YES* ~252초`에서 명백한 회귀). `-- if $(n_var > 0)`으로 바꾸면 산술 프리루드의 `leq`
+하나만 쓰므로 슬라이스는 **271규칙 그대로**고, 조건은 `leq(n-var, bzero) = false`로 나와
+형제 절의 head 패턴 `bzero`와 같은 subject의 true/false 극성 충돌이 된다 — `align_guards`가
+이미 정규화해 두는 바로 그 형태라 CRC가 임계쌍을 discharge한다.
+
+> **교훈: nat/int 위의 "≠ 상수" 가드는 `$(x > 0)` 같은 산술 비교로 쓴다.** `=/=`는 실행
+> 표면에는 무해하지만(등식 하나) 분석 표면에서는 심볼 하나를 전체-시스템급 슬라이스로 만든다.
+> 스펙을 고쳐 CRC를 돕는 작업은 **고친 뒤 슬라이스 크기(`rewrite --list-symbols --sizes`)를
+> 반드시 다시 재라** — 판정을 기다리기 전에 5초면 회귀가 보인다.
+
+**판정은 안 바뀐다 — 이 오버랩은 MAYBE의 원인이 아니었다.** 가드를 넣은 뒤에도 base CRC는
+`$write_value_from_bits_prime`에서 여전히 **MAYBE(118.8초)**이고 `--crc-normalize`가 YES로
+올린다(수정 전과 같은 `YES*`). 즉 다섯 MAYBE의 실제 원인은 tuple 바인더의 **결정성 임계쌍**
+(아래 "CRC 정규화 패스" 절)이고, `n_var = 0` 오버랩은 그 위에 얹혀 있던 별개의 진짜
+순서-의존 결함이었다. CLAUDE.md·todo가 "MAYBE 5의 뿌리"라고 적어 둔 부분은 이 측정으로
+정정한다 — 고칠 가치는 여전하지만(순서가 지던 disambiguation을 CTRS가 잃는 건 실제 결함),
+CRC 열이 좋아지리라 기대할 근거는 없었다.
+
+**무회귀 검증**(`> 0` 판): varbit 프로그램 44개(p4_16_samples + p4_16_errors) 인터프리터 판정이
+baseline TSV와 **44/44 일치**, `run --check-p4` 결과-VALUE **35/35 MATCH**(유일한 STUCK
+`issue1879-bmv2.p4`는 baseline에서도 interp FAIL/Maude STUCK). CRC 재측정치는
+[verification.md](../../../verification.md) 표.
+
 ### 2026-07-24 — 【알려진 결함】 `sanitize`가 `$capture_avoiding_`와 `$capture_avoiding`를 한 심볼로 합친다 — 미수정
 
 `R.sanitize`(`rewrite_system.ml`)는 `_`를 **토큰 구분자로 버리고** 토큰을 다시 `_`로
@@ -2404,11 +2438,11 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → LTL 모델 검사로 P4 시간적 성질 검증                                        [신규 축; (P1) 선택적 rl 모드(= Kripke 전이, 유일한 하드 블로커) → (P2) modelCheck 배선(holds_R을 원자명제로) → header validity `[] ~ readInvalid` → parser/progress/preservation → (P3) 보조 search 일반화]
   → SCC (sufficient completeness)                                             [P1 도메인 협소화 완료(2026-07-14, predicate_domains = 쓰이는 주어들의 join 고정점; 가족의 86%가 진짜 sort, match_typeIR_BOOL_0이 위양성 반례 → COMPLETE). 남은 건 (P2) --slice-dir 배치 덤프(심볼당 50초 재번역 → 24시간이라 스윕 전 필수) → 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만; dom: 열로 1차 분류) → (P3) sub_nat의 Val 도메인]
-  → $write_value_from_bits' n_var=0 경계                                       [CRC MAYBE 5의 뿌리이자 유일한 진짜 비합류: 2.1.2-value-aux.spectec:147-153의 두 절이 n_var=0에서 동시에 발화. 원 스펙의 절 순서가 지던 disambiguation을 번역이 잃음 → n_var≠0 가드(또는 owise) 복원 필요. (term 쪽은 fold 이후 5심볼 전부 YES — 3fbbe1d6)]
   → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
 
-  (완료: CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
+  (완료: $write_value_from_bits' n_var=0 경계 — 스펙에 `$(n_var > 0)` 가드 복원(아래 2026-07-28 항목)
+         CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
          termination 열 채우기 — 153심볼 CRC+term 스윕, verification.md
          owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
          해소(둘 다 YES), $join_flow 회귀 없음, 2026-07-16 상세는 위 M1 블록)
