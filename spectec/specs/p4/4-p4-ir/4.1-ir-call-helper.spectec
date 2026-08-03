@@ -71,7 +71,7 @@ def $align_parameterListIR(
       = $partition_parameterListIR(
           parameterIR*, nameIR_default*, nameIR_optional*)
   ----
-  -- if (_ _ _ nameIR_given _ = parameterIR_given)*
+  -- if (nameIR_given = $id_of_parameterIR(parameterIR_given))*
   -- if parameterIR_given_aligned*
       = $align_parameterListIR_given(
           `{ (nameIR_given ':' parameterIR_given)* `},

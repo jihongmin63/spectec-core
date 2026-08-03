@@ -7,4 +7,4 @@ dec $callableId_IR(nameIR, parameterListIR) : callableId
 
 def $callableId_IR(nameIR, parameterIR*)
   = nameIR `( id* `)
-  -- if (_ _ _ id _ = parameterIR)*
+  -- if (id = $id_of_parameterIR(parameterIR))*

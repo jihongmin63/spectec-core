@@ -1176,6 +1176,10 @@ syntax parserStateList =
   | parserState
   | parserStateList parserState
 
+dec $name_of_parserState(parserState) : name
+  hint(prose_in "the name of" %0)
+def $name_of_parserState(_ STATE name `{ _ _ `}) = name
+
 dec $flatten_parserStateList(parserStateList) : parserState*
   hint(prose_in %0 "flattened")
 def $flatten_parserStateList(parserState) = parserState

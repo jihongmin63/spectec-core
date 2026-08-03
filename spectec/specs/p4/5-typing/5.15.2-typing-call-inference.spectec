@@ -156,16 +156,20 @@ def $gen_constraint(
     PARSER _ `< _ `> `( parameterIR_param* `),
     PARSER _ `< _ `> `( parameterIR_arg* `))
   = $gen_constraints(constraint, typeIR_param*, typeIR_arg*)
-  -- if (_ direction typeIR_param _ _ = parameterIR_param)*
-  -- if (_ direction typeIR_arg _ _ = parameterIR_arg)*
+  -- if (direction = $direction_of_parameterIR(parameterIR_param))*
+  -- if (typeIR_param = $typeIR_of_parameterIR(parameterIR_param))*
+  -- if (direction = $direction_of_parameterIR(parameterIR_arg))*
+  -- if (typeIR_arg = $typeIR_of_parameterIR(parameterIR_arg))*
 
 def $gen_constraint(
     constraint,
     CONTROL _ `< _ `> `( parameterIR_param* `),
     CONTROL _ `< _ `> `( parameterIR_arg* `))
   = $gen_constraints(constraint, typeIR_param*, typeIR_arg*)
-  -- if (_ direction typeIR_param _ _ = parameterIR_param)*
-  -- if (_ direction typeIR_arg _ _ = parameterIR_arg)*
+  -- if (direction = $direction_of_parameterIR(parameterIR_param))*
+  -- if (typeIR_param = $typeIR_of_parameterIR(parameterIR_param))*
+  -- if (direction = $direction_of_parameterIR(parameterIR_arg))*
+  -- if (typeIR_arg = $typeIR_of_parameterIR(parameterIR_arg))*
 
 def $gen_constraint(
     constraint,

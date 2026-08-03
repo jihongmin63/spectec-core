@@ -182,7 +182,7 @@ rule CallableType_ok/parserApplyMethodTypeIR:
   ---- ;; create method type
   -- if parserApplyMethodTypeIR = PARSER_APPLY `( parameterIR* `)
   ---- ;; create callable id
-  -- if (_ _ _ id_param _ = parameterIR)*
+  -- if (id_param = $id_of_parameterIR(parameterIR))*
   -- if callableId = "apply" `( id_param* `)
   ---- ;; perform overload resoultion
   -- if callTargetKey = $callTargetKey("apply", argumentIR*)
@@ -201,7 +201,7 @@ rule CallableType_ok/controlApplyMethodTypeIR:
   ---- ;; create method type
   -- if controlApplyMethodTypeIR = CONTROL_APPLY `( parameterIR* `)
   ---- ;; create callable id
-  -- if (_ _ _ id_param _ = parameterIR)*
+  -- if (id_param = $id_of_parameterIR(parameterIR))*
   -- if callableId = "apply" `( id_param* `)
   ---- ;; perform default resoultion
   -- if callTargetKey = $callTargetKey("apply", argumentIR*)

@@ -591,7 +591,7 @@ rule Decl_inst/packageTypeDeclarationIR:
                 `( parameterIR* `) ';'
            : IC_2 STO
   ---- ;; bind package type to typedef environment
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if packageObjectTypeDefIR
       = PACKAGE nameIR `< typeParameterListIR ',' typeParameterListIR_inferred `> `{ typeIR* `}
   -- if IC_1 = $add_typeDef_i(GLOBAL, IC_0, nameIR, packageObjectTypeDefIR)

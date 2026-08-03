@@ -967,7 +967,8 @@ def $insert_NoAction_tablePropertyIR(
   = (TBLC_1, tablePropertyIR_h_updated :: tablePropertyIR_t*)
   ---- ;; check that NoAction is not already present in actions
   -- if ACTIONS '=' `{ tableActionIR* `} = tablePropertyIR_h
-  -- if (_ tableActionReferenceIR '#' `( _ ',' _ `) ';' = tableActionIR)*
+  -- if (tableActionReferenceIR
+      = $tableActionReferenceIR_of_tableActionIR(tableActionIR))*
   -- if tableActionReferenceIR_NoAction = ('.' "NoAction") eps `( eps `)
   -- if ~(tableActionReferenceIR_NoAction <- tableActionReferenceIR*)
   ---- ;; insert NoAction to table context and table properties
@@ -982,7 +983,8 @@ def $insert_NoAction_tablePropertyIR(
   = (TBLC_0, tablePropertyIR_h :: tablePropertyIR_t*)
   ---- ;; check that NoAction is already present in actions
   -- if ACTIONS '=' `{ tableActionIR* `} = tablePropertyIR_h
-  -- if (_ tableActionReferenceIR '#' `( _ ',' _ `) ';' = tableActionIR)*
+  -- if (tableActionReferenceIR
+      = $tableActionReferenceIR_of_tableActionIR(tableActionIR))*
   -- if tableActionReferenceIR_NoAction = ('.' "NoAction") eps `( eps `)
   -- if (tableActionReferenceIR_NoAction <- tableActionReferenceIR*)
 def $insert_NoAction_tablePropertyIR(

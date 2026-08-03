@@ -474,7 +474,8 @@ rule CallableType_wf/actionTypeIR:
   B |- _ ACTION _ `( parameterIR* `)
   -- (ParameterType_wf: B |- parameterIR)*
   -- if (~$is_optional_parameterIR(parameterIR))*
-  -- if (_ direction typeIR _ _ = parameterIR)*
+  -- if (direction = $direction_of_parameterIR(parameterIR))*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $directionless_trailing(direction*)
   -- if $nestable_action(typeIR)*
 
@@ -493,7 +494,7 @@ rule CallableType_wf/definedFunctionTypeIR:
   B |- FUNCTION _ `( parameterIR* `) ':' typeIR_ret
   -- (ParameterType_wf: B |- parameterIR)*
   -- if (~$is_optional_parameterIR(parameterIR))*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_definedFunction(typeIR)*
   -- ReturnType_wf: B |- typeIR_ret
 
@@ -511,7 +512,7 @@ def $nestable_externFunction(_) = true
 rule CallableType_wf/externFunctionTypeIR:
   B |- EXTERN_FUNCTION _ `( parameterIR* `) ':' typeIR_ret
   -- (ParameterType_wf: B |- parameterIR)*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_externFunction(typeIR)*
   -- ReturnType_wf: B |- typeIR_ret
 
@@ -538,7 +539,7 @@ def $nestable_externMethod(_) = true
 rule CallableType_wf/non-abstract:
   B |- EXTERN_METHOD _ `( parameterIR* `) ':' typeIR_ret
   -- (ParameterType_wf: B |- parameterIR)*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_externMethod(typeIR)*
   -- ReturnType_wf: B |- typeIR_ret
 
@@ -546,7 +547,7 @@ rule CallableType_wf/abstract:
   B |- EXTERN_METHOD ABSTRACT _ `( parameterIR* `) ':' typeIR_ret
   -- (ParameterType_wf: B |- parameterIR)*
   -- if (~$is_optional_parameterIR(parameterIR))*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_externMethod(typeIR)*
   -- ReturnType_wf: B |- typeIR_ret
 
@@ -566,7 +567,7 @@ rule CallableType_wf/parserApplyMethodTypeIR:
   B |- PARSER_APPLY `( parameterIR* `)
   -- (ParameterType_wf: B |- parameterIR)*
   -- if (~$is_optional_parameterIR(parameterIR))*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_parserApplyMethod(typeIR)*
 
 dec $nestable_controlApplyMethod(typeIR) : bool
@@ -583,7 +584,7 @@ rule CallableType_wf/controlApplyMethodTypeIR:
   B |- CONTROL_APPLY `( parameterIR* `)
   -- (ParameterType_wf: B |- parameterIR)*
   -- if (~$is_optional_parameterIR(parameterIR))*
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_controlApplyMethod(typeIR)*
 
 rule CallableType_wf/tableApplyMethodTypeIR:
@@ -635,7 +636,7 @@ rule ConstructorType_wf/externObjectTypeIR:
   -- (ConstructorParameterType_wf: B |- parameterIR)*
   -- Type_wf: B |- typeIR_object
   -- if externObjectTypeIR = $unroll_typeIR(typeIR_object)
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_constructor_extern(typeIR)*
 
 dec $nestable_constructor_parser(typeIR) : bool
@@ -654,7 +655,7 @@ rule ConstructorType_wf/parserObjectTypeIR:
   -- if (~$is_optional_parameterIR(parameterIR))*
   -- Type_wf: B |- typeIR_object
   -- if parserObjectTypeIR = $unroll_typeIR(typeIR_object)
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_constructor_parser(typeIR)*
 
 dec $nestable_constructor_control(typeIR) : bool
@@ -672,7 +673,7 @@ rule ConstructorType_wf/controlObjectTypeIR:
   -- if (~$is_optional_parameterIR(parameterIR))*
   -- Type_wf: B |- typeIR_object
   -- if controlObjectTypeIR = $unroll_typeIR(typeIR_object)
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_constructor_control(typeIR)*
 
 rule ConstructorType_wf/tableObjectTypeIR:
@@ -692,7 +693,7 @@ rule ConstructorType_wf/packageObjectTypeIR:
   -- (ConstructorParameterType_wf: B |- parameterIR)*
   -- Type_wf: B |- typeIR_object
   -- if packageObjectTypeIR = $unroll_typeIR(typeIR_object)
-  -- if (_ _ typeIR _ _ = parameterIR)*
+  -- if (typeIR = $typeIR_of_parameterIR(parameterIR))*
   -- if $nestable_constructor_package(typeIR)*
 
 ;;

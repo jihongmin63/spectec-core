@@ -1101,7 +1101,7 @@ rule Decl_ok/packageTypeDeclaration:
             : TC_3 constructorParameterIR* '#' typeId_impl*
   ---- ;; update the context with package type
   -- if nameIR = $name(name)
-  -- if (_ _ typeIR_package_inner _ _ = constructorParameterIR)*
+  -- if (typeIR_package_inner = $typeIR_of_parameterIR(constructorParameterIR))*
   -- if packageObjectTypeDefIR
       = PACKAGE nameIR `< typeId_expl* ',' typeId_impl* `> `{ typeIR_package_inner* `}
   -- TypeDef_wf: B |- packageObjectTypeDefIR

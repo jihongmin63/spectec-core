@@ -761,6 +761,13 @@ syntax tableActionIR =
   annotationList tableActionReferenceIR
     '#' `( parameterListIR ',' parameterListIR `) ';'
 
+dec $tableActionReferenceIR_of_tableActionIR(tableActionIR)
+  : tableActionReferenceIR
+  hint(prose_in "the action reference of" %0)
+def $tableActionReferenceIR_of_tableActionIR(
+    _ tableActionReferenceIR '#' `( _ ',' _ `) ';')
+  = tableActionReferenceIR
+
 syntax tableActionListIR = tableActionIR*
 
 ;;

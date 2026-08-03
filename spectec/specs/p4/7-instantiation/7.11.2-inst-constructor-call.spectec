@@ -106,7 +106,7 @@ rule Constructor_call/externConstructorDef:
       = $align_parameterListIR(
           constructorParameterIR*, argumentIR*, id_default*, id_optional*)
   ---- ;; bind non-default arguments to the callee context
-  -- if (_ _ _ id_aligned _ = constructorParameterIR_aligned)*
+  -- if (id_aligned = $id_of_parameterIR(constructorParameterIR_aligned))*
   -- Copy_in_inst:
       STO_0 p IC argumentIR* '@' p_callee IC_callee_1 id_aligned*
       ~> STO_1 IC_callee_2
@@ -121,7 +121,7 @@ rule Constructor_call/externConstructorDef:
   ---- ;; create an extern object with the final callee context
   -- if `{ (callableId ':' externMethodDef)* `} = IC_callee_4.BLOCK.CALLABLE
   ---- ;; initialize extern state
-  -- if (_ _ _ id_cparam _ = constructorParameterIR)*
+  -- if (id_cparam = $id_of_parameterIR(constructorParameterIR))*
   -- if (value_cparam = $find_map<id, value>(IC_callee_4.BLOCK.FRAME, id_cparam))*
   -- if objectState = $init_objectState(nameIR, typeArgumentIR*, value_cparam*)
   ---- ;; create extern object
@@ -160,7 +160,7 @@ rule Constructor_call/parserConstructorDef:
       = $align_parameterListIR(
           constructorParameterIR*, argumentIR*, id_default*, id_optional*)
   ---- ;; bind non-default arguments to callee context
-  -- if (_ _ _ id_aligned _ = constructorParameterIR_aligned)*
+  -- if (id_aligned = $id_of_parameterIR(constructorParameterIR_aligned))*
   -- Copy_in_inst:
       STO_0 p IC argumentIR* '@' p_callee IC_callee_1 id_aligned*
       ~> STO_1 IC_callee_2
@@ -213,7 +213,7 @@ rule Constructor_call/controlConstructorDef:
       = $align_parameterListIR(
           constructorParameterIR*, argumentIR*, id_default*, id_optional*)
   ---- ;; bind non-default arguments to the callee context
-  -- if (_ _ _ id_aligned _ = constructorParameterIR_aligned)*
+  -- if (id_aligned = $id_of_parameterIR(constructorParameterIR_aligned))*
   -- Copy_in_inst:
       STO_0 p IC argumentIR* '@' p_callee IC_callee_1 id_aligned*
       ~> STO_1 IC_callee_2
@@ -265,7 +265,7 @@ rule Constructor_call/packageConstructorDef:
       = $align_parameterListIR(
           constructorParameterIR*, argumentIR*, id_default*, id_optional*)
   ---- ;; bind non-default arguments to callee context
-  -- if (_ _ _ id_aligned _ = constructorParameterIR_aligned)*
+  -- if (id_aligned = $id_of_parameterIR(constructorParameterIR_aligned))*
   -- Copy_in_inst:
       STO_0 p IC argumentIR* '@' p_callee IC_callee_1 id_aligned*
       ~> STO_1 IC_callee_2

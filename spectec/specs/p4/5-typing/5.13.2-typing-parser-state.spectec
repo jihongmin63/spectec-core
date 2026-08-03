@@ -38,7 +38,7 @@ rule ParserStateList_ok:
   -- if parserState*
       = $flatten_parserStateList(parserStateList)
   ---- ;; check that state names are distinct
-  -- if (_ STATE name_state `{ _ _ `} = parserState)*
+  -- if (name_state = $name_of_parserState(parserState))*
   -- if (nameIR_state = $name(name_state))*
   -- if $distinct_<nameIR>(nameIR_state*)
   ---- ;; check that a "start" state exists

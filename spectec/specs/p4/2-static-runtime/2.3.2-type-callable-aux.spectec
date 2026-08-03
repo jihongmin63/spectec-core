@@ -6,6 +6,14 @@ dec $id_of_parameterIR(parameterIR) : id
   hint(prose_in "the identifier of" %0)
 def $id_of_parameterIR(_ _ _ id _) = id
 
+dec $direction_of_parameterIR(parameterIR) : direction
+  hint(prose_in "the direction of" %0)
+def $direction_of_parameterIR(_ direction _ _ _) = direction
+
+dec $typeIR_of_parameterIR(parameterIR) : typeIR
+  hint(prose_in "the type of" %0)
+def $typeIR_of_parameterIR(_ _ typeIR _ _) = typeIR
+
 dec $is_default_parameterIR(parameterIR) : bool
   hint(prose_true %0 "is a parameter with a default value")
   hint(prose_false %0 "is a parameter without a default value")
