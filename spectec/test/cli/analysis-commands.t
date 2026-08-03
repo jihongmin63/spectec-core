@@ -8,8 +8,10 @@ termination --emit-trs prints the structure-preserving unraveling of one
 slice as a TPDB TRS (stats go to stderr):
 
   $ spectec termination --emit-trs --symbol '$lookup' $SPEC
-  (VAR K_h K_query K_t K_t__hd V_h V_t V_t__hd __rest __rest0 iterbind_0 pair_lt_K_comma_V_gt x x0 x1 xs y)
+  (VAR K_h K_query K_t__hd V_h V_t__hd __rest __rest0 iterbind_0 pair_lt_K_comma_V_gt x x0 x1 xs y)
   (RULES
+    not(true) -> false
+    not(false) -> true
     and(true, y) -> y
     and(false, y) -> false
     match_cons(cons(x, xs)) -> true
@@ -23,20 +25,21 @@ slice as a TPDB TRS (stats go to stderr):
     d_lookup(nil, K_query) -> none
     d_lookup(pair_lt_K_comma_V_gt, K_query) -> u_1(match_cons(pair_lt_K_comma_V_gt), k_1(pair_lt_K_comma_V_gt, K_query))
     u_1(true, k_1(pair_lt_K_comma_V_gt, K_query)) -> u_2(pair_lt_K_comma_V_gt, k_2(pair_lt_K_comma_V_gt, K_query))
-    u_2(cons(variant_pair_minus_gt_2(K_query, V_h), iterbind_0), k_2(pair_lt_K_comma_V_gt, K_query)) -> u_3(d_iterproj_K_t_minus_gt_V_t_list_K_t(iterbind_0), k_3(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0))
-    u_3(K_t, k_3(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0)) -> u_4(d_iterproj_K_t_minus_gt_V_t_list_V_t(iterbind_0), k_4(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0, K_t))
-    u_4(V_t, k_4(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0, K_t)) -> some(V_h)
+    u_2(cons(variant_pair_minus_gt_2(K_query, V_h), iterbind_0), k_2(pair_lt_K_comma_V_gt, K_query)) -> u_3(isStuckHead(d_iterproj_K_t_minus_gt_V_t_list_V_t(iterbind_0)), k_3(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0))
+    u_3(false, k_3(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0)) -> u_4(isStuckHead(d_iterproj_K_t_minus_gt_V_t_list_K_t(iterbind_0)), k_4(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0))
+    u_4(false, k_4(pair_lt_K_comma_V_gt, K_query, V_h, iterbind_0)) -> some(V_h)
     d_lookup(pair_lt_K_comma_V_gt, K_query) -> u_5(match_cons(pair_lt_K_comma_V_gt), k_5(pair_lt_K_comma_V_gt, K_query))
     u_5(true, k_5(pair_lt_K_comma_V_gt, K_query)) -> u_6(pair_lt_K_comma_V_gt, k_6(pair_lt_K_comma_V_gt, K_query))
-    u_6(cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0), k_6(pair_lt_K_comma_V_gt, K_query)) -> u_7(or(eqg(pair_lt_K_comma_V_gt, nil), and(match_cons(pair_lt_K_comma_V_gt), eqg(K_query, proj_variant_pair_minus_gt_2_0(proj_cons_0(pair_lt_K_comma_V_gt))))), k_7(pair_lt_K_comma_V_gt, K_query, K_h, V_h, iterbind_0))
+    u_6(cons(variant_pair_minus_gt_2(K_h, V_h), iterbind_0), k_6(pair_lt_K_comma_V_gt, K_query)) -> u_7(or(eqg(pair_lt_K_comma_V_gt, nil), and(and(and(match_cons(pair_lt_K_comma_V_gt), eqg(K_query, proj_variant_pair_minus_gt_2_0(proj_cons_0(pair_lt_K_comma_V_gt)))), not(isStuckHead(d_iterproj_K_t_minus_gt_V_t_list_V_t(proj_cons_1(pair_lt_K_comma_V_gt))))), not(isStuckHead(d_iterproj_K_t_minus_gt_V_t_list_K_t(proj_cons_1(pair_lt_K_comma_V_gt)))))), k_7(pair_lt_K_comma_V_gt, K_query, K_h, V_h, iterbind_0))
     u_7(false, k_7(pair_lt_K_comma_V_gt, K_query, K_h, V_h, iterbind_0)) -> d_lookup(d_itermap_K_t_minus_gt_V_t_list_1_fK_t_minus_gt_V_t_pair(iterbind_0), K_query)
     eqg(x, x) -> true
     proj_cons_0(cons(x0, x1)) -> x0
+    proj_cons_1(cons(x0, x1)) -> x1
     proj_variant_pair_minus_gt_2_0(variant_pair_minus_gt_2(x0, x1)) -> x0
   )
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  eqs=16 rules=23 u=7 k=7 vars=16 owise=0
+  eqs=19 rules=26 u=7 k=7 vars=14 owise=0
 
 A symbol with no rules is DEGENERATE, not an error (no stats to report):
 
@@ -91,11 +94,11 @@ rule lines themselves are untouched:
   $ spectec rewrite --ctrs --symbol '$lookup' $SPEC | grep -c '^  op '
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  32
+  35
   $ spectec rewrite --ctrs --symbol '$lookup' --prune-signature $SPEC | grep -c '^  op '
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  17
+  20
   $ spectec rewrite --ctrs --symbol '$lookup' $SPEC | grep -E '^  c?eq ' > full.eqs
   reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
   reflect: 1 owise rule(s) reflected, 0 complement-enumerated, 0 kept
@@ -120,11 +123,11 @@ snapshot):
   Run_prog
 
   $ spectec rewrite --list-symbols --sizes $SPEC 2>/dev/null
-  16	$lookup
-  27	Check_expr
-  33	Check_command
-  34	Check_prog
-  131	Eval_expr
-  139	Eval_command
-  140	Eval_prog
-  159	Run_prog
+  19	$lookup
+  30	Check_expr
+  36	Check_command
+  37	Check_prog
+  132	Eval_expr
+  140	Eval_command
+  141	Eval_prog
+  160	Run_prog

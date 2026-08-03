@@ -74,6 +74,7 @@ set include BOOL off .
   op not : BoolV -> BoolV .
   op or : BoolV BoolV -> BoolV .
   op proj-cons-0 : Val -> Val .
+  op proj-cons-1 : Val -> List .
   op proj-variant-pair-minus-gt-2-0 : Val -> Val .
   op some : Val -> Opt [ctor] .
   op sub-int-nat : NatV NatV -> IntV .
@@ -303,8 +304,8 @@ set include BOOL off .
   eq subty-id(variant-expr-lt-eq-2(x0:Expr, x1:Expr)) = false .
   eq subty-id(variant-expr-amp-amp-2(x0:Expr, x1:Expr)) = false .
   eq $lookup(nil, K-query:Val) = none .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ $iterproj-K-t-minus-gt-V-t-list-K-t(iterbind-0:List) = K-t:List /\ $iterproj-K-t-minus-gt-V-t-list-V-t(iterbind-0:List) = V-t:List .
-  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(iterbind-0:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(eqg(pair-lt-K-comma-V-gt:List, nil), and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List))))) = false .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = some(V-h:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-query:Val, V-h:Val), iterbind-0:List) /\ isStuckHead($iterproj-K-t-minus-gt-V-t-list-V-t(iterbind-0:List)) = false /\ isStuckHead($iterproj-K-t-minus-gt-V-t-list-K-t(iterbind-0:List)) = false .
+  ceq $lookup(pair-lt-K-comma-V-gt:List, K-query:Val) = $lookup($itermap-K-t-minus-gt-V-t-list-1-fK-t-minus-gt-V-t-pair(iterbind-0:List), K-query:Val) if match-cons(pair-lt-K-comma-V-gt:List) = true /\ pair-lt-K-comma-V-gt:List = cons(variant-pair-minus-gt-2(K-h:Val, V-h:Val), iterbind-0:List) /\ or(eqg(pair-lt-K-comma-V-gt:List, nil), and(and(and(match-cons(pair-lt-K-comma-V-gt:List), eqg(K-query:Val, proj-variant-pair-minus-gt-2-0(proj-cons-0(pair-lt-K-comma-V-gt:List)))), not(isStuckHead($iterproj-K-t-minus-gt-V-t-list-V-t(proj-cons-1(pair-lt-K-comma-V-gt:List))))), not(isStuckHead($iterproj-K-t-minus-gt-V-t-list-K-t(proj-cons-1(pair-lt-K-comma-V-gt:List)))))) = false .
   eq Check-expr(tenv:List, variant-literal--NUM-1(i:IntV)) = variant-type-INT-0 .
   eq Check-expr(tenv:List, variant-literal--BOOL-1(b:BoolV)) = variant-type-BOOL-0 .
   ceq Check-expr(tenv:List, variant-id--ID-1(expand-0:Text)) = t:Type if $lookup(tenv:List, variant-id--ID-1(expand-0:Text)) = some(t:Type) .
@@ -315,10 +316,10 @@ set include BOOL off .
   eq Check-command(tenv:List, variant-command-SKIP-0) = tenv:List .
   ceq Check-command(tenv:List, variant-command-eq-3(t:Type, x:Id, e:Expr)) = cons(variant-pair-minus-gt-2(x:Id, t:Type), tenv:List) if isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ Check-expr(tenv:List, e:Expr) = t:Type .
   ceq Check-command(tenv:List, variant-command-eq-2(x:Id, e:Expr)) = tenv:List if isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ $lookup(tenv:List, x:Id) = some(Check-expr(tenv:List, e:Expr)) .
-  ceq Check-command(tenv:List, variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command)) = tenv:List if isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true /\ Check-command(tenv:List, c-1:Command) = tenv-1:List /\ Check-command(tenv:List, c-2:Command) = tenv-2:List .
-  ceq Check-command(tenv:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) = tenv:List if isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true /\ Check-command(tenv:List, c:Command) = tenv-1:List .
+  ceq Check-command(tenv:List, variant-command-IF-THEN-ELSE-END-3(e:Expr, c-1:Command, c-2:Command)) = tenv:List if isStuckHead(Check-command(tenv:List, c-2:Command)) = false /\ isStuckHead(Check-command(tenv:List, c-1:Command)) = false /\ isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true .
+  ceq Check-command(tenv:List, variant-command-WHILE-DO-END-2(e:Expr, c:Command)) = tenv:List if isStuckHead(Check-command(tenv:List, c:Command)) = false /\ isStuckHead(Check-expr(tenv:List, e:Expr)) = false /\ match-type-BOOL-0(Check-expr(tenv:List, e:Expr)) = true .
   ceq Check-command(tenv:List, variant-command-semi-2(c-1:Command, c-2:Command)) = Check-command(Check-command(tenv:List, c-1:Command), c-2:Command) if isStuckHead(Check-command(Check-command(tenv:List, c-1:Command), c-2:Command)) = false /\ isStuckHead(Check-command(tenv:List, c-1:Command)) = false .
-  ceq Check-prog(command:Command) = true if Check-command(nil, command:Command) = tenv:List .
+  ceq Check-prog(command:Command) = true if isStuckHead(Check-command(nil, command:Command)) = false .
   eq Eval-expr(env:List, variant-literal--NUM-1(i:IntV)) = variant-literal--NUM-1(i:IntV) .
   eq Eval-expr(env:List, variant-literal--BOOL-1(b:BoolV)) = variant-literal--BOOL-1(b:BoolV) .
   ceq Eval-expr(env:List, variant-id--ID-1(expand-0:Text)) = v:Literal if $lookup(env:List, variant-id--ID-1(expand-0:Text)) = some(v:Literal) .
@@ -338,6 +339,7 @@ set include BOOL off .
   ceq Run-prog(command:Command) = Eval-prog(command:Command) if isStuckHead(Eval-prog(command:Command)) = false /\ Check-prog(command:Command) = true .
   eq eqg(x:Val, x:Val) = true .
   eq proj-cons-0(cons(x0:Val, x1:List)) = x0:Val .
+  eq proj-cons-1(cons(x0:Val, x1:List)) = x1:List .
   eq proj-variant-pair-minus-gt-2-0(variant-pair-minus-gt-2(x0:Val, x1:Val)) = x0:Val .
 endm)
 

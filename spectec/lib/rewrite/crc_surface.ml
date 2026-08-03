@@ -32,8 +32,9 @@ let rec is_ctor_pattern (is_defined : string -> bool) = function
 
    - {b inline} an output binder [(prod, v)] with [v] NOT head-bound: substitute
      [v := prod] into the rhs/conditions ([prod] a deterministic value, so this is
-     semantics-preserving). The binder must be live and used once (or be a plain
-     [Var] alias) so a producer is never duplicated;
+     semantics-preserving). The binder must be used once (or be a plain [Var]
+     alias) so a producer is never duplicated -- or DEAD, where there is nothing
+     to duplicate and only the condition's free variable goes;
    - {b fold} a PURE-accessor destructuring [(v, K(..))] -- [v] head-bound and
      used in no other condition, [K(..)] a constructor pattern: substitute
      [v := K(..)] EVERYWHERE, so [K]'s fresh field variables become
@@ -64,15 +65,26 @@ let fold_premise_binders ?(aggressive = false) (t : t) : t =
                 (fun n (l, r) -> n + count_var v l + count_var v r)
                 0 others
           in
-          (* [aggressive] (CRC-only) drops the [uses = 1] cap: a
+          (* A DEAD binder ([uses = 0]) is inlined nowhere -- the substitution
+             below is a no-op and only the condition goes. What the condition
+             was still asserting is that [prod] evaluates at all, and the
+             [isStuckHead] guard the caller re-adds says exactly that; a bare
+             variable pattern imposes nothing else, since it is spelled at the
+             producer's own result sort ({!Maude_sorts.infer_var_sorts} types a
+             condition's two sides alike, and a dead variable has no other
+             occurrence to narrow it). Worth removing rather than leaving alone:
+             a free variable on the pattern side is what turns the CRC's
+             [=] -> [=>] re-encoding of the condition from a match into a
+             search, and that class carries 98.6% of the measured CRC budget.
+
+             [aggressive] (CRC-only) additionally drops the [uses = 1] cap: a
              deterministic producer may be duplicated because the CRC
              neither executes nor terminates the rules, only computes
              critical pairs -- and inlining a single-var binder removes
              the determinacy critical pair the [prod = v] condition
              would otherwise raise. Still meaning-preserving (an
              equivalence), unlike an unraveling. *)
-          if uses >= 1 && (aggressive || is_alias || uses = 1) then
-            Some (v, prod)
+          if uses = 0 || aggressive || is_alias || uses = 1 then Some (v, prod)
           else None
       in
       (* fold: [v] a head variable destructured against a constructor pattern.
