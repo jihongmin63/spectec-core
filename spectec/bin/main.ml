@@ -217,11 +217,18 @@ let rewrite_command =
   and crc_normalize =
     flag "--crc-normalize" no_arg
       ~doc:
-        " with --ctrs, normalize the slice for the Church-Rosser checker: \
-         inline single-variable binders and unravel tuple/constructor binders \
-         into crcu/crck chain operators, leaving no determinacy critical pair. \
-         The inline is meaning-preserving; the unravel only REFLECTS \
-         confluence, so a normalized YES is upgrade-only. Analysis-only."
+        " with --ctrs, normalize the slice for the Church-Rosser checker, \
+         leaving no binder condition whose pattern is a free variable: unravel \
+         the binders into crcu/crck chain operators where the slice is weakly \
+         left-linear, inline them otherwise. The inline is meaning-preserving; \
+         the unravel only REFLECTS confluence, so a normalized YES is \
+         upgrade-only. Analysis-only."
+  and wll_check =
+    flag "--wll-check" no_arg
+      ~doc:
+        " report each sliceable symbol's weak-left-linearity violations and \
+         the normalization --crc-normalize would pick for it, as \
+         <symbol>\\t<violations>\\t<unravel|inline>"
   and wide_predicates =
     flag "--wide-predicate-domains" no_arg
       ~doc:
@@ -261,7 +268,27 @@ let rewrite_command =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
-    if list_symbols then
+    if wll_check then
+      let system = Rewrite.rewrite_spec spec_il in
+      let syms =
+        match symbol with
+        | Some s -> [ s ]
+        | None -> Rewrite.def_symbols spec_il
+      in
+      let slicer = Rewrite.Rewrite_system.make_slicer system in
+      Ok
+        (String.concat "\n"
+           (List.map
+              (fun s ->
+                let slice =
+                  Rewrite.Rewrite_system.slice_with slicer ~roots:[ s ]
+                in
+                Printf.sprintf "%s\t%d\t%s" s
+                  (List.length (Rewrite.Crc_surface.wll_violations slice))
+                  (Rewrite.Crc_surface.string_of_strategy
+                     (Rewrite.Crc_surface.select_strategy slice)))
+              syms))
+    else if list_symbols then
       let syms = Rewrite.def_symbols spec_il in
       if not sizes then Ok (String.concat "\n" syms)
       else
@@ -372,7 +399,8 @@ let confluence_command =
         " retry an inconclusive verdict (MAYBE/TIMEOUT) on the crc-normalized \
          system and upgrade it to YES only when the retry proves it \
          (upgrade-only, never a downgrade); an upgraded verdict prints as 'YES \
-         (normalized)'"
+         (normalized:unravel)' or 'YES (normalized:inline)', naming which \
+         normalization the slice's weak left-linearity allowed"
   and out =
     flag "--out" (optional string)
       ~doc:
@@ -453,12 +481,19 @@ let confluence_command =
             spec_il slices
         in
         if crc_normalize && Hashtbl.length pending > 0 then
+          (* Which normalization each retried slice got, for its row's label:
+             the two differ in what a YES proves (an inline is an equivalence,
+             an unravel only reflects), so the verdict has to carry it. *)
+          let strategies = Hashtbl.create 16 in
           let norm_slices =
             List.filter_map
               (fun (sym, slice) ->
-                if Hashtbl.mem pending sym then
-                  let ns = Rewrite.Crc_surface.crc_normalize slice in
-                  if ns = slice then None else Some (sym, ns)
+                if Hashtbl.mem pending sym then (
+                  let strategy = Rewrite.Crc_surface.select_strategy slice in
+                  let ns = Rewrite.Crc_surface.crc_normalize ~strategy slice in
+                  Hashtbl.replace strategies sym
+                    (Rewrite.Crc_surface.string_of_strategy strategy);
+                  if ns = slice then None else Some (sym, ns))
                 else None)
               slices
           in
@@ -474,7 +509,12 @@ let confluence_command =
                 let c = up b.church_rosser n.church_rosser in
                 let h = up b.coherence n.coherence in
                 let show v orig =
-                  verdict v ^ if v <> orig then " (normalized)" else ""
+                  verdict v
+                  ^
+                  if v <> orig then
+                    Printf.sprintf " (normalized:%s)"
+                      (Hashtbl.find strategies label)
+                  else ""
                 in
                 emit label (show c b.church_rosser) (show h b.coherence)
                   (b_secs +. n_secs)

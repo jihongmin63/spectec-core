@@ -225,21 +225,8 @@ let order_conds (t : t) : t =
   let rules = List.map order_rule t.rules in
   of_rules rules
 
-(* CRC-only normalization: an aggressive single-variable inline (the
-   [uses = 1] cap dropped) followed by a re-order. A condition
-   [$f(A) = v] binding a single variable makes the Church-Rosser checker
-   raise a determinacy critical pair ([$f] is a function, but the CRC
-   does not know that); inlining [v := $f(A)] removes the condition and
-   the pair. Inlining is an equivalence (meaning-preserving), so a
-   verdict on the normalized system transfers to the original -- unlike
-   an unraveling, which only REFLECTS confluence. Opt-in via
-   [--crc-normalize]; NOT part of the shared [ctrs_of_spec] surface, and
-   never seen by execution/termination/ChC. Tuple-pattern binders
-   ([$f(A) = tuple(v, b)]) are handled by the [crc_unravel] pass below
-   (reflect-only, so used UPGRADE-ONLY -- see there). *)
-(* Unravel every remaining binding condition [s = t] (t a non-variable pattern
-   introducing fresh variables -- [fold ~aggressive] above has already inlined
-   the single-variable ones) into a fresh [crcu]/[crck] chain, moving the
+(* Unravel every binding condition [s = t] (t a pattern introducing fresh
+   variables) into a fresh [crcu]/[crck] chain, moving the
    binding into a left-hand-side pattern. This removes the determinacy critical
    pair a [tuple(v, b) := $f(A)] condition raises, at the cost of possibly
    INTRODUCING sibling-overlap pairs: unraveling REFLECTS but does NOT PRESERVE
@@ -288,14 +275,15 @@ let crc_unravel (t : t) : t =
         let fresh =
           List.filter (fun v -> not (List.mem v !bound)) (vars_of_term tp)
         in
-        (* Unravel a binder only when (a) its pattern [tp] is a constructor with
-           fresh variables -- a BARE-VARIABLE binder [s = v] is [fold]'s job (an
-           unused [uses = 0] one it leaves behind forms only a trivial rhs=rhs
-           self-pair, so keep it as a condition) -- AND (b) its subject [s] is a
-           defined-function call, the only shape with a determinacy critical pair
-           (see the header). A value destructure [v = K(..)] stays a condition. *)
+        (* Unravel a binder when its subject [s] is a defined-function call --
+           the only shape with a determinacy critical pair (see the header) --
+           and its pattern [tp] introduces a fresh variable. A value destructure
+           [v = K(..)] stays a condition. A BARE-VARIABLE pattern qualifies too:
+           it is the class whose free variable turns the CRC's [=] -> [=>]
+           re-encoding from a match into a search, and it carries 98.6% of the
+           measured CRC budget. *)
         match (tp, s) with
-        | App _, App (f, _) when fresh <> [] && is_defined f ->
+        | _, App (f, _) when fresh <> [] && is_defined f ->
             segs := (List.rev !cur, s, tp) :: !segs;
             cur := [];
             bound := !bound @ fresh
@@ -402,5 +390,82 @@ let crc_unravel (t : t) : t =
       work;
     of_rules (plain @ List.rev !emitted)
 
-let crc_normalize (t : t) : t =
-  t |> fold_premise_binders ~aggressive:true |> crc_unravel |> order_conds
+(* Weak left-linearity, the syntactic premise under which an unraveling is
+   joinability-sound and a normalized YES therefore transfers back to the
+   original system (Gmeiner-Nishida-Gramlich IWC 2013, Thm 9, for an oriented
+   DCTRS unraveled in [U_conf] shape -- which is how {!crc_unravel} keys its
+   chain operators). A rule is weakly left-linear when every variable occurring
+   twice or more in its MATCHING slots -- the lhs and every condition's pattern
+   -- occurs nowhere in its PRODUCING slots, the rhs and every condition's
+   evaluated side. Reduction-soundness does NOT imply joinability-soundness
+   (same paper, Ex. 3), so this is not a formality: without it, the upgrade has
+   no theorem behind it.
+
+   {!Rewrite_system.orient_conds} establishes the (evaluated, pattern) split, so
+   each slot reads straight off the pair; the residue where BOTH sides are calls
+   has no canonical orientation, and counting such a condition on both slots can
+   only over-report a violation, which is the safe direction here. *)
+let wll_violations (t : t) : (string * string) list =
+  let defined = Hashtbl.create 512 in
+  List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
+  let is_call = function
+    | App (f, _) -> Hashtbl.mem defined f
+    | Var _ -> false
+  in
+  let of_rule (r : rule) =
+    let matching, producing =
+      List.fold_left
+        (fun (m, p) (s, tp) ->
+          if is_call s && is_call tp then (s :: tp :: m, s :: tp :: p)
+          else (tp :: m, s :: p))
+        ([ r.lhs ], [ r.rhs ]) r.conds
+    in
+    let produced = List.concat_map vars_of_term producing in
+    let matched = List.concat_map vars_of_term matching in
+    let head = match defined_head r with Some h -> h | None -> "?" in
+    (* [vars_of_term] keeps every occurrence, so a second sighting of a variable
+       already seen is exactly the "occurs twice or more" test. *)
+    let seen = Hashtbl.create 16 in
+    List.filter
+      (fun v ->
+        let repeat = Hashtbl.mem seen v in
+        Hashtbl.replace seen v ();
+        repeat && List.mem v produced)
+      matched
+    |> dedup_stable
+    |> List.map (fun v -> (head, v))
+  in
+  List.concat_map of_rule t.rules
+
+(** Which of the two normalizations a slice admits. *)
+type strategy = Unravel_only | Inline_only
+
+let string_of_strategy = function
+  | Unravel_only -> "unravel"
+  | Inline_only -> "inline"
+
+(* Both normalizations remove the free variables the CRC's [=] -> [=>]
+   re-encoding would otherwise search for, but they pay for it differently, so
+   the choice is per slice rather than a fixed chain:
+
+   - {!crc_unravel} binds each subject ONCE, in a chain operator's lhs pattern.
+     Measured on the heavy slices this beats inlining on both counts that drive
+     the checker -- conditions ([$bin_band] 41 -> 32, [$bin_bxor] 35 -> 28) and
+     nested critical pairs -- because an aggressive inline copies the subject
+     term into every use site. But it only REFLECTS confluence, and only under
+     {!wll_violations} being empty.
+   - {!fold_premise_binders} [~aggressive] is an EQUIVALENCE, so it needs no
+     premise at all; it is what a slice that is not weakly left-linear gets,
+     where an unraveled verdict would have no theorem to travel back on.
+
+   Hence: unravel where the premise holds, inline where it does not. *)
+let select_strategy (t : t) : strategy =
+  if wll_violations t = [] then Unravel_only else Inline_only
+
+let crc_normalize ?strategy (t : t) : t =
+  let strategy =
+    match strategy with Some s -> s | None -> select_strategy t
+  in
+  match strategy with
+  | Unravel_only -> t |> crc_unravel |> order_conds
+  | Inline_only -> t |> fold_premise_binders ~aggressive:true |> order_conds

@@ -5,6 +5,7 @@
    tools themselves is left to the CLI cram tests and the calibration runs. *)
 
 module R = Rewrite.Rewrite_system
+module Crc = Rewrite.Crc_surface
 module U = Rewrite.Unravel
 module Mfe = Rewrite.Mfe
 module Aprove = Rewrite.Aprove
@@ -276,6 +277,109 @@ let () =
     \  d_h(a) -> u_1(d_f(a), k_1(a))\n\
     \  u_1(none, k_1(a)) -> a\n\
      )\n"
+
+(* ------------------------------------------------------------------------- *)
+(* Crc_surface: weak left-linearity, and the normalization it selects. *)
+
+let () =
+  let heads (t : R.t) = List.map fst (Crc.wll_violations t) in
+  let vars (t : R.t) = List.map snd (Crc.wll_violations t) in
+  (* Which heads are DEFINED decides both what counts as a call and what
+     {!Crc.crc_unravel} will chain, so the auxiliaries need defining rules. *)
+  let defs =
+    [
+      rule (app "d_f" [ v "z" ]) (app "k" []);
+      rule (app "d_h" [ v "z" ]) (app "k" []);
+    ]
+  in
+  let system rules = system (rules @ defs) in
+  (* [a] is matched twice (lhs and the condition's pattern) but produced
+     nowhere: linear enough for the unraveling's soundness premise. *)
+  let clean =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "b" ], v "a") ]
+          (app "d_g" [ v "a"; v "b" ])
+          (app "k" []);
+      ]
+  in
+  check "wll/matched-twice-not-produced" (Crc.wll_violations clean = []);
+  check "wll/clean-selects-unravel"
+    (Crc.select_strategy clean = Crc.Unravel_only);
+  (* The same [a] now also produced (in the rhs): a violation, named by the
+     rule's defining head. *)
+  let dirty =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "b" ], v "a") ]
+          (app "d_g" [ v "a"; v "b" ])
+          (app "c" [ v "a" ]);
+      ]
+  in
+  check "wll/matched-twice-and-produced" (vars dirty = [ "a" ]);
+  check "wll/violation-names-head" (heads dirty = [ "d_g" ]);
+  check "wll/dirty-selects-inline" (Crc.select_strategy dirty = Crc.Inline_only);
+  (* Matched ONCE and produced is the ordinary shape of every rule -- WLL
+     constrains only repeated matches. *)
+  let linear = system [ rule (app "d_g" [ v "a" ]) (app "c" [ v "a" ]) ] in
+  check "wll/matched-once-and-produced" (Crc.wll_violations linear = []);
+  (* Calls on both sides have no canonical orientation. Read as printed this
+     rule is clean ([a] matched once); read the other way [a] is matched twice
+     and produced. Counting the condition on both slots reports it. *)
+  let ambiguous =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "a" ], app "d_h" [ v "b" ]) ]
+          (app "d_g" [ v "a" ])
+          (app "k" []);
+      ]
+  in
+  check "wll/both-sides-calls-over-report" (vars ambiguous = [ "a" ])
+
+let () =
+  (* The two normalizations differ in what they leave behind: unraveling binds
+     the subject once in a chain operator's lhs, inlining copies it into every
+     use. Both remove the free-variable condition the CRC would search for. *)
+  let sys =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "a" ], v "x") ]
+          (app "d_g" [ v "a" ])
+          (app "c" [ v "x"; v "x" ]);
+        rule (app "d_f" [ v "z" ]) (app "k" []);
+      ]
+  in
+  let rules_of t =
+    List.filter (fun (r : R.rule) -> r.lhs <> app "d_f" [ v "z" ]) t.R.rules
+  in
+  let unravelled =
+    rules_of (Crc.crc_normalize ~strategy:Crc.Unravel_only sys)
+  in
+  let inlined = rules_of (Crc.crc_normalize ~strategy:Crc.Inline_only sys) in
+  (* A bare-variable binder is exactly the class the CRC re-encodes as a search;
+     both arms leave none behind, but the unravel does it by splitting the rule
+     at the binding point instead of copying the subject. *)
+  check "crc_normalize/unravel-leaves-no-conditions"
+    (List.for_all (fun (r : R.rule) -> r.conds = []) unravelled);
+  check "crc_normalize/unravel-splits-at-the-binder" (List.length unravelled = 2);
+  check "crc_normalize/inline-keeps-one-rule" (List.length inlined = 1);
+  (* The inline copies [d_f(a)] to both uses, and keeps the partiality guard the
+     dropped binder was carrying. *)
+  check "crc_normalize/inline-copies-per-use"
+    (match inlined with
+    | [
+     {
+       rhs = R.App ("c", [ p; q ]);
+       conds = [ (R.App ("isStuckHead", _), _) ];
+       _;
+     };
+    ] ->
+        p = q && p = app "d_f" [ v "a" ]
+    | _ -> false)
 
 (* ------------------------------------------------------------------------- *)
 (* Mfe.upgrade: YES transfers up, nothing else ever changes. *)
