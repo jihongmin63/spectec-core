@@ -205,7 +205,28 @@ soundness gap     0
   제외된 271개는 별도로 돌린다(골든 판정은 없지만 `--check-p4`가 인터프리터를 in-process로
   돌리므로 `interp FAILED` + Maude 환원 = soundness gap과 Phase D는 그대로 나온다).
 
-**남는 일**: 제외 271개 differential 마무리.
+**제외 271개도 돌렸다.** 골든 판정이 없어 completeness는 못 재지만 `--check-p4`가
+인터프리터를 in-process로 돌리므로 soundness와 Phase D는 그대로 나온다.
+
+```
+Maude 수용  173  → Phase D 173 MATCH / 0 MISMATCH
+Maude 거부   87
+미측정       11  → soundness gap 0, Phase D 실패 0
+```
+
+**코퍼스 1,568개 합산: Phase D 1,220 MATCH / 0 MISMATCH, completeness gap 0(판정이 있는
+1,297개 범위), soundness gap 0, 미측정 11.** 역사적 기준치 `92618dc2`의 Phase D 1227/1227과
+견줄 만하다.
+
+**미측정 11개는 예산 문제가 아니라 비종료다.** `issue1944`를 단독으로 900초 걸어 돌리면
+stdout·stderr **둘 다 0바이트**로 그냥 돈다(배치 5,400초·solo 1,800초에서도 동일). 11개
+전부 인터프리터 하네스의 제외 목록에 있고, 이 상태는 이번 변경 이전에도 같았다.
+- **그래서 CLAUDE.md가 적어 온 "알려진 soundness gap 1건(issue1944)"은 재확인되지 않았다.**
+  가설(미검증): 그 수치는 `check_diff_p4.sh`의 2단계 구조에서 나왔는데 — Phase A가
+  `ITIMEOUT=300`으로 인터프리터를 돌려 **타임아웃을 FAIL로 기록**하고 Phase B가 Maude를 따로
+  돌려 OK를 얻으면, 실제로는 "인터프리터가 답을 못 냈다"인 것이 "인터프리터가 거부했다"로
+  분류된다. 제외 목록에 올라 있다는 사실과도 정합적이다. **확인 전에는 결론이 아니다** —
+  gap이 진짜인지 분류 artifact인지 가르려면 인터프리터를 무제한으로 한 번 완주시켜야 한다.
 
 ### 2026-07-30 — confluence 전수 스윕을 2,490규칙에서 세웠다 (`c9b64e92`·`052938fb`)
 
