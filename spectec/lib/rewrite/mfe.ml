@@ -258,29 +258,59 @@ let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
   if not (inconclusive base.church_rosser || inconclusive base.coherence) then
     exact
   else
-    let normalized_sys = Crc_surface.crc_normalize system in
-    (* Nothing to normalize: re-running the checker on the identical module
-       could only re-roll a Timeout, not upgrade a verdict. *)
-    if normalized_sys = system then exact
-    else
-      (* Prune the retry's signature (verdict-preserving -- the rules are
-         untouched). The manual protocol this automates always pruned the
-         normalized module, and without it a normalized system whose original
-         TIMEOUT was signature-blowup keeps timing out over the whole
-         ~460-sort P4 signature instead of closing. The base check stays
-         unpruned, matching the plain [verify] baseline. *)
-      let n =
-        check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true ~sig_rules orig
-          normalized_sys
-      in
-      let component original normalized =
-        let v = upgrade ~original ~normalized in
-        { verdict = v; via_normalize = v <> original }
-      in
-      {
-        crc = component base.church_rosser n.church_rosser;
-        chc = component base.coherence n.coherence;
-      }
+    (* Climb {!Crc_surface.normalize_ladder} until a rung settles both
+       components. Each rung's upgrade stands on its own, so a later attempt can
+       only add verdicts. A rung the normalization leaves unchanged is skipped:
+       re-running the checker on the identical module could only re-roll a
+       Timeout.
+
+       Every retry's signature is pruned (verdict-preserving -- the rules are
+       untouched). The manual protocol this automates always pruned the
+       normalized module, and without it a normalized system whose original
+       TIMEOUT was signature-blowup keeps timing out over the whole ~460-sort P4
+       signature instead of closing. The base check stays unpruned, matching the
+       plain [verify] baseline. *)
+    let component original normalized =
+      let v = upgrade ~original ~normalized in
+      { verdict = v; via_normalize = v <> original }
+    in
+    let rec climb acc = function
+      | [] -> acc
+      | strategy :: rest ->
+          if acc.crc.verdict = Yes && acc.chc.verdict = Yes then acc
+          else
+            let normalized_sys = Crc_surface.crc_normalize ~strategy system in
+            if normalized_sys = system then climb acc rest
+            else
+              let n =
+                check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true
+                  ~sig_rules orig normalized_sys
+              in
+              let step =
+                {
+                  crc = component acc.crc.verdict n.church_rosser;
+                  chc = component acc.chc.verdict n.coherence;
+                }
+              in
+              (* [via_normalize] must survive a rung that changes nothing. *)
+              climb
+                {
+                  crc =
+                    {
+                      step.crc with
+                      via_normalize =
+                        step.crc.via_normalize || acc.crc.via_normalize;
+                    };
+                  chc =
+                    {
+                      step.chc with
+                      via_normalize =
+                        step.chc.via_normalize || acc.chc.via_normalize;
+                    };
+                }
+                rest
+    in
+    climb exact (Crc_surface.normalize_ladder system)
 
 (* -------------------------------------------------------------------------- *)
 (* Batched checking: one MFE session (single ~100s load) for many slices. *)

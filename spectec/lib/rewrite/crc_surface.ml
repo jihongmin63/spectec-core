@@ -255,6 +255,39 @@ let order_conds (t : t) : t =
    unknown symbol the default [Val ... -> Val], exactly what these encode (so
    To_mfe needs no change and no fresh sort is introduced). [owise] rules are
    left intact. *)
+(* Turn an existence guard [isStuckHead(s) = false] back into the binding
+   condition [s = <fresh>] it replaced, so {!crc_unravel} has something to move
+   into a chain operator's lhs. The two say the same thing -- [s] reduces to a
+   value -- but only the binding form puts [s] in a position the unravel can
+   reach, and the guard form leaves the CRC an opaque predicate no rule defines.
+
+   This exists because the two ways of spending a dead binder are NOT
+   interchangeable. {!fold_premise_binders} replaces it with this guard on the
+   base surface, which is right there (it costs no free variable and every
+   checker sees it); the unravel moves the subject into a pattern instead, which
+   is what closed [$write_bits_from_value]. Doing the first blocks the second,
+   so the normalize chain undoes it -- AFTER the aggressive inline, which would
+   otherwise just put the guard straight back. *)
+let rebind_stuck_guards (t : t) : t =
+  let defined = Hashtbl.create 512 in
+  List.iter (fun h -> Hashtbl.replace defined h ()) (defined_heads t);
+  let next = ref 0 in
+  let rebind (r : rule) : rule =
+    let conds =
+      List.map
+        (fun ((s, tp) as c) ->
+          match (s, tp) with
+          | App ("isStuckHead", [ (App (f, _) as subject) ]), App ("false", [])
+            when Hashtbl.mem defined f ->
+              incr next;
+              (subject, Var (Printf.sprintf "crcv%d" !next))
+          | _ -> c)
+        r.conds
+    in
+    { r with conds }
+  in
+  of_rules (List.map rebind t.rules)
+
 let crc_unravel (t : t) : t =
   (* Only a binding condition whose SUBJECT is a defined-function application
      raises a determinacy critical pair -- that is the whole reason to unravel.
@@ -449,35 +482,49 @@ let wll_violations (t : t) : (string * string) list =
   in
   List.concat_map of_rule t.rules
 
-(** Which of the two normalizations a slice admits. *)
-type strategy = Unravel_only | Inline_only
+(** One normalization a slice may be re-checked under. *)
+type strategy = Inline_only | Inline_and_unravel | Rebind_and_unravel
 
 let string_of_strategy = function
-  | Unravel_only -> "unravel"
   | Inline_only -> "inline"
+  | Inline_and_unravel -> "unravel"
+  | Rebind_and_unravel -> "rebind"
 
-(* Both normalizations remove the free variables the CRC's [=] -> [=>]
-   re-encoding would otherwise search for, but they pay for it differently, so
-   the choice is per slice rather than a fixed chain:
+(* What the weak-left-linearity check buys is the RIGHT to unravel, not a
+   cheaper substitute for inlining. {!fold_premise_binders} [~aggressive] is an
+   EQUIVALENCE, so it needs no premise and is all a slice gets when
+   {!wll_violations} is non-empty; {!crc_unravel} then reaches the binders
+   inlining cannot (a fresh variable the rule uses more than once still has to
+   be BOUND somewhere) but only REFLECTS confluence, hence the gate.
 
-   - {!crc_unravel} binds each subject ONCE, in a chain operator's lhs pattern.
-     Measured on the heavy slices this beats inlining on both counts that drive
-     the checker -- conditions ([$bin_band] 41 -> 32, [$bin_bxor] 35 -> 28) and
-     nested critical pairs -- because an aggressive inline copies the subject
-     term into every use site. But it only REFLECTS confluence, and only under
-     {!wll_violations} being empty.
-   - {!fold_premise_binders} [~aggressive] is an EQUIVALENCE, so it needs no
-     premise at all; it is what a slice that is not weakly left-linear gets,
-     where an unraveled verdict would have no theorem to travel back on.
+   Beyond that gate, WHICH normalization wins is not predictable and not
+   uniform, so a WLL-clean slice gets a LADDER rather than a choice: the
+   verdicts are upgrade-only, and each rung independently justifies its own
+   upgrade, so trying the next rung on a still-inconclusive slice is sound and
+   can only add YESes. Measured on the three slices that discriminate:
 
-   Hence: unravel where the premise holds, inline where it does not. *)
-let select_strategy (t : t) : strategy =
-  if wll_violations t = [] then Unravel_only else Inline_only
+   |                        | $write_bits_from_value | $write_value_*_prime |
+   | inline + unravel       | TIMEOUT                | YES                  |
+   | inline + rebind + unrav| YES                    | MAYBE                |
+
+   No rung dominates. Two attempts to predict one from cheaper evidence both
+   failed: the 2026-07-24 note's static proxies (condition counts, nested pairs)
+   rank unravel-alone first, and it loses all five [$write_value*] upgrades;
+   and rebinding, which is what lets the unravel reach [$write_bits_from_value]
+   at all, costs the other two. Rank with proxies, decide with the checker. *)
+let normalize_ladder (t : t) : strategy list =
+  if wll_violations t = [] then [ Inline_and_unravel; Rebind_and_unravel ]
+  else [ Inline_only ]
+
+let select_strategy (t : t) : strategy = List.hd (normalize_ladder t)
 
 let crc_normalize ?strategy (t : t) : t =
   let strategy =
     match strategy with Some s -> s | None -> select_strategy t
   in
+  let inlined = fold_premise_binders ~aggressive:true t in
   match strategy with
-  | Unravel_only -> t |> crc_unravel |> order_conds
-  | Inline_only -> t |> fold_premise_binders ~aggressive:true |> order_conds
+  | Inline_only -> inlined |> order_conds
+  | Inline_and_unravel -> inlined |> crc_unravel |> order_conds
+  | Rebind_and_unravel ->
+      inlined |> rebind_stuck_guards |> crc_unravel |> order_conds

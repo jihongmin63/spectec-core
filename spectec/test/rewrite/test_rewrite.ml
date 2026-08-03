@@ -305,8 +305,8 @@ let () =
       ]
   in
   check "wll/matched-twice-not-produced" (Crc.wll_violations clean = []);
-  check "wll/clean-selects-unravel"
-    (Crc.select_strategy clean = Crc.Unravel_only);
+  check "wll/clean-allows-unravel"
+    (Crc.select_strategy clean = Crc.Inline_and_unravel);
   (* The same [a] now also produced (in the rhs): a violation, named by the
      rule's defining head. *)
   let dirty =
@@ -341,32 +341,38 @@ let () =
 
 let () =
   (* The two normalizations differ in what they leave behind: unraveling binds
-     the subject once in a chain operator's lhs, inlining copies it into every
-     use. Both remove the free-variable condition the CRC would search for. *)
-  let sys =
+     inlining reaches a binder whose pattern is a single variable, and the
+     unravel reaches the rest by splitting the rule at the binding point. *)
+  let aux = rule (app "d_f" [ v "z" ]) (app "k" []) in
+  let rules_of t = List.filter (fun (r : R.rule) -> r <> aux) t.R.rules in
+  (* A single-variable binder: the inline substitutes it away, so the unravel
+     arm has nothing left to do and the two agree. *)
+  let bare =
     system
       [
         rule
           ~conds:[ (app "d_f" [ v "a" ], v "x") ]
           (app "d_g" [ v "a" ])
           (app "c" [ v "x"; v "x" ]);
-        rule (app "d_f" [ v "z" ]) (app "k" []);
+        aux;
       ]
   in
-  let rules_of t =
-    List.filter (fun (r : R.rule) -> r.lhs <> app "d_f" [ v "z" ]) t.R.rules
-  in
-  let unravelled =
-    rules_of (Crc.crc_normalize ~strategy:Crc.Unravel_only sys)
-  in
-  let inlined = rules_of (Crc.crc_normalize ~strategy:Crc.Inline_only sys) in
-  (* A bare-variable binder is exactly the class the CRC re-encodes as a search;
-     both arms leave none behind, but the unravel does it by splitting the rule
-     at the binding point instead of copying the subject. *)
-  check "crc_normalize/unravel-leaves-no-conditions"
-    (List.for_all (fun (r : R.rule) -> r.conds = []) unravelled);
-  check "crc_normalize/unravel-splits-at-the-binder" (List.length unravelled = 2);
-  check "crc_normalize/inline-keeps-one-rule" (List.length inlined = 1);
+  let inlined = rules_of (Crc.crc_normalize ~strategy:Crc.Inline_only bare) in
+  check "crc_normalize/inline-removes-a-bare-binder" (List.length inlined = 1);
+  (* The inline leaves the existence guard behind; the unravel arm rebinds it and
+     moves the subject into a chain lhs, which is a position the guard form does
+     not offer. *)
+  check "crc_normalize/rebind-reopens-the-guard"
+    (match
+       rules_of (Crc.crc_normalize ~strategy:Crc.Rebind_and_unravel bare)
+     with
+    | [ a; b ] -> a.conds = [] && b.conds = []
+    | _ -> false);
+  (* Without the rebind there is nothing left for the unravel to move, which is
+     the interaction the ladder exists to cover. *)
+  check "crc_normalize/unravel-alone-cannot-reach-the-guard"
+    (rules_of (Crc.crc_normalize ~strategy:Crc.Inline_and_unravel bare)
+    = inlined);
   (* The inline copies [d_f(a)] to both uses, and keeps the partiality guard the
      dropped binder was carrying. *)
   check "crc_normalize/inline-copies-per-use"
@@ -379,6 +385,31 @@ let () =
      };
     ] ->
         p = q && p = app "d_f" [ v "a" ]
+    | _ -> false);
+  (* A constructor-pattern binder is what inlining CANNOT reach -- the fields it
+     introduces have to be bound somewhere -- so this is the shape the unravel
+     arm exists for, and the one the WLL premise is spent on. *)
+  let structured =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "a" ], app "tuple" [ v "x"; v "y" ]) ]
+          (app "d_g" [ v "a" ])
+          (app "c" [ v "x"; v "y" ]);
+        aux;
+      ]
+  in
+  let unravelled =
+    rules_of (Crc.crc_normalize ~strategy:Crc.Inline_and_unravel structured)
+  in
+  check "crc_normalize/unravel-splits-at-the-binder"
+    (List.length unravelled = 2
+    && List.for_all (fun (r : R.rule) -> r.conds = []) unravelled);
+  check "crc_normalize/inline-keeps-a-structured-binder"
+    (match
+       rules_of (Crc.crc_normalize ~strategy:Crc.Inline_only structured)
+     with
+    | [ { conds = [ (_, R.App ("tuple", _)) ]; _ } ] -> true
     | _ -> false)
 
 (* ------------------------------------------------------------------------- *)

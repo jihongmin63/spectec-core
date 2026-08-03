@@ -480,53 +480,85 @@ let confluence_command =
               else emit_base label r secs)
             spec_il slices
         in
-        if crc_normalize && Hashtbl.length pending > 0 then
-          (* Which normalization each retried slice got, for its row's label:
-             the two differ in what a YES proves (an inline is an equivalence,
-             an unravel only reflects), so the verdict has to carry it. *)
+        (* Climb the normalization ladder: each rung re-checks only the symbols
+           still inconclusive after the previous one, and a symbol leaves
+           [pending] the moment a rung settles it. The upgrade is per rung, so
+           trying another one never costs a verdict -- only time. *)
+        let held = Hashtbl.create 16 in
+        Hashtbl.iter (fun k v -> Hashtbl.replace held k v) pending;
+        let rung depth =
           let strategies = Hashtbl.create 16 in
           let norm_slices =
             List.filter_map
               (fun (sym, slice) ->
-                if Hashtbl.mem pending sym then (
-                  let strategy = Rewrite.Crc_surface.select_strategy slice in
-                  let ns = Rewrite.Crc_surface.crc_normalize ~strategy slice in
-                  Hashtbl.replace strategies sym
-                    (Rewrite.Crc_surface.string_of_strategy strategy);
-                  if ns = slice then None else Some (sym, ns))
-                else None)
+                match Hashtbl.find_opt held sym with
+                | None -> None
+                | Some _ -> (
+                    match
+                      List.nth_opt
+                        (Rewrite.Crc_surface.normalize_ladder slice)
+                        depth
+                    with
+                    | None -> None
+                    | Some strategy ->
+                        let ns =
+                          Rewrite.Crc_surface.crc_normalize ~strategy slice
+                        in
+                        Hashtbl.replace strategies sym
+                          (Rewrite.Crc_surface.string_of_strategy strategy);
+                        if ns = slice then None else Some (sym, ns)))
               slices
           in
-          let emitted = Hashtbl.create 16 in
-          let _ =
-            Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
-              ~prune_signature:true ~sig_rules
-              ~on_result:(fun label (n : Rewrite.Mfe.result) n_secs ->
-                let (b : Rewrite.Mfe.result), b_secs =
-                  Hashtbl.find pending label
-                in
-                let up o nn = Rewrite.Mfe.upgrade ~original:o ~normalized:nn in
-                let c = up b.church_rosser n.church_rosser in
-                let h = up b.coherence n.coherence in
-                let show v orig =
-                  verdict v
-                  ^
-                  if v <> orig then
-                    Printf.sprintf " (normalized:%s)"
-                      (Hashtbl.find strategies label)
-                  else ""
-                in
-                emit label (show c b.church_rosser) (show h b.coherence)
-                  (b_secs +. n_secs)
-                  (not (c = Rewrite.Mfe.Yes && h = Rewrite.Mfe.Yes));
-                Hashtbl.replace emitted label ())
-              spec_il norm_slices
+          if norm_slices <> [] then
+            ignore
+              (Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
+                 ~prune_signature:true ~sig_rules
+                 ~on_result:(fun label (n : Rewrite.Mfe.result) n_secs ->
+                   let (b : Rewrite.Mfe.result), b_secs =
+                     Hashtbl.find held label
+                   in
+                   let up o nn =
+                     Rewrite.Mfe.upgrade ~original:o ~normalized:nn
+                   in
+                   let c = up b.church_rosser n.church_rosser in
+                   let h = up b.coherence n.coherence in
+                   (* Settled: emit and drop. Still inconclusive: carry the
+                      accumulated time to the next rung. *)
+                   if c = Rewrite.Mfe.Yes && h = Rewrite.Mfe.Yes then (
+                     let show v orig =
+                       verdict v
+                       ^
+                       if v <> orig then
+                         Printf.sprintf " (normalized:%s)"
+                           (Hashtbl.find strategies label)
+                       else ""
+                     in
+                     emit label (show c b.church_rosser) (show h b.coherence)
+                       (b_secs +. n_secs) false;
+                     Hashtbl.remove held label)
+                   else Hashtbl.replace held label (b, b_secs +. n_secs))
+                 spec_il norm_slices)
+        in
+        if crc_normalize then (
+          (* Run every rung any held symbol has: a rung that is a no-op for one
+             slice can still be the one that settles another. *)
+          let rungs =
+            List.fold_left
+              (fun n (sym, slice) ->
+                if Hashtbl.mem held sym then
+                  max n
+                    (List.length (Rewrite.Crc_surface.normalize_ladder slice))
+                else n)
+              0 slices
           in
-          (* inconclusive rows whose slice had nothing to normalize: emit base *)
+          for depth = 0 to rungs - 1 do
+            if Hashtbl.length held > 0 then rung depth
+          done;
+          (* nothing left to try: report what the base check found *)
           Hashtbl.iter
-            (fun label ((b : Rewrite.Mfe.result), b_secs) ->
-              if not (Hashtbl.mem emitted label) then emit_base label b b_secs)
-            pending);
+            (fun label ((b : Rewrite.Mfe.result), secs) ->
+              emit_base label b secs)
+            held));
     Ok !failed
 
 (* Emit the spec as an executable Maude module and run a start term through a

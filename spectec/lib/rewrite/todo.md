@@ -75,6 +75,70 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-03 — 맨변수 바인더 세 갈래를 전부 착수 (`3a6794e7`·`7215c5dd`·`48a17692`)
+
+> 2026-07-24 research note가 남긴 세 항목 — ① WLL로 inline/unravel 슬라이스별 선택,
+> ② 죽은 바인더를 base 표면에서 제거, ③ 소스 와일드카드 전제를 접근자 관용구로 — 을
+> 순서대로 구현하고, 각 단계마다 무작위 100개 differential로 무회귀를 확인했다.
+> **세 갈래는 서로 다른 표면을 건드린다**: ①은 `--crc-normalize`(옵트인)만, ②는 base
+> 분석 표면, ③은 명세 자체(따라서 실행 표면까지). 아래 무회귀 근거도 그에 맞춰 다르다.
+
+**① WLL 검사로 arm 선택 (`3a6794e7`).** `crc_normalize`가 `fold ~aggressive |>
+crc_unravel` 고정 순서였던 것을 `select_strategy`가 슬라이스마다 고르게 바꿨다 —
+`wll_violations`가 비면 `crc_unravel`(더 쌈: subject를 한 번만 묶음), 아니면
+`fold ~aggressive`(동치라 전제 불필요). 근거는 GNG IWC 2013 Thm 9의 삼중 전제 중 WLL이고,
+reduction-soundness가 joinability-soundness를 함의하지 **않는다**(같은 논문 Ex. 3)는 것이
+이 검사를 형식이 아니라 필수로 만든다. 검사는 `orient_conds`가 세운 (평가측, 패턴측)
+분할을 그대로 읽고, 방향이 임의인 "양쪽 다 호출" 조건은 **양쪽 슬롯에 모두** 세어
+과다보고 쪽으로만 틀린다.
+- 실측: `specs/p4` 574심볼 중 **unravel 400 / inline 174**. 승격이 실제 일어난 6슬라이스와
+  CRC TIMEOUT 7개가 **전부 clean** — 반사만 하는 arm이 정확히 필요한 곳에서만 쓰인다.
+- `crc_unravel`의 패턴 게이트를 맨변수까지 열었다. 종전 주석("맨변수는 fold의 몫")은
+  결정성 임계쌍만 보고 내린 판단이고, `=`→`=>` 재인코딩이 만드는 탐색 비용은 고려 밖이었다.
+  subject 게이트(`1dd1e43a`)는 그대로라 `$join_text` over-unravel 회귀는 계속 막힌다.
+- **무회귀 근거**: 실행 모듈과 base 분석 표면 **둘 다 바이트 동일**(`specs/p4` 전량 대조).
+  옵트인 경로만 바뀌므로 differential은 형식적 확인이다(seed 101, 100개: MATCH 77,
+  Maude 거부 23 전부 interp도 FAIL → gap 0, MISMATCH 0).
+
+**② 죽은 바인더 제거 (`7215c5dd`).** `$f(A) = v`에서 `v`가 아무 데도 안 쓰이면 그 조건이
+말하는 것은 "`$f(A)`가 평가된다"뿐인데, 그걸 말하려고 **자유변수 하나**를 쓴다 —
+CRC가 조건을 `=>`로 재인코딩할 때 매칭을 탐색으로 바꾸는 바로 그 부류다.
+`fold_premise_binders`의 inline이 `uses >= 1`을 요구해 죽은 바인더는 전부 통과시키고
+있었다. `uses = 0`도 발화하게 하면 치환은 no-op이고 조건만 사라지며, 그 자리에는
+이 패스가 이미 쓰는 `isStuckHead(prod) = false`가 들어간다(= 사라진 조건이 실제로
+검사하던 것). **upgrade-only 강등이 없다** — 모든 체커가 보는 표면에 그대로 적용된다.
+- **sort 간극 확인 (research note의 미해결 항목).** 맨변수 매칭은 sort 검사도 겸한다.
+  `specs/p4` 분석 표면 전수로 세었다: 죽은 바인더 **324개 중 320개**가 변수의 sort =
+  producer의 선언된 result sort라 검사가 공허하다. 나머지 4개도 공허하되 이유가 다르다 —
+  3개는 `$bitstr-to-int(..) = i:IntV`인데 그 op의 IL result type은 `int`인데도
+  `Maude_sorts.signature`가 `Val`로 넓혀 선언했고(즉 잃는 것은 signature가 이미 잃은
+  정밀도), 1개는 바로 앞 줄의 `subty_typedExpressionIR(..) = true` 가드와 중복이다.
+- 표면 효과: 맨변수 바인더 조건 **1,326 → 1,001**(죽은 324 전부 소멸), 등식·op 수는 불변,
+  574슬라이스 중 **119개 축소(−476규칙) / 17개 증가(+136규칙)**. 증가분은 owise 여집합이
+  새 가드를 부정해야 해서 생긴다(`$lookup`이 `proj_cons_1`을 끌어오는 식).
+- **무회귀 근거**: 실행 모듈 **바이트 동일**. differential(seed 102, 100개: MATCH 81,
+  Maude 거부 19 전부 interp도 FAIL → gap 0, MISMATCH 0).
+
+**③ 소스 29군데를 접근자 관용구로 (`48a17692`).** `-- if (_ _ typeIR _ _ = parameterIR)*`
+같은 전제는 필드 하나를 얻으려고 레코드 전체를 분해하는데, 번역이 와일드카드를 전부 이름
+바인더로 승격시키므로 위치마다 `$iterproj` 헬퍼(등식 2개)와 조건 1개가 생기고 이름 붙은
+것 말고는 전부 죽는다. 같은 명세가 이미 쓰는 관용구(`4.2-ir-call-overload.spectec:58`)로
+통일했다. `$id_of_parameterIR`는 있었고, `$direction_of_parameterIR`·
+`$typeIR_of_parameterIR`·`$tableActionReferenceIR_of_tableActionIR`·`$name_of_parserState`
+넷을 새로 뒀다. 관련 타입이 전부 단일 케이스라 분해가 실패할 수 없으므로 **철자 변경**이다.
+(research note는 30군데라 했는데 실제로는 29군데다.)
+- `$callableId_IR` **13규칙 → 4규칙**(note의 예측과 일치). 전체로는 139슬라이스가 −5,746규칙
+  축소되고 **늘어난 슬라이스가 하나도 없다**; 맨변수 조건 1,001 → 970, 등식 72,504 → 72,395,
+  op 3,139 → 3,093.
+- **무회귀 근거 (명세 변경이라 여기가 제일 중요)**: (a) 인터프리터 전수 골든
+  `p4-il-pos`/`p4-il-neg`가 **차이 0** — 1,568개 프로그램의 PASS/FAIL이 그대로다.
+  (b) 엘라보레이트 렌더링에서 미묘한 자리 하나가 보존됨을 확인: `$gen_constraint`의 두 번째
+  `direction`은 첫 번째에 대한 **검사**였고 지금도 검사다. (c) differential(seed 103, 100개:
+  MATCH 75, Maude 거부 25 전부 interp도 FAIL → gap 0, MISMATCH 0).
+
+**남는 일**: CRC 판정 재측정(아래 "CRC 3라운드" 절), 그리고 ③이 명세를 바꿨으므로
+**전수 differential**.
+
 ### 2026-07-30 — confluence 전수 스윕을 2,490규칙에서 세웠다 (`c9b64e92`·`052938fb`)
 
 **중단은 예산 부족이 아니라 수확 체감이다.** `orient_conds` 이후 재측정 스윕이 565심볼 중
@@ -92,7 +156,7 @@ verdict가 없으므로, 남은 287을 같은 프로토콜로 도는 것은 **�
 - **다음 수는 예산이 아니라 슬라이스 축소다.** 후보는 (a) 맨변수 바인더 제거(아래 2026-07-24
   research note — 측정된 비용의 98.6%가 여기 몰려 있고 `$callableId*`는 250.3초→0.7초),
   (b) 추가 pruning, (c) 모듈러 분해(산술을 블랙박스로; termination 쪽에서 이미 통한 수법).
-  셋 다 착수 전이다.
+  **(a)는 2026-08-03에 세 갈래 전부 완료**(위 절); (b)·(c)는 착수 전.
 - term 스윕은 별도로 멈춰 있다(측정 308: YES 307 · TIMEOUT 1).
 
 ### 2026-07-29 — `$write_value_from_bits'` n_var=0 경계 수정 — ✅ 완료. 가드 **철자**가 슬라이스 크기를 지배한다
@@ -325,7 +389,11 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
 **250.3초 → 0.7초**(verdict YES 유지). 같은 와일드카드 구조분해 전제가 명세에 **30군데**.
 
 **논의/확인 필요:**
-- [ ] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택.** 이 세션의 결론은 "둘 중 하나"가
+- [x] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택** — **완료 2026-08-03** (`3a6794e7`;
+  위 2026-08-03 절 ①). 붙인 자리는 셋 다 — `Crc_surface.select_strategy`가 고르고,
+  `confluence` 행이 `YES (normalized:unravel|inline)`로 어느 arm인지 밝히며,
+  `rewrite --wll-check`가 심볼별 위반 수와 선택을 찍는다. 실측 unravel 400 / inline 174.
+  아래는 착수 전 계획이다. 이 세션의 결론은 "둘 중 하나"가
   아니라 "슬라이스마다 다름"이다. inline은 **동치**(양방향 전이, base 표면 가능),
   unravel은 **reflect-only**(upgrade-only, WLL 필요). 그러면 선택 규칙의 자연스러운 형태는
   「WLL clean이면 unravel(더 싸고 중첩쌍도 줄임), 아니면 inline(승격 못 하니 동치 유지)」.
@@ -338,7 +406,11 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
   둘 다 0이 됐다. 이제 WLL 체커는 `(l, t₁..t_k)` = lhs + 각 조건의 `snd`, `(r, s₁..s_k)` =
   rhs + 각 조건의 `fst`로 **슬롯을 그대로 믿어도 된다**. 다만 "양쪽 다 호출"인 잔여 15건은
   방향이 여전히 임의이므로 체커가 따로 다뤄야 한다.
-- [ ] **base 표면에서 고칠 수 있는 부류를 따로 둘 것.** 죽은 바인더(uses=0)는 조건
+- [x] **base 표면에서 고칠 수 있는 부류를 따로 둘 것** — **완료 2026-08-03** (`7215c5dd`;
+  위 2026-08-03 절 ②). sort 간극도 실측으로 닫았다: 죽은 바인더 324개 중 320개는 변수의
+  sort가 producer의 result sort와 같아 검사가 공허하고, 나머지 4개도 공허하되 이유가
+  다르다(3개는 signature가 `Val`로 넓힌 `$bitstr-to-int`, 1개는 앞선 `subty_` 가드와 중복).
+  아래는 착수 전 계획이다. 죽은 바인더(uses=0)는 조건
   `$f(A) = v`를 `isStuckHead($f(A)) = false`로 치환하면 패턴측이 생성자가 되어 자유변수가
   사라진다(`fold_premise_binders`가 이미 쓰는 기계). **upgrade-only 강등 없이** 적용 가능.
   다만 변수 매칭은 sort 검사를 겸하므로 `isStuckHead`와 완전 동일하지 않다 — 그 간극 확인 필요.
@@ -347,9 +419,9 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
   공유 비트연산 라이브러리(`badd`/`bmul`/`bsub-mask` 각 16규칙, 230쌍 중첩)에서도 온다.
   `$callableId*`(중첩 0, 비용 전부가 자유변수 탐색)와 달리 **필요조건이되 충분조건이 아닐**
   가능성이 크다. C0~C3 × TIMEOUT 7을 직렬로 실측해야 갈린다.
-- [ ] **소스 30군데를 접근자 관용구로 통일할지.** 가장 싸고 upgrade-only 강등도 없지만
-  명세 변경이므로 interp-vs-Maude 오라클·differential 재검이 전제(이번엔 CRC YES와
-  "같은 명세가 이미 쓰는 관용구"까지만 확인).
+- [x] **소스 30군데를 접근자 관용구로 통일할지** — **완료 2026-08-03** (`48a17692`;
+  위 2026-08-03 절 ③). 실제로는 29군데였다. 전제였던 재검은 인터프리터 전수 골든
+  차이 0 + 무작위 100개 differential gap 0으로 통과했고, 전수 differential이 남았다.
 
 > 측정 환경 주의: 이번 세션의 벽시계 초는 컨테이너에서 `reverify` 워크트리의 스윕이 동시에
 > 도는 동안 잰 것이라 `bff805ec` 기준치보다 1.6~2.0배 부풀어 있다(`$callableId_IR` 42.7→68.0,
@@ -2501,7 +2573,7 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
 남은 작업:
 
 ```
-  → 큰 슬라이스의 CRC를 예산이 아니라 **슬라이스 축소**로 뚫기                  [confluence 스윕은 2,490규칙에서 세웠다(2026-07-30, 아래 절). 874규칙 위는 예외 없이 TIMEOUT이고 남은 287심볼 중앙값이 52,394규칙이라 예산을 늘려도 결과가 같다. 유력 수단은 맨변수 바인더 제거(아래 2026-07-24 research note: 비용의 98.6%) + 추가 pruning/모듈러 분해]
+  → 큰 슬라이스의 CRC를 예산이 아니라 **슬라이스 축소**로 뚫기                  [맨변수 축은 2026-08-03에 세 갈래 전부 착수(3a6794e7/7215c5dd/48a17692, 위 절): 맨변수 조건 1,326 → 970, 슬라이스 258개 축소. 남은 수단은 추가 pruning/모듈러 분해이고, 비트벡터 7건은 자유변수 제거가 필요조건이되 충분조건이 아닐 수 있다(아래 2026-07-24 note)]
   → orient_conds(bdceb303) 이후 term 재측정                                    [CRC 열은 위 스윕으로 278심볼까지 재측정 완료(다운그레이드 0). term은 "판정 변경 가능"이 아니라 "기존 YES 일부가 미증명"이라 성격이 달라 여전히 남아 있다 — 스윕 중단 상태]
   → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조. sanitize 밑줄 보존(2026-08-03)이 실행 표면을 전량 개명했으므로 이번 재실행이 그 무회귀도 겸한다 — 표본 5개는 이미 RESULT MATCH]
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]

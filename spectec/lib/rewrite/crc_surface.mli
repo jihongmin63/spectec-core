@@ -34,13 +34,23 @@ val crc_unravel : Rewrite_system.t -> Rewrite_system.t
     is counted on both slots and so can only over-report. *)
 val wll_violations : Rewrite_system.t -> (string * string) list
 
-(** Which normalization a slice admits: [Unravel_only] where {!wll_violations}
-    is empty (cheaper -- one binding site per subject instead of one copy per
-    use -- but reflect-only), [Inline_only] otherwise (an equivalence, so it
-    needs no premise). *)
-type strategy = Unravel_only | Inline_only
+(** One normalization a slice may be re-checked under. All three inline; what
+    {!wll_violations} being empty buys is the RIGHT to also unravel, which
+    reaches the binders inlining cannot but only REFLECTS confluence.
+    [Inline_only] is an equivalence and needs no premise. *)
+type strategy = Inline_only | Inline_and_unravel | Rebind_and_unravel
 
+(** The normalizations to try on a slice, in order. Verdicts are upgrade-only
+    and each rung justifies its own upgrade, so a later rung is sound to try on
+    a still-inconclusive slice and can only add YESes -- which is the point:
+    measured, no rung dominates ([$write_bits_from_value] needs the rebind,
+    [$write_value_*_prime] lose their upgrade under it). A slice that is not
+    weakly left-linear gets the single equivalence rung. *)
+val normalize_ladder : Rewrite_system.t -> strategy list
+
+(** The ladder's first rung. *)
 val select_strategy : Rewrite_system.t -> strategy
+
 val string_of_strategy : strategy -> string
 
 (** The [--crc-normalize] transform: {!select_strategy}'s choice, then
@@ -48,3 +58,10 @@ val string_of_strategy : strategy -> string
     surface, and never seen by execution/termination/ChC. [?strategy] overrides
     the selection (to measure one arm). *)
 val crc_normalize : ?strategy:strategy -> Rewrite_system.t -> Rewrite_system.t
+
+(** Turn an existence guard [isStuckHead(s) = false] back into the binding
+    condition [s = <fresh>] {!fold_premise_binders} replaced it with, so
+    {!crc_unravel} can move [s] into a chain operator's lhs. Part of the unravel
+    arm of {!crc_normalize}, after the inline (which would otherwise re-derive
+    the guard); the base surface keeps the guard. *)
+val rebind_stuck_guards : Rewrite_system.t -> Rewrite_system.t
