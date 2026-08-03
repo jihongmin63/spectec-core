@@ -151,8 +151,17 @@ baseline TSV와 **44/44 일치**, `run --check-p4` 결과-VALUE **35/35 MATCH**(
   `St0:Set`** 이었고 이제 `St0:Val`이다. 종전 항목이 "미규명 부작용"이라 적었던
   `Set List List Set`→all-`Val` 변화가 이것으로, **옛 좁은 sort 쪽이 틀린 것**이었다:
   gensym state가 붙은 op는 선언 arity와 어긋나 원래 전부 all-`Val`이다(`$subst_typeIR` 등
-  대조 확인). 실행 무회귀: `run --check-p4` 표본 5개 중 accept 4개 전부 RESULT MATCH,
-  `factory2.p4`는 baseline TSV와 같은 interp FAIL/Maude STUCK.
+  대조 확인). **단 이 둘은 잠복 결함이다** — `$capture_avoiding_`는 스펙 전체에서 `dec`와
+  `def` 두 줄이 전부이고 **호출자가 없다**(`grep`으로 확인). 충돌이 지금껏 differential에
+  안 잡힌 이유가 이것이며(Maude는 arity로 op를 구분하므로 4인자 쪽 호출은 늘 옳게 풀렸다),
+  따라서 이 두 수정은 **실행으로는 검증할 수 없다**. 검증의 무게는 개명 증명과 아래
+  differential이 진다.
+- **무작위 differential (2026-08-03, 시드 7, 150/1568 표본)**: Phase D **126/126 RESULT
+  MATCH**(MISMATCH 0), completeness gap 0(Maude 거부 24건 전부 interp도 FAIL),
+  soundness gap 0. 낡은 baseline TSV 대비 판정 차 14건은 전부 개선 방향(`OTHER`→`OK` 11,
+  `ERROR`→`NOTRED` 3 — 후자는 `run` 대 `run --check-p4`의 출력 어휘 차)이고 **`OK`→비-`OK`는
+  0건**이다. 분석 표면은 무작위 심볼 24개(CRC 12 + term 12)를 뽑아 `verification.md`
+  기록치와 대조해 **24/24 판정 일치**(`$bitacc_offset_op`의 TIMEOUT 포함).
 - 부수: p4 분석 표면 36,984줄·실행 표면 34,090줄이 개명으로 달라지고 impty/base 골든을
   갱신했다. 대부분은 선행 밑줄을 가진 **mixop 자리표시자**(`_BOOL`→`-BOOL`)에서 온다.
 
