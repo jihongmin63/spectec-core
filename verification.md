@@ -41,6 +41,16 @@
 > 유지, `$expression_as_lvalue`만 옛 무-verdict에서 `YES*`로 올라섰다) — `orient_conds`는
 > 측정된 범위에서 confluence-neutral이다. `$write_value*` 5행은 `n_var > 0` 가드를 넣은
 > 스펙(`8bf15510`)에서 다시 쟀고, 판정은 그대로 `YES*`다.
+>
+> **이름·규칙 수 갱신 (sanitize 밑줄 보존)**: `sanitize`가 밑줄을 이름 문자로 바꾸면서 후행
+> 밑줄이 살아나 **8행의 심볼 이름이 바뀌었다**(`$exists`→`$exists_` 등 7개, 그리고 한 심볼로
+> 합쳐져 **두 번 실려 있던** `$capture_avoiding`이 `$capture_avoiding_`(52,000)과
+> `$capture_avoiding`(52,016)으로 분리). 판정은 **재측정하지 않고 이월**한다 — 번역 표면의
+> 변화가 심볼의 **일대일 개명**이고(등식 수 불변: eq 72,504 / ceq 2,441 / op 3,139), 합류성도
+> 종료성도 개명에 불변이기 때문이다. 합쳐져 있던 두 함수를 쓰는 **135행의 규칙 수가 5씩
+> 줄었는데**(호출자가 이제 자기가 부르는 쪽 절만 끌어온다) 그중 판정이 실린 건
+> `Program_ok`(60,723→60,718, term YES)·`Program_inst`(TIMEOUT) 둘뿐이고, 새 슬라이스가 옛
+> 슬라이스의 **부분집합**이라 종료성 YES는 그대로 성립한다.
 
 ## 종합 (565심볼)
 
@@ -86,22 +96,22 @@
 | 35 | `$empty_typeFrame` | 2 | YES (0.0s) | YES (0.4s) |
 | 36 | `$flatten_constOpt` | 2 | YES (0.0s) | YES (0.4s) |
 | 37 | `$flatten_objectInitializerOptIR` | 2 | YES (0.0s) | YES (0.4s) |
-| 38 | `$is_some` | 2 | YES (0.0s) | YES (0.4s) |
+| 38 | `$is_some_` | 2 | YES (0.0s) | YES (0.4s) |
 | 39 | `$ite` | 2 | YES (0.0s) | YES (0.4s) |
-| 40 | `$opt_as_seq` | 2 | YES (0.0s) | YES (0.4s) |
+| 40 | `$opt_as_seq_` | 2 | YES (0.0s) | YES (0.4s) |
 | 41 | `$parameterListIR_of_externMethodTypeDefIR` | 2 | YES (0.0s) | YES (0.4s) |
 | 42 | `$type_of_externMethodPrototypeIR` | 2 | YES (0.0s) | YES (0.4s) |
 | 43 | `$callable_builtinMethod` | 3 | YES (0.0s) | YES (0.4s) |
 | 44 | `$constructorTypeDef_of_externConstructorPrototypeIR` | 3 | YES (0.0s) | YES (0.4s) |
 | 45 | `$constructor_of_externConstructorPrototypeIR` | 3 | YES (0.0s) | YES (0.4s) |
 | 46 | `$empty_constraint` | 3 | YES (0.0s) | YES (0.4s) |
-| 47 | `$filter` | 3 | YES (0.0s) | YES (0.5s) |
+| 47 | `$filter_` | 3 | YES (0.0s) | YES (0.5s) |
 | 48 | `$instantiable_extern` | 3 | YES (0.0s) | YES (0.4s) |
 | 49 | `$is_lpm_key_prime` | 3 | YES (0.0s) | YES (0.4s) |
 | 50 | `$join_tableEntryState` | 3 | YES (0.0s) | YES (0.4s) |
 | 51 | `$un_lnot` | 3 | YES (0.0s) | YES (0.4s) |
 | 52 | `$concat_text` | 4 | YES (0.0s) | YES (0.4s) |
-| 53 | `$exists` | 4 | YES (0.0s) | YES (0.4s) |
+| 53 | `$exists_` | 4 | YES (0.0s) | YES (0.4s) |
 | 54 | `$flatten_blockElementStatementList` | 4 | YES (0.0s) | YES (0.4s) |
 | 55 | `$flatten_controlLocalDeclarationList` | 4 | YES (0.0s) | YES (0.4s) |
 | 56 | `$flatten_externConstructorOrMethodPrototypeList` | 4 | YES (0.0s) | YES (0.4s) |
@@ -116,7 +126,7 @@
 | 65 | `$flatten_tableKeyList` | 4 | YES (0.0s) | YES (0.4s) |
 | 66 | `$flatten_tablePropertyList` | 4 | YES (0.0s) | YES (0.4s) |
 | 67 | `$flatten_typeFieldList` | 4 | YES (0.0s) | YES (0.4s) |
-| 68 | `$forall` | 4 | YES (0.0s) | YES (0.4s) |
+| 68 | `$forall_` | 4 | YES (0.0s) | YES (0.4s) |
 | 69 | `$is_concrete_extern_object_prime_prime` | 4 | YES (0.1s) | YES (0.4s) |
 | 70 | `$is_default_parameterIR` | 4 | YES (0.1s) | YES (0.4s) |
 | 71 | `$is_lpm_key` | 4 | YES (0.1s) | YES (0.4s) |
@@ -384,10 +394,10 @@
 | 333 | `$add_typeParameters_t` | 50669 | - | - |
 | 334 | `$find_callableDef_non_overload_i` | 50669 | - | - |
 | 335 | `FuncDecl_inst` | 50675 | - | - |
-| 336 | `$init` | 50676 | - | - |
+| 336 | `$init_` | 50676 | - | - |
 | 337 | `ExternMethod_inst` | 50676 | - | - |
 | 338 | `ActionDecl_inst` | 50677 | - | - |
-| 339 | `$repeat` | 50678 | - | - |
+| 339 | `$repeat_` | 50678 | - | - |
 | 340 | `ExternMethods_inst` | 50678 | - | - |
 | 341 | `$fresh_typeIds` | 50679 | - | - |
 | 342 | `SwitchLabel_table_ok` | 50697 | - | - |
@@ -432,25 +442,25 @@
 | 381 | `$merge_externMethodDefEnvs` | 51950 | - | - |
 | 382 | `TableType_ok` | 51959 | - | - |
 | 383 | `$free_typeDefIR` | 51963 | - | - |
-| 384 | `$find_constructorDef_overloaded_t` | 52020 | - | - |
-| 385 | `$capture_avoiding` | 52021 | - | - |
-| 386 | `$capture_avoiding` | 52021 | - | - |
+| 384 | `$capture_avoiding_` | 52000 | - | - |
+| 385 | `$capture_avoiding` | 52016 | - | - |
+| 386 | `$find_constructorDef_overloaded_t` | 52020 | - | - |
 | 387 | `$find_callableDef_overloaded_t` | 52056 | - | - |
 | 388 | `$instantiable` | 52065 | - | - |
-| 389 | `$subst_callableTypeDefIR` | 52157 | - | - |
-| 390 | `$subst_callableTypeDefIR_prime` | 52157 | - | - |
-| 391 | `$subst_callableTypeIR_prime` | 52157 | - | - |
-| 392 | `$subst_parameterIR` | 52157 | - | - |
-| 393 | `$subst_parameterIR_prime` | 52157 | - | - |
-| 394 | `$subst_typeIR` | 52157 | - | - |
-| 395 | `$subst_typeIR_prime` | 52157 | - | - |
-| 396 | `$subst_callableTypeIR` | 52159 | - | - |
-| 397 | `$subst_constructorTypeIR_prime` | 52160 | - | - |
-| 398 | `$subst_constructorTypeIR` | 52162 | - | - |
-| 399 | `$subst_type_i` | 52173 | - | - |
-| 400 | `$specialize_typeDefIR` | 52190 | - | - |
-| 401 | `$specialize_callableTypeDefIR` | 52193 | - | - |
-| 402 | `$specialize_constructorTypeDefIR` | 52196 | - | - |
+| 389 | `$subst_callableTypeDefIR` | 52152 | - | - |
+| 390 | `$subst_callableTypeDefIR_prime` | 52152 | - | - |
+| 391 | `$subst_callableTypeIR_prime` | 52152 | - | - |
+| 392 | `$subst_parameterIR` | 52152 | - | - |
+| 393 | `$subst_parameterIR_prime` | 52152 | - | - |
+| 394 | `$subst_typeIR` | 52152 | - | - |
+| 395 | `$subst_typeIR_prime` | 52152 | - | - |
+| 396 | `$subst_callableTypeIR` | 52154 | - | - |
+| 397 | `$subst_constructorTypeIR_prime` | 52155 | - | - |
+| 398 | `$subst_constructorTypeIR` | 52157 | - | - |
+| 399 | `$subst_type_i` | 52168 | - | - |
+| 400 | `$specialize_typeDefIR` | 52185 | - | - |
+| 401 | `$specialize_callableTypeDefIR` | 52188 | - | - |
+| 402 | `$specialize_constructorTypeDefIR` | 52191 | - | - |
 | 403 | `TableAction_inst` | 52251 | - | - |
 | 404 | `TableActions_inst` | 52253 | - | - |
 | 405 | `$cast_default` | 52307 | - | - |
@@ -477,8 +487,8 @@
 | 426 | `Constructor_inst` | 52454 | - | - |
 | 427 | `ConstructorType_wf` | 52606 | - | - |
 | 428 | `ConstructorTypeDef_wf` | 52613 | - | - |
-| 429 | `ConstructorType_ok` | 53118 | - | - |
-| 430 | `CallableType_ok` | 53229 | - | - |
+| 429 | `ConstructorType_ok` | 53113 | - | - |
+| 430 | `CallableType_ok` | 53224 | - | - |
 | 431 | `Cast_impl` | 53277 | - | - |
 | 432 | `$cast_unary` | 53280 | - | - |
 | 433 | `$merge_constraint_prime` | 53290 | - | - |
@@ -495,122 +505,122 @@
 | 444 | `$gen_constraints` | 53389 | - | - |
 | 445 | `$infer_prime` | 53394 | - | - |
 | 446 | `$infer` | 53454 | - | - |
-| 447 | `ExternMethodTypeDef_alpha` | 53469 | - | - |
-| 448 | `$subst_externMethodTypeDefEnv` | 53493 | - | - |
+| 447 | `ExternMethodTypeDef_alpha` | 53464 | - | - |
+| 448 | `$subst_externMethodTypeDefEnv` | 53488 | - | - |
 | 449 | `Call_action_default_ok` | 53784 | - | - |
 | 450 | `Call_action_partial_ok` | 53784 | - | - |
-| 451 | `Argument_eval_lctk` | 54289 | - | - |
-| 452 | `Expr_eval_lctk` | 54289 | - | - |
-| 453 | `Argument_inst` | 54339 | - | - |
-| 454 | `BlockElementStmtList_inst` | 54339 | - | - |
-| 455 | `BlockElementStmt_inst` | 54339 | - | - |
-| 456 | `Block_inst` | 54339 | - | - |
-| 457 | `Constructor_call` | 54339 | - | - |
-| 458 | `ControlLocalDecl_inst` | 54339 | - | - |
-| 459 | `ControlLocalDecls_inst` | 54339 | - | - |
-| 460 | `Copy_in_argument_inst` | 54339 | - | - |
-| 461 | `Copy_in_argument_inst_default` | 54339 | - | - |
-| 462 | `Copy_in_inst` | 54339 | - | - |
-| 463 | `Copy_in_inst_default` | 54339 | - | - |
-| 464 | `DirectApplicationStmt_inst` | 54339 | - | - |
-| 465 | `Expr_inst` | 54339 | - | - |
-| 466 | `Exprs_inst` | 54339 | - | - |
-| 467 | `InstDecl_inst` | 54339 | - | - |
-| 468 | `ObjectDecl_inst` | 54339 | - | - |
-| 469 | `ObjectDecls_inst` | 54339 | - | - |
-| 470 | `ParserLocalDecl_inst` | 54339 | - | - |
-| 471 | `ParserLocalDecls_inst` | 54339 | - | - |
-| 472 | `ParserState_inst` | 54339 | - | - |
-| 473 | `ParserStates_inst` | 54339 | - | - |
-| 474 | `ParserStmt_inst` | 54339 | - | - |
-| 475 | `ParserStmts_inst` | 54339 | - | - |
-| 476 | `Stmt_inst` | 54339 | - | - |
-| 477 | `SwitchCase_inst` | 54339 | - | - |
-| 478 | `SwitchCases_inst` | 54339 | - | - |
-| 479 | `TableProperties_inst` | 54339 | - | - |
-| 480 | `TableProperty_inst` | 54339 | - | - |
-| 481 | `Call_ok` | 54414 | - | - |
-| 482 | `Decl_inst` | 54484 | - | - |
-| 483 | `Decls_inst` | 54486 | - | - |
-| 484 | `Inst_ok` | 54604 | - | - |
-| 485 | `ArgumentList_ok` | 56634 | - | - |
-| 486 | `Argument_ok` | 56634 | - | - |
-| 487 | `CallableTarget_ok` | 56634 | - | - |
-| 488 | `Expr_ok` | 56634 | - | - |
-| 489 | `TypeArgumentList_ok` | 56634 | - | - |
-| 490 | `TypeArgument_ok` | 56634 | - | - |
-| 491 | `TypeArguments_ok` | 56634 | - | - |
-| 492 | `Type_ok` | 56634 | - | - |
-| 493 | `ConstDecl_ok` | 56635 | - | - |
-| 494 | `Enum_serializable_field_ok` | 56635 | - | - |
-| 495 | `InstDecl_non_objectInitializer_ok` | 56635 | - | - |
-| 496 | `TableEntry_priority_ok` | 56636 | - | - |
-| 497 | `Enum_serializable_fields_ok` | 56637 | - | - |
-| 498 | `Enum_serializable_fieldList_ok` | 56638 | - | - |
-| 499 | `Parameter_ok` | 56639 | - | - |
-| 500 | `ParameterList_ok_inner` | 56641 | - | - |
-| 501 | `ParameterList_ok` | 56653 | - | - |
-| 502 | `ConstructorParameterListOpt_ok` | 56655 | - | - |
-| 503 | `CallableTarget_lvalue_ok` | 56657 | - | - |
-| 504 | `VarDecl_ok` | 56659 | - | - |
-| 505 | `SelectCase_keyset_simple_ok` | 56661 | - | - |
-| 506 | `ExternConstructor_ok` | 56676 | - | - |
-| 507 | `ForCollectionExpr_ok` | 56677 | - | - |
-| 508 | `ExternMethod_ok` | 56683 | - | - |
-| 509 | `Lvalue_ok` | 56697 | - | - |
-| 510 | `TableEntry_keyset_simple_ok` | 56741 | - | - |
-| 511 | `TableEntry_keysets_simple_ok` | 56746 | - | - |
-| 512 | `SwitchLabel_general_ok` | 56782 | - | - |
-| 513 | `SelectCase_keyset_ok` | 56898 | - | - |
-| 514 | `SelectCase_ok` | 56899 | - | - |
-| 515 | `ParserSelect_ok` | 56912 | - | - |
-| 516 | `ParserTransition_ok` | 56962 | - | - |
-| 517 | `TableEntry_keyset_ok` | 56980 | - | - |
-| 518 | `TableEntry_action_ok` | 57072 | - | - |
-| 519 | `TableDefaultAction_ok` | 57087 | - | - |
-| 520 | `TableAction_ok` | 57130 | - | - |
-| 521 | `TableActions_ok` | 57132 | - | - |
-| 522 | `TableEntry_ok` | 57424 | - | - |
-| 523 | `BlockElementStmtList_ok` | 57471 | - | - |
-| 524 | `BlockElementStmt_ok` | 57471 | - | - |
-| 525 | `BlockElementStmts_ok` | 57471 | - | - |
-| 526 | `Block_ok` | 57471 | - | - |
-| 527 | `ForInitStmtList_ok` | 57471 | - | - |
-| 528 | `ForInitStmt_ok` | 57471 | - | - |
-| 529 | `ForInitStmts_ok` | 57471 | - | - |
-| 530 | `ForUpdateStmtList_ok` | 57471 | - | - |
-| 531 | `ForUpdateStmt_ok` | 57471 | - | - |
-| 532 | `Stmt_ok` | 57471 | - | - |
-| 533 | `SwitchCaseList_general_ok` | 57471 | - | - |
-| 534 | `SwitchCaseList_table_ok` | 57471 | - | - |
-| 535 | `SwitchCase_general_ok` | 57471 | - | - |
-| 536 | `SwitchCase_table_ok` | 57471 | - | - |
-| 537 | `SwitchCases_general_ok` | 57471 | - | - |
-| 538 | `SwitchCases_table_ok` | 57471 | - | - |
-| 539 | `ActionDecl_ok` | 57502 | - | - |
-| 540 | `FuncDecl_ok` | 57525 | - | - |
-| 541 | `ParserStmtList_ok` | 57561 | - | - |
-| 542 | `ParserStmt_ok` | 57561 | - | - |
-| 543 | `ParserStmts_ok` | 57561 | - | - |
-| 544 | `InstDecl_objectInitializer_ok` | 57655 | - | - |
-| 545 | `InstDecl_ok` | 57655 | - | - |
-| 546 | `ObjectDeclList_ok` | 57655 | - | - |
-| 547 | `ObjectDecl_ok` | 57655 | - | - |
-| 548 | `ObjectDecls_ok` | 57655 | - | - |
-| 549 | `ParserLocalDecl_ok` | 57675 | - | - |
-| 550 | `ParserLocalDecls_ok` | 57677 | - | - |
-| 551 | `ParserLocalDeclList_ok` | 57680 | - | - |
-| 552 | `TableKey_ok` | 57770 | - | - |
-| 553 | `TableKeys_ok` | 57772 | - | - |
-| 554 | `ParserState_ok` | 57884 | - | - |
-| 555 | `ParserStateList_ok` | 57903 | - | - |
-| 556 | `TableProperty_ok` | 58824 | - | - |
-| 557 | `TableProperties_ok` | 58826 | - | - |
-| 558 | `Table_ok` | 58883 | - | - |
-| 559 | `ControlLocalDecl_ok` | 60199 | - | - |
-| 560 | `ControlLocalDecls_ok` | 60201 | - | - |
-| 561 | `ControlLocalDeclList_ok` | 60204 | - | - |
-| 562 | `Decl_ok` | 60717 | - | - |
-| 563 | `Decls_ok` | 60719 | - | - |
-| 564 | `Program_ok` | 60723 | - | YES (≥20480s) |
-| 565 | `Program_inst` | 61345 | - | TIMEOUT (>20480s) |
+| 451 | `Argument_eval_lctk` | 54284 | - | - |
+| 452 | `Expr_eval_lctk` | 54284 | - | - |
+| 453 | `Argument_inst` | 54334 | - | - |
+| 454 | `BlockElementStmtList_inst` | 54334 | - | - |
+| 455 | `BlockElementStmt_inst` | 54334 | - | - |
+| 456 | `Block_inst` | 54334 | - | - |
+| 457 | `Constructor_call` | 54334 | - | - |
+| 458 | `ControlLocalDecl_inst` | 54334 | - | - |
+| 459 | `ControlLocalDecls_inst` | 54334 | - | - |
+| 460 | `Copy_in_argument_inst` | 54334 | - | - |
+| 461 | `Copy_in_argument_inst_default` | 54334 | - | - |
+| 462 | `Copy_in_inst` | 54334 | - | - |
+| 463 | `Copy_in_inst_default` | 54334 | - | - |
+| 464 | `DirectApplicationStmt_inst` | 54334 | - | - |
+| 465 | `Expr_inst` | 54334 | - | - |
+| 466 | `Exprs_inst` | 54334 | - | - |
+| 467 | `InstDecl_inst` | 54334 | - | - |
+| 468 | `ObjectDecl_inst` | 54334 | - | - |
+| 469 | `ObjectDecls_inst` | 54334 | - | - |
+| 470 | `ParserLocalDecl_inst` | 54334 | - | - |
+| 471 | `ParserLocalDecls_inst` | 54334 | - | - |
+| 472 | `ParserState_inst` | 54334 | - | - |
+| 473 | `ParserStates_inst` | 54334 | - | - |
+| 474 | `ParserStmt_inst` | 54334 | - | - |
+| 475 | `ParserStmts_inst` | 54334 | - | - |
+| 476 | `Stmt_inst` | 54334 | - | - |
+| 477 | `SwitchCase_inst` | 54334 | - | - |
+| 478 | `SwitchCases_inst` | 54334 | - | - |
+| 479 | `TableProperties_inst` | 54334 | - | - |
+| 480 | `TableProperty_inst` | 54334 | - | - |
+| 481 | `Call_ok` | 54409 | - | - |
+| 482 | `Decl_inst` | 54479 | - | - |
+| 483 | `Decls_inst` | 54481 | - | - |
+| 484 | `Inst_ok` | 54599 | - | - |
+| 485 | `ArgumentList_ok` | 56629 | - | - |
+| 486 | `Argument_ok` | 56629 | - | - |
+| 487 | `CallableTarget_ok` | 56629 | - | - |
+| 488 | `Expr_ok` | 56629 | - | - |
+| 489 | `TypeArgumentList_ok` | 56629 | - | - |
+| 490 | `TypeArgument_ok` | 56629 | - | - |
+| 491 | `TypeArguments_ok` | 56629 | - | - |
+| 492 | `Type_ok` | 56629 | - | - |
+| 493 | `ConstDecl_ok` | 56630 | - | - |
+| 494 | `Enum_serializable_field_ok` | 56630 | - | - |
+| 495 | `InstDecl_non_objectInitializer_ok` | 56630 | - | - |
+| 496 | `TableEntry_priority_ok` | 56631 | - | - |
+| 497 | `Enum_serializable_fields_ok` | 56632 | - | - |
+| 498 | `Enum_serializable_fieldList_ok` | 56633 | - | - |
+| 499 | `Parameter_ok` | 56634 | - | - |
+| 500 | `ParameterList_ok_inner` | 56636 | - | - |
+| 501 | `ParameterList_ok` | 56648 | - | - |
+| 502 | `ConstructorParameterListOpt_ok` | 56650 | - | - |
+| 503 | `CallableTarget_lvalue_ok` | 56652 | - | - |
+| 504 | `VarDecl_ok` | 56654 | - | - |
+| 505 | `SelectCase_keyset_simple_ok` | 56656 | - | - |
+| 506 | `ExternConstructor_ok` | 56671 | - | - |
+| 507 | `ForCollectionExpr_ok` | 56672 | - | - |
+| 508 | `ExternMethod_ok` | 56678 | - | - |
+| 509 | `Lvalue_ok` | 56692 | - | - |
+| 510 | `TableEntry_keyset_simple_ok` | 56736 | - | - |
+| 511 | `TableEntry_keysets_simple_ok` | 56741 | - | - |
+| 512 | `SwitchLabel_general_ok` | 56777 | - | - |
+| 513 | `SelectCase_keyset_ok` | 56893 | - | - |
+| 514 | `SelectCase_ok` | 56894 | - | - |
+| 515 | `ParserSelect_ok` | 56907 | - | - |
+| 516 | `ParserTransition_ok` | 56957 | - | - |
+| 517 | `TableEntry_keyset_ok` | 56975 | - | - |
+| 518 | `TableEntry_action_ok` | 57067 | - | - |
+| 519 | `TableDefaultAction_ok` | 57082 | - | - |
+| 520 | `TableAction_ok` | 57125 | - | - |
+| 521 | `TableActions_ok` | 57127 | - | - |
+| 522 | `TableEntry_ok` | 57419 | - | - |
+| 523 | `BlockElementStmtList_ok` | 57466 | - | - |
+| 524 | `BlockElementStmt_ok` | 57466 | - | - |
+| 525 | `BlockElementStmts_ok` | 57466 | - | - |
+| 526 | `Block_ok` | 57466 | - | - |
+| 527 | `ForInitStmtList_ok` | 57466 | - | - |
+| 528 | `ForInitStmt_ok` | 57466 | - | - |
+| 529 | `ForInitStmts_ok` | 57466 | - | - |
+| 530 | `ForUpdateStmtList_ok` | 57466 | - | - |
+| 531 | `ForUpdateStmt_ok` | 57466 | - | - |
+| 532 | `Stmt_ok` | 57466 | - | - |
+| 533 | `SwitchCaseList_general_ok` | 57466 | - | - |
+| 534 | `SwitchCaseList_table_ok` | 57466 | - | - |
+| 535 | `SwitchCase_general_ok` | 57466 | - | - |
+| 536 | `SwitchCase_table_ok` | 57466 | - | - |
+| 537 | `SwitchCases_general_ok` | 57466 | - | - |
+| 538 | `SwitchCases_table_ok` | 57466 | - | - |
+| 539 | `ActionDecl_ok` | 57497 | - | - |
+| 540 | `FuncDecl_ok` | 57520 | - | - |
+| 541 | `ParserStmtList_ok` | 57556 | - | - |
+| 542 | `ParserStmt_ok` | 57556 | - | - |
+| 543 | `ParserStmts_ok` | 57556 | - | - |
+| 544 | `InstDecl_objectInitializer_ok` | 57650 | - | - |
+| 545 | `InstDecl_ok` | 57650 | - | - |
+| 546 | `ObjectDeclList_ok` | 57650 | - | - |
+| 547 | `ObjectDecl_ok` | 57650 | - | - |
+| 548 | `ObjectDecls_ok` | 57650 | - | - |
+| 549 | `ParserLocalDecl_ok` | 57670 | - | - |
+| 550 | `ParserLocalDecls_ok` | 57672 | - | - |
+| 551 | `ParserLocalDeclList_ok` | 57675 | - | - |
+| 552 | `TableKey_ok` | 57765 | - | - |
+| 553 | `TableKeys_ok` | 57767 | - | - |
+| 554 | `ParserState_ok` | 57879 | - | - |
+| 555 | `ParserStateList_ok` | 57898 | - | - |
+| 556 | `TableProperty_ok` | 58819 | - | - |
+| 557 | `TableProperties_ok` | 58821 | - | - |
+| 558 | `Table_ok` | 58878 | - | - |
+| 559 | `ControlLocalDecl_ok` | 60194 | - | - |
+| 560 | `ControlLocalDecls_ok` | 60196 | - | - |
+| 561 | `ControlLocalDeclList_ok` | 60199 | - | - |
+| 562 | `Decl_ok` | 60712 | - | - |
+| 563 | `Decls_ok` | 60714 | - | - |
+| 564 | `Program_ok` | 60718 | - | YES (≥20480s) |
+| 565 | `Program_inst` | 61340 | - | TIMEOUT (>20480s) |
