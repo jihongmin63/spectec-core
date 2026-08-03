@@ -11,10 +11,13 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
 반사 72/72 달성 + `drop_owise` 폴백 제거, holds_R output-carrying 일반화까지 완료
 (아래 2026-07-07 항목). **구조적 CTRS differential**(binary nat 이론, Phase D
 1227/1227 MATCH)과 **termination 스윕**(153심볼 CRC+term, [verification.md](../../../verification.md))도
-완료됐습니다. 남은 일은 아래 "남은 작업" 블록(`$bitstr_to_int` w=0 비종료,
-LTL 모델 검사, SCC, 잔여 MAYBE)입니다.
+완료됐습니다. 남은 일은 아래 "남은 작업" 블록(대형 슬라이스 CRC의 슬라이스 축소,
+`$bitstr_to_int` w=0 비종료, LTL 모델 검사, SCC, 잔여 MAYBE)입니다.
 알고리즘 설계 기준은 [CORE_LOGIC.md](CORE_LOGIC.md), 모듈 상태는
-[CLAUDE.md](CLAUDE.md) 참고.
+[CLAUDE.md](CLAUDE.md) 참고. **실험의 우선순위는 이제 논문 계획
+([PAPER.md](../../../PAPER.md), CAV 2027 Short Application Papers, rev.3)이 함께
+정합니다** — 측정 freeze 10월 말, `== false` 근사 정량화(실험 ⑨)와 증분 게이트 비용(실험 ⑩)이
+그쪽의 최우선 항목입니다. 이 파일은 **무엇을 할지**, PAPER.md는 **왜 그것을 쓰는지**를 답니다.
 
 ## 현재 상태
 
@@ -72,6 +75,26 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-07-30 — confluence 전수 스윕을 2,490규칙에서 세웠다 (`c9b64e92`·`052938fb`)
+
+**중단은 예산 부족이 아니라 수확 체감이다.** `orient_conds` 이후 재측정 스윕이 565심볼 중
+**278**을 채웠다(YES 150 · YES\* 6 · **TIMEOUT 122**). 규칙 오름차순으로 돌기 때문에 남은
+287심볼은 전부 대형 슬라이스이고 **중앙값이 52,394규칙**이다. 결정적인 관측은
+**874규칙 위가 예외 없이 전부 TIMEOUT**이라는 것 — 886~1203 밴드는 예고대로 50/50 TIMEOUT이었고
+(`c9b64e92`), 그 위도 같았다. 심볼당 base 2,040초 + 정규화까지 4,080초를 그대로 태우고
+verdict가 없으므로, 남은 287을 같은 프로토콜로 도는 것은 **약 2주를 써서 `-`를 `TIMEOUT`으로
+바꾸는 일**이다. 그래서 세웠다.
+
+- **다운그레이드 0**: 재측정한 278 중 옛 판정을 잃은 심볼이 없다 →
+  `orient_conds`는 측정된 범위에서 confluence-neutral(그 부채의 CRC 쪽은 이로써 닫힘).
+- TIMEOUT 122의 성격은 둘로 갈린다 — 400규칙 이하 비트벡터 산술 7건과, 874~2,490규칙 구간에서
+  예산을 소진한 115건. **둘 다 임계쌍 폭발이지 비합류 witness가 아니다.**
+- **다음 수는 예산이 아니라 슬라이스 축소다.** 후보는 (a) 맨변수 바인더 제거(아래 2026-07-24
+  research note — 측정된 비용의 98.6%가 여기 몰려 있고 `$callableId*`는 250.3초→0.7초),
+  (b) 추가 pruning, (c) 모듈러 분해(산술을 블랙박스로; termination 쪽에서 이미 통한 수법).
+  셋 다 착수 전이다.
+- term 스윕은 별도로 멈춰 있다(측정 308: YES 307 · TIMEOUT 1).
+
 ### 2026-07-29 — `$write_value_from_bits'` n_var=0 경계 수정 — ✅ 완료. 가드 **철자**가 슬라이스 크기를 지배한다
 
 **결함(스펙 쪽).** `2.1.2-value-aux.spectec`의 varbit(`V`) 절 두 개가 `n_var = 0`에서 동시에
@@ -106,7 +129,37 @@ baseline TSV와 **44/44 일치**, `run --check-p4` 결과-VALUE **35/35 MATCH**(
 `issue1879-bmv2.p4`는 baseline에서도 interp FAIL/Maude STUCK). CRC 재측정치는
 [verification.md](../../../verification.md) 표.
 
-### 2026-07-24 — 【알려진 결함】 `sanitize`가 `$capture_avoiding_`와 `$capture_avoiding`를 한 심볼로 합친다 — 미수정
+### 2026-08-03 — `sanitize`의 밑줄 소실로 인한 심볼 합쳐짐 — ✅ 해소 (밑줄을 이름 문자로)
+
+**수정.** `R.sanitize`의 `is_alnum`을 `is_name_char`로 바꿔 `_`를 **구분자가 아니라 이름
+문자**로 다룬다(`mnemonic_of_char`의 버리는 목록에서도 제거). 선행 밑줄에는 `c_` 접두를
+**붙이지 않는다** — Maude는 선두 `-` 연산자 이름을 받고(미니 모듈로 실측), TPDB 쪽은
+`unravel.ml`의 `scrub`이 이미 `_` 선두를 식별자 선두로 허용한다. 숫자 선두 가드만 남는다.
+
+**측정 (p4 두 표면 전량 대조).**
+- **순수 개명이다.** 분석 표면의 eq 72,504 / ceq 2,441 / op 3,139가 **모두 불변**이고,
+  이름을 옛 철자로 되돌리는 역변환을 걸면 잔차가 `$capture-avoiding` 2줄과 길이 상한에
+  걸려 해시 접미가 바뀐 생성 헬퍼 이름들뿐이다. 합류성·종료성은 개명에 불변이므로
+  [verification.md](../../../verification.md)의 판정은 **재측정 없이 이월**했다(같은 파일의
+  "이름·규칙 수 갱신" 항목). 실물 확인: `$join_text`·`$invalidate_header`·`$is_some_`
+  CRC 전부 YES, `$join_text`·`$is_some_` term YES.
+- **중복 op 이름이 사라졌다**: 옛 표면은 `$capture-avoiding`이 이름 중복(서로 다른 함수
+  둘), 새 표면은 arity 오버로드인 `tuple`만 남는다.
+- **실행 표면에서 진짜 결함 두 개가 같이 고쳐졌다.** (a) `$capture_avoiding_`의
+  `isStuckHead` 총체화 등식이 **아예 없었다**(합쳐진 5-arity 쪽에 가려짐) — eq 70,756→70,757의
+  +1이 그것이다. (b) 그 함수의 gensym state 변수가 **다른 함수의 선언 sort를 받아
+  `St0:Set`** 이었고 이제 `St0:Val`이다. 종전 항목이 "미규명 부작용"이라 적었던
+  `Set List List Set`→all-`Val` 변화가 이것으로, **옛 좁은 sort 쪽이 틀린 것**이었다:
+  gensym state가 붙은 op는 선언 arity와 어긋나 원래 전부 all-`Val`이다(`$subst_typeIR` 등
+  대조 확인). 실행 무회귀: `run --check-p4` 표본 5개 중 accept 4개 전부 RESULT MATCH,
+  `factory2.p4`는 baseline TSV와 같은 interp FAIL/Maude STUCK.
+- 부수: p4 분석 표면 36,984줄·실행 표면 34,090줄이 개명으로 달라지고 impty/base 골든을
+  갱신했다. 대부분은 선행 밑줄을 가진 **mixop 자리표시자**(`_BOOL`→`-BOOL`)에서 온다.
+
+**남은 한계**: 니모닉 토큰과 리터럴이 만나는 자리(`a-b`와 `a_minus_b`)는 여전히 합쳐질 수
+있다. 지금 스펙에는 그런 이름이 없고, `sanitize`의 주석이 이 한계를 명시한다.
+
+<details><summary>2026-07-24 원래 진단 (기록 보존)</summary>
 
 `R.sanitize`(`rewrite_system.ml`)는 `_`를 **토큰 구분자로 버리고** 토큰을 다시 `_`로
 잇는다. 그래서 내부 밑줄은 우연히 복원되지만 **선행·후행·연속 밑줄은 소실**된다.
@@ -136,6 +189,12 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
 **고친다면**: 이름 보존(30개 변경 수용 + 골든·측정 재검증) 대 충돌 시에만 유일화
 (`func_sym`을 중앙 인덱스 경유로 바꿔야 — `maude_sorts`/`builtin`/`spec_index`가 각각
 독립 호출하므로 순수 함수로는 불가) 중 선택. 전자가 근본적이고, 후자는 이름이 인위적이 된다.
+
+→ 전자로 갔다(위 2026-08-03 항목). 당시 셈한 "37,003줄"·"30개 이름"은 함수 이름만 센 것이라
+과소평가였다 — 실제로는 선행 밑줄 mixop까지 바뀌어 분석 표면 36,984줄이 달라진다. 다만 그
+전량이 **개명**임을 등식 수 불변 + 역변환 대조로 확인해서, 판정 재측정 없이 이월할 수 있었다.
+
+</details>
 
 ### 2026-07-24 — refactor/rewrite-clean 통합 + termination 예산 사다리 + term 전수 재측정 — ✅ 완료
 
@@ -2433,15 +2492,17 @@ soundness/Phase D 수치를 다시 세우고, `const.p4`/`issue1717.p4`가 실�
 남은 작업:
 
 ```
-  → orient_conds(bdceb303) 이후 CRC/term 재측정                                [영향 282/2356 슬라이스. term은 "판정 변경 가능"이 아니라 "기존 YES 일부가 미증명"이라 우선순위 높음. 실행 표면은 sort 협소화 1줄뿐이라 differential은 전수 재실행에 묻어서 확인]
-  → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조]
+  → 큰 슬라이스의 CRC를 예산이 아니라 **슬라이스 축소**로 뚫기                  [confluence 스윕은 2,490규칙에서 세웠다(2026-07-30, 아래 절). 874규칙 위는 예외 없이 TIMEOUT이고 남은 287심볼 중앙값이 52,394규칙이라 예산을 늘려도 결과가 같다. 유력 수단은 맨변수 바인더 제거(아래 2026-07-24 research note: 비용의 98.6%) + 추가 pruning/모듈러 분해]
+  → orient_conds(bdceb303) 이후 term 재측정                                    [CRC 열은 위 스윕으로 278심볼까지 재측정 완료(다운그레이드 0). term은 "판정 변경 가능"이 아니라 "기존 YES 일부가 미증명"이라 성격이 달라 여전히 남아 있다 — 스윕 중단 상태]
+  → 전수 differential 재실행 + const.p4/issue1717.p4 이분 탐색            [기존 TSV 수치가 낡음; 위 절 참조. sanitize 밑줄 보존(2026-08-03)이 실행 표면을 전량 개명했으므로 이번 재실행이 그 무회귀도 겸한다 — 표본 5개는 이미 RESULT MATCH]
   → $bitstr_to_int w=0 실행 비종료                                             [유일한 "진짜 결함" 후보; P4 타입시스템이 bit<0>/int<0> 산술을 막는지 규명하면 갈림길 결정]
   → LTL 모델 검사로 P4 시간적 성질 검증                                        [신규 축; (P1) 선택적 rl 모드(= Kripke 전이, 유일한 하드 블로커) → (P2) modelCheck 배선(holds_R을 원자명제로) → header validity `[] ~ readInvalid` → parser/progress/preservation → (P3) 보조 search 일반화]
   → SCC (sufficient completeness)                                             [P1 도메인 협소화 완료(2026-07-14, predicate_domains = 쓰이는 주어들의 join 고정점; 가족의 86%가 진짜 sort, match_typeIR_BOOL_0이 위양성 반례 → COMPLETE). 남은 건 (P2) --slice-dir 배치 덤프(심볼당 50초 재번역 → 24시간이라 스윕 전 필수) → 전체 스윕(exact는 COMPLETE 수확, approx는 COUNTEREXAMPLE만; dom: 열로 1차 분류) → (P3) sub_nat의 Val 도메인]
   → 잔여 MAYBE: rhs-2회-사용 출력 바인더($un_op의 $bneg 케이스 — fold 중복-방지 게이트의 몫) + 대형 variant(>16멤버) subty 가드 + 전체-시스템급 슬라이스 [B′ 범위 밖; 필요 시 별건 설계]
                 (companion-destructure 케이스는 위 2026-07-11 항목에서 해소)
 
-  (완료: $write_value_from_bits' n_var=0 경계 — 스펙에 `$(n_var > 0)` 가드 복원(아래 2026-07-28 항목)
+  (완료: sanitize 밑줄 소실로 인한 심볼 합쳐짐 — `_`를 이름 문자로(위 2026-08-03 항목)
+         $write_value_from_bits' n_var=0 경계 — 스펙에 `$(n_var > 0)` 가드 복원(아래 2026-07-28 항목)
          CTRS(구조적) differential — binary 수 인코딩 전환 후 Phase D 1227/1227 MATCH, 92618dc2
          termination 열 채우기 — 153심볼 CRC+term 스윕, verification.md
          owise 절 생성자 fan-out(complement 열거) — $join_ctk/$assignop_as_binop CRC MAYBE 2건
