@@ -160,8 +160,52 @@ CRC가 조건을 `=>`로 재인코딩할 때 매칭을 탐색으로 바꾸는 �
   `direction`은 첫 번째에 대한 **검사**였고 지금도 검사다. (c) differential(seed 103, 100개:
   MATCH 75, Maude 거부 25 전부 interp도 FAIL → gap 0, MISMATCH 0).
 
-**남는 일**: CRC 판정 재측정(아래 "CRC 3라운드" 절), 그리고 ③이 명세를 바꿨으므로
-**전수 differential**.
+**CRC 재측정 (9심볼, base 400초 상한, `c59788ad` tip).** 정보가 있는 심볼만 골랐다 —
+나머지 8개(비트벡터 6 + `$callableId`/`$callableId_prime`)는 이미 TIMEOUT이 확정돼 있어
+사다리 3단을 다 태워도 같은 답이 나올 뿐이다.
+
+| 심볼 | 기록 | 재측정 |
+|---|---|---|
+| `$write_bits_from_value` | TIMEOUT (>2040s) | **YES\* (651.5s, rebind 단)** |
+| `$write_value_field_from_bits'` | YES\* 261.7s | YES\* 268.8s (unravel) |
+| `$write_value_fields_from_bits'` | YES\* 263.8s | YES\* 470.6s (unravel) |
+| `$write_value_from_bits'` | YES\* 263.5s | YES\* 632.1s (unravel) |
+| `$write_values_from_bits'` | YES\* 266.0s | YES\* 773.8s (unravel) |
+| `$write_value_from_bits` | YES\* 278.1s | YES\* 957.3s (unravel-bare) |
+| `$callableId_IR` | YES 43.9s | **YES 0.2s** |
+| `$callableId_of_externConstructorPrototypeIR` | YES 89.0s | **YES 0.0s** |
+| `$callableId_of_externMethodPrototypeIR` | YES 140.9s | **YES 0.1s** |
+
+- **다운그레이드 0, 업그레이드 1.** `$write_bits_from_value`는 2026-07-24 note가
+  "TIMEOUT 7개 중 유일하게 현행 수단이 무력"이라고 짚은 심볼이다.
+- `$callableId*` 3심볼 합 **273.8초 → 0.3초**(note의 250.3→0.7 예측을 넘어선다).
+- 초가 늘어난 것은 사다리가 여러 단을 무는 값이다 — upgrade-only라 잃는 것은 시간뿐이다.
+
+**전수 differential (2026-08-03, `c59788ad` tip).** 코퍼스 1,568개 중 인터프리터 하네스가
+스스로 제외하는 271개를 뺀 **1,297개**를 돌렸다. 분류 실패·UNKNOWN·TIMEOUT 0.
+
+```
+Maude 수용    1,047  → 골든도 전부 PASS. Phase D 1,047 MATCH / 0 MISMATCH / 0 decode error
+Maude 거부      250  → 골든도 전부 FAIL (248 + 인터프리터 크래시 2건, Maude도 거부하므로 일치)
+completeness gap  0
+soundness gap     0
+```
+
+- **인터프리터 단계를 다시 돌리지 않았다.** `p4-il-pos`/`p4-il-neg` 전수 골든이 이미
+  프로그램별 PASS/FAIL을 고정하고 있고 명세 변경 후에도 차이 0이므로, Maude 쪽만 배치로
+  돌려 join했다. `check_diff_p4.sh` 런타임의 절반이 여기서 빠진다.
+- **함정 1 — 제외 목록.** `testdata/interp/p4/excludes/**/*.exclude`의 286종 중 267개가
+  코퍼스에 있는데, 이들은 골든에 판정이 없어 애초에 differential 결과를 못 내면서
+  타입체커를 몇 분씩 붙잡는다(첫 시도에서 한 청크가 Maude를 띄우지도 못하고 11분 소진).
+  `check_diff_p4.sh`도 이 목록을 반영하지 않으므로 같은 함정이 있다.
+- **함정 2 — basename 키.** `action-bind.p4`는 `p4_16_samples`와 `p4_16_errors`에 **둘 다**
+  있다. 골든을 basename으로 키잉하면 서로 다른 두 프로그램이 합쳐지고, 실제로 그 상태에서
+  "soundness gap 9건"이라는 **허위 경보**가 나왔다. `<코퍼스>/<파일명>`으로 키잉해야 한다.
+- 알려진 soundness gap `issue1944`가 제외 목록 안에 있어 이 1,297개 집계에서는 안 잡힌다.
+  제외된 271개는 별도로 돌린다(골든 판정은 없지만 `--check-p4`가 인터프리터를 in-process로
+  돌리므로 `interp FAILED` + Maude 환원 = soundness gap과 Phase D는 그대로 나온다).
+
+**남는 일**: 제외 271개 differential 마무리.
 
 ### 2026-07-30 — confluence 전수 스윕을 2,490규칙에서 세웠다 (`c9b64e92`·`052938fb`)
 
