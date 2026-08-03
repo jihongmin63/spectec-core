@@ -43,7 +43,8 @@ type t = {
    distinct, legible names (e.g. [`+`] -> "plus", not the empty string). A prime
    ['] is kept as "prime" because it distinguishes sibling definitions ([f] vs
    [f'] vs [f'']) that would otherwise collide on the same symbol; backticks,
-   double quotes and whitespace are dropped; truly unknown symbols become "sym". *)
+   double quotes and whitespace are dropped; truly unknown symbols become "sym".
+   ['_'] is absent here because {!sanitize} keeps it as a name character. *)
 let mnemonic_of_char (c : char) : string =
   match c with
   | '+' -> "plus"
@@ -75,24 +76,32 @@ let mnemonic_of_char (c : char) : string =
   | '{' -> "lbrace"
   | '}' -> "rbrace"
   | '\'' -> "prime"
-  | '`' | '"' | ' ' | '_' -> ""
+  | '`' | '"' | ' ' -> ""
   | _ -> "sym"
 
-(* Scrub a string into a CTRS-safe identifier: maximal [A-Za-z0-9] runs are kept,
-   every other character is replaced by a mnemonic token, tokens are joined with
-   [_], an alphabetic lead is guaranteed, and the result is never empty. Distinct
-   inputs may still collide (a known first-cut limitation). *)
+(* Scrub a string into a CTRS-safe identifier: maximal [A-Za-z0-9_] runs are
+   kept, every other character is replaced by a mnemonic token, tokens are joined
+   with [_], a non-numeric lead is guaranteed, and the result is never empty.
+   [_] is a name character rather than a separator, so a leading, trailing or
+   doubled underscore survives: dropping it merged the p4 spec's two functions
+   [$capture_avoiding_] and [$capture_avoiding] into one symbol, and it is what
+   distinguishes a case notation's placeholder positions ([_ BOOL] from [BOOL]).
+   Distinct inputs may still collide where a mnemonic token meets a literal one
+   ([a-b] and [a_minus_b]); no spec name does. *)
 let sanitize (s : string) : string =
-  let is_alnum c =
-    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+  let is_name_char c =
+    (c >= 'A' && c <= 'Z')
+    || (c >= 'a' && c <= 'z')
+    || (c >= '0' && c <= '9')
+    || c = '_'
   in
-  (* Accumulate completed tokens (reversed) plus the current alphanumeric run;
-     [run] is committed to [tokens] whenever a non-alphanumeric breaks it. *)
+  (* Accumulate completed tokens (reversed) plus the current name-character run;
+     [run] is committed to [tokens] whenever another character breaks it. *)
   let commit run tokens = if run = "" then tokens else run :: tokens in
   let tokens, run =
     String.fold_left
       (fun (tokens, run) c ->
-        if is_alnum c then (tokens, run ^ String.make 1 c)
+        if is_name_char c then (tokens, run ^ String.make 1 c)
         else
           match mnemonic_of_char c with
           | "" -> (commit run tokens, "")

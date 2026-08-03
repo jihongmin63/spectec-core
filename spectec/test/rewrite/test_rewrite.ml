@@ -173,14 +173,17 @@ let () =
   check_str "sanitize/interior" (R.sanitize "add_action_tbl") "add_action_tbl";
   check_str "sanitize/prime" (R.sanitize "callableId'") "callableId_prime";
   check_str "sanitize/mnemonic" (R.sanitize "a-b") "a_minus_b";
-  (* Known limitation, recorded so a fix has a failing case to flip: a leading,
-     trailing or doubled underscore is dropped, so [$capture_avoiding_] and
-     [$capture_avoiding] -- two p4 functions of different arity -- share one
-     CTRS symbol and one slice. *)
-  check_str "sanitize/trailing-underscore-dropped" (R.sanitize "exists_")
-    "exists";
-  check "sanitize/known-collision"
-    (R.sanitize "capture_avoiding_" = R.sanitize "capture_avoiding")
+  (* An underscore is a name character, not a separator, so a leading, trailing
+     or doubled one survives -- [$capture_avoiding_] and [$capture_avoiding] are
+     two p4 functions of different arity and must not share a symbol. *)
+  check_str "sanitize/trailing-underscore" (R.sanitize "exists_") "exists_";
+  check_str "sanitize/leading-underscore" (R.sanitize "_BOOL") "_BOOL";
+  check_str "sanitize/doubled-underscore" (R.sanitize "a__b") "a__b";
+  check "sanitize/no-collision"
+    (R.sanitize "capture_avoiding_" <> R.sanitize "capture_avoiding");
+  (* A numeric lead still needs the prefix; an underscore lead does not, since
+     both Maude and TPDB take it as an ordinary identifier character. *)
+  check_str "sanitize/numeric-lead" (R.sanitize "0BOOL") "c_0BOOL"
 
 (* ------------------------------------------------------------------------- *)
 (* orient_conds: a defined symbol belongs on a condition's evaluated side. *)
