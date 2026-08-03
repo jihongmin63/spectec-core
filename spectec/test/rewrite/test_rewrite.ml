@@ -185,6 +185,41 @@ let () =
      both Maude and TPDB take it as an ordinary identifier character. *)
   check_str "sanitize/numeric-lead" (R.sanitize "0BOOL") "c_0BOOL"
 
+(* Randomized properties, on a fixed seed so a failure is reproducible. A spec
+   name that is already identifier-shaped must survive untouched -- that identity
+   is what makes distinct declarations distinct symbols, and losing it on the
+   underscore is what merged two p4 functions into one slice. *)
+let () =
+  let rnd = Random.State.make [| 20260803 |] in
+  let pick s = s.[Random.State.int rnd (String.length s)] in
+  let lead = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_" in
+  let body = lead ^ "0123456789" in
+  let name () =
+    String.init
+      (1 + Random.State.int rnd 12)
+      (fun i -> if i = 0 then pick lead else pick body)
+  in
+  let names = List.init 2000 (fun _ -> name ()) in
+  check "sanitize/identifier-shaped-is-identity"
+    (List.for_all (fun n -> R.sanitize n = n) names);
+  let module S = Set.Make (String) in
+  let distinct = S.of_list names in
+  check "sanitize/injective-on-identifiers"
+    (S.cardinal (S.of_list (List.map R.sanitize names)) = S.cardinal distinct);
+  (* Over the full alphabet the scrub is lossy by design (mnemonics), but it must
+     be stable: scrubbing a scrubbed name changes nothing. *)
+  let noisy () =
+    String.init
+      (1 + Random.State.int rnd 12)
+      (fun _ -> pick (body ^ "-+*/<>=!?&|^%.,;:#$@()[]{}'` \""))
+  in
+  check "sanitize/idempotent"
+    (List.for_all
+       (fun n ->
+         let s = R.sanitize n in
+         R.sanitize s = s)
+       (List.init 2000 (fun _ -> noisy ())))
+
 (* ------------------------------------------------------------------------- *)
 (* orient_conds: a defined symbol belongs on a condition's evaluated side. *)
 
