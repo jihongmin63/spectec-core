@@ -18,13 +18,16 @@ val fold_premise_binders :
     only. *)
 val order_conds : Rewrite_system.t -> Rewrite_system.t
 
-(** Unravel every defined-function binding condition [$f(A) = t] -- [t] a
-    constructor pattern or a bare fresh variable -- into a fresh [crcu]/[crck]
-    chain, moving the binding into a lhs pattern. Unraveling REFLECTS but does
-    not preserve confluence, so the result is used UPGRADE-ONLY: a YES on the
+(** Unravel every defined-function binding condition [$f(A) = K(..)] into a
+    fresh [crcu]/[crck] chain, moving the binding into a lhs pattern.
+    [~bare_binders] also takes a bare fresh-variable pattern -- the class that
+    carries the CRC's search cost, at the price of a chain step overlapping
+    every sibling, which measured helps some slices and costs others (hence a
+    separate rung of {!normalize_ladder}). Unraveling REFLECTS but does not
+    preserve confluence, so the result is used UPGRADE-ONLY: a YES on the
     unraveled module proves the original confluent; a MAYBE falls back to the
     original verdict (see {!Mfe.check_normalize_upgrade}). *)
-val crc_unravel : Rewrite_system.t -> Rewrite_system.t
+val crc_unravel : ?bare_binders:bool -> Rewrite_system.t -> Rewrite_system.t
 
 (** Every [(defining head, variable)] breaking weak left-linearity: a variable
     occurring twice or more in a rule's lhs and condition patterns that also
@@ -38,13 +41,19 @@ val wll_violations : Rewrite_system.t -> (string * string) list
     {!wll_violations} being empty buys is the RIGHT to also unravel, which
     reaches the binders inlining cannot but only REFLECTS confluence.
     [Inline_only] is an equivalence and needs no premise. *)
-type strategy = Inline_only | Inline_and_unravel | Rebind_and_unravel
+type strategy =
+  | Inline_only
+  | Inline_and_unravel
+  | Unravel_bare_binders
+  | Rebind_and_unravel
 
 (** The normalizations to try on a slice, in order. Verdicts are upgrade-only
     and each rung justifies its own upgrade, so a later rung is sound to try on
     a still-inconclusive slice and can only add YESes -- which is the point:
     measured, no rung dominates ([$write_bits_from_value] needs the rebind,
-    [$write_value_*_prime] lose their upgrade under it). A slice that is not
+    [$write_value_*_prime] lose their upgrade under it, [$write_value_from_bits]
+    loses its to bare binders). Rung 0 is the chain as it stood before the
+    ladder, so no slice can lose a verdict it already had. A slice that is not
     weakly left-linear gets the single equivalence rung. *)
 val normalize_ladder : Rewrite_system.t -> strategy list
 

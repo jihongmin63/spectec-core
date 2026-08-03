@@ -386,6 +386,21 @@ let () =
     ] ->
         p = q && p = app "d_f" [ v "a" ]
     | _ -> false);
+  (* The bare-binder gate, directly: a fresh single-variable pattern is left as
+     a condition unless [~bare_binders] takes it. *)
+  let one_bare =
+    system
+      [
+        rule
+          ~conds:[ (app "d_f" [ v "a" ], v "x") ]
+          (app "d_g" [ v "a" ])
+          (app "c" [ v "x" ]);
+        aux;
+      ]
+  in
+  check "crc_unravel/bare-binder-needs-the-flag"
+    (Crc.crc_unravel one_bare = one_bare
+    && List.length (Crc.crc_unravel ~bare_binders:true one_bare).R.rules = 3);
   (* A constructor-pattern binder is what inlining CANNOT reach -- the fields it
      introduces have to be bound somewhere -- so this is the shape the unravel
      arm exists for, and the one the WLL premise is spent on. *)

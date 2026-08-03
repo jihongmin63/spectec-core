@@ -83,19 +83,43 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 > **세 갈래는 서로 다른 표면을 건드린다**: ①은 `--crc-normalize`(옵트인)만, ②는 base
 > 분석 표면, ③은 명세 자체(따라서 실행 표면까지). 아래 무회귀 근거도 그에 맞춰 다르다.
 
-**① WLL 검사로 arm 선택 (`3a6794e7`).** `crc_normalize`가 `fold ~aggressive |>
-crc_unravel` 고정 순서였던 것을 `select_strategy`가 슬라이스마다 고르게 바꿨다 —
-`wll_violations`가 비면 `crc_unravel`(더 쌈: subject를 한 번만 묶음), 아니면
-`fold ~aggressive`(동치라 전제 불필요). 근거는 GNG IWC 2013 Thm 9의 삼중 전제 중 WLL이고,
+**① WLL 검사로 unravel을 게이트 + 정규화 사다리 (`3a6794e7` → `c01dd14c`).**
+`wll_violations`가 GNG IWC 2013 Thm 9의 삼중 전제 중 WLL을 슬라이스별로 검사한다.
 reduction-soundness가 joinability-soundness를 함의하지 **않는다**(같은 논문 Ex. 3)는 것이
 이 검사를 형식이 아니라 필수로 만든다. 검사는 `orient_conds`가 세운 (평가측, 패턴측)
 분할을 그대로 읽고, 방향이 임의인 "양쪽 다 호출" 조건은 **양쪽 슬롯에 모두** 세어
-과다보고 쪽으로만 틀린다.
-- 실측: `specs/p4` 574심볼 중 **unravel 400 / inline 174**. 승격이 실제 일어난 6슬라이스와
-  CRC TIMEOUT 7개가 **전부 clean** — 반사만 하는 arm이 정확히 필요한 곳에서만 쓰인다.
-- `crc_unravel`의 패턴 게이트를 맨변수까지 열었다. 종전 주석("맨변수는 fold의 몫")은
-  결정성 임계쌍만 보고 내린 판단이고, `=`→`=>` 재인코딩이 만드는 탐색 비용은 고려 밖이었다.
-  subject 게이트(`1dd1e43a`)는 그대로라 `$join_text` over-unravel 회귀는 계속 막힌다.
+과다보고 쪽으로만 틀린다. 실측: `specs/p4` 574심볼 중 **clean 400 / 위반 174**. 승격이
+실제 일어난 6슬라이스와 CRC TIMEOUT 7개가 **전부 clean** — 반사만 하는 arm이 정확히
+필요한 곳에서만 쓰인다. `crc_unravel`의 패턴 게이트도 맨변수까지 열었다(종전 주석
+"맨변수는 fold의 몫"은 결정성 임계쌍만 보고 내린 판단이고 `=`→`=>` 재인코딩의 탐색
+비용은 고려 밖이었다). subject 게이트(`1dd1e43a`)는 그대로라 `$join_text` over-unravel
+회귀는 계속 막힌다.
+
+**WLL이 사는 것은 unravel을 할 *권리*이지 inline을 대신할 더 싼 수단이 아니다** —
+`3a6794e7`은 이걸 반대로 구현했고 측정이 그것을 반증했다(아래). 지금은 **사다리**다:
+clean이면 `[inline+unravel, inline+rebind+unravel]`, 아니면 `[inline]` 한 단.
+판정 전이가 upgrade-only이고 각 단이 **자기 힘으로** 승격을 정당화하므로 다음 단 시도는
+건전하며 YES를 더할 수만 있다. `confluence`는 각 단마다 아직 미결인 심볼만 재검사하고
+행에 어느 단이 정착시켰는지 붙인다(`YES (normalized:unravel|rebind|inline)`).
+
+**측정이 두 번 예측을 뒤집었다.**
+
+| arm (셋 다 task ② 포함) | `$write_bits_from_value` | `$write_value_*_prime` |
+|---|---|---|
+| unravel만 (note의 정적 지표 1위 = 최초 구현) | YES | **MAYBE ×5** |
+| inline + unravel | TIMEOUT | YES |
+| inline + rebind + unravel | YES | **MAYBE** |
+| **사다리(위 둘)** | **YES** | **YES** |
+
+- 1행: 2026-07-24 note가 조건 수·중첩쌍으로 C3를 1위로 꼽았는데, 승격 5개를 잃고 1개를 얻어
+  **순손실 −4**였다. 정적 지표는 **순위를 매기되 결정하지 못한다**.
+- 3행의 `rebind_stuck_guards`는 ②와의 상호작용을 푸는 장치다 — ②가 죽은 바인더를
+  `isStuckHead($f(A)) = false`로 바꾸면 subject가 조건 안에 남아 unravel이 닿지 못하고,
+  `$write_bits_from_value`는 정규화가 **완전한 no-op**(103등식 불변)이 되어 재시도 자체가
+  건너뛰어진다. normalize 경로에서만(그리고 inline **뒤에** — 앞에 두면 inline이 가드를 다시
+  만든다) 가드를 바인더로 되돌리면 106등식 + `crcu` 체인이 되고 YES가 된다.
+- 결과: `$write_bits_from_value`가 기록된 `TIMEOUT (>2040s)`에서 **YES (normalized:rebind)**로,
+  `$write_value*`는 YES\* 유지.
 - **무회귀 근거**: 실행 모듈과 base 분석 표면 **둘 다 바이트 동일**(`specs/p4` 전량 대조).
   옵트인 경로만 바뀌므로 differential은 형식적 확인이다(seed 101, 100개: MATCH 77,
   Maude 거부 23 전부 interp도 FAIL → gap 0, MISMATCH 0).
@@ -389,10 +413,13 @@ sort가 `Set List List Set`→`Val Val Val Val`로 변하는 미규명 부작용
 **250.3초 → 0.7초**(verdict YES 유지). 같은 와일드카드 구조분해 전제가 명세에 **30군데**.
 
 **논의/확인 필요:**
-- [x] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택** — **완료 2026-08-03** (`3a6794e7`;
-  위 2026-08-03 절 ①). 붙인 자리는 셋 다 — `Crc_surface.select_strategy`가 고르고,
-  `confluence` 행이 `YES (normalized:unravel|inline)`로 어느 arm인지 밝히며,
-  `rewrite --wll-check`가 심볼별 위반 수와 선택을 찍는다. 실측 unravel 400 / inline 174.
+- [x] **WLL 검사로 inline/unravel을 슬라이스별 자동 선택** — **완료 2026-08-03**
+  (`3a6794e7` → `c01dd14c`; 위 2026-08-03 절 ①). 붙인 자리는 셋 다 —
+  `Crc_surface.normalize_ladder`가 정하고, `confluence` 행이
+  `YES (normalized:unravel|rebind|inline)`로 어느 단이 정착시켰는지 밝히며,
+  `rewrite --wll-check`가 심볼별 위반 수와 첫 단을 찍는다. 실측 clean 400 / 위반 174.
+  **단, "선택"이 아니라 "사다리"가 맞았다** — 지배적 arm이 없다는 것이 측정으로 확정됐고,
+  upgrade-only라 여러 단을 시도해도 잃을 것이 없다.
   아래는 착수 전 계획이다. 이 세션의 결론은 "둘 중 하나"가
   아니라 "슬라이스마다 다름"이다. inline은 **동치**(양방향 전이, base 표면 가능),
   unravel은 **reflect-only**(upgrade-only, WLL 필요). 그러면 선택 규칙의 자연스러운 형태는

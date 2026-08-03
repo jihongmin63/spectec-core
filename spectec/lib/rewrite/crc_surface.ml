@@ -288,7 +288,7 @@ let rebind_stuck_guards (t : t) : t =
   in
   of_rules (List.map rebind t.rules)
 
-let crc_unravel (t : t) : t =
+let crc_unravel ?(bare_binders = false) (t : t) : t =
   (* Only a binding condition whose SUBJECT is a defined-function application
      raises a determinacy critical pair -- that is the whole reason to unravel.
      A destructure of an already-bound value ([v = K(..)], or [K(..) = v]) has
@@ -323,12 +323,21 @@ let crc_unravel (t : t) : t =
         (* Unravel a binder when its subject [s] is a defined-function call --
            the only shape with a determinacy critical pair (see the header) --
            and its pattern [tp] introduces a fresh variable. A value destructure
-           [v = K(..)] stays a condition. A BARE-VARIABLE pattern qualifies too:
-           it is the class whose free variable turns the CRC's [=] -> [=>]
-           re-encoding from a match into a search, and it carries 98.6% of the
-           measured CRC budget. *)
+           [v = K(..)] stays a condition.
+
+           A BARE-VARIABLE pattern is the class whose free variable turns the
+           CRC's [=] -> [=>] re-encoding from a match into a search, and it
+           carries 98.6% of the measured CRC budget -- but taking it costs a
+           chain step that overlaps every sibling reaching the same point, and
+           measured that trade goes both ways ([$write_bits_from_value] needs
+           it, [$write_value_from_bits] loses its verdict to it). So it is a
+           separate rung of {!normalize_ladder}, not a blanket. *)
         match (tp, s) with
-        | _, App (f, _) when fresh <> [] && is_defined f ->
+        | Var _, App (f, _) when fresh <> [] && is_defined f && bare_binders ->
+            segs := (List.rev !cur, s, tp) :: !segs;
+            cur := [];
+            bound := !bound @ fresh
+        | App _, App (f, _) when fresh <> [] && is_defined f ->
             segs := (List.rev !cur, s, tp) :: !segs;
             cur := [];
             bound := !bound @ fresh
@@ -483,11 +492,16 @@ let wll_violations (t : t) : (string * string) list =
   List.concat_map of_rule t.rules
 
 (** One normalization a slice may be re-checked under. *)
-type strategy = Inline_only | Inline_and_unravel | Rebind_and_unravel
+type strategy =
+  | Inline_only
+  | Inline_and_unravel
+  | Unravel_bare_binders
+  | Rebind_and_unravel
 
 let string_of_strategy = function
   | Inline_only -> "inline"
   | Inline_and_unravel -> "unravel"
+  | Unravel_bare_binders -> "unravel-bare"
   | Rebind_and_unravel -> "rebind"
 
 (* What the weak-left-linearity check buys is the RIGHT to unravel, not a
@@ -501,19 +515,26 @@ let string_of_strategy = function
    uniform, so a WLL-clean slice gets a LADDER rather than a choice: the
    verdicts are upgrade-only, and each rung independently justifies its own
    upgrade, so trying the next rung on a still-inconclusive slice is sound and
-   can only add YESes. Measured on the three slices that discriminate:
+   can only add YESes. Measured, on the slices that discriminate:
 
-   |                        | $write_bits_from_value | $write_value_*_prime |
-   | inline + unravel       | TIMEOUT                | YES                  |
-   | inline + rebind + unrav| YES                    | MAYBE                |
+   | rung                    | $write_bits | $write_value_*' | $write_value_from_bits |
+   | inline + unravel        | TIMEOUT     | YES             | YES                    |
+   | + bare binders          | TIMEOUT     | YES             | TIMEOUT                |
+   | + rebind                | YES         | MAYBE           | -                      |
 
-   No rung dominates. Two attempts to predict one from cheaper evidence both
-   failed: the 2026-07-24 note's static proxies (condition counts, nested pairs)
-   rank unravel-alone first, and it loses all five [$write_value*] upgrades;
-   and rebinding, which is what lets the unravel reach [$write_bits_from_value]
-   at all, costs the other two. Rank with proxies, decide with the checker. *)
+   No rung dominates, and three attempts to predict a winner from cheaper
+   evidence all failed: the 2026-07-24 note's static proxies (condition counts,
+   nested pairs) rank unravel-alone first and it loses all five [$write_value*]
+   upgrades; taking bare-variable binders is what reaches
+   [$write_bits_from_value] and it costs [$write_value_from_bits]; rebinding is
+   what finally closes [$write_bits_from_value] and it costs the primed ones.
+   Rank with proxies, decide with the checker.
+
+   Rung 0 is therefore the chain as it stood before any of this, so no slice can
+   lose a verdict it already had, and every later rung is a pure addition. *)
 let normalize_ladder (t : t) : strategy list =
-  if wll_violations t = [] then [ Inline_and_unravel; Rebind_and_unravel ]
+  if wll_violations t = [] then
+    [ Inline_and_unravel; Unravel_bare_binders; Rebind_and_unravel ]
   else [ Inline_only ]
 
 let select_strategy (t : t) : strategy = List.hd (normalize_ladder t)
@@ -526,5 +547,9 @@ let crc_normalize ?strategy (t : t) : t =
   match strategy with
   | Inline_only -> inlined |> order_conds
   | Inline_and_unravel -> inlined |> crc_unravel |> order_conds
+  | Unravel_bare_binders ->
+      inlined |> crc_unravel ~bare_binders:true |> order_conds
   | Rebind_and_unravel ->
-      inlined |> rebind_stuck_guards |> crc_unravel |> order_conds
+      inlined |> rebind_stuck_guards
+      |> crc_unravel ~bare_binders:true
+      |> order_conds
