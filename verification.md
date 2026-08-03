@@ -26,10 +26,10 @@
 >
 > **범위**: 슬라이스 가능한 심볼 574개 중 규칙 0(정의만 있고 절이 없는) 9개를 뺀 **565개
 > 전부**를 싣는다. 셀은 이번에 직접 측정한 것만 채웠다 — termination 308(YES 307·TIMEOUT 1),
-> confluence 219(YES 150 · YES* 6 · TIMEOUT 63). 나머지는 `-`(미측정)이며, 스윕이 규칙
+> confluence 278(YES 150 · YES* 6 · TIMEOUT 122). 나머지는 `-`(미측정)이며, 스윕이 규칙
 > 오름차순이라 미측정은 무-verdict 1건(`$flatten_argumentList` 784규칙)을 빼면 전부
-> **1204규칙 이상**(중앙값 52,157)이다. confluence 스윕은 남은 346심볼을 심볼당 한 프로세스로
-> tmux에서 진행 중이고, termination 스윕은 멈춰 있다.
+> **2491규칙 이상**(중앙값 52,394)이다. confluence 스윕은 2,490규칙까지 채운 뒤
+> **2026-07-30에 세웠다**(사유는 아래 종합). termination 스윕도 멈춰 있다.
 >
 > 재현 커맨드·방법론·측정 이력·비-YES 해석·병렬
 > 안전성 소견은 모두 **[verification-notes.md](verification-notes.md)**.
@@ -37,7 +37,7 @@
 > **측정 기준**: 두 열 모두 `orient_conds`(`bdceb303`) 이후 tip(`c10bde20`)에서 **이번에
 > 직접 측정한 값만** 싣는다. 옛 `bff805ec` confluence 측정은 `orient_conds`가 분석 표면의
 > 조건 방향을 바꿔 stale해졌으므로 옮겨오지 않고, 재측정 못 한 셀은 `-`로 비웠다. 지금까지
-> confluence 재측정 219심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
+> confluence 재측정 278심볼은 **다운그레이드 0**(뒤집힌 조건을 포함했던 슬라이스도 전부 옛 판정
 > 유지, `$expression_as_lvalue`만 옛 무-verdict에서 `YES*`로 올라섰다) — `orient_conds`는
 > 측정된 범위에서 confluence-neutral이다. `$write_value*` 5행은 `n_var > 0` 가드를 넣은
 > 스펙(`8bf15510`)에서 다시 쟀고, 판정은 그대로 `YES*`다.
@@ -45,7 +45,7 @@
 ## 종합 (565심볼)
 
 **termination**: 측정 308 — YES 307 · TIMEOUT 1 · 비종료 후보 0. 미측정 `-` 257. TIMEOUT 1건은 최상위 관계 `Program_inst`(61,345규칙)로, 20,480초 예산 내 미완일 뿐 비종료 witness가 아니다(도구 예산 한계).
-**confluence**: 측정 219 — YES 150 · YES* 6 · TIMEOUT 63. 미측정 `-` 346. TIMEOUT 63건은 둘로 나뉜다 — 400규칙 이하의 비트벡터 산술 7건(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개)과, **874~1203규칙 구간에서 예산(base 2040초, 정규화까지 가면 4080초)을 그대로 소진한 56건**이다. 둘 다 임계쌍 폭발로 예산이 먼저 끝난 것이며 비합류 witness가 아니다. 이 구간이 전부 TIMEOUT이라는 건 남은 346심볼(중앙값 52,157규칙)도 같은 예산으로는 같은 결과라는 뜻이라, 이 축을 더 밀려면 예산이 아니라 슬라이스를 줄여야 한다.
+**confluence**: 측정 278 — YES 150 · YES* 6 · TIMEOUT 122. 미측정 `-` 287. TIMEOUT 122건은 둘로 나뉜다 — 400규칙 이하의 비트벡터 산술 7건(`$write_bits_from_value`·`$bin_shl`·`$bin_shr`·`$bitacc_*` 4개)과, **874~2490규칙 구간에서 예산(base 2040초, 정규화까지 가면 4080초)을 그대로 소진한 115건**이다. 둘 다 임계쌍 폭발로 예산이 먼저 끝난 것이며 비합류 witness가 아니다. **874규칙 위는 예외 없이 전부 TIMEOUT**이고 남은 287심볼은 중앙값 52,394규칙이라 같은 예산으로는 같은 결과가 나온다 — 그래서 스윕을 여기서 세웠다. 이 축을 더 밀려면 예산이 아니라 슬라이스를 줄여야 한다(추가 pruning / 모듈러 분해).
 
 | # | symbol | rules | confluence | termination |
 |---|---|---|---|---|
@@ -269,65 +269,65 @@
 | 218 | `$callableTypeIR_of_callableTypeDefIR` | 1203 | TIMEOUT (>2154s) | YES (0.6s) |
 | 219 | `$compat_shift` | 1203 | TIMEOUT (>2142s) | YES (5.7s) |
 | 220 | `$nestable_enum_serializable` | 1203 | TIMEOUT (>2141s) | YES (5.7s) |
-| 221 | `$typeParameterListIR_of_callableTypeDefIR` | 1203 | - | YES (0.6s) |
-| 222 | `$flatten_keysetExpressionIR` | 1206 | - | YES (0.6s) |
-| 223 | `$is_static_assert_callableTypeIR` | 1206 | - | YES (0.6s) |
-| 224 | `$nestable_tuple_in_set` | 1206 | - | YES (5.6s) |
-| 225 | `$parameterListIR_of_methodTypeDefIR` | 1206 | - | YES (0.6s) |
-| 226 | `$typeId_of_typeDefIR` | 1207 | - | YES (0.6s) |
-| 227 | `$typeParameterListIR_of_typeDefIR` | 1207 | - | YES (0.6s) |
-| 228 | `$nestable_sequence_in_set` | 1208 | - | YES (5.7s) |
-| 229 | `$nestable_struct_in_header` | 1208 | - | YES (5.8s) |
-| 230 | `$nestable_tuple` | 1208 | - | YES (5.7s) |
-| 231 | `$nestable_struct` | 1209 | - | YES (5.8s) |
-| 232 | `$nestable_definedFunction` | 1211 | - | YES (5.8s) |
-| 233 | `$nestable_action` | 1212 | - | YES (5.7s) |
-| 234 | `$nestable_list` | 1212 | - | YES (5.7s) |
-| 235 | `$is_equalable_typeIR` | 1213 | - | YES (5.9s) |
-| 236 | `$typeIR_of_typeDefIR` | 1213 | - | YES (0.6s) |
-| 237 | `$is_assignable_typeIR` | 1214 | - | YES (5.7s) |
-| 238 | `$nestable_typedef` | 1215 | - | YES (5.8s) |
-| 239 | `$init_tableKeys` | 1216 | - | YES (1.4s) |
-| 240 | `$compat_bitslice_base` | 1218 | - | YES (5.7s) |
-| 241 | `$nestable_header` | 1218 | - | YES (5.7s) |
-| 242 | `$is_defaultable_typeIR` | 1219 | - | YES (5.7s) |
-| 243 | `$parameterListIR_of_callableTypeDefIR` | 1221 | - | YES (0.6s) |
-| 244 | `$unroll_typeIR` | 1229 | - | YES (5.8s) |
-| 245 | `$is_table_application` | 1231 | - | YES (5.8s) |
-| 246 | `$nestable_set` | 1235 | - | YES (5.9s) |
-| 247 | `$sizeof_minSizeInBits_prime` | 1259 | - | YES (5.7s) |
-| 248 | `$sizeof_minSizeInBits` | 1260 | - | YES (5.7s) |
-| 249 | `$unroll_aliasType` | 1268 | - | YES (5.8s) |
-| 250 | `$result_concat` | 1269 | - | YES (5.6s) |
-| 251 | `$find_local_return_type_t` | 1270 | - | YES (0.6s) |
-| 252 | `$is_concrete_extern_object_prime` | 1278 | - | YES (0.6s) |
-| 253 | `$sizeof_maxSizeInBits_prime` | 1283 | - | YES (5.7s) |
-| 254 | `$sizeof_maxSizeInBits` | 1284 | - | YES (5.7s) |
-| 255 | `$is_monomorphic_typeDefIR` | 1289 | - | YES (0.6s) |
-| 256 | `$is_polymorphic_typeDefIR` | 1292 | - | YES (0.6s) |
-| 257 | `$resolve_inference_prime` | 1301 | - | YES (5.8s) |
-| 258 | `$parameterListIR_of_functionDef` | 1304 | - | YES (0.6s) |
-| 259 | `$resolve_inference` | 1306 | - | YES (5.9s) |
-| 260 | `$reduce_serenum` | 1310 | - | YES (5.9s) |
-| 261 | `$is_concrete_extern_object` | 1317 | - | YES (5.7s) |
-| 262 | `$update_mode_tbl` | 1337 | - | YES (5.7s) |
-| 263 | `$sizeof_minSizeInBytes` | 1347 | - | YES (5.7s) |
-| 264 | `$sizeof_maxSizeInBytes` | 1350 | - | YES (5.7s) |
-| 265 | `$sizeof` | 1375 | - | YES (5.8s) |
-| 266 | `$init_tableEntries` | 1406 | - | YES (1.4s) |
-| 267 | `$is_valid_bitslice` | 1431 | - | YES (6.0s) |
-| 268 | `$init_table` | 1462 | - | YES (1.3s) |
-| 269 | `$parameterListIR_of_methodDef` | 1551 | - | YES (0.7s) |
-| 270 | `$parameterListIR_of_callableDef` | 1565 | - | YES (0.7s) |
-| 271 | `$parameterListIR_of_constructorDef` | 1570 | - | YES (0.6s) |
-| 272 | `$subexpressions_of_argumentIR` | 1614 | - | YES (5.7s) |
-| 273 | `$subexpressions_of_argumentListIR` | 1614 | - | YES (5.7s) |
-| 274 | `$subexpressions_of_expressionIR` | 1614 | - | YES (5.7s) |
-| 275 | `$subexpressions_of_typedExpressionIR` | 1614 | - | YES (5.7s) |
-| 276 | `$subexpressions_of_typedExpressionListIR` | 1614 | - | YES (5.7s) |
-| 277 | `$name_expression` | 1840 | - | YES (6.1s) |
-| 278 | `ParameterType_alpha` | 2489 | - | YES (6.1s) |
-| 279 | `ExternMethodType_alpha` | 2490 | - | YES (6.1s) |
+| 221 | `$typeParameterListIR_of_callableTypeDefIR` | 1203 | TIMEOUT (>2155s) | YES (0.6s) |
+| 222 | `$flatten_keysetExpressionIR` | 1206 | TIMEOUT (>2162s) | YES (0.6s) |
+| 223 | `$is_static_assert_callableTypeIR` | 1206 | TIMEOUT (>2158s) | YES (0.6s) |
+| 224 | `$nestable_tuple_in_set` | 1206 | TIMEOUT (>2145s) | YES (5.6s) |
+| 225 | `$parameterListIR_of_methodTypeDefIR` | 1206 | TIMEOUT (>2161s) | YES (0.6s) |
+| 226 | `$typeId_of_typeDefIR` | 1207 | TIMEOUT (>2160s) | YES (0.6s) |
+| 227 | `$typeParameterListIR_of_typeDefIR` | 1207 | TIMEOUT (>2161s) | YES (0.6s) |
+| 228 | `$nestable_sequence_in_set` | 1208 | TIMEOUT (>2165s) | YES (5.7s) |
+| 229 | `$nestable_struct_in_header` | 1208 | TIMEOUT (>2224s) | YES (5.8s) |
+| 230 | `$nestable_tuple` | 1208 | TIMEOUT (>2232s) | YES (5.7s) |
+| 231 | `$nestable_struct` | 1209 | TIMEOUT (>2221s) | YES (5.8s) |
+| 232 | `$nestable_definedFunction` | 1211 | TIMEOUT (>2227s) | YES (5.8s) |
+| 233 | `$nestable_action` | 1212 | TIMEOUT (>2224s) | YES (5.7s) |
+| 234 | `$nestable_list` | 1212 | TIMEOUT (>2200s) | YES (5.7s) |
+| 235 | `$is_equalable_typeIR` | 1213 | TIMEOUT (>2202s) | YES (5.9s) |
+| 236 | `$typeIR_of_typeDefIR` | 1213 | TIMEOUT (>2189s) | YES (0.6s) |
+| 237 | `$is_assignable_typeIR` | 1214 | TIMEOUT (>2164s) | YES (5.7s) |
+| 238 | `$nestable_typedef` | 1215 | TIMEOUT (>2164s) | YES (5.8s) |
+| 239 | `$init_tableKeys` | 1216 | TIMEOUT (>4322s) | YES (1.4s) |
+| 240 | `$compat_bitslice_base` | 1218 | TIMEOUT (>2147s) | YES (5.7s) |
+| 241 | `$nestable_header` | 1218 | TIMEOUT (>2164s) | YES (5.7s) |
+| 242 | `$is_defaultable_typeIR` | 1219 | TIMEOUT (>2162s) | YES (5.7s) |
+| 243 | `$parameterListIR_of_callableTypeDefIR` | 1221 | TIMEOUT (>2187s) | YES (0.6s) |
+| 244 | `$unroll_typeIR` | 1229 | TIMEOUT (>2164s) | YES (5.8s) |
+| 245 | `$is_table_application` | 1231 | TIMEOUT (>2164s) | YES (5.8s) |
+| 246 | `$nestable_set` | 1235 | TIMEOUT (>2176s) | YES (5.9s) |
+| 247 | `$sizeof_minSizeInBits_prime` | 1259 | TIMEOUT (>2190s) | YES (5.7s) |
+| 248 | `$sizeof_minSizeInBits` | 1260 | TIMEOUT (>2189s) | YES (5.7s) |
+| 249 | `$unroll_aliasType` | 1268 | TIMEOUT (>2176s) | YES (5.8s) |
+| 250 | `$result_concat` | 1269 | TIMEOUT (>2184s) | YES (5.6s) |
+| 251 | `$find_local_return_type_t` | 1270 | TIMEOUT (>4380s) | YES (0.6s) |
+| 252 | `$is_concrete_extern_object_prime` | 1278 | TIMEOUT (>2202s) | YES (0.6s) |
+| 253 | `$sizeof_maxSizeInBits_prime` | 1283 | TIMEOUT (>2213s) | YES (5.7s) |
+| 254 | `$sizeof_maxSizeInBits` | 1284 | TIMEOUT (>2216s) | YES (5.7s) |
+| 255 | `$is_monomorphic_typeDefIR` | 1289 | TIMEOUT (>2224s) | YES (0.6s) |
+| 256 | `$is_polymorphic_typeDefIR` | 1292 | TIMEOUT (>2227s) | YES (0.6s) |
+| 257 | `$resolve_inference_prime` | 1301 | TIMEOUT (>4416s) | YES (5.8s) |
+| 258 | `$parameterListIR_of_functionDef` | 1304 | TIMEOUT (>2263s) | YES (0.6s) |
+| 259 | `$resolve_inference` | 1306 | TIMEOUT (>4418s) | YES (5.9s) |
+| 260 | `$reduce_serenum` | 1310 | TIMEOUT (>4450s) | YES (5.9s) |
+| 261 | `$is_concrete_extern_object` | 1317 | TIMEOUT (>2225s) | YES (5.7s) |
+| 262 | `$update_mode_tbl` | 1337 | TIMEOUT (>4499s) | YES (5.7s) |
+| 263 | `$sizeof_minSizeInBytes` | 1347 | TIMEOUT (>2276s) | YES (5.7s) |
+| 264 | `$sizeof_maxSizeInBytes` | 1350 | TIMEOUT (>2270s) | YES (5.7s) |
+| 265 | `$sizeof` | 1375 | TIMEOUT (>2299s) | YES (5.8s) |
+| 266 | `$init_tableEntries` | 1406 | TIMEOUT (>4520s) | YES (1.4s) |
+| 267 | `$is_valid_bitslice` | 1431 | TIMEOUT (>2284s) | YES (6.0s) |
+| 268 | `$init_table` | 1462 | TIMEOUT (>4634s) | YES (1.3s) |
+| 269 | `$parameterListIR_of_methodDef` | 1551 | TIMEOUT (>2442s) | YES (0.7s) |
+| 270 | `$parameterListIR_of_callableDef` | 1565 | TIMEOUT (>2477s) | YES (0.7s) |
+| 271 | `$parameterListIR_of_constructorDef` | 1570 | TIMEOUT (>2469s) | YES (0.6s) |
+| 272 | `$subexpressions_of_argumentIR` | 1614 | TIMEOUT (>2682s) | YES (5.7s) |
+| 273 | `$subexpressions_of_argumentListIR` | 1614 | TIMEOUT (>2684s) | YES (5.7s) |
+| 274 | `$subexpressions_of_expressionIR` | 1614 | TIMEOUT (>2676s) | YES (5.7s) |
+| 275 | `$subexpressions_of_typedExpressionIR` | 1614 | TIMEOUT (>2677s) | YES (5.7s) |
+| 276 | `$subexpressions_of_typedExpressionListIR` | 1614 | TIMEOUT (>2679s) | YES (5.7s) |
+| 277 | `$name_expression` | 1840 | TIMEOUT (>2494s) | YES (6.1s) |
+| 278 | `ParameterType_alpha` | 2489 | TIMEOUT (>4199s) | YES (6.1s) |
+| 279 | `ExternMethodType_alpha` | 2490 | TIMEOUT (>4219s) | YES (6.1s) |
 | 280 | `Type_alpha` | 2572 | - | YES (6.2s) |
 | 281 | `$check_switchLabel_default` | 50638 | - | YES (285.4s) |
 | 282 | `$find_action_prime` | 50638 | - | YES (330.5s) |
