@@ -341,9 +341,20 @@ let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
    Scalars (and text, a byte list) keep the generic [eq]: their constructor set
    is fixed and small, and splitting them per type would only rename rules the
    {!Prelude} already states once. *)
+
+(* The key a type's derived equality is spelled under: the type AS WRITTEN, type
+   arguments included. A polymorphic type therefore gets one equality per
+   INSTANTIATION ([eq_set_lt_pair_lt_id_comma_type_gt_gt]), which is what lets
+   the recursion reach the argument's own [eq_<T>]: one shared definition could
+   only compare its fields at the type PARAMETER, bottoming out at the generic
+   [eq] whose off-diagonal the analysis surface cannot decide. Identical to
+   [eq_ ^ name] where there are no arguments, so a monomorphic type keeps its
+   spelling. *)
+let typ_key (t : typ') : string =
+  abbrev (R.sanitize (Print.string_of_typ (t $ no_region)))
+
 let eq_helper_sym (shape : string) (t : typ') : string =
-  Printf.sprintf "%s%s_%s" eq_prefix shape
-    (abbrev (R.sanitize (Print.string_of_typ (t $ no_region))))
+  Printf.sprintf "%s%s_%s" eq_prefix shape (typ_key t)
 
 let eq_tup_sym (ts : typ list) : string = eq_helper_sym "tup" (TupleT ts)
 let eq_list_sym (elem : typ') : string = eq_helper_sym "list" elem
@@ -352,7 +363,7 @@ let eq_opt_sym (elem : typ') : string = eq_helper_sym "opt" elem
 let eq_pred (t : typ') (a : R.term) (b : R.term) : R.term =
   match t with
   | NumT _ | BoolT | TextT | FuncT -> eq_t a b
-  | VarT { synid; _ } -> app_t (eq_sym synid.it) [ a; b ]
+  | VarT _ -> app_t (eq_sym (typ_key t)) [ a; b ]
   | TupleT ts -> app_t (eq_tup_sym ts) [ a; b ]
   | IterT { typ = elem; iter = List } -> app_t (eq_list_sym elem.it) [ a; b ]
   | IterT { typ = elem; iter = Opt } -> app_t (eq_opt_sym elem.it) [ a; b ]
@@ -717,6 +728,108 @@ let rec unalias (spec : spec) (t : typ') : typ' =
       | None -> t)
   | _ -> t
 
+(* Equality AT a type definition, spelled under [key] ({!typ_key}): same case
+   (or same struct) recurses into the DECLARED field types, so each field's own
+   equality takes over; different cases are unequal.
+
+   Separate from {!defs_of_typ} because it is the one derived rule set that
+   depends on the type ARGUMENTS: a polymorphic type's definition is emitted
+   once, but its equality once per instantiation, off the substituted body
+   ({!eq_helper_defs}). Everything else {!defs_of_typ} derives -- matchers,
+   accessors, the subtype test -- reads only the constructor shape, which every
+   instantiation shares -- hence the two names: [key] spells the equality,
+   [name] the declaring type whose constructors it matches on. *)
+let eq_rules_of_deftyp ~scalars ~(name : string) (key : string) (dt : deftyp') :
+    R.rule list =
+  match dt with
+  | VariantT typcases ->
+      let cases = List.map case_info_of_typcase typcases in
+      let case_field_typs =
+        Array.of_list
+          (List.map (fun (tc : typcase) -> Mixfix.args tc.notation.it) typcases)
+      in
+      let con ?(prefix = "x") ci =
+        variant_t ci.origin ci.mixop (fresh_vars ~prefix ci.arity)
+      in
+      (* The diagonal: two subjects of the SAME case agree iff their fields do.
+         Shared by both spellings below -- it is the half that carries real
+         work, so only the head it is stated under changes. *)
+      let same_case_rule lhs_of i (ci : case_info) =
+        let xs = fresh_vars ~prefix:"x" ci.arity in
+        let ys = fresh_vars ~prefix:"y" ci.arity in
+        rule
+          (lhs_of
+             (variant_t ci.origin ci.mixop xs)
+             (variant_t ci.origin ci.mixop ys))
+          (conj_t ~scalars
+             (List.map2
+                (fun ft (x, y) -> eq_pred ft.it x y)
+                case_field_typs.(i) (List.combine xs ys)))
+      in
+      (* Discriminate through a case INDEX rather than a rule per ordered case
+         pair: [2n+2] rules instead of [n^2], which is what takes [eq_] off the
+         top of the big slices (P4's [annotationToken] alone has 91 cases =
+         8,281 equations). Below the crossover ([2n+2 < n^2] from [n = 3] on)
+         the pair table is the smaller and simpler system, so small types keep
+         it. *)
+      if List.length cases < 4 then
+        List.concat
+          (List.mapi
+             (fun i ci ->
+               List.mapi
+                 (fun j cj ->
+                   if i = j then
+                     same_case_rule
+                       (fun a b -> app_t (eq_sym key) [ a; b ])
+                       i ci
+                   else
+                     rule
+                       (app_t (eq_sym key) [ con ci; con ~prefix:"y" cj ])
+                       (bool_t ~scalars false))
+                 cases)
+             cases)
+      else
+        let x = var_t "x" and y = var_t "y" in
+        List.mapi
+          (fun i ci ->
+            rule (app_t (tag_sym key) [ con ci ]) (nat_lit ~scalars i))
+          cases
+        @ [
+            rule
+              (app_t (eq_sym key) [ x; y ])
+              (app_t (eqcase_sym key)
+                 [
+                   eq_t (app_t (tag_sym key) [ x ]) (app_t (tag_sym key) [ y ]);
+                   x;
+                   y;
+                 ]);
+            rule
+              (app_t (eqcase_sym key) [ bool_t ~scalars false; x; y ])
+              (bool_t ~scalars false);
+          ]
+        @ List.mapi
+            (same_case_rule (fun a b ->
+                 app_t (eqcase_sym key) [ bool_t ~scalars true; a; b ]))
+            cases
+  | StructT fields ->
+      let n = List.length fields in
+      let xs = fresh_vars ~prefix:"x" n and ys = fresh_vars ~prefix:"y" n in
+      [
+        rule
+          (app_t (eq_sym key)
+             [ app_t (struct_sym name) xs; app_t (struct_sym name) ys ])
+          (conj_t ~scalars
+             (List.map2
+                (fun (_, ft) (x, y) -> eq_pred ft.it x y)
+                fields (List.combine xs ys)));
+      ]
+  | PlainT u ->
+      [
+        rule
+          (app_t (eq_sym key) [ var_t "x"; var_t "y" ])
+          (eq_pred u.it (var_t "x") (var_t "y"));
+      ]
+
 (* Definition rules contributed by one [TypD]. For a variant type [T]:
    - matcher: [match_<T>_<Ci>] is [true] on [Ci]'s constructor, [false] on every
      sibling;
@@ -726,10 +839,19 @@ let rec unalias (spec : spec) (t : typ') : typ' =
      two different cases is [false].
    For a struct type [T]: a field accessor per field, structural [eq], and a
    trivially-true [subty_<T>] (structs are invariant in SpecTec). For a plain
-   alias [T = U]: [subty_<T>] delegates to [U]'s check. *)
+   alias [T = U]: [subty_<T>] delegates to [U]'s check.
+
+   The equality comes from {!eq_rules_of_deftyp}, and only for a MONOMORPHIC
+   type: a polymorphic one has its equality emitted per instantiation instead
+   ({!eq_helper_defs}), since which equalities the fields recurse into is
+   exactly what the type arguments decide. *)
 let defs_of_typ ~scalars (def : def) : R.rule list =
+  let eq_rules_of (tid : id) (tparams : tparam list) (dt : deftyp') =
+    if tparams = [] then eq_rules_of_deftyp ~scalars ~name:tid.it tid.it dt
+    else []
+  in
   match def.it with
-  | TypD { synid = tid; deftyp = { it = VariantT typcases; _ }; _ } ->
+  | TypD { synid = tid; tparams; deftyp = { it = VariantT typcases; _ } } ->
       let t = tid.it in
       let cases = List.map case_info_of_typcase typcases in
       let con ?(prefix = "x") ci =
@@ -767,69 +889,8 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
                     field_typs xs)))
           typcases
       in
-      (* equality AT [t]: same case recurses into the case's DECLARED field
-         types (so a field's own [eq_<field type>] takes over), different cases
-         are unequal. *)
-      let case_field_typs =
-        Array.of_list
-          (List.map (fun (tc : typcase) -> Mixfix.args tc.notation.it) typcases)
-      in
-      (* The diagonal: two subjects of the SAME case agree iff their fields do.
-         Shared by both spellings below -- it is the half that carries real
-         work, so only the head it is stated under changes. *)
-      let same_case_rule lhs_of i (ci : case_info) =
-        let xs = fresh_vars ~prefix:"x" ci.arity in
-        let ys = fresh_vars ~prefix:"y" ci.arity in
-        rule
-          (lhs_of
-             (variant_t ci.origin ci.mixop xs)
-             (variant_t ci.origin ci.mixop ys))
-          (conj_t ~scalars
-             (List.map2
-                (fun ft (x, y) -> eq_pred ft.it x y)
-                case_field_typs.(i) (List.combine xs ys)))
-      in
-      (* Discriminate through a case INDEX rather than a rule per ordered case
-         pair: [2n+2] rules instead of [n^2], which is what takes [eq_] off the
-         top of the big slices (P4's [annotationToken] alone has 91 cases =
-         8,281 equations). Below the crossover ([2n+2 < n^2] from [n = 3] on)
-         the pair table is the smaller and simpler system, so small types keep
-         it. *)
-      let eq_rules =
-        if List.length cases < 4 then
-          per_pair (fun i ci j cj ->
-              if i = j then
-                same_case_rule (fun a b -> app_t (eq_sym t) [ a; b ]) i ci
-              else
-                rule
-                  (app_t (eq_sym t) [ con ci; con ~prefix:"y" cj ])
-                  (bool_t ~scalars false))
-        else
-          let x = var_t "x" and y = var_t "y" in
-          List.mapi
-            (fun i ci ->
-              rule (app_t (tag_sym t) [ con ci ]) (nat_lit ~scalars i))
-            cases
-          @ [
-              rule
-                (app_t (eq_sym t) [ x; y ])
-                (app_t (eqcase_sym t)
-                   [
-                     eq_t (app_t (tag_sym t) [ x ]) (app_t (tag_sym t) [ y ]);
-                     x;
-                     y;
-                   ]);
-              rule
-                (app_t (eqcase_sym t) [ bool_t ~scalars false; x; y ])
-                (bool_t ~scalars false);
-            ]
-          @ List.mapi
-              (same_case_rule (fun a b ->
-                   app_t (eqcase_sym t) [ bool_t ~scalars true; a; b ]))
-              cases
-      in
-      matcher_rules @ subty_rules @ eq_rules
-  | TypD { synid = tid; deftyp = { it = StructT fields; _ }; _ } ->
+      matcher_rules @ subty_rules @ eq_rules_of tid tparams (VariantT typcases)
+  | TypD { synid = tid; tparams; deftyp = { it = StructT fields; _ } } ->
       let t = tid.it in
       let n = List.length fields in
       (* accessor reads field [a] out of the struct literal *)
@@ -855,16 +916,6 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
               (app_t (struct_sym t) updated))
           fields
       in
-      let xs = fresh_vars ~prefix:"x" n and ys = fresh_vars ~prefix:"y" n in
-      let eq_rule =
-        rule
-          (app_t (eq_sym t)
-             [ app_t (struct_sym t) xs; app_t (struct_sym t) ys ])
-          (conj_t ~scalars
-             (List.map2
-                (fun (_, ft) (x, y) -> eq_pred ft.it x y)
-                fields (List.combine xs ys)))
-      in
       (* Structs are invariant in SpecTec, so the membership check is trivially
          true -- the interpreter's [subtyp] has no struct case at all (its
          catch-all answers [true]; see the invariance note in
@@ -879,17 +930,15 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
           (app_t (subty_sym t) [ app_t (struct_sym t) (fresh_vars n) ])
           (bool_t ~scalars true)
       in
-      accessor_rules @ updater_rules @ [ eq_rule; subty_rule ]
+      accessor_rules @ updater_rules
+      @ eq_rules_of tid tparams (StructT fields)
+      @ [ subty_rule ]
   (* A plain alias [syntax T = U]: its subtype check is [U]'s. *)
-  | TypD { synid = tid; deftyp = { it = PlainT u; _ }; _ } ->
-      [
-        rule
-          (app_t (subty_sym tid.it) [ var_t "x" ])
-          (sub_pred ~scalars u.it (var_t "x"));
-        rule
-          (app_t (eq_sym tid.it) [ var_t "x"; var_t "y" ])
-          (eq_pred u.it (var_t "x") (var_t "y"));
-      ]
+  | TypD { synid = tid; tparams; deftyp = { it = PlainT u; _ } } ->
+      rule
+        (app_t (subty_sym tid.it) [ var_t "x" ])
+        (sub_pred ~scalars u.it (var_t "x"))
+      :: eq_rules_of tid tparams (PlainT u)
   | _ -> []
 
 (* -------------------------------------------------------------------------- *)
@@ -1543,27 +1592,67 @@ let builtin_specializations (simplified : spec) : (string * typ') list =
     [] all
 
 (* The structural [eq_tup]/[eq_list]/[eq_opt] helpers [eq_pred] defers to, one
-   per component type, plus the fallback for a [VarT] naming a type PARAMETER
-   (no [TypD], so [defs_of_typ] gives it no [eq_<T>]): those defer to the
-   generic [eq], which still carries the built-in sorts.
+   per component type; the equality of every INSTANTIATED polymorphic type,
+   which [defs_of_typ] cannot emit because it depends on the type arguments;
+   and the fallback for a [VarT] naming a type PARAMETER (no [TypD] to read an
+   equality off), which defers to the generic [eq], the one that still carries
+   the built-in sorts.
 
    Same traversal as [sub_helper_defs]: every type a definition's equality
-   recurses into, plus every operand type an `=`/`=/=` site compares. *)
+   recurses into, plus every operand type an `=`/`=/=` site compares. Since an
+   instantiation's own fields are types in turn, the traversal closes over them
+   -- [map<id, type>] pulls in [set<pair<id, type>>], then [pair<id, type>],
+   then [id] and [type] -- and each is emitted once. *)
 let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
   let defs = Helper_defs.create 64 in
-  let has_typdef name =
-    List.exists
+  let typdef name =
+    List.find_map
       (fun (d : def) ->
-        match d.it with TypD { synid = tid; _ } -> tid.it = name | _ -> false)
+        match d.it with
+        | TypD { synid = tid; tparams; deftyp } when tid.it = name ->
+            Some (tparams, deftyp.it)
+        | _ -> None)
       orig
+  in
+  let field_typs (dt : deftyp') : typ' list =
+    match dt with
+    | PlainT u -> [ u.it ]
+    | StructT fields -> List.map (fun (_, (ft : typ)) -> ft.it) fields
+    | VariantT typcases ->
+        List.concat_map
+          (fun (tc : typcase) ->
+            List.map (fun (ft : typ) -> ft.it) (Mixfix.args tc.notation.it))
+          typcases
   in
   let x = var_t "x" and y = var_t "y" in
   let rec require (t : typ') =
     match t with
-    | VarT { synid = tid; _ } ->
-        let sym = eq_sym tid.it in
-        if (not (Helper_defs.mem defs sym)) && not (has_typdef tid.it) then
-          Helper_defs.add defs sym [ rule (app_t sym [ x; y ]) (eq_t x y) ]
+    | VarT { synid = tid; targs } -> (
+        let sym = eq_sym (typ_key t) in
+        if not (Helper_defs.mem defs sym) then
+          match typdef tid.it with
+          (* monomorphic: [defs_of_typ] states its equality, and the walk over
+             every [TypD]'s fields below covers what that recurses into *)
+          | Some ([], _) -> ()
+          | Some (tparams, dt) when List.length tparams = List.length targs ->
+              let th =
+                List.map2
+                  (fun (tp : tparam) (ta : targ) -> (tp.it, ta.it))
+                  tparams targs
+              in
+              let dt = Monomorphize.subst_deftyp th dt in
+              (* registered BEFORE recursing: a polymorphic type is typically
+                 recursive at its own instantiation ([set<K>] holds [set<K>]s),
+                 and the entry is what stops the descent *)
+              Helper_defs.add defs sym
+                (eq_rules_of_deftyp ~scalars ~name:tid.it (typ_key t) dt);
+              List.iter require (field_typs dt)
+          (* a type PARAMETER (no [TypD] at all), or an arity the elaborator
+             should have ruled out: nothing to dispatch on, so this is where the
+             generic [eq] is still reached. Monomorphization leaves no parameter
+             behind at a type some comparison reaches. *)
+          | None | Some _ ->
+              Helper_defs.add defs sym [ rule (app_t sym [ x; y ]) (eq_t x y) ])
     | TupleT ts ->
         let sym = eq_tup_sym ts in
         if not (Helper_defs.mem defs sym) then (
@@ -1612,16 +1701,13 @@ let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
   List.iter
     (fun (def : def) ->
       match def.it with
-      | TypD { deftyp = { it = VariantT typcases; _ }; _ } ->
-          List.iter
-            (fun (tc : typcase) ->
-              List.iter
-                (fun (ft : typ) -> require ft.it)
-                (Mixfix.args tc.notation.it))
-            typcases
-      | TypD { deftyp = { it = StructT fields; _ }; _ } ->
-          List.iter (fun (_, (ft : typ)) -> require ft.it) fields
-      | TypD { deftyp = { it = PlainT u; _ }; _ } -> require u.it
+      (* only the monomorphic ones: a polymorphic type's fields mention its
+         PARAMETERS, so requiring them here would generate exactly the
+         parameter-typed equality this dispatch exists to avoid. Its
+         instantiations reach their own (substituted) fields through [require]
+         above. *)
+      | TypD { tparams = []; deftyp; _ } ->
+          List.iter require (field_typs deftyp.it)
       | _ -> ())
     orig;
   (* the compared type of every collection-builtin specialization *)

@@ -75,6 +75,47 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-05 — 다형성을 번역 전에 없앤다: `Monomorphize` + 인스턴스별 `eq_<T>` (`1585e814`·`ffadcbc7`·이번 커밋)
+
+> 타입별 `eq`(`5dd8f11d`)가 남긴 **분석면의 구멍**을 닫는 작업. 구멍의 정체는
+> "타입 **파라미터**에서의 비교"였다: `$in_set<K>`의 몸통은 `K`에서 비교하는데 `K`엔
+> `TypD`가 없으므로 `eq_pred`가 일반 `eq`로 떨어지고, 일반 `eq`의 off-diagonal은
+> 분석면에 **없다**(실행면만 `owise`로 닫는다 — CRC엔 보여줄 수 없는 규칙이다).
+> 따라서 그 아래로 내려간 조건은 CRC가 "성립 불가"를 못 보고, 규칙이 적은 쪽
+> = YES가 쉬운 쪽으로 기운다.
+
+**세 겹이었다.** ① 다형 **def**(`$in_set<K>` 등 18개), ② 다형 **타입**
+(`set<K>`/`pair<K,V>`/`map<K,V>` — `eq_map → eq_set → eq_list_K → eq_K → eq`),
+③ 스칼라/텍스트(정당 — 일반 `eq`가 그 정렬 위에서 완전하다).
+
+- **①은 `Monomorphize`** (`translate/monomorphize.ml`, `Defunctionalize` 다음):
+  호출지점의 `targ list`를 읽어 다형 `dec`을 인스턴스마다 복제한다. 타입 추론은
+  하지 않는다 — 타입 인자는 elaboration이 이미 채워 뒀다. 특수화된 몸통이 스스로
+  요구하는 다형 호출까지 **고정점**으로 따라간다. p4에서 123개 인스턴스화.
+- **②는 `eq_pred`의 키를 타입 **이름**이 아니라 **표기 전체**로** 바꿔서
+  (`typ_key` = `string_of_typ` 기반) 인스턴스마다 별도 `eq_<T>`를 만든다.
+  정의 쪽은 `eq_rules_of_deftyp`로 떼어내, 다형 `TypD`는 `defs_of_typ`에서
+  eq를 **내지 않고** `eq_helper_defs`가 인스턴스별로 치환해 낸다
+  (`Monomorphize.subst_deftyp`). 인스턴스의 필드 타입도 다시 요구하므로
+  `map<id,type>` → `set<pair<…>>` → `pair<…>` → `id`/`type`까지 닫힌다.
+
+**결과(측정).** `eq_K`/`eq_list_K`/`mem_K`가 시스템에서 **사라졌다**. 일반 `eq`로
+떨어지는 값 타입은 0(남은 `= eq(…)` 104곳은 전부 nat/int/bool/text 잎, 그리고
+`syntax nameIR = text` 같은 별칭). 슬라이스 합 3,990,525 → 1,277,055(−68%),
+>2490 밴드 171 → 150, 실행 모듈 ~29k줄. **레버 1(케이스 인덱스)과 합산한 수치**다.
+
+**부수 결함 하나를 함께 고쳤다**(`ffadcbc7`): `bin/main.ml`이 Maude 표면들에
+**변환 전** `spec_il`을 넘기고 있었다. `Defunctionalize`가 def을 개명하므로
+`def_symbols`가 템플릿 이름(빈 슬라이스 7개)을 루트로 내놓고 특수화된 41개는
+아예 스윕에서 빠져 있었다. `Pipeline.translated_spec`이 그 스펙에 이름을 주고,
+`bin/`의 각 명령이 그걸 넘긴다. 시작항/인터프리터 경로는 원본 스펙 유지.
+
+**미측정 부채.** 이 저장소 환경엔 `spectec/tools/`(maude·MFE·AProVE)가 **없다** —
+CRC/termination/differential을 이 트리에서 재측정하지 못했다. `verification.md`의
+모든 열과 `check_diff_p4*.tsv`는 이 세 커밋 이전 것이며, 특히 `def_symbols`가
+개명·증가했으므로 per-symbol 표의 행 이름부터 다시 잡아야 한다. 도구가 있는
+환경에서 ⑴ 전체 1,227 differential, ⑵ 619심볼 기준 CRC 스윕 순으로 재측정할 것.
+
 ### 2026-08-03 — 맨변수 바인더 세 갈래를 전부 착수 (`3a6794e7`·`7215c5dd`·`48a17692`)
 
 > 2026-07-24 research note가 남긴 세 항목 — ① WLL로 inline/unravel 슬라이스별 선택,

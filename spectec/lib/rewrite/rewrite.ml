@@ -16,6 +16,7 @@ module Aprove = Aprove
 module Termination = Termination
 module Scc = Scc
 module Defunctionalize = Defunctionalize
+module Monomorphize = Monomorphize
 module Gensym = Gensym
 module Builtin = Builtin
 

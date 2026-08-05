@@ -31,7 +31,8 @@ updated per-change; this file is trimmed periodically).
 ## Pipeline
 
 ```
-Lang.Il.spec ──Defunctionalize──▶ Simplify (identity) ──▶ To_ctrs.of_spec ~scalars ──▶ Gensym.thread
+Lang.Il.spec ──translated_spec──▶ Simplify (identity) ──▶ To_ctrs.of_spec ~scalars ──▶ Gensym.thread
+      (Defunctionalize ▸ Monomorphize)
                                                               │
                         Structural scalars ──▶ Rewrite_system.t ──▶ Reflect (hoist_matchers/owise)
                         (self-contained Peano/                       + Crc_surface folds
@@ -54,7 +55,9 @@ and `maude_system_of_spec` (execution: `~scalars:Native`, a **direct**
 translation target, not a re-fold of the structural system; exposed as
 `Rewrite.maude_system` so a run driver builds it once and threads it into the
 run encoders instead of each rebuilding it). Both wrap the same core translation
-with `Defunctionalize` first and `Gensym.thread` last, closing with
+with `Pipeline.translated_spec` first (`Defunctionalize` then `Monomorphize` —
+the spec every Maude surface must also be given as its `orig`, since both passes
+rename definitions) and `Gensym.thread` last, closing with
 `Rewrite_system.orient_conds` so every condition `(s, t)` carries the evaluated
 side first and never heads its pattern with a defined symbol (`order_conds`
 schedules on that split and `Unravel` lifts `t` into a helper's lhs, where a
@@ -89,6 +92,7 @@ is ground truth.
 | [translate/builtin.ml](spectec/lib/rewrite/translate/builtin.ml) / `.mli` | CTRS rules for P4's collection builtins (`BuiltinDecD`s the interpreter implements natively); fed to `of_spec` as `extra_defs`. |
 | [translate/gensym.ml](spectec/lib/rewrite/translate/gensym.ml) / `.mli` | Makes `$fresh_typeId`/`$fresh_tid` pure via state threading (`thread`, `effectful_syms`, `root_syms`, `seed_text`). Runs last in the pipeline; identity on gensym-free specs. |
 | [translate/defunctionalize.ml](spectec/lib/rewrite/translate/defunctionalize.ml) / `.mli` | Specializes away `def`-valued arguments by call-site specialization. Runs first; identity without `DefP` (e.g. impty). |
+| [translate/monomorphize.ml](spectec/lib/rewrite/translate/monomorphize.ml) / `.mli` | Specializes away polymorphic `dec`s at the type arguments their call sites pass, so no type PARAMETER survives into the translation (a parameter has no `TypD`, so its equality could only fall back on the generic `eq`). Also owns type substitution (`subst_typ`/`subst_deftyp`), which `To_ctrs` uses to instantiate a polymorphic TYPE's `eq_<T>`. Runs after `Defunctionalize`; identity without a polymorphic `dec`. |
 | [translate/reflect.ml](spectec/lib/rewrite/translate/reflect.ml) / `.mli` | Analysis-only: `owise` (explicit sibling-disjointness guards + judgment reflection) and `hoist_matchers` (respell opaque `match_K` guards so `fold_premise_binders` can fold discriminators into head patterns). |
 | [maude/maude_ident.ml](spectec/lib/rewrite/maude/maude_ident.ml) / `.mli` | The Maude lexical layer shared by both Maude surfaces: `id` (operator id — `_`→`-`) and `var` (variable name), so operator/variable spellings agree. Was `maude_id`/`maude_var` in `rewrite_system.ml`. |
 | [maude/maude_theory.ml](spectec/lib/rewrite/maude/maude_theory.ml) / `.mli` | Native scalar vocabulary: wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) + literal builders, shared by `Ctrs_term`, `To_maude`, `Of_maude`. No fold pass (leaf builders emit these directly at translation time). |
@@ -617,6 +621,13 @@ before the 5,425 subty-complement equations landed and are long stale):
 | IL → Maude translation (`run --emit`) | ~10s |
 | Maude module internalization (fixed, once per invocation) | **~80s** |
 | per program after that | ~6.5s |
+
+**Those rows are stale as of 2026-08-05** and are kept only as the last figures
+actually measured. The equality rework (`5dd8f11d` type-indexed `eq`, `1585e814`
+case-index discrimination, and the monomorphization that followed) took the
+execution module from ~78k lines to **~29k**, and `run --emit` from ~10s to ~1s;
+internalization and per-program cost scale with module size and have not been
+re-measured (this environment has no `spectec/tools/maude`).
 
 The fixed ~80s is why **`run`/`run-structural` default to `--timeout 0` (no
 limit)**: any fixed default below it turns a perfectly good run into a `TIMEOUT`
