@@ -168,8 +168,15 @@ let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
 (* -------------------------------------------------------------------------- *)
 (* Verdict classification (over the whitespace-normalized output). *)
 
+(* The CRC reports success in two different texts ([makeCRCmessage … confluence]
+   in [mfe.maude]): a slice with no critical pairs at all is "confluent", one
+   whose critical pairs were all joined is "locally-confluent". Matching only the
+   latter misreads the strictly stronger verdict as an Error. *)
 let crc_verdict ~(timed_out : bool) (norm : string) : verdict =
-  if Subproc.contains norm "The specification is locally-confluent." then Yes
+  if
+    Subproc.contains norm "The specification is confluent."
+    || Subproc.contains norm "The specification is locally-confluent."
+  then Yes
   else if
     Subproc.contains norm "The following critical pairs must be proved joinable"
   then Maybe
