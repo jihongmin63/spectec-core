@@ -27,15 +27,51 @@ let verdict_of_line (line : string) : verdict option =
   | "MAYBE" -> Some Maybe
   | _ -> None
 
-(* The first line that is exactly a verdict token. AProVE prints its proof (or
-   failure narrative) around it; only the bare line is the answer. The final
-   parse scans the whole buffer, trailing partial line included: a deadline kill
-   can cut the output mid-line, and a verdict already printed still counts. *)
-let verdict_line (output : string) : verdict option =
-  String.split_on_char '\n' output |> List.find_map verdict_of_line
+(* AProVE leads with the run's own verdict and then echoes the proof:
 
-(* Nothing left to wait for: the answer is on the wire, so the rest of the run
-   is the JVM shutting down. Worth about a second per symbol -- and no more,
+     KILLED
+     proof of /tmp/spectec_aprove….trs
+     …
+     (6) QDPSizeChangeProof (EQUIVALENT)
+     …
+     (7)
+     YES
+     …
+     (8) Obligation:
+
+   The echo closes each sub-obligation with a bare verdict line of its own, so
+   scanning the whole buffer reads sub-proof (7)'s YES -- one closed DP problem
+   among many -- as the run's answer. That silently turns a run AProVE gave up
+   on into a termination proof: [KILLED], its deadline marker, is not one of the
+   tokens, so the scan walks straight past it into the echo. Only the header,
+   the part before the echo begins, carries the answer. *)
+let proof_echo_prefix = "proof of "
+let deadline_marker = "KILLED"
+
+let header_lines (output : string) : string list =
+  let rec take acc = function
+    | [] -> List.rev acc
+    | line :: _
+      when String.starts_with ~prefix:proof_echo_prefix (String.trim line) ->
+        List.rev acc
+    | line :: rest -> take (line :: acc) rest
+  in
+  take [] (String.split_on_char '\n' output)
+
+let verdict_line (output : string) : verdict option =
+  header_lines output |> List.find_map verdict_of_line
+
+(* AProVE announcing its own deadline is not an answer, and not our timeout
+   either -- it is the same "ask again with more time" the budget ladder climbs
+   for, so it reports as [Timeout] rather than a parse [Error]. *)
+let hit_deadline (output : string) : bool =
+  header_lines output
+  |> List.exists (fun line -> String.trim line = deadline_marker)
+
+(* Nothing left to wait for once the header is complete: the answer (or the
+   deadline marker) is on the wire and everything after it is the proof echo,
+   which on a large slice streams for minutes after the verdict has been
+   decided. Worth about a second per symbol -- and no more,
    because AProVE announces at its own deadline rather than when the proof
    lands: on the same `$un_bnot` TRS the bare YES prints at 119.8s / 299.7s /
    601.6s under budgets 120 / 300 / 600, while budget 5 already answers YES. A
@@ -53,7 +89,10 @@ let verdict_printed (output : string) : bool =
   | Some last_newline ->
       String.sub output 0 last_newline
       |> String.split_on_char '\n'
-      |> List.exists (fun line -> verdict_of_line line <> None)
+      |> List.exists (fun line ->
+             verdict_of_line line <> None
+             || String.trim line = deadline_marker
+             || String.starts_with ~prefix:proof_echo_prefix (String.trim line))
 
 let check ?aprove_bin ?(budget = 300) ~(trs : string) () : verdict =
   let bin = resolve_bin aprove_bin in
@@ -78,5 +117,5 @@ let check ?aprove_bin ?(budget = 300) ~(trs : string) () : verdict =
         match verdict_line output with
         | Some v -> v
         | None ->
-            if timed_out then Timeout
+            if timed_out || hit_deadline output then Timeout
             else Error "no YES/NO/MAYBE line in the AProVE output")
