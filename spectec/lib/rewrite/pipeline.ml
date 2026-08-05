@@ -4,8 +4,8 @@
    instead of re-assembling the stages.
 
    Both pipelines wrap the core translation with the feature passes:
-     - {!Defunctionalize.defunctionalize} FIRST, so every call is first-order
-       before simplification/translation see it.
+     - {!translated_spec} FIRST ({!Defunctionalize.defunctionalize}), so every
+       call is first-order before simplification/translation see it.
      - {!Builtin.rules_of_builtins} as [~extra_defs] (P4 collection builtins,
        pruned where unreached).
      - {!Gensym.thread} LAST, threading the [$fresh_typeId] state through every
@@ -18,10 +18,33 @@
    {!To_ctrs}, pass [spec] as the last argument instead of
    [Simplify.simplify_spec spec]. *)
 
+(* The spec the translation actually sees. The pass RENAMES and duplicates
+   definitions (a [$f] with a [def] parameter becomes one [$f_g] per
+   instantiated argument), so a consumer that recovers a symbol's declared
+   signature -- {!Maude_sorts} through {!Spec_index}, and the slice roots
+   {!To_ctrs.def_symbols} lists -- must read the spec from HERE. Reading the
+   elaborated spec instead finds no declaration under the emitted names, which
+   silently widens every argument sort to [Val] and names slice roots that no
+   rule defines.
+
+   Identity on a spec that has already been through it, so a caller may pass the
+   translated spec straight back into a pipeline; the one-slot memo hits on its
+   own RESULT as well as its input, so that caller gets the same value back and
+   the per-spec indices ({!Spec_index.of_spec}) stay shared instead of being
+   rebuilt against a structurally-equal copy. *)
+let memo : (Lang.Il.spec * Lang.Il.spec) option ref = ref None
+
+let translated_spec (spec : Lang.Il.spec) : Lang.Il.spec =
+  match !memo with
+  | Some (src, tr) when src == spec || tr == spec -> tr
+  | _ ->
+      let tr = Defunctionalize.defunctionalize spec in
+      memo := Some (spec, tr);
+      tr
+
 let build_with (scalars : To_ctrs.scalar_theory) (spec : Lang.Il.spec) :
     Lang.Il.spec * Rewrite_system.t =
-  (* First: specialize away [def]-valued arguments. *)
-  let spec = Defunctionalize.defunctionalize spec in
+  let spec = translated_spec spec in
   let sys =
     To_ctrs.of_spec ~scalars
       ~extra_defs:(Builtin.rules_of_builtins ~scalars spec)

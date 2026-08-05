@@ -19,6 +19,13 @@ module Defunctionalize = Defunctionalize
 module Gensym = Gensym
 module Builtin = Builtin
 
+(* The spec the translation actually sees (see [Pipeline.translated_spec]): the
+   feature passes rename and duplicate definitions, so every consumer that reads
+   a symbol's declaration out of the spec -- the sort recovery behind both Maude
+   surfaces, and [def_symbols] -- has to be given THIS spec rather than the
+   elaborated one. *)
+let translated_spec : Lang.Il.spec -> Lang.Il.spec = Pipeline.translated_spec
+
 (* The analysis pipeline entry; see [Pipeline.ctrs_of_spec] for the stage
    order. [To_ctrs] is the sole translation surface ([Simplify] is deliberately
    the identity). *)
@@ -33,5 +40,8 @@ let maude_system : Lang.Il.spec -> Rewrite_system.t =
   Pipeline.maude_system_of_spec
 
 (* The function/relation symbols a spec defines, usable as slice roots for
-   per-symbol confluence checking (see [Rewrite_system.slice]). *)
-let def_symbols : Lang.Il.spec -> string list = To_ctrs.def_symbols
+   per-symbol confluence checking (see [Rewrite_system.slice]). Read off the
+   TRANSLATED spec: the roots have to be the names the rules are emitted under,
+   and a specialized definition carries a different one. *)
+let def_symbols (spec : Lang.Il.spec) : string list =
+  To_ctrs.def_symbols (Pipeline.translated_spec spec)

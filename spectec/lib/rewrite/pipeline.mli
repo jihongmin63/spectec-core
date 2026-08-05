@@ -1,3 +1,11 @@
+(** The spec the translation actually sees: {!Defunctionalize.defunctionalize}.
+    It renames and duplicates definitions, so a consumer that recovers a
+    symbol's declared signature ({!Maude_sorts}) or lists the slice roots
+    ({!To_ctrs.def_symbols}) must read this spec and not the elaborated one.
+    Idempotent, and memoized so a caller passing the result back into a pipeline
+    shares the per-spec indices. *)
+val translated_spec : Lang.Il.spec -> Lang.Il.spec
+
 (** The analysis pipeline: the IL -> CTRS translation ({!Defunctionalize}, the
     {!Simplify} pre-pass, {!To_ctrs.of_spec} with {!Builtin}'s collection rules,
     then {!Gensym.thread}) with self-contained structural scalars

@@ -264,16 +264,17 @@ let rewrite_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
+    let spec_tr = Rewrite.translated_spec spec_il in
     let predicates =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
     if wll_check then
-      let system = Rewrite.rewrite_spec spec_il in
+      let system = Rewrite.rewrite_spec spec_tr in
       let syms =
         match symbol with
         | Some s -> [ s ]
-        | None -> Rewrite.def_symbols spec_il
+        | None -> Rewrite.def_symbols spec_tr
       in
       let slicer = Rewrite.Rewrite_system.make_slicer system in
       Ok
@@ -289,13 +290,13 @@ let rewrite_command =
                      (Rewrite.Crc_surface.select_strategy slice)))
               syms))
     else if list_symbols then
-      let syms = Rewrite.def_symbols spec_il in
+      let syms = Rewrite.def_symbols spec_tr in
       if not sizes then Ok (String.concat "\n" syms)
       else
         (* Slice rule counts in one elaboration -- the cheap proxy for which
            symbols' analysis is tractable (a small closure) vs which pull in the
            whole system (the typing relations -> critical-pair blowup). *)
-        let system = Rewrite.rewrite_spec spec_il in
+        let system = Rewrite.rewrite_spec spec_tr in
         let rows =
           List.map
             (fun s ->
@@ -309,7 +310,7 @@ let rewrite_command =
           (String.concat "\n"
              (List.map (fun (n, s) -> Printf.sprintf "%d\t%s" n s) rows))
     else if ctrs then
-      let system = Rewrite.rewrite_spec spec_il in
+      let system = Rewrite.rewrite_spec spec_tr in
       let sig_rules = whole_system_sig_rules system in
       (* the module text, and whether [--unconditional] had to over-approximate
          this slice to get it past the SCC's drop-bad-eqs filter (a COMPLETE
@@ -323,7 +324,7 @@ let rewrite_command =
         in
         let fidelity = if sys' = sys then "exact" else "approx" in
         ( Rewrite.To_mfe.module_of_system ~prune_signature ~predicates
-            ~sig_rules spec_il sys',
+            ~sig_rules spec_tr sys',
           fidelity )
       in
       match slice_dir with
@@ -357,7 +358,7 @@ let rewrite_command =
           Ok (fst (emit system))
     else
       Ok
-        (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_il)
+        (Rewrite.To_maude.module_of_spec ~relations_as_rules ~predicates spec_tr)
 
 (* Per-symbol confluence (Church-Rosser) and coherence of the analysis CTRS via
    the Maude Formal Environment ({!Rewrite.Mfe.check}, one Maude invocation for
@@ -413,12 +414,13 @@ let confluence_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    let system = Rewrite.rewrite_spec spec_il in
+    let spec_tr = Rewrite.translated_spec spec_il in
+    let system = Rewrite.rewrite_spec spec_tr in
     let sig_rules = whole_system_sig_rules system in
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
       Cli.Analysis_sweep.roots ~all ~symbols
-        ~all_roots:(Rewrite.def_symbols spec_il)
+        ~all_roots:(Rewrite.def_symbols spec_tr)
         ~slice_size:(slice_size slicer)
     in
     let recorded =
@@ -478,7 +480,7 @@ let confluence_command =
                 && (inconclusive r.church_rosser || inconclusive r.coherence)
               then Hashtbl.replace pending label (r, secs)
               else emit_base label r secs)
-            spec_il slices
+            spec_tr slices
         in
         (* Climb the normalization ladder: each rung re-checks only the symbols
            still inconclusive after the previous one, and a symbol leaves
@@ -537,7 +539,7 @@ let confluence_command =
                        (b_secs +. n_secs) false;
                      Hashtbl.remove held label)
                    else Hashtbl.replace held label (b, b_secs +. n_secs))
-                 spec_il norm_slices)
+                 spec_tr norm_slices)
         in
         if crc_normalize then (
           (* Run every rung any held symbol has: a rung that is a no-op for one
@@ -652,6 +654,7 @@ let run_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
+    let spec_tr = Rewrite.translated_spec spec_il in
     (* Resolve the start terms to run, each labeled by its source: every impty
        program (--imp), every P4 program (--p4, run through Program_ok against
        the loaded spec), then a raw --start term. The labels survive into the
@@ -704,9 +707,9 @@ let run_command =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
-    let system = Rewrite.maude_system spec_il in
+    let system = Rewrite.maude_system spec_tr in
     let module_text =
-      Rewrite.To_maude.module_of_system ~relations_as_rules ~predicates spec_il
+      Rewrite.To_maude.module_of_system ~relations_as_rules ~predicates spec_tr
         system
     in
     if emit then Ok (module_text, false)
@@ -773,7 +776,7 @@ let run_command =
                   let interp_vals = Rewrite.Of_maude.canonicalize interp_vals in
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
-                      (Rewrite.Of_maude.values_of_result spec_il
+                      (Rewrite.Of_maude.values_of_result spec_tr
                          ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
@@ -893,13 +896,14 @@ let run_structural_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    let system = Rewrite.rewrite_spec spec_il in
+    let spec_tr = Rewrite.translated_spec spec_il in
+    let system = Rewrite.rewrite_spec spec_tr in
     let predicates =
       if wide_predicates then Rewrite.Maude_sorts.Wide
       else Rewrite.Maude_sorts.Narrow
     in
     let module_text =
-      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates spec_il
+      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates spec_tr
         system
     in
     if emit then Ok (module_text, false)
@@ -951,7 +955,7 @@ let run_structural_command =
           (fun (_, _, r) ->
             match r with
             | Ok (rel, vs) ->
-                Some (Rewrite.To_mfe.start_app spec_il system rel vs)
+                Some (Rewrite.To_mfe.start_app spec_tr system rel vs)
             | Error _ -> None)
           resolved
       in
@@ -1000,7 +1004,7 @@ let run_structural_command =
                   let interp_vals = Rewrite.Of_maude.canonicalize interp_vals in
                   let maude_vals =
                     Rewrite.Of_maude.canonicalize
-                      (Rewrite.Of_maude.values_of_result spec_il
+                      (Rewrite.Of_maude.values_of_result spec_tr
                          ~rel:"Program_ok" ~system term)
                   in
                   if Lang.Il.Eq.eq_values interp_vals maude_vals then
@@ -1099,13 +1103,14 @@ let termination_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    let system = Rewrite.rewrite_spec spec_il in
+    let spec_tr = Rewrite.translated_spec spec_il in
+    let system = Rewrite.rewrite_spec spec_tr in
     (* one head index shared across the whole sweep -- [slice_with] then costs
        O(slice size) per symbol instead of rebuilding the index once per symbol *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let roots =
       Cli.Analysis_sweep.roots ~all ~symbols
-        ~all_roots:(Rewrite.def_symbols spec_il)
+        ~all_roots:(Rewrite.def_symbols spec_tr)
         ~slice_size:(slice_size slicer)
     in
     if emit_trs then (
@@ -1202,7 +1207,8 @@ let scc_command =
     @@ fun () ->
     let* spec = parse_spec_files filenames in
     let* spec_il = elaborate spec in
-    let system = Rewrite.rewrite_spec spec_il in
+    let spec_tr = Rewrite.translated_spec spec_il in
+    let system = Rewrite.rewrite_spec spec_tr in
     let sig_rules = whole_system_sig_rules system in
     (* one head index shared across the whole sweep (see termination_command) *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
@@ -1219,7 +1225,7 @@ let scc_command =
         Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
       in
       let uncond, _ = Rewrite.Scc.unconditional slice in
-      print_string (Rewrite.Scc.module_text ~sig_rules spec_il uncond);
+      print_string (Rewrite.Scc.module_text ~sig_rules spec_tr uncond);
       Ok false)
     else
       Ok
@@ -1229,7 +1235,7 @@ let scc_command =
              in
              let report : Rewrite.Scc.report =
                Rewrite.Scc.check ~timeout ?ceta_bin ?mfe271_dir ~sig_rules
-                 spec_il slice
+                 spec_tr slice
              in
              let fid =
                (match report.fidelity with

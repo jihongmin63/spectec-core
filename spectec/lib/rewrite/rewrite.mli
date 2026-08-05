@@ -16,6 +16,15 @@ module Aprove = Aprove
 module Termination = Termination
 module Scc = Scc
 
+(** The spec the translation actually sees: the elaborated spec with the feature
+    passes applied ({!Pipeline.translated_spec}). They rename and duplicate
+    definitions, so this -- not the elaborated spec -- is what a Maude surface
+    must be given as its [orig] argument: it is where a symbol's declared
+    signature is found, and reading the elaborated spec instead silently widens
+    every argument sort to [Val]. Idempotent and memoized, so passing it a spec
+    that is already translated is free. *)
+val translated_spec : Lang.Il.spec -> Lang.Il.spec
+
 (** Translate an elaborated IL spec into the analysis rewriting system:
     defunctionalize, translate via {!To_ctrs} in the structural scalar theory,
     thread gensym state, then apply the analysis-only reflection and folding
