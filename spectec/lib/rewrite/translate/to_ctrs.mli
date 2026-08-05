@@ -44,3 +44,33 @@ val case_ctor :
   string ->
   string ->
   (Rewrite_system.term list -> Rewrite_system.term) option
+
+(** Equality AT a type: the term deciding whether two values of type [t] are
+    equal. A named type reaches its own [eq_<T>], tuples and iterations their
+    structural helpers, and each of those recurses through this dispatch on its
+    component types; scalars and text keep the polymorphic [eq]. *)
+val eq_pred :
+  Lang.Il.typ' ->
+  Rewrite_system.term ->
+  Rewrite_system.term ->
+  Rewrite_system.term
+
+(** Membership at an element type ([mem_<T>]), deciding elements with {!eq_pred}
+    rather than the polymorphic equality. *)
+val mem_pred :
+  Lang.Il.typ' ->
+  Rewrite_system.term ->
+  Rewrite_system.term ->
+  Rewrite_system.term
+
+(** Whether a collection builtin decides equality, and so needs one rule copy
+    per compared type ({!Builtin}) instead of a single polymorphic one. *)
+val builtin_compares : string -> bool
+
+(** The symbol suffix the copy specialized at this compared type carries. Call
+    sites and rule emission must agree on it, so it lives here. *)
+val builtin_spec_suffix : Lang.Il.typ' -> string
+
+(** Every (comparing collection builtin, compared type) the spec calls for, one
+    entry per distinct specialization. *)
+val builtin_specializations : Lang.Il.spec -> (string * Lang.Il.typ') list

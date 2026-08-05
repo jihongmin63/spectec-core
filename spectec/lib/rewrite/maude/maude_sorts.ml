@@ -54,7 +54,7 @@ let is_predicate (sym : string) : bool =
   has_prefix T.match_prefix sym
   || has_prefix T.subty_prefix sym
   || has_prefix T.holds_prefix sym
-  || sym = T.eqg_sym
+  || has_prefix T.eq_prefix sym || sym = T.eqg_sym
 
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
@@ -246,6 +246,8 @@ let shared_op_sigs : (string * (string list * string)) list =
     ("match_cons", ([ "List" ], "BoolV"));
     ("match_nil", ([ "List" ], "BoolV"));
     ("eq", ([ val_sort; val_sort ], "BoolV"));
+    (* one character, carrying its codepoint ({!Ctrs_term.chr_ctor}) *)
+    (T.chr_ctor, ([ "NatV" ], val_sort));
   ]
 
 (* The scalar CONSTRUCTOR signatures, per theory. [Native] wraps Maude's
@@ -920,7 +922,7 @@ let il_declared_syms (orig : spec) : string list =
 let shared_ctor_syms : string list =
   (* containers: lists (also the char-list spelling of a structural text),
      options, tuples -- the same constructors in either theory *)
-  [ "nil"; "cons"; "none"; "some"; "tuple" ]
+  [ "nil"; "cons"; "none"; "some"; "tuple"; T.chr_ctor ]
 
 (* The scalar constructors, per theory -- the value half of {!scalar_ctor_sigs}.
    The split is not cosmetic: the sign-magnitude [int_pos]/[int_neg] BUILD an int
@@ -959,16 +961,13 @@ let scalar_ctor_syms : scalar_theory -> string list = function
         "bdivmod";
       ]
 
-(* Is [sym] a constructor of the module emitted for [scalars] and [orig]? The
-   [chr_<n>] characters (the structural spelling of a text) are a constructor
-   family recognized by shape: one member per byte value, generated on demand
-   rather than declared anywhere. *)
+(* Is [sym] a constructor of the module emitted for [scalars] and [orig]? *)
 let is_ctor (scalars : scalar_theory) (orig : spec) : string -> bool =
   let tbl = Hashtbl.create 512 in
   List.iter
     (fun s -> Hashtbl.replace tbl s ())
     (scalar_ctor_syms scalars @ shared_ctor_syms @ il_ctor_syms orig);
-  fun sym -> Hashtbl.mem tbl sym || Option.is_some (T.chr_code_of_sym sym)
+  fun sym -> Hashtbl.mem tbl sym
 
 (* The [ctor] attribute for [sym]'s [op] declaration ([""] when it is a defined
    symbol), for an emitted module whose rules define [defined].

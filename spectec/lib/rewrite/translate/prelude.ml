@@ -583,6 +583,16 @@ let rules ~scalars : R.rule list =
       rule (app_t "match_cons" [ nil_t ]) no;
       rule (app_t "match_nil" [ nil_t ]) yes;
       rule (app_t "match_nil" [ cons_t x xs ]) no;
+      (* The generic equality is what the sites whose operand type is not
+         statically known reach -- the collection builtins' map keys
+         ({!Builtin}), which are polymorphic. Everything with a static type goes
+         through its own [eq_<T>] ({!To_ctrs.eq_pred}) instead, so this symbol
+         no longer carries a rule per constructor PAIR: the reflexive equation
+         decides the diagonal for any key whatever, and the off-diagonal is
+         decided by the execution surface's [owise] fallback
+         ({!To_maude.generic_eq_fallback}) -- exactly the treatment [eqg]
+         already gets ({!To_mfe}). *)
+      rule (eq_t x x) yes;
       (* structural equality over the built-in sorts. Nats ([zero]/[succ]) and
          integers ([int_pos]/[int_neg]) have disjoint constructors, so their rules
          never overlap and a nat rule can never match an integer term. *)
@@ -622,6 +632,10 @@ let rules ~scalars : R.rule list =
       rule (eq_t none_t (some_t y)) no;
       rule (eq_t (some_t x) none_t) no;
       rule (eq_t (some_t x) (some_t y)) (eq_t x y);
+      (* one equation for the whole byte alphabet: a character carries its
+         codepoint ({!Ctrs_term.chr_ctor}), so two characters are equal exactly
+         when their codepoints are, decided by the binary-nat rules above *)
+      rule (eq_t (chr_of_t p) (chr_of_t q)) (eq_t p q);
       rule (eq_t nil_t nil_t) yes;
       rule (eq_t nil_t (cons_t y ys)) no;
       rule (eq_t (cons_t x xs) nil_t) no;

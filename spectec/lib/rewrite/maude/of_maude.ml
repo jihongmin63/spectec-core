@@ -272,11 +272,10 @@ let ctrs_sym (s : string) : string =
 let rec char_spine (m : mt) : int list =
   match m with
   | MApp ("nil", []) -> []
-  | MApp ("cons", [ MApp (sym, []); t ])
-    when T.chr_code_of_sym (ctrs_sym sym) <> None ->
-      Option.get (T.chr_code_of_sym (ctrs_sym sym)) :: char_spine t
+  | MApp ("cons", [ MApp (sym, [ n ]); t ]) when ctrs_sym sym = T.chr_ctor ->
+      Bigint.to_int_exn (bigint_of_binary n) :: char_spine t
   | MApp ("cons", [ _; _ ]) ->
-      raise (Parse_error "expected a char-list element (chr_<code>)")
+      raise (Parse_error "expected a char-list element (chr(<code>))")
   | _ -> raise (Parse_error "malformed char-list spine")
 
 let string_of_char_codes (codes : int list) : string =

@@ -3,42 +3,47 @@ module T = Ctrs_term
 open Lang.Il
 
 (* Shared list helpers used by more than one set builtin, named for what they
-   decide rather than the builtin that reaches them. Emitted once and pruned
-   when unused (the spec has no collection builtin). All three recurse over the
-   prelude [cons]/[nil] lists and reuse the prelude [mem]. *)
-let list_diff_sym = "$builtin_list_diff"
-let list_inter_sym = "$builtin_list_inter"
-let list_submem_sym = "$builtin_list_submem"
+   decide rather than the builtin that reaches them. Pruned when unused (the
+   spec has no collection builtin). All three recurse over the prelude
+   [cons]/[nil] lists and decide membership with [mem], which -- like every
+   other comparison here -- is taken at the SPECIALIZATION's compared type, so
+   each copy carries that type's suffix. *)
+let list_diff_sym suffix = "$builtin_list_diff" ^ suffix
+let list_inter_sym suffix = "$builtin_list_inter" ^ suffix
+let list_submem_sym suffix = "$builtin_list_submem" ^ suffix
 
 (* [list_diff xs ys] keeps the elements of [xs] absent from [ys]; [list_inter]
    keeps those present; [list_submem] decides whether every element of [xs] is in
    [ys]. The membership branches mirror the prelude's conditional [div]/[mod]
    shape (complementary [mem == true]/[mem == false] guards). *)
-let shared_list_defs ~scalars : R.rule list =
+let shared_list_defs ~scalars ~mem suffix : R.rule list =
+  let list_diff_sym = list_diff_sym suffix
+  and list_inter_sym = list_inter_sym suffix
+  and list_submem_sym = list_submem_sym suffix in
   let x = T.var_t "x" and xs = T.var_t "xs" and ys = T.var_t "ys" in
   [
     T.rule (T.app_t list_diff_sym [ T.nil_t; ys ]) T.nil_t;
     T.rule_cond
       (T.app_t list_diff_sym [ T.cons_t x xs; ys ])
       (T.app_t list_diff_sym [ xs; ys ])
-      [ (T.mem_t x ys, T.bool_t ~scalars true) ];
+      [ (mem x ys, T.bool_t ~scalars true) ];
     T.rule_cond
       (T.app_t list_diff_sym [ T.cons_t x xs; ys ])
       (T.cons_t x (T.app_t list_diff_sym [ xs; ys ]))
-      [ (T.mem_t x ys, T.bool_t ~scalars false) ];
+      [ (mem x ys, T.bool_t ~scalars false) ];
     T.rule (T.app_t list_inter_sym [ T.nil_t; ys ]) T.nil_t;
     T.rule_cond
       (T.app_t list_inter_sym [ T.cons_t x xs; ys ])
       (T.cons_t x (T.app_t list_inter_sym [ xs; ys ]))
-      [ (T.mem_t x ys, T.bool_t ~scalars true) ];
+      [ (mem x ys, T.bool_t ~scalars true) ];
     T.rule_cond
       (T.app_t list_inter_sym [ T.cons_t x xs; ys ])
       (T.app_t list_inter_sym [ xs; ys ])
-      [ (T.mem_t x ys, T.bool_t ~scalars false) ];
+      [ (mem x ys, T.bool_t ~scalars false) ];
     T.rule (T.app_t list_submem_sym [ T.nil_t; ys ]) (T.bool_t ~scalars true);
     T.rule
       (T.app_t list_submem_sym [ T.cons_t x xs; ys ])
-      (T.and_t (T.mem_t x ys) (T.app_t list_submem_sym [ xs; ys ]));
+      (T.and_t (mem x ys) (T.app_t list_submem_sym [ xs; ys ]));
   ]
 
 (* The CTRS rules implementing one collection builtin [id] (map/set/list/text),
@@ -48,12 +53,17 @@ let shared_list_defs ~scalars : R.rule list =
    either is absent ([orig] has no such type), the builtin emits no rule -- the
    spec cannot have built a value to reduce anyway. An [id] outside this table
    (numeric/naming builtins, still unsupported) emits no rule. *)
-let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
-  let sym = T.func_sym id in
-  let helper suffix = sym ^ "_" ^ suffix in
+let rules_of_builtin ~scalars ~eq ~mem ~suffix (orig : spec) (id : id) :
+    R.rule list =
+  let sym = T.func_sym id ^ suffix in
+  let helper name = sym ^ "_" ^ name in
+  let list_diff_sym = list_diff_sym suffix
+  and list_inter_sym = list_inter_sym suffix
+  and list_submem_sym = list_submem_sym suffix in
   (* the symbol of a sibling builtin this one delegates to (e.g. [adds_map] folds
-     through [add_map]); built with the same [func_sym] so the names agree. *)
-  let builtin name = T.func_sym { id with it = name } in
+     through [add_map]); built with the same [func_sym] AND the same suffix, so
+     a specialized copy reaches its sibling's matching copy. *)
+  let builtin name = T.func_sym { id with it = name } ^ suffix in
   let set_ctor = To_ctrs.single_case_ctor orig "set" in
   let pair_ctor = To_ctrs.single_case_ctor orig "pair" in
   let k = T.var_t "k" and v = T.var_t "v" in
@@ -73,11 +83,11 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t walk [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.some_t v2)
-          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
+          [ (eq k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t walk [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.app_t walk [ k; rest ])
-          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
+          [ (eq k k2, T.bool_t ~scalars false) ];
       ]
   | "find_maps", Some _, _ ->
       (* the first map (in list order) that has the key *)
@@ -102,11 +112,11 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t drop [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.app_t drop [ k; rest ])
-          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
+          [ (eq k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t drop [ k; T.cons_t (pair [ k2; v2 ]) rest ])
           (T.cons_t (pair [ k2; v2 ]) (T.app_t drop [ k; rest ]))
-          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
+          [ (eq k k2, T.bool_t ~scalars false) ];
       ]
   | "update_map", Some _, _ ->
       (* [update_map] is [add_map] (interp's [let update_map = add_map]). *)
@@ -186,7 +196,7 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule (T.app_t sym [ T.nil_t ]) (T.bool_t ~scalars true);
         T.rule
           (T.app_t sym [ T.cons_t x xs ])
-          (T.and_t (T.not_t (T.mem_t x xs)) (T.app_t sym [ xs ]));
+          (T.and_t (T.not_t (mem x xs)) (T.app_t sym [ xs ]));
       ]
   | "partition_", _, _ ->
       (* split at index [n]: the prelude's [take]/[drop] do the cut. *)
@@ -202,11 +212,11 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t sym [ k; T.cons_t (T.tuple_t [ k2; v2 ]) rest ])
           (T.some_t v2)
-          [ (T.eq_t k k2, T.bool_t ~scalars true) ];
+          [ (eq k k2, T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t sym [ k; T.cons_t (T.tuple_t [ k2; v2 ]) rest ])
           (T.app_t sym [ k; rest ])
-          [ (T.eq_t k k2, T.bool_t ~scalars false) ];
+          [ (eq k k2, T.bool_t ~scalars false) ];
       ]
   (* ----- text (a byte [cons]/[nil] list) ----- *)
   | "int_to_text", _, _ ->
@@ -224,15 +234,17 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
       let ten = T.bnat_lit ~scalars 10 in
       let digit_rules =
         List.init 10 (fun d ->
-            T.rule (T.app_t digit [ T.bnat_lit ~scalars d ]) (T.chr_t (48 + d)))
+            T.rule
+              (T.app_t digit [ T.bnat_lit ~scalars d ])
+              (T.chr_t ~scalars (48 + d)))
       in
       [
         T.rule
           (T.app_t sym [ T.int_pos_t n ])
-          (T.cons_t (T.chr_t 43) (T.app_t to_nat [ n ]));
+          (T.cons_t (T.chr_t ~scalars 43) (T.app_t to_nat [ n ]));
         T.rule
           (T.app_t sym [ T.int_neg_t x ])
-          (T.cons_t (T.chr_t 45) (T.app_t to_nat [ T.bsucc_t x ]));
+          (T.cons_t (T.chr_t ~scalars 45) (T.app_t to_nat [ T.bsucc_t x ]));
         T.rule_cond (T.app_t to_nat [ n ])
           (T.cons_t (T.app_t digit [ n ]) T.nil_t)
           [ (T.blt_t n ten, T.bool_t ~scalars true) ];
@@ -264,11 +276,11 @@ let rules_of_builtin ~scalars (orig : spec) (id : id) : R.rule list =
         T.rule_cond
           (T.app_t sym [ T.cons_t x xs ])
           (T.app_t sym [ xs ])
-          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars true) ];
+          [ (T.eq_t x (T.chr_t ~scalars 32), T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t sym [ T.cons_t x xs ])
           (T.cons_t x (T.app_t sym [ xs ]))
-          [ (T.eq_t x (T.chr_t 32), T.bool_t ~scalars false) ];
+          [ (T.eq_t x (T.chr_t ~scalars 32), T.bool_t ~scalars false) ];
       ]
   (* ----- saturating fixed-width arithmetic ----- *)
   | ("bin_satplus" | "bin_satminus"), _, _ -> (
@@ -754,16 +766,53 @@ let delegated_in_native =
 (* Every collection-builtin rule the spec's [BuiltinDecD]s call for, plus the
    shared list helpers, as definition rules for {!To_ctrs.of_spec}'s prunable
    pool. [] when the spec declares no collection builtin, so a spec without them
-   (e.g. impty) is untouched. *)
+   (e.g. impty) is untouched.
+
+   A builtin that compares ({!To_ctrs.builtin_compares}) gets one copy per
+   compared type the spec instantiates it at, so its equality is that type's own
+   ({!To_ctrs.eq_pred}) instead of the polymorphic one. Every comparing builtin
+   is copied at every such type rather than only where a call site names it:
+   a copy's delegation carries its own suffix ([$unions_set<K>] folds through
+   [$union_set<K>]), so the sibling has to exist at that type whether or not the
+   spec calls the sibling there. The unreached copies are pruned. *)
 let rules_of_builtins ~scalars (orig : spec) : R.rule list =
   let omitted id = scalars = T.Native && List.mem id delegated_in_native in
-  let per_builtin =
-    List.concat_map
+  let declared =
+    List.filter_map
       (fun (def : def) ->
         match def.it with
-        | BuiltinDecD { defid; _ } when not (omitted defid.it) ->
-            rules_of_builtin ~scalars orig defid
-        | _ -> [])
+        | BuiltinDecD { defid; _ } when not (omitted defid.it) -> Some defid
+        | _ -> None)
       orig
   in
-  if per_builtin = [] then [] else shared_list_defs ~scalars @ per_builtin
+  let plain =
+    List.concat_map
+      (fun (defid : id) ->
+        if To_ctrs.builtin_compares defid.it then []
+        else
+          rules_of_builtin ~scalars ~eq:T.eq_t ~mem:T.mem_t ~suffix:"" orig
+            defid)
+      declared
+  in
+  let compared_typs =
+    List.fold_left
+      (fun acc (_, t) ->
+        let suffix = To_ctrs.builtin_spec_suffix t in
+        if List.mem_assoc suffix acc then acc else acc @ [ (suffix, t) ])
+      []
+      (To_ctrs.builtin_specializations orig)
+  in
+  let specialized =
+    List.concat_map
+      (fun (suffix, t) ->
+        let eq = To_ctrs.eq_pred t and mem = To_ctrs.mem_pred t in
+        shared_list_defs ~scalars ~mem suffix
+        @ List.concat_map
+            (fun (defid : id) ->
+              if To_ctrs.builtin_compares defid.it then
+                rules_of_builtin ~scalars ~eq ~mem ~suffix orig defid
+              else [])
+            declared)
+      compared_typs
+  in
+  if declared = [] then [] else plain @ specialized

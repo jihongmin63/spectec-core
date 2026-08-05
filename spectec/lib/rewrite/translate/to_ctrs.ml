@@ -332,6 +332,75 @@ let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
   | IterT { typ = elem; iter = Opt } -> app_t (subty_opt_sym elem.it) [ x ]
 
 (* -------------------------------------------------------------------------- *)
+(* Equality at a type. Same shape as the subtype predicate above: a named type
+   defers to its [eq_<T>] ([defs_of_typ]), tuples and iterations to structural
+   [eq_tup]/[eq_list]/[eq_opt] helpers ([eq_helper_defs]), and each of those
+   recurses through this dispatch on its component types -- so [eq_<T>] only
+   ever reaches the types [T] can actually contain.
+
+   Scalars (and text, a byte list) keep the generic [eq]: their constructor set
+   is fixed and small, and splitting them per type would only rename rules the
+   {!Prelude} already states once. *)
+let eq_helper_sym (shape : string) (t : typ') : string =
+  Printf.sprintf "%s%s_%s" eq_prefix shape
+    (abbrev (R.sanitize (Print.string_of_typ (t $ no_region))))
+
+let eq_tup_sym (ts : typ list) : string = eq_helper_sym "tup" (TupleT ts)
+let eq_list_sym (elem : typ') : string = eq_helper_sym "list" elem
+let eq_opt_sym (elem : typ') : string = eq_helper_sym "opt" elem
+
+let eq_pred (t : typ') (a : R.term) (b : R.term) : R.term =
+  match t with
+  | NumT _ | BoolT | TextT | FuncT -> eq_t a b
+  | VarT { synid; _ } -> app_t (eq_sym synid.it) [ a; b ]
+  | TupleT ts -> app_t (eq_tup_sym ts) [ a; b ]
+  | IterT { typ = elem; iter = List } -> app_t (eq_list_sym elem.it) [ a; b ]
+  | IterT { typ = elem; iter = Opt } -> app_t (eq_opt_sym elem.it) [ a; b ]
+
+(* Membership at an element type, so a [<-] test reaches its element's own
+   equality instead of the polymorphic one ({!mem_helper_defs} defines it). *)
+let mem_sym (elem : typ') : string =
+  Printf.sprintf "mem_%s"
+    (abbrev (R.sanitize (Print.string_of_typ (elem $ no_region))))
+
+let mem_pred (elem : typ') (a : R.term) (b : R.term) : R.term =
+  app_t (mem_sym elem) [ a; b ]
+
+(* -------------------------------------------------------------------------- *)
+(* Collection-builtin specialization. A builtin like [$find_map] compares its
+   keys, but its key type is a PARAMETER of the declaration, so its rules
+   ({!Builtin}) cannot name a per-type equality -- one shared copy would have to
+   fall back on the polymorphic [eq], dragging every constructor in the spec
+   into any slice that looks something up. Each call site instead reaches its
+   OWN copy, specialized at the type it is used with.
+
+   The specialization is keyed on the call site's FIRST TYPE ARGUMENT, which is
+   the compared type for every one of these ([$find_map<K, V>],
+   [$assoc_<X, Y>], [$distinct_<K>], [$union_set<K>], ...). That keeps the
+   suffix computable without the spec (no alias chain to walk) and, because a
+   builtin that delegates to a sibling passes its own type arguments along
+   ([$unions_set<K>] folds through [$union_set<K>]), makes the delegation reach
+   the sibling's matching copy by construction. *)
+let builtin_compares (id : string) : bool =
+  match id with
+  | "find_map" | "find_maps" | "add_map" | "update_map" | "adds_map" | "assoc_"
+  | "distinct_" | "union_set" | "diff_set" | "intersect_set" | "unions_set"
+  | "sub_set" | "eq_set" ->
+      true
+  | _ -> false
+
+let builtin_spec_suffix (t : typ') : string =
+  "_" ^ abbrev (R.sanitize (Print.string_of_typ (t $ no_region)))
+
+(* The symbol a call to [id] reaches: the copy specialized at its compared type
+   when [id] is a comparing collection builtin, its plain symbol otherwise. *)
+let builtin_call_sym (id : id) (targs : targ list) : string =
+  let plain = func_sym id in
+  match (builtin_compares id.it, targs) with
+  | true, k :: _ -> plain ^ builtin_spec_suffix k.it
+  | _ -> plain
+
+(* -------------------------------------------------------------------------- *)
 (* Expressions -> terms. Placed ahead of the type pass, which reuses it; it has
    no dependency on the type pass itself. *)
 
@@ -345,6 +414,10 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | UnE (op, ty, e1) ->
       term_of_unop op ty ~operand_is_int:(yields_int e1) (recur e1)
   | BinE (op, ty, e1, e2) -> term_of_binop op ty (recur e1) (recur e2)
+  (* Equality is dispatched on the OPERAND's type ([eq_pred]), not on [CmpE]'s
+     [optyp] -- that tag only distinguishes nat from int for the orderings. *)
+  | CmpE (`EqOp, _, e1, e2) -> eq_pred e1.note (recur e1) (recur e2)
+  | CmpE (`NeOp, _, e1, e2) -> not_t (eq_pred e1.note (recur e1) (recur e2))
   | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
@@ -394,12 +467,14 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | DotE (e1, a) ->
       let typ_name = Option.value (typ_name_of e1.note) ~default:"anon" in
       app_t (field_sym typ_name a) [ recur e1 ]
-  | CallE (id, _, args) ->
-      app_t (func_sym id) (List.filter_map (term_of_arg ~scalars ?ctx) args)
+  | CallE (id, targs, args) ->
+      app_t
+        (builtin_call_sym id targs)
+        (List.filter_map (term_of_arg ~scalars ?ctx) args)
   (* List/text operations over the [cons]/[nil] encoding, backed by the prelude
      rules and, for [Upd], the statically compiled path ([upd_of_path]).
      Out-of-bounds access is left irreducible. *)
-  | MemE (a, b) -> mem_t (recur a) (recur b)
+  | MemE (a, b) -> mem_pred a.note (recur a) (recur b)
   | IdxE (a, b) -> idx_t (recur a) (recur b)
   | SliceE (a, b, c) -> slice_t (recur a) (recur b) (recur c)
   | UpdE (a, path, b) -> upd_of_path ~scalars (recur a) path (recur b)
@@ -692,18 +767,29 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
                     field_typs xs)))
           typcases
       in
+      (* equality AT [t]: same case recurses into the case's DECLARED field
+         types (so a field's own [eq_<field type>] takes over), different cases
+         are unequal. *)
+      let case_field_typs =
+        Array.of_list
+          (List.map (fun (tc : typcase) -> Mixfix.args tc.notation.it) typcases)
+      in
       let eq_rules =
         per_pair (fun i ci j cj ->
+            let eq_at a b = app_t (eq_sym t) [ a; b ] in
             if i = j then
               let xs = fresh_vars ~prefix:"x" ci.arity in
               let ys = fresh_vars ~prefix:"y" ci.arity in
               rule
-                (eq_t
+                (eq_at
                    (variant_t ci.origin ci.mixop xs)
                    (variant_t ci.origin ci.mixop ys))
-                (conj_t ~scalars (List.map2 eq_t xs ys))
+                (conj_t ~scalars
+                   (List.map2
+                      (fun ft (x, y) -> eq_pred ft.it x y)
+                      case_field_typs.(i) (List.combine xs ys)))
             else
-              rule (eq_t (con ci) (con ~prefix:"y" cj)) (bool_t ~scalars false))
+              rule (eq_at (con ci) (con ~prefix:"y" cj)) (bool_t ~scalars false))
       in
       matcher_rules @ subty_rules @ eq_rules
   | TypD { synid = tid; deftyp = { it = StructT fields; _ }; _ } ->
@@ -735,8 +821,12 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
       let xs = fresh_vars ~prefix:"x" n and ys = fresh_vars ~prefix:"y" n in
       let eq_rule =
         rule
-          (eq_t (app_t (struct_sym t) xs) (app_t (struct_sym t) ys))
-          (conj_t ~scalars (List.map2 eq_t xs ys))
+          (app_t (eq_sym t)
+             [ app_t (struct_sym t) xs; app_t (struct_sym t) ys ])
+          (conj_t ~scalars
+             (List.map2
+                (fun (_, ft) (x, y) -> eq_pred ft.it x y)
+                fields (List.combine xs ys)))
       in
       (* Structs are invariant in SpecTec, so the membership check is trivially
          true -- the interpreter's [subtyp] has no struct case at all (its
@@ -759,6 +849,9 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
         rule
           (app_t (subty_sym tid.it) [ var_t "x" ])
           (sub_pred ~scalars u.it (var_t "x"));
+        rule
+          (app_t (eq_sym tid.it) [ var_t "x"; var_t "y" ])
+          (eq_pred u.it (var_t "x") (var_t "y"));
       ]
   | _ -> []
 
@@ -1006,7 +1099,7 @@ let rec conds_of_prem ~scalars (orig : spec) ?ctx (fresh : unit -> string)
       (term rhs, pat) :: conds
   | IfPr { cond = { it = CmpE (`EqOp, _, a, b); _ }; _ } -> [ (term a, term b) ]
   | IfPr { cond = { it = CmpE (`NeOp, _, a, b); _ }; _ } ->
-      [ (eq_t (term a) (term b), bool_t ~scalars false) ]
+      [ (eq_pred a.note (term a) (term b), bool_t ~scalars false) ]
   | IfPr { cond = { it = MatchE (e, pattern); _ }; _ } ->
       [ cond_of_match ~scalars e pattern ]
   | IfPr { cond = { it = SubE (e, t); _ }; _ } ->
@@ -1385,6 +1478,165 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
     (List.concat_map blocks_of_def simplified);
   Helper_defs.rules defs
 
+(* Every (comparing collection builtin, compared type) the spec calls for, one
+   entry per distinct specialization -- deduplicated on the SUFFIX, since two
+   syntactically different [typ'] values that spell the same descriptor are the
+   same copy and emitting both would define the symbol twice. *)
+let builtin_specializations (simplified : spec) : (string * typ') list =
+  let rec of_exp (e : exp) =
+    (match e.it with
+    | CallE (id, k :: _, _) when builtin_compares id.it -> [ (id.it, k.it) ]
+    | _ -> [])
+    @ List.concat_map of_exp (Exp_map.subexps e.it)
+  in
+  let all =
+    List.concat_map
+      (fun (heads, results, prems) ->
+        List.concat_map of_exp (heads @ results)
+        @ List.concat_map
+            (fun p -> List.concat_map of_exp (Exp_map.exps_of_prem p))
+            prems)
+      (List.concat_map blocks_of_def simplified)
+  in
+  List.fold_left
+    (fun acc (id, t) ->
+      let key (i, u) = (i, builtin_spec_suffix u) in
+      if List.exists (fun e -> key e = key (id, t)) acc then acc
+      else acc @ [ (id, t) ])
+    [] all
+
+(* The structural [eq_tup]/[eq_list]/[eq_opt] helpers [eq_pred] defers to, one
+   per component type, plus the fallback for a [VarT] naming a type PARAMETER
+   (no [TypD], so [defs_of_typ] gives it no [eq_<T>]): those defer to the
+   generic [eq], which still carries the built-in sorts.
+
+   Same traversal as [sub_helper_defs]: every type a definition's equality
+   recurses into, plus every operand type an `=`/`=/=` site compares. *)
+let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
+  let defs = Helper_defs.create 64 in
+  let has_typdef name =
+    List.exists
+      (fun (d : def) ->
+        match d.it with TypD { synid = tid; _ } -> tid.it = name | _ -> false)
+      orig
+  in
+  let x = var_t "x" and y = var_t "y" in
+  let rec require (t : typ') =
+    match t with
+    | VarT { synid = tid; _ } ->
+        let sym = eq_sym tid.it in
+        if (not (Helper_defs.mem defs sym)) && not (has_typdef tid.it) then
+          Helper_defs.add defs sym [ rule (app_t sym [ x; y ]) (eq_t x y) ]
+    | TupleT ts ->
+        let sym = eq_tup_sym ts in
+        if not (Helper_defs.mem defs sym) then (
+          let n = List.length ts in
+          let xs = fresh_vars ~prefix:"x" n and ys = fresh_vars ~prefix:"y" n in
+          Helper_defs.add defs sym
+            [
+              rule
+                (app_t sym [ tuple_t xs; tuple_t ys ])
+                (conj_t ~scalars
+                   (List.map2
+                      (fun ft (a, b) -> eq_pred ft.it a b)
+                      ts (List.combine xs ys)));
+            ];
+          List.iter (fun (ft : typ) -> require ft.it) ts)
+    | IterT { typ = elem; iter = List } ->
+        let sym = eq_list_sym elem.it in
+        if not (Helper_defs.mem defs sym) then (
+          let xh = var_t "xh" and xt = var_t "xt" in
+          let yh = var_t "yh" and yt = var_t "yt" in
+          Helper_defs.add defs sym
+            [
+              rule (app_t sym [ nil_t; nil_t ]) (bool_t ~scalars true);
+              rule (app_t sym [ nil_t; cons_t yh yt ]) (bool_t ~scalars false);
+              rule (app_t sym [ cons_t xh xt; nil_t ]) (bool_t ~scalars false);
+              rule
+                (app_t sym [ cons_t xh xt; cons_t yh yt ])
+                (and_t (eq_pred elem.it xh yh) (app_t sym [ xt; yt ]));
+            ];
+          require elem.it)
+    | IterT { typ = elem; iter = Opt } ->
+        let sym = eq_opt_sym elem.it in
+        if not (Helper_defs.mem defs sym) then (
+          let xv = var_t "xv" and yv = var_t "yv" in
+          Helper_defs.add defs sym
+            [
+              rule (app_t sym [ none_t; none_t ]) (bool_t ~scalars true);
+              rule (app_t sym [ none_t; some_t yv ]) (bool_t ~scalars false);
+              rule (app_t sym [ some_t xv; none_t ]) (bool_t ~scalars false);
+              rule (app_t sym [ some_t xv; some_t yv ]) (eq_pred elem.it xv yv);
+            ];
+          require elem.it)
+    | _ -> ()
+  in
+  (* every type an [eq_<T>] definition recurses into (from [orig]'s types) *)
+  List.iter
+    (fun (def : def) ->
+      match def.it with
+      | TypD { deftyp = { it = VariantT typcases; _ }; _ } ->
+          List.iter
+            (fun (tc : typcase) ->
+              List.iter
+                (fun (ft : typ) -> require ft.it)
+                (Mixfix.args tc.notation.it))
+            typcases
+      | TypD { deftyp = { it = StructT fields; _ }; _ } ->
+          List.iter (fun (_, (ft : typ)) -> require ft.it) fields
+      | TypD { deftyp = { it = PlainT u; _ }; _ } -> require u.it
+      | _ -> ())
+    orig;
+  (* the compared type of every collection-builtin specialization *)
+  List.iter (fun (_, t) -> require t) (builtin_specializations simplified);
+  (* every comparison site's operand type, and every membership site's element
+     type (its [mem_<T>] recurses through this same dispatch) *)
+  let rec operands_of_exp (e : exp) =
+    (match e.it with
+    | CmpE ((`EqOp | `NeOp), _, e1, _) -> require e1.note
+    | MemE (a, _) -> require a.note
+    | _ -> ());
+    List.iter operands_of_exp (Exp_map.subexps e.it)
+  in
+  List.iter
+    (fun (heads, results, prems) ->
+      List.iter operands_of_exp (heads @ results);
+      List.iter
+        (fun p -> List.iter operands_of_exp (Exp_map.exps_of_prem p))
+        prems)
+    (List.concat_map blocks_of_def simplified);
+  Helper_defs.rules defs
+
+(* The [mem_<T>] helpers, one per element type a [<-] test ranges over. Same
+   fold over the [cons]/[nil] spine the prelude's polymorphic [mem] does, but
+   deciding each element with the element type's own equality. *)
+let mem_helper_defs ~scalars (simplified : spec) : R.rule list =
+  let defs = Helper_defs.create 16 in
+  let require (elem : typ') =
+    let sym = mem_sym elem in
+    if not (Helper_defs.mem defs sym) then
+      let x = var_t "x" and y = var_t "y" and ys = var_t "ys" in
+      Helper_defs.add defs sym
+        [
+          rule (app_t sym [ x; nil_t ]) (bool_t ~scalars false);
+          rule
+            (app_t sym [ x; cons_t y ys ])
+            (or_t (eq_pred elem x y) (app_t sym [ x; ys ]));
+        ]
+  in
+  let rec elems_of_exp (e : exp) =
+    (match e.it with MemE (a, _) -> require a.note | _ -> ());
+    List.iter elems_of_exp (Exp_map.subexps e.it)
+  in
+  List.iter
+    (fun (heads, results, prems) ->
+      List.iter elems_of_exp (heads @ results);
+      List.iter (fun p -> List.iter elems_of_exp (Exp_map.exps_of_prem p)) prems)
+    (List.concat_map blocks_of_def simplified);
+  (* the set builtins decide membership at their compared type too *)
+  List.iter (fun (_, t) -> require t) (builtin_specializations simplified);
+  Helper_defs.rules defs
+
 (* The usage-based false-completion that makes [subty_<T>] total. At every
    [SubE (e, T)] site the subject's static type [S = e.note] bounds the
    constructors that can reach [subty_<T>], so a [-> false] rule per case of
@@ -1553,16 +1805,6 @@ let prune_unused (defs : R.rule list) (body : R.rule list) : R.rule list =
       | None -> false)
     defs
 
-(* Structural equality over text bytes: [eq] decides every pair drawn from the
-   spec's alphabet (true on the diagonal, false off it). *)
-let char_eq_rules ~scalars (codes : int list) : R.rule list =
-  List.concat_map
-    (fun c ->
-      List.map
-        (fun d -> rule (eq_t (chr_t c) (chr_t d)) (bool_t ~scalars (c = d)))
-        codes)
-    codes
-
 let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
     (simplified : spec) : R.t =
   let type_rules =
@@ -1574,25 +1816,13 @@ let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
     sub_helper_defs ~scalars orig simplified
     @ sub_complement_defs ~scalars orig simplified
   in
-  (* Printable ASCII (union'd with the static scan, for anything outside that
-     range) rather than just the codes the spec's own rule text happens to
-     mention: text data lives in ENCODED START TERMS built at run time from
-     whatever identifiers/string literals the target program actually
-     contains, which this pass cannot see yet -- a byte that never appeared
-     literally in the spec's own text (an ordinary generic type parameter
-     like P4's [T], for instance) previously had its [chr] declared
-     ({!To_mfe}'s matching declaration loop already covers the full 0-255
-     byte range) but not its [eq], silently stranding every relation that
-     needed to prove two such bytes equal. *)
-  let char_rules =
-    let printable_ascii = List.init 95 (fun i -> i + 32) in
-    let scanned = char_codes_of_rules (type_rules @ body_rules @ extra_defs) in
-    let codes = List.sort_uniq compare (printable_ascii @ scanned) in
-    char_eq_rules ~scalars codes
+  let eq_rules =
+    eq_helper_defs ~scalars orig simplified
+    @ mem_helper_defs ~scalars simplified
   in
   let type_rules =
     prune_unused
-      (type_rules @ char_rules @ iter_rules @ sub_rules @ extra_defs)
+      (type_rules @ iter_rules @ sub_rules @ eq_rules @ extra_defs)
       body_rules
   in
   R.of_rules (type_rules @ body_rules)

@@ -389,21 +389,6 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   if not full_maude then
     buf_line b
       ("  op " ^ MI.id Maude_run.batch_sep ^ " : -> " ^ MS.val_sort ^ " .");
-  (* Execution mode only: EVERY byte value's [chr_<code>] constructor (the
-     structural char-list text encoding, {!Ctrs_term.chars_t}), not just the
-     ones [used] happens to catch (a rule pattern rarely mentions a literal
-     character -- text data lives in ENCODED START TERMS, built at run time
-     from whatever identifiers/string literals the target program actually
-     contains, which this module-text pass cannot see yet: it runs once,
-     before any program is parsed). Harmless when unused (a plain declared
-     constant like any other constructor). *)
-  (if not full_maude then
-     let already = List.map fst op_sigs in
-     for code = 0 to 255 do
-       let sym = T.chr_sym code in
-       if not (List.mem sym already) then
-         buf_line b ("  op " ^ MI.id sym ^ " : -> " ^ MS.val_sort ^ " [ctor] .")
-     done);
   buf_line b "";
   let emit (r, vs) =
     let line =

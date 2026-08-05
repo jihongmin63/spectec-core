@@ -145,28 +145,6 @@ let thread_rule (eff : SS.t) (r : R.rule) : R.rule =
       if rule_mentions eff r then fail "a rule of a pure symbol";
       r
 
-let prime_code = Char.code '\''
-
-(* The issuing rule introduces the prime byte; close the structural char
-   equality over it (the analysis pipeline decides text equality bytewise, and
-   {!To_ctrs.of_spec} only closed [eq] over the spec's own alphabet). On the
-   [Native] path texts are [txt(..)]-wrapped Strings compared by the built-in
-   [eq], so the per-byte [chr] equality never applies -- emit nothing. *)
-let prime_eq_rules ~scalars (codes : int list) : R.rule list =
-  match scalars with
-  | T.Native -> []
-  | T.Structural ->
-      if List.mem prime_code codes then []
-      else
-        T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t prime_code)) T.true_t
-        :: List.concat_map
-             (fun c ->
-               [
-                 T.rule (T.eq_t (T.chr_t prime_code) (T.chr_t c)) T.false_t;
-                 T.rule (T.eq_t (T.chr_t c) (T.chr_t prime_code)) T.false_t;
-               ])
-             codes
-
 let thread ~scalars (sys : R.t) : R.t =
   let used_roots =
     List.filter
@@ -179,6 +157,5 @@ let thread ~scalars (sys : R.t) : R.t =
     let rules =
       List.map (thread_rule eff) sys.R.rules
       @ List.map (issue_rule ~scalars) used_roots
-      @ prime_eq_rules ~scalars (T.char_codes_of_rules sys.R.rules)
     in
     R.of_rules rules

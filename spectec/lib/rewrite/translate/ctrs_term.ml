@@ -68,11 +68,12 @@ let variant_sym (origin : string) (mixop : mixop) : string =
 (* The predicate symbol spellings, owned here (the symbol-naming module) so the
    sort recovery that must recognize a predicate ({!Maude_sorts.is_predicate})
    reads them from the one place that produces them, rather than re-guessing the
-   prefixes as string literals. [match_]/[subty_]/[holds_] are prefixes; [eqg] is
-   the whole generic-equality symbol ({!Reflect.eqg_t}). *)
+   prefixes as string literals. [match_]/[subty_]/[holds_]/[eq_] are prefixes;
+   [eqg] is the whole generic-equality symbol ({!Reflect.eqg_t}). *)
 let match_prefix = "match_"
 let subty_prefix = "subty_"
 let holds_prefix = "holds_"
+let eq_prefix = "eq_"
 let eqg_sym = "eqg"
 
 let match_sym (typ_name : string) (mixop : mixop) : string =
@@ -89,6 +90,13 @@ let upd_field_sym (typ_name : string) (a : Mixfix.atom) : string =
   "upd_field_" ^ R.sanitize typ_name ^ "_" ^ sanitize_atom a
 
 let subty_sym (typ_name : string) : string = subty_prefix ^ R.sanitize typ_name
+
+(* Equality AT a named type. Every type gets its own equality symbol so a slice
+   drags in the cases of the types it actually compares, not the cross-product
+   over every constructor in the spec (the generic [eq] below stays for the
+   sites whose operand type is not statically known -- the collection builtins'
+   map keys). *)
+let eq_sym (typ_name : string) : string = eq_prefix ^ R.sanitize typ_name
 let func_sym (id : id) : string = "$" ^ R.sanitize id.it
 let rel_sym (id : id) : string = R.sanitize id.it
 
@@ -335,22 +343,23 @@ let drop_t a b = app_t "drop" [ a; b ]
 let upd_idx_t a i v = app_t "upd_idx" [ a; i; v ]
 let upd_slice_t a i n v = app_t "upd_slice" [ a; i; n; v ]
 
-(* A single character of a text literal, as a nullary constructor keyed by its
-   Unicode codepoint. *)
-let chr_sym (code : int) : string = Printf.sprintf "chr_%d" code
-let chr_t (code : int) : R.term = app_t (chr_sym code) []
-
-let chr_code_of_sym (sym : string) : int option =
-  if String.starts_with ~prefix:"chr_" sym then
-    int_of_string_opt (String.sub sym 4 (String.length sym - 4))
-  else None
+(* A single character of a text literal: one constructor CARRYING its Unicode
+   codepoint as a nat, rather than a nullary constructor per codepoint. The
+   difference is the alphabet's equality -- per-codepoint constructors have to
+   be told apart by a rule per PAIR (95 printable bytes alone are 9,025
+   equations, which every slice comparing any text drags in), where one
+   nat-carrying constructor defers to the binary-nat equality the arithmetic
+   prelude already states. *)
+let chr_ctor = "chr"
+let chr_of_t (n : R.term) : R.term = app_t chr_ctor [ n ]
+let chr_t ~scalars (code : int) : R.term = chr_of_t (bnat_lit ~scalars code)
 
 (* The structural char-list encoding of a text: a [cons]/[nil] list of its
    bytes, so the list rules ([len], [cat], [idx], [slice], [mem], [upd]) apply to
    strings unchanged and byte indexing matches the evaluator's [String.get]. *)
-let chars_t (s : string) : R.term =
+let chars_t ~scalars (s : string) : R.term =
   List.fold_right
-    (fun c acc -> cons_t (chr_t (Char.code c)) acc)
+    (fun c acc -> cons_t (chr_t ~scalars (Char.code c)) acc)
     (List.init (String.length s) (String.get s))
     nil_t
 
@@ -360,7 +369,7 @@ let chars_t (s : string) : R.term =
    nil-bridges depend on -- both modes agree the empty text is [nil]). *)
 let text_t ~scalars (s : string) : R.term =
   match scalars with
-  | Structural -> chars_t s
+  | Structural -> chars_t ~scalars s
   | Native -> if s = "" then nil_t else Maude_theory.text_t s
 
 let none_t = app_t "none" []
@@ -479,14 +488,6 @@ let yields_int (e : exp) : bool =
    definition-rule LHSs. [eq] rules need two disjoint sets, hence the prefix. *)
 let fresh_vars ?(prefix = "x") (n : int) : R.term list =
   List.init n (fun i -> var_t (Printf.sprintf "%s%d" prefix i))
-
-(* The byte alphabet of a rule set's text literals, read back from the
-   [chr_<n>] constants the rules contain (texts translate to char lists, so
-   every byte in play appears as such a constant). *)
-let char_codes_of_rules (rules : R.rule list) : int list =
-  List.concat_map R.refs_of_rule rules
-  |> List.filter_map chr_code_of_sym
-  |> List.sort_uniq compare
 
 (* -------------------------------------------------------------------------- *)
 (* Rule builders. *)

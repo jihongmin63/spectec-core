@@ -746,6 +746,23 @@ let scalar_eq_eqs () : string list =
     deleg_line "eq" [ "nil"; txtp "S:String" ] (boolp "S:String == \"\"");
   ]
 
+(* The generic [eq]'s off-diagonal, for execution only. {!Prelude} gives the
+   symbol its reflexive equation and the built-in-sort rules; the constructor
+   pairs are no longer enumerated (each type decides its own equality through
+   [eq_<T>]), so a genuinely distinct pair reaching the polymorphic [eq] -- a
+   collection builtin's map key -- would sit stuck forever with nothing to
+   match. [owise] keeps this strictly a fallback, so the reflexive equation
+   still wins whenever the two sides really are equal. Analysis mode must NOT
+   have it: the CRC ignores [owise] when building critical pairs, so it would
+   read as a genuine overlap with the reflexive equation at [x = x] and raise a
+   spurious [true = false] pair -- the same reasoning {!To_mfe} spells out for
+   [eqg]. *)
+let generic_eq_fallback () : string list =
+  [
+    "  eq eq(x:" ^ val_sort ^ ", y:" ^ val_sort ^ ") = " ^ boolp "false"
+    ^ " [owise] .";
+  ]
+
 (* [cat] over texts (its List rules are structural and kept); the [nil] line
    bridges the empty text again. *)
 let text_cat_eqs () : string list =
@@ -913,7 +930,9 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
       | Some (_, _, lines) -> List.iter (buf_line b) lines
       | None -> ())
     (List.sort compare delegated);
-  if has_op "eq" then List.iter (buf_line b) (scalar_eq_eqs ());
+  if has_op "eq" then (
+    List.iter (buf_line b) (scalar_eq_eqs ());
+    List.iter (buf_line b) (generic_eq_fallback ()));
   if has_op "cat" then List.iter (buf_line b) (text_cat_eqs ());
   (* Negated judgments: an [IfNotHoldPr] premise compiles to a condition
      [R(args) == false], but a judgment's positive clauses only ever produce
