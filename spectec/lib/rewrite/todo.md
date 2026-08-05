@@ -75,6 +75,75 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-05 — 【research note】 규칙 수 실측: 분석면 26,228 / 실행면 25,174, 그리고 "도달 불가 13,253"의 정체는 `Reflect`의 respell
+
+> 도구(maude/MFE/AProVE) 없이 **번역만으로** 재는 값이라 이 트리(`38ad855d`)에서
+> 그대로 측정된다. 위 항목의 "미측정 부채"와 달리 이 수치는 현재값이다.
+
+**총량.** 원래 spec(elaborated IL) = `def` clause 1,547 + relation `rule` 700 =
+**2,247**. 분석면(`rewrite --ctrs`) **26,228** eq(무조건 23,733 + `ceq` 2,495,
+op 3,249 / sort 462), 실행면(`rewrite`) **25,174** eq.
+
+분석면 26,228의 내역: `match_*` 12,373 / `subty_*` 7,310 / `$func` 3,094 /
+relation 994 / `eqcase_*`+`tag_*`+`eq_<T>`+`eqg` 1,893 / `proj_*`+`field_*` 207 /
+prelude 235 / `holds_*` 122. 사람이 쓴 규칙 자체는 clause 1,547 → `$func` 3,094
+(2.0배), rule 700 → relation 994(1.4배)로 **1.8배**밖에 안 늘고, 나머지 84%는
+`syntax` 선언 541개에서 전수 생성된 파생 술어다.
+
+**도달성 — 두 표면이 정반대다.**
+
+| | 분석면 | 실행면 |
+|---|---|---|
+| 총 eq | 26,228 | 25,174 |
+| `Program_ok`에서 도달 | 11,981 | **25,174 (100%)** |
+| `Program_inst`에서 도달 | 12,607 | 25,174 (100%) |
+| 두 루트 합집합 | 12,607 (`Program_ok` ⊆ `Program_inst`) | 25,174 |
+| `def_symbols` 650루트 전체 | 12,975 (49.5%) | — |
+| 도달 불가 | 13,253 | **0** |
+
+**실행면엔 죽은 규칙이 없다.** 분석면에서만 절반이 고아가 되는데, 원인은 스펙도
+번역도 아니라 `Reflect`다 — judgment reflection이 조건의 `R(…)`을 `holds_R(…)`로
+respell하고(`reflect.ml:1360`), `hoist_matchers`가 `match_K(v) = true`를
+destructure 패턴으로 respell한다. 규칙은 남고 **호출부만 다른 형태로 대체**되므로
+도달 폐포에서 떨어져 나간다. 같은 심볼의 정의/호출 수:
+
+| 심볼 | 분석면 | 실행면 |
+|---|---|---|
+| `match_annotationToken_lt_lt_0` | 91 / **0** | 91 / 2 |
+| `Type_alpha` | 50 / **0** | 27 / 22 |
+| `Cast_impl` | 2 / **0** | 3 / 26 |
+| `subty_stringLiteral` | 161 / 1 | 162 / 8 |
+
+**확인할 것.**
+
+- [ ] `confluence --all`이 도는 650루트가 분석면의 **49.5%**만 덮는다. 나머지
+      13,253은 respell로 고아가 된 `match_`/`subty_` 테이블이고, 루트 목록에
+      `subty_`는 0개·`match_`는 12개뿐이라 스윕 대상도 아니다. 실행에 쓰이는
+      판별 로직 자체는 destructure 형태로 검사를 받으므로 "빠졌다"기보다
+      **등가 형태로 검사된다**에 가깝지만, 커버리지 수치로 기록해 둔다. 고아
+      테이블은 상수 패턴 대 상수 패턴이라 자기들끼리 겹칠 여지도 없다 —
+      위험도 판단은 이 근거로 충분한지 재검토 필요.
+- [ ] `Type_alpha`는 루트 목록에 있고 슬라이스 2,572이므로 스윕에서 검사된다
+      (사각지대 아님). `Cast_impl`/`Cast_impl_neq` 계열도 같은지 확인.
+
+**교훈 — 부분 문자열 grep으로 호출 수를 세지 말 것.** `grep "Type-alpha("`가
+`holds-Type-alpha(`와 `ExternMethodType-alpha(`를 잡아 "호출 106회"라는 정반대
+결론을 냈다. 실제로는 0회다. 심볼 호출을 셀 땐 단어 경계
+(`(^|[^A-Za-z0-9'-])sym\(`)를 쓰고, 도달성은 텍스트가 아니라
+`Rewrite_system.slice`(`--symbol`/`--sizes`)와 대조해 검증할 것 —
+`Program_ok` 11,981 / `Program_inst` 12,607 / `$join_text` 13으로 교차 검증했다.
+
+**재현.**
+
+```bash
+SPEC=$(find spectec/specs/p4 -name '*.spectec' | sort | tr '\n' ' ')
+main.exe elab $SPEC | grep -cE '^\s*clause [0-9]+'   # 1547
+main.exe elab $SPEC | grep -cE '^\s*rule '           # 700
+main.exe rewrite --ctrs $SPEC | grep -cE '^\s*c?eq ' # 26228
+main.exe rewrite $SPEC        | grep -cE '^\s*c?eq ' # 25174
+main.exe rewrite --ctrs --list-symbols --sizes $SPEC # 650행, 최대 Program_inst 12607
+```
+
 ### 2026-08-05 — 다형성을 번역 전에 없앤다: `Monomorphize` + 인스턴스별 `eq_<T>` (`1585e814`·`ffadcbc7`·이번 커밋)
 
 > 타입별 `eq`(`5dd8f11d`)가 남긴 **분석면의 구멍**을 닫는 작업. 구멍의 정체는
