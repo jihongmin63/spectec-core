@@ -774,22 +774,59 @@ let defs_of_typ ~scalars (def : def) : R.rule list =
         Array.of_list
           (List.map (fun (tc : typcase) -> Mixfix.args tc.notation.it) typcases)
       in
+      (* The diagonal: two subjects of the SAME case agree iff their fields do.
+         Shared by both spellings below -- it is the half that carries real
+         work, so only the head it is stated under changes. *)
+      let same_case_rule lhs_of i (ci : case_info) =
+        let xs = fresh_vars ~prefix:"x" ci.arity in
+        let ys = fresh_vars ~prefix:"y" ci.arity in
+        rule
+          (lhs_of
+             (variant_t ci.origin ci.mixop xs)
+             (variant_t ci.origin ci.mixop ys))
+          (conj_t ~scalars
+             (List.map2
+                (fun ft (x, y) -> eq_pred ft.it x y)
+                case_field_typs.(i) (List.combine xs ys)))
+      in
+      (* Discriminate through a case INDEX rather than a rule per ordered case
+         pair: [2n+2] rules instead of [n^2], which is what takes [eq_] off the
+         top of the big slices (P4's [annotationToken] alone has 91 cases =
+         8,281 equations). Below the crossover ([2n+2 < n^2] from [n = 3] on)
+         the pair table is the smaller and simpler system, so small types keep
+         it. *)
       let eq_rules =
-        per_pair (fun i ci j cj ->
-            let eq_at a b = app_t (eq_sym t) [ a; b ] in
-            if i = j then
-              let xs = fresh_vars ~prefix:"x" ci.arity in
-              let ys = fresh_vars ~prefix:"y" ci.arity in
+        if List.length cases < 4 then
+          per_pair (fun i ci j cj ->
+              if i = j then
+                same_case_rule (fun a b -> app_t (eq_sym t) [ a; b ]) i ci
+              else
+                rule
+                  (app_t (eq_sym t) [ con ci; con ~prefix:"y" cj ])
+                  (bool_t ~scalars false))
+        else
+          let x = var_t "x" and y = var_t "y" in
+          List.mapi
+            (fun i ci ->
+              rule (app_t (tag_sym t) [ con ci ]) (nat_lit ~scalars i))
+            cases
+          @ [
               rule
-                (eq_at
-                   (variant_t ci.origin ci.mixop xs)
-                   (variant_t ci.origin ci.mixop ys))
-                (conj_t ~scalars
-                   (List.map2
-                      (fun ft (x, y) -> eq_pred ft.it x y)
-                      case_field_typs.(i) (List.combine xs ys)))
-            else
-              rule (eq_at (con ci) (con ~prefix:"y" cj)) (bool_t ~scalars false))
+                (app_t (eq_sym t) [ x; y ])
+                (app_t (eqcase_sym t)
+                   [
+                     eq_t (app_t (tag_sym t) [ x ]) (app_t (tag_sym t) [ y ]);
+                     x;
+                     y;
+                   ]);
+              rule
+                (app_t (eqcase_sym t) [ bool_t ~scalars false; x; y ])
+                (bool_t ~scalars false);
+            ]
+          @ List.mapi
+              (same_case_rule (fun a b ->
+                   app_t (eqcase_sym t) [ bool_t ~scalars true; a; b ]))
+              cases
       in
       matcher_rules @ subty_rules @ eq_rules
   | TypD { synid = tid; deftyp = { it = StructT fields; _ }; _ } ->

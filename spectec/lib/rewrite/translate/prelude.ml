@@ -593,17 +593,19 @@ let rules ~scalars : R.rule list =
          ({!To_maude.generic_eq_fallback}) -- exactly the treatment [eqg]
          already gets ({!To_mfe}). *)
       rule (eq_t x x) yes;
-      (* structural equality over the built-in sorts. Nats ([zero]/[succ]) and
-         integers ([int_pos]/[int_neg]) have disjoint constructors, so their rules
-         never overlap and a nat rule can never match an integer term. *)
-      rule (eq_t zero_t zero_t) yes;
-      rule (eq_t zero_t (succ_t y)) no;
-      rule (eq_t (succ_t x) zero_t) no;
-      rule (eq_t (succ_t x) (succ_t y)) (eq_t x y);
-      (* [BNatV] equality, needed now that [int_pos]/[int_neg] wrap a [BNatV]
-         magnitude (below) rather than the Peano family above -- structurally
-         recursive over [bd0]/[bd1] like the Peano case, all 16 shape pairs
-         disjoint. *)
+      (* Structural equality over the built-in sorts. [BNatV] equality is stated
+         over the four BINARY constructors and nothing else: [zero_t]/[succ_t]
+         are aliases onto [bzero]/[bsucc], and [bsucc] is a DEFINED symbol, so
+         the Peano-shaped clauses this table used to also carry
+         ([eq(succ(x), succ(y)) = eq(x, y)] and its two base cases) put a defined
+         symbol in an lhs and overlapped every binary clause it can unfold into
+         -- 8 critical pairs the CRC reports on any slice reaching generic [eq]
+         (measured on [$instantiable_package]). They were redundant as well as
+         harmful: [bsucc] is total on the four constructors, so a ground
+         successor term reaches one of them before the comparison, and
+         [eq(zero, zero)] was a duplicate of [eq(bzero, bzero)] outright. All 16
+         binary shape pairs are disjoint; [int_pos]/[int_neg] wrap a [BNatV]
+         magnitude and are disjoint from it in turn. *)
       rule (eq_t bzero_t bzero_t) yes;
       rule (eq_t bzero_t bone_t) no;
       rule (eq_t bzero_t (bd0_t q)) no;

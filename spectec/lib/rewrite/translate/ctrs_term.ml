@@ -68,12 +68,16 @@ let variant_sym (origin : string) (mixop : mixop) : string =
 (* The predicate symbol spellings, owned here (the symbol-naming module) so the
    sort recovery that must recognize a predicate ({!Maude_sorts.is_predicate})
    reads them from the one place that produces them, rather than re-guessing the
-   prefixes as string literals. [match_]/[subty_]/[holds_]/[eq_] are prefixes;
-   [eqg] is the whole generic-equality symbol ({!Reflect.eqg_t}). *)
+   prefixes as string literals. [match_]/[subty_]/[holds_]/[eq_]/[eqcase_]/
+   [tag_] are prefixes; [eqg] is the whole generic-equality symbol
+   ({!Reflect.eqg_t}). All of them have their domain recovered from use rather
+   than declared; only [tag_] ranges over [NatV] instead of [BoolV]. *)
 let match_prefix = "match_"
 let subty_prefix = "subty_"
 let holds_prefix = "holds_"
 let eq_prefix = "eq_"
+let eqcase_prefix = "eqcase_"
+let tag_prefix = "tag_"
 let eqg_sym = "eqg"
 
 let match_sym (typ_name : string) (mixop : mixop) : string =
@@ -97,6 +101,27 @@ let subty_sym (typ_name : string) : string = subty_prefix ^ R.sanitize typ_name
    sites whose operand type is not statically known -- the collection builtins'
    map keys). *)
 let eq_sym (typ_name : string) : string = eq_prefix ^ R.sanitize typ_name
+
+(* A variant's case INDEX, and equality resumed once the index test has already
+   answered ([eqcase_<T>(sametag, x, y)]). Together they replace the case-pair
+   table [eq_<T>] used to be: a rule per ordered pair of cases is quadratic in
+   the number of cases, yet every off-diagonal entry states the same thing (the
+   cases differ), so the discrimination is done once against a computed index
+   and only the diagonal -- the part that has real work to do, recursing into
+   the fields -- keeps a rule per case.
+
+   The index test is passed as an ARGUMENT rather than spelled as two
+   complementary guards on [eq_<T>] itself. Guards would be the shorter system,
+   but two conditional rules sharing a head and split on a DEFINED subject are
+   the determinacy critical pair shape the CRC cannot discharge on its own (the
+   very thing [--crc-normalize] exists to remove). Selecting on the test's
+   already-computed value keeps every rule unconditional and the two [eqcase_]
+   clauses disjoint on a constructor, so no such pair is raised at all. *)
+let tag_sym (typ_name : string) : string = tag_prefix ^ R.sanitize typ_name
+
+let eqcase_sym (typ_name : string) : string =
+  eqcase_prefix ^ R.sanitize typ_name
+
 let func_sym (id : id) : string = "$" ^ R.sanitize id.it
 let rel_sym (id : id) : string = R.sanitize id.it
 

@@ -45,16 +45,26 @@ let has_prefix p sym =
 
 (* The per-type predicates the CTRS derives -- variant-case matchers
    ({!Reflect.ensure_matchers}), subtype tests ({!To_ctrs}'s [subty_<T>]), the
-   judgment reflections ({!Reflect}'s [holds_<R>]) and the generic equality.
-   They share two properties no other symbol has: they always return [BoolV],
-   and their argument domain is declared NOWHERE -- the generators emit them
-   as needed, so the domain has to be recovered from how they are used
-   ({!predicate_domains}). *)
-let is_predicate (sym : string) : bool =
-  has_prefix T.match_prefix sym
-  || has_prefix T.subty_prefix sym
-  || has_prefix T.holds_prefix sym
-  || has_prefix T.eq_prefix sym || sym = T.eqg_sym
+   judgment reflections ({!Reflect}'s [holds_<R>]), the per-type equality and
+   its same-case half, and the generic equality -- plus the case-index
+   [tag_<T>] that equality discriminates on. They share the property no other
+   symbol has: their argument domain is declared NOWHERE (the generators emit
+   them as needed), so it has to be recovered from how they are used
+   ({!predicate_domains}). Their RANGE, in contrast, is fixed by construction:
+   [BoolV] for the predicates, [NatV] for the case index. *)
+let derived_range (sym : string) : string option =
+  if
+    has_prefix T.match_prefix sym
+    || has_prefix T.subty_prefix sym
+    || has_prefix T.holds_prefix sym
+    || has_prefix T.eq_prefix sym
+    || has_prefix T.eqcase_prefix sym
+    || sym = T.eqg_sym
+  then Some "BoolV"
+  else if has_prefix T.tag_prefix sym then Some "NatV"
+  else None
+
+let is_predicate (sym : string) : bool = derived_range sym <> None
 
 (* The Maude sort name for a named IL type. Capitalised to keep sorts visually
    distinct from the lower-case operator ids and to follow Maude convention. *)
@@ -319,10 +329,9 @@ let infer_ranges (rules : R.rule list) : sigs =
     | "nil" | "cons" -> Some "List"
     | "none" | "some" -> Some "Opt"
     | "true" | "false" | "and" | "or" | "not" -> Some "BoolV"
-    (* the derived predicates ([match_]/[subty_]/[holds_]/[eqg]) all range over
-       [BoolV] too *)
-    | _ when is_predicate sym -> Some "BoolV"
-    | _ -> None
+    (* a derived symbol ([match_]/[subty_]/[holds_]/[eq_]/[eqf_]/[eqg]/[tag_])
+       carries its range by construction *)
+    | _ -> derived_range sym
   in
   let ranges : sigs = Hashtbl.create 64 in
   Hashtbl.iter
@@ -396,6 +405,12 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
              gives it [-> false] clauses over the SOURCE type of each [SubE]
              site, which is typically a supertype of [tid]. *)
           add (T.subty_sym tid.it) ([ sort_of_typname tenv tid.it ], "BoolV");
+          (* SEED only, same as the matchers: [eq_<T>] is applied wherever a
+             value of [T] is compared, so the case index and the resumed
+             equality it selects follow that domain, not [T]'s own sort. *)
+          add (T.tag_sym tid.it) ([ sort_of_name tid.it ], "NatV");
+          add (T.eqcase_sym tid.it)
+            ([ "BoolV"; sort_of_name tid.it; sort_of_name tid.it ], "BoolV");
           List.iter
             (fun (typcase : typcase) ->
               let nottyp = typcase.notation in
@@ -507,10 +522,10 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
 let signature (tbl : sigs) (sym : string) (arity : int) : string list * string =
   match Hashtbl.find_opt tbl sym with
   | Some (args, res) when List.length args = arity ->
-      (args, if is_predicate sym then "BoolV" else res)
+      (args, Option.value (derived_range sym) ~default:res)
   | _ ->
       ( List.init arity (fun _ -> val_sort),
-        if is_predicate sym then "BoolV" else val_sort )
+        Option.value (derived_range sym) ~default:val_sort )
 
 (* -------------------------------------------------------------------------- *)
 (* Subsort order (for picking the most specific sort of a variable). *)
@@ -760,7 +775,9 @@ let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
   | Wide ->
       Hashtbl.iter
         (fun f n ->
-          Hashtbl.replace tbl f (List.init n (fun _ -> val_sort), "BoolV"))
+          Hashtbl.replace tbl f
+            ( List.init n (fun _ -> val_sort),
+              Option.value (derived_range f) ~default:"BoolV" ))
         arity
   | Narrow ->
       let sorts =
@@ -792,7 +809,8 @@ let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
               Array.to_list
                 (Array.map (fun s -> lub sup below (SSet.elements s)) a)
             in
-            Hashtbl.replace tbl f (dom, "BoolV"))
+            Hashtbl.replace tbl f
+              (dom, Option.value (derived_range f) ~default:"BoolV"))
           seen
       in
       publish ();
