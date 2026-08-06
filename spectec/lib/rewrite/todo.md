@@ -171,6 +171,49 @@ eq/eqcase/tag 185개 스윕은 시작 전이다.
   약해졌으니, 재측정에서 **진짜 YES가 난 큰 슬라이스 중 `isStuckHead` 의존도가 높은
   것**을 골라 거는 편이 낫다.
 
+**⑹ CRC 스윕이 198행에서 죽었다 — 원인은 binder를 `=`로 내는 인코딩, 그리고 `Error`가
+정규화 사다리에서 빠져 있는 배선.** `TypeParameterListOpt_ok`(**100규칙**)에서 MFE가
+판정 없이 **SIGKILL**로 죽고 스윕 프로세스까지 함께 끝났다(cgroup OOM 이벤트 0 —
+예산 초과가 아니라 검사기가 터진다). 단독 재현됨(ERROR, 143.6초, exit 1). 그 실행의
+Maude 경고가 원인을 그대로 말한다 — `variable … is used before it is bound` **40건**:
+
+```
+ceq $add-typeDef-t(LOCAL, TC, typeId, typeDefIR)
+  = upd-…( … $add-map-typeId(typeDefEnv, typeId, typeDefIR) … )
+  if field-localTypingLayer-TYPE(field-typingContext-LOCAL(TC)) = typeDefEnv:Set
+  /\ isStuckHead(…) = false /\ …
+```
+
+`typeDefEnv`는 lhs에 없고 **첫 조건이 묶는** 변수인데, Maude의 매칭 조건 `:=`가 아니라
+**등식 조건 `=`**로 나간다. `=`는 양변이 이미 묶여 있어야 하므로 CRC는 자유변수가 든
+joinability 의무로 바꿔 풀려 든다.
+
+**이 인코딩 자체는 알려진 것이다** — CRC 정규화 절이 "CRC가 매칭 조건 `$f(A) = t`를
+joinability 의무로 재인코딩하고 닫을 수 없는 determinacy 임계쌍을 만든다"고 적고 있고,
+`:=`를 못 쓰는 것도 의도다(분석면이 `:=`/`=>`를 안 쓴다는 게 unravel의 전제다). 그래서
+우회책이 `--crc-normalize`의 두 레버(inline / `crc_unravel`)인 것이다. **새로운 것은 두
+가지다.**
+
+- **대가가 문서가 적은 것보다 크다.** 문서는 비용을 MAYBE/TIMEOUT으로 적는데, 여기서는
+  검사기가 죽고 **스윕 전체가 멈춘다**. 100규칙 슬라이스에서.
+- **범위가 슬라이스 하나가 아니다** (정적 계수, Maude 불필요): 전체 등식 26,228 중
+  조건부 2,495개, 그 가운데 **1,092개(43.8%)**가 binder를 `=`로 내며, 그런 조건이
+  2,584개, 해당 head가 **332개**다. 상위는 `Expr_ok`(249)·`$bitacc_range_op`(147)·
+  `Decl_ok`(137)·`Lvalue_ok`(108) — 핵심 타이핑 관계들이다.
+
+**배선 결함**: `bin/main.ml`의 `inconclusive`가 `Maybe | Timeout`만 참으로 봐서
+**`Error` 행은 정규화 사다리를 아예 못 탄다.** 정규화가 바로 이 binder를 없애는
+장치인데, 그게 가장 필요한 — 검사기가 죽은 — 심볼이 정확히 재시도에서 빠진다.
+`TypeParameterListOpt_ok`는 정규화를 한 번도 시도해보지 못하고 ERROR로 기록됐다.
+**수정 방향**: `Error`를 `inconclusive`에 넣는다. 판정 전이가 upgrade-only라 YES를 잃을
+수 없고, ERROR는 의미상 "다른 인코딩으로 다시 물어라"이지 판정이 아니므로 사다리의
+취지에 맞는다. (스윕이 도는 중에는 `dune build`가 CRC의 벽시계 TIMEOUT과 경합하므로
+빌드를 미루고, **스윕 완주 → 수정 → ERROR 행만 재시도** 순으로 간다.)
+
+- 스윕 드라이버에 재시도 루프를 씌웠다(`--out`이 재개 가능하고 죽은 심볼의 행은 죽기
+  **전에** 기록되므로 재시작이 그 심볼을 건너뛴다). 행을 못 남기고 죽는 슬라이스가 있으면
+  무한 재시작이 되므로, **행이 늘지 않은 pass**를 감지해 멈추고 다음 용의자를 출력한다.
+
 **교훈** — 2026-07-20의 MTT 교훈("도구가 실패하면 이론화하기 전에 그것이 실제로 내는
 것을 손에 넣어라")이 이번엔 **성공**에 적용됐다. 실패는 의심을 부르지만 성공은 부르지
 않아서, 이 결함은 YES를 650개 받는 동안 조용히 살아 있었다. 발견의 계기는 판정이 아니라
