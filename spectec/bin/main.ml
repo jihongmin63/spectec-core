@@ -436,8 +436,15 @@ let confluence_command =
         todo
     in
     let verdict = Rewrite.Mfe.string_of_verdict in
+    (* What the normalization ladder is allowed to retry. [Error] belongs here:
+       the MFE dying with no verdict at all (it can be SIGKILLed on a slice
+       whose binder conditions carry free variables) is not a judgment about the
+       system, it is the checker asking for a different encoding -- exactly what
+       normalization supplies. Leaving it out skipped the retry on precisely the
+       symbols that failed hardest. The transition stays upgrade-only, so
+       admitting more rows here cannot cost a YES. *)
     let inconclusive = function
-      | Rewrite.Mfe.Maybe | Rewrite.Mfe.Timeout -> true
+      | Rewrite.Mfe.Maybe | Rewrite.Mfe.Timeout | Rewrite.Mfe.Error _ -> true
       | _ -> false
     in
     let oc =
