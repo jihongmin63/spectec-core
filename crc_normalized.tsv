@@ -1,0 +1,37 @@
+$find_action_prime	MAYBE	YES	3.7
+$partition_parameterListIR	MAYBE	YES	5.7
+$find_action	MAYBE	YES	4.4
+$extend_map_typeId_typeIR	YES (normalized:unravel)	YES	3.4
+$split_dataplane_parameters	MAYBE	YES	6.3
+$callable_externAbstractMethod	YES (normalized:unravel)	YES	2.9
+$callable_externMethod	YES (normalized:unravel)	YES	2.8
+$add_typeParameters_t	ERROR: could not find a Church-Rosser verdict in the MFE output	ERROR: could not find a coherence verdict in the MFE output	340.1
+$init_	YES (normalized:unravel)	YES	5.9
+$repeat__value	YES	YES	3.3
+SwitchLabel_table_ok	MAYBE	YES	108.2
+TypeParameterListOpt_ok	ERROR: could not find a Church-Rosser verdict in the MFE output	ERROR: could not find a coherence verdict in the MFE output	578.8
+$write_bits_from_value	YES (normalized:rebind)	YES (normalized:rebind)	850.3
+$bin_eq	YES	YES	290.0
+$bin_ne	YES	YES	315.6
+$nat_of_integerValue	YES	YES	31.5
+$un_minus	YES	YES	38.1
+$bin_concat	YES	YES	424.4
+$bin_satplus	YES	YES	42.5
+$bin_shl	TIMEOUT	TIMEOUT	3360.0
+$bin_bor	YES	YES	142.8
+$un_op	YES	YES	49.0
+$bin_shr	TIMEOUT	TIMEOUT	3360.0
+$name_annotation_opt	YES	YES	155.2
+$write_value_field_from_bits_prime	YES (normalized:unravel)	YES	258.0
+$write_value_fields_from_bits_prime	YES (normalized:unravel)	YES	256.3
+$write_value_from_bits_prime	YES (normalized:unravel)	YES	257.1
+$write_values_from_bits_prime	YES (normalized:unravel)	YES	256.3
+$write_value_from_bits	YES (normalized:unravel)	YES	268.4
+$bitacc_range_op	TIMEOUT	TIMEOUT	3580.1
+$bitacc_offset_op	TIMEOUT	TIMEOUT	3475.6
+$bitacc_range_replace_op	TIMEOUT	TIMEOUT	3360.5
+$bitacc_offset_replace_op	TIMEOUT	TIMEOUT	3362.0
+$bin_op	TIMEOUT	TIMEOUT	1682.2
+$flatten_namedExpressionList	TIMEOUT	TIMEOUT	848.5
+$flatten_realTypeArgumentList	TIMEOUT	TIMEOUT	848.5
+$flatten_expressionList	TIMEOUT	TIMEOUT	848.5
