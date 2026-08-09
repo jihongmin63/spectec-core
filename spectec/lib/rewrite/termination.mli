@@ -45,6 +45,23 @@ val budget_ladder : ?from:int -> cap:int -> unit -> int list
     from a crash, so [Error] climbs like [Maybe] rather than settling. *)
 val decisive : Aprove.verdict -> bool
 
+(** The TRS {!check} proves terminating: the slice with
+    {!Crc_surface.rebind_stuck_guards} applied, then {!Unravel.trs_of_system}.
+
+    The rebind is not optional polish. {!Crc_surface.fold_premise_binders}
+    trades a dead binder [$g(A) = v] for [isStuckHead($g(A)) = false], a
+    faithful restatement only where [isStuckHead] is defined -- the execution
+    module defines it, neither analysis surface does. Unraveled, the guard
+    leaves a consumer [u(false, ..) -> r] that can never fire, so the rule's
+    right-hand side and any recursion in it drop out of the TRS and the proof is
+    about a system missing them. Restoring the binder puts them back; the
+    condition count, and so the helper count, is unchanged.
+
+    Exposed so [--emit-trs] shows the TRS AProVE is given rather than one
+    derived a second way. *)
+val trs_of_slice :
+  Rewrite_system.t -> (string * Unravel.stats, string) result
+
 (** [check ?aprove_bin ?budget system]: [system] is the already-sliced CTRS
     ({!Rewrite_system.slice}). A slice with no rules is [Degenerate] (nothing to
     prove); an unraveling failure is [Error] with no AProVE run. [aprove_bin] is

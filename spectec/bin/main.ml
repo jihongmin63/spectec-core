@@ -1124,7 +1124,7 @@ let termination_command =
       let slice =
         Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
       in
-      match Rewrite.Unravel.trs_of_system slice with
+      match Rewrite.Termination.trs_of_slice slice with
       | Ok (trs, stats) ->
           print_string trs;
           Printf.eprintf "%s\n" (Rewrite.Unravel.string_of_stats stats);

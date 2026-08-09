@@ -65,12 +65,32 @@ let decisive : Aprove.verdict -> bool = function
   | Aprove.Yes | Aprove.No -> true
   | Aprove.Maybe | Aprove.Timeout | Aprove.Error _ -> false
 
+(* The TRS the proof is actually about.
+
+   The analysis surface hides a binder behind a guard that no rule defines, and
+   the TRS is where that costs a proof. {!Crc_surface.fold_premise_binders}
+   replaces a DEAD binder [$g(A) = v] with [isStuckHead($g(A)) = false], which
+   restates it faithfully only where [isStuckHead] is defined -- the execution
+   module defines it (2,229 equations), neither analysis surface defines it at
+   all. Unraveled, that guard becomes a consumer [u(false, ..) -> r] nothing can
+   ever fire: the rule's right-hand side is unreachable and whatever recursion
+   it carried is gone from the TRS, so AProVE proves termination of a system
+   with those rules silently deleted.
+
+   {!Crc_surface.rebind_stuck_guards} undoes that one step, restoring
+   [$g(A) = <fresh>] -- the binder the fold removed. A restoration, not an
+   approximation: the condition count is unchanged, so the helper count is too;
+   what changes is that the consumer can fire. *)
+let trs_of_slice (system : Rewrite_system.t) :
+    (string * Unravel.stats, string) result =
+  Unravel.trs_of_system (Crc_surface.rebind_stuck_guards system)
+
 let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
     (system : Rewrite_system.t) : report =
   if system.Rewrite_system.rules = [] then
     { verdict = Degenerate; stats = None; secs = None }
   else
-    match Unravel.trs_of_system system with
+    match trs_of_slice system with
     | Error msg -> { verdict = Error msg; stats = None; secs = None }
     | Ok (trs, stats) ->
         let run b =
