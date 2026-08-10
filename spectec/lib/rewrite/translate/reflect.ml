@@ -1121,8 +1121,6 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
    cannot see, and does not normalize away, when a true disjunct sits buried
    in a left-nested [or] (the [$join_ctk]/[$assignop_as_binop] MAYBEs; see
    todo.md M1 2026-07-15). Analysis-only, like the rest of this pass.
-   [max_complement] caps the emitted clause count (the product of the enum
-   positions' constructor counts minus the fully-covered tuples).
 
    A non-nullary case enumerates like a nullary one: the clause head takes
    fresh variables in the payload positions, and a covering sibling's
@@ -1136,13 +1134,16 @@ let sibling_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
    the guard evaluate itself forever -- costing the analysis surface the
    termination that Newman's lemma needs for the CRC's confluence verdict. *)
 
-let max_complement = 16
-
-(* Bound on the raw product before it is built. The post-filter
-   [max_complement] is the one that decides whether a split is worth emitting;
-   this only keeps the search from exploding first, since with non-nullary
-   cases admitted a wide variant in two positions is already a four-figure
-   product and every tuple costs a [matches] scan over the siblings. *)
+(* Bound on the raw product before it is built -- the translator's own
+   liveness, not a judgment about the split's worth: {!tuple_product}
+   materializes every tuple and each costs a {!tuple_matches} scan over the
+   siblings, and with non-nullary cases admitted a wide variant in two
+   positions is already a four-figure product. (There used to be a second,
+   post-filter cap on the emitted clause count. It was a size heuristic with
+   no measurement behind it, and measurement went the other way: the split
+   deletes the or-gate's matcher/projection support and its transitive
+   closure, so it usually makes the surface SMALLER -- 152 of the 153 slices
+   it moved shrank, and the 2,313-clause [holds_] splits cost 966 lines.) *)
 let max_enumeration = 4096
 
 (* The constructor enumeration of a declared argument type -- every case of
@@ -1317,14 +1318,29 @@ let split_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
     a;
   sibling_conds_guard ~prep ~scalars tbl sup effectful succ acc s
 
-(* [Some clauses] when the owise rule [r] of [f] qualifies for complement
-   enumeration, [None] to fall back to the or-gate path. May raise [Gate]
-   (an unreflectable sibling condition) -- the caller rolls [sup] back and
-   falls back the same way. *)
+(* A clause head totally covers its tuple only when its payloads are bare
+   variables: {!tuple_matches} decides coverage by the top constructor alone,
+   so [$f(K(zero))] matches tuple [K] without covering [K(succ(x))]. Only a
+   total cover kills the owise there; a partial one has to be negated in the
+   clause's guard like a conditional sibling, or [f] loses the tuple's
+   remaining terms altogether. (Invisible while enumeration was nullary-only
+   -- a nullary case has no payload to be partial about.) *)
+let total_cover (a : R.term list) : bool =
+  List.for_all
+    (function
+      | R.Var _ -> true
+      | R.App (_, ps) ->
+          List.for_all (function R.Var _ -> true | _ -> false) ps)
+    a
+
+(* [Ok clauses] when the owise rule [r] of [f] qualifies for complement
+   enumeration, [Error reason] to fall back to the or-gate path (the caller
+   prints the reason). May raise [Gate] (an unreflectable sibling condition) --
+   the caller rolls [sup] back and falls back the same way. *)
 let complement_clauses ~scalars (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (f : string) (r : R.rule)
     (ow_args : R.term list) (argtyps : typ' option list)
-    (siblings : R.rule list) : R.rule list option =
+    (siblings : R.rule list) : (R.rule list, string) result =
   let n = List.length ow_args in
   let ow_vars =
     List.filter_map (function R.Var v -> Some v | _ -> None) ow_args
@@ -1337,57 +1353,63 @@ let complement_clauses ~scalars (tbl : SI.t) (sup : support)
         | _ -> None)
       siblings
   in
-  if
-    siblings = [] (* a no-sibling owise: complement would flip its meaning *)
-    || r.R.conds <> []
-    || List.length ow_vars <> n
+  if siblings = [] then
+    Error "no sibling" (* complement would flip the owise's meaning *)
+  else if r.R.conds <> [] then Error "conditional owise"
+  else if
+    List.length ow_vars <> n
     || List.sort_uniq compare ow_vars <> List.sort compare ow_vars
-    || List.length sib_args <> List.length siblings
-  then None
+  then Error "owise head is not distinct variables"
+  else if List.length sib_args <> List.length siblings then
+    Error "sibling arity mismatch"
   else
     match enum_positions tbl argtyps sib_args n with
-    | None -> None
+    | None -> Error "a position does not enumerate"
     | Some poss when not (splittable poss) ->
-        None (* purely conditional owise: guard-form or-gates discharge *)
+        (* purely conditional owise: guard-form or-gates discharge *)
+        Error "every position is pass-through"
     | Some poss ->
         let slots = split_slots poss in
-        if slot_count slots > max_enumeration then None
+        if slot_count slots > max_enumeration then
+          Error
+            (Printf.sprintf "product %d > max_enumeration" (slot_count slots))
         else
           let cases =
             List.filter_map
               (fun tuple ->
                 let ms = List.filter (tuple_matches tuple) sib_args in
-                if List.exists (fun ((s : R.rule), _) -> s.R.conds = []) ms then
-                  None (* an unconditional sibling covers it: owise dead *)
+                if
+                  List.exists
+                    (fun ((s : R.rule), a) -> s.R.conds = [] && total_cover a)
+                    ms
+                then None (* a sibling always applies here: the owise is dead *)
                 else Some (tuple, ms))
               (tuple_product slots)
           in
-          if List.length cases > max_complement then None
-          else
-            let reserved = reserved_vars (r :: siblings) in
-            Some
-              (List.map
-                 (fun (tuple, ms) ->
-                   let slots_t, head_args, sub =
-                     clause_head reserved ow_vars tuple
-                   in
-                   (* one negated guard PER covering conditional sibling: a
+          let reserved = reserved_vars (r :: siblings) in
+          Ok
+            (List.map
+               (fun (tuple, ms) ->
+                 let slots_t, head_args, sub =
+                   clause_head reserved ow_vars tuple
+                 in
+                 (* one negated guard PER covering conditional sibling: a
                     conjunction of negations, no or-gate *)
-                   let conds =
-                     List.map
-                       (fun sa ->
-                         ( split_guard ~scalars tbl sup effectful succ slots_t
-                             argtyps ow_args sa,
-                           T.bool_t ~scalars false ))
-                       ms
-                   in
-                   {
-                     R.lhs = T.app_t f head_args;
-                     rhs = R.subst sub r.R.rhs;
-                     conds;
-                     owise = false;
-                   })
-                 cases)
+                 let conds =
+                   List.map
+                     (fun sa ->
+                       ( split_guard ~scalars tbl sup effectful succ slots_t
+                           argtyps ow_args sa,
+                         T.bool_t ~scalars false ))
+                     ms
+                 in
+                 {
+                   R.lhs = T.app_t f head_args;
+                   rhs = R.subst sub r.R.rhs;
+                   conds;
+                   owise = false;
+                 })
+               cases)
 
 (* -------------------------------------------------------------------------- *)
 (* Judgment reflection: [holds_<R>] for a judgment [R] -- the existential
@@ -1979,9 +2001,9 @@ let owise (ctx : ctx) ~(effectful : string list) (sys : R.t) : R.t =
                    try
                      complement_clauses ~scalars tbl sup effectful succ f r
                        ow_args argtyps siblings
-                   with Gate _ -> None
+                   with Gate reason -> Error reason
                  with
-                 | Some cls ->
+                 | Ok cls ->
                      incr enumerated;
                      let guarded =
                        List.length
@@ -1992,7 +2014,9 @@ let owise (ctx : ctx) ~(effectful : string list) (sys : R.t) : R.t =
                         clause(s), %d guarded)\n"
                        f (List.length cls) guarded;
                      cls
-                 | None -> (
+                 | Error reason -> (
+                     Printf.eprintf "reflect: no complement split for %s (%s)\n"
+                       f reason;
                      rollback sup mark;
                      let mark = snapshot sup in
                      try
