@@ -75,6 +75,49 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-10 — `max_complement` 제거, 그리고 그게 드러낸 **부분 커버 드롭** (`ab950751`)
+
+캡 두 개는 이름만 비슷하고 성격이 다르다.
+
+- **`max_enumeration = 4096`은 남긴다.** 검사가 `tuple_product` **앞**에 있다 —
+  곱집합을 통째로 실체화하고 튜플마다 형제 전체를 훑으므로, 이건 "값어치" 판단이
+  아니라 **번역기 자신의 생존 한계**다. 비무항 case를 허용한 ⑽ 이후로는 두 자리만
+  돼도 이미 네 자리 수(`typeIR × typeIR` = 1,156)다.
+- **`max_complement = 16`은 지웠다.** 근거가 기록된 적 없는 크기 휴리스틱인데,
+  실측은 반대 방향을 가리킨다: 분할은 or-gate의 matcher/투영 뒷받침과 그 전이
+  폐포를 지우므로 대개 표면을 **줄인다**(⑽에서 변동 슬라이스 153개 중 152개 감소;
+  `holds_` 분할은 2,313절을 내고 966줄만 늘었다).
+
+**실측**: enumerate **30 → 36** (`$unroll_typeIR`·`$unroll_aliasType`·
+`$is_valid_bitslice`·`$is_concrete_extern_object_prime`·
+`$subexpressions_of_expressionIR`·`$gen_constraint`), 분석면 31,164 → **31,556줄
+(+1.3%)**, 번역 1초. 실행면 sha256과 impty 골든 불변.
+
+**폴백 사유를 찍게 했더니(이제 `complement_clauses`가 `Error reason`을 돌려준다)
+캡이 막고 있던 건 정확히 그 6개뿐이었다.** 남은 38개 or-gate: `every position is
+pass-through` 15 / `owise head is not distinct variables` 13 / `conditional owise`
+8 / `a position does not enumerate` 2 — **캡 때문인 건 0건**.
+
+**그리고 캡을 풀자 진짜 결함이 나왔다 — 부분 커버 드롭.** 튜플을 버리는 조건이
+"무조건 형제가 하나라도 맞으면"이었는데, `tuple_matches`는 **최상위 생성자만** 본다.
+`$f(K(zero))`가 조건 없이 튜플 `K`에 맞지만 `K(succ(x))`는 안 덮으므로, 버리면
+`f`가 그 나머지에서 **정의를 잃는다**. 열거가 nullary 전용이던 시절엔 payload가
+없어 생길 수 없었고, ⑽이 비무항을 허용한 뒤로 줄곧 살아 있었다 —
+`$name_expression`이 18개 튜플 중 2개를 잃고 있었고, **바로 앞 650 스윕을 잰
+표면에도 그대로 있었다.** 드롭 조건을 `total_cover`(payload가 전부 변수)로 좁히고,
+부분 커버는 조건부 형제처럼 가드에서 부정한다.
+
+두 효과는 절 수로 깨끗이 분리된다: 기존 30개 중 절 수가 바뀐 건
+`$name_expression` **16 → 18** 하나뿐(= 드롭 고침), 나머지는 전부 캡 제거분이다.
+
+**재측정** (`--budget 20`, 직렬, 심볼당 프로세스): 650/650에서
+YES→YES **240** / TIMEOUT→TIMEOUT 407 / DEGENERATE 2 / ERROR→TIMEOUT 1,
+**회귀 0건**.
+
+**교훈**: 근거 없는 상수는 결함을 가린다. 이 캡은 6개를 막는 대가로 그 6개 중
+2개에 있던 부분 커버 드롭을 **안 보이게** 하고 있었고(세 번째는 캡 안쪽에 이미
+있었다), 풀지 않았으면 계속 안 보였을 것이다.
+
 ### 2026-08-10 — **judgment reflection도 ⑽의 경우분할이 필요했다**: `holds_` or-gate의 루프 2종 제거
 
 > `b1ca0af6`(masking 복원) 이후 처음으로 termination 열을 전수로 잰 결과가 이걸
