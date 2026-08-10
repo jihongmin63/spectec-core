@@ -1173,6 +1173,150 @@ let rec tuple_product : 'a list list -> 'a list list = function
 
 type cpos = Enum of (string * int) list | Pass
 
+(* Classify the [n] argument positions of a defined symbol whose clause heads
+   are [sib_args]: PASS when every clause holds a bare variable there, ENUM
+   when the declared type enumerates and every clause's pattern there is
+   either a variable or one of the enumerated constructors at its declared
+   arity. [None] as soon as one position is neither. *)
+let enum_positions (tbl : SI.t) (argtyps : typ' option list)
+    (sib_args : (R.rule * R.term list) list) (n : int) : cpos list option =
+  let classify j =
+    let args_j = List.map (fun (_, a) -> List.nth a j) sib_args in
+    if List.for_all (function R.Var _ -> true | _ -> false) args_j then
+      Some Pass
+    else
+      match ctor_enum tbl (List.nth argtyps j) with
+      | Some cs
+        when List.for_all
+               (function
+                 | R.Var _ -> true
+                 | R.App (c, ps) -> List.assoc_opt c cs = Some (List.length ps))
+               args_j ->
+          Some (Enum cs)
+      | _ -> None
+  in
+  List.fold_right
+    (fun j acc ->
+      match (classify j, acc) with
+      | Some p, Some ps -> Some (p :: ps)
+      | _ -> None)
+    (List.init n Fun.id) (Some [])
+
+(* The split's per-position candidate slots: an enum position's constructors,
+   or the single pass-through slot. *)
+let split_slots (poss : cpos list) : (string * int) option list list =
+  List.map
+    (function Enum cs -> List.map (fun c -> Some c) cs | Pass -> [ None ])
+    poss
+
+let slot_count (slots : _ list list) : int =
+  List.fold_left (fun n s -> n * List.length s) 1 slots
+
+let splittable (poss : cpos list) : bool =
+  List.exists (function Enum _ -> true | Pass -> false) poss
+
+(* Whether clause head [a] can apply at [tuple]: at an enum position the top
+   constructors must agree, and a variable there matches every constructor. *)
+let tuple_matches (tuple : (string * int) option list)
+    ((_, a) : R.rule * R.term list) : bool =
+  List.for_all2
+    (fun slot p ->
+      match (slot, p) with
+      | None, _ | Some _, R.Var _ -> true
+      | Some (c, _), R.App (c', _) -> c = c')
+    tuple a
+
+(* The clause head for one tuple, over the [subjects] the unsplit rule used as
+   its argument variables. An enum position takes fresh payload variables,
+   avoiding every name [reserved] mentions; they occur in the head, so they
+   BIND whatever a clause body reflects against them -- no projection, and no
+   extra variable in the rhs. Returns the filled slots (for the body), the
+   head arguments, and the substitution from subject variable to head
+   pattern. *)
+let clause_head (reserved : string list) (subjects : string list)
+    (tuple : (string * int) option list) :
+    (string * R.term list) option list * R.term list * (string * R.term) list =
+  let payload (v : string) (k : int) : R.term list =
+    List.init k (fun i ->
+        let rec pick n =
+          let s =
+            if n = 0 then Printf.sprintf "%s_%d" v i
+            else Printf.sprintf "%s_%d_%d" v i n
+          in
+          if List.mem s reserved then pick (n + 1) else s
+        in
+        T.var_t (pick 0))
+  in
+  let slots_t =
+    List.map2
+      (fun slot v ->
+        match slot with Some (c, k) -> Some (c, payload v k) | None -> None)
+      tuple subjects
+  in
+  let head_args =
+    List.map2
+      (fun st v ->
+        match st with Some (c, xs) -> T.app_t c xs | None -> T.var_t v)
+      slots_t subjects
+  in
+  let sub =
+    List.concat
+      (List.map2
+         (fun st v ->
+           match st with Some (c, xs) -> [ (v, T.app_t c xs) ] | None -> [])
+         slots_t subjects)
+  in
+  (slots_t, head_args, sub)
+
+let reserved_vars (rules : R.rule list) : string list =
+  List.concat_map
+    (fun (u : R.rule) ->
+      R.vars_of_term u.R.lhs @ R.vars_of_term u.R.rhs
+      @ List.concat_map
+          (fun ((a, b) : R.cond) -> R.vars_of_term a @ R.vars_of_term b)
+          u.R.conds)
+    rules
+
+(* "clause [s] applies", as one boolean term over a split clause's own
+   variables -- {!sibling_guard} with the enum positions already decided. The
+   head selects those constructors, so they seed the substitution directly
+   instead of being ptest-ed (keeping ground matcher constants, the very shape
+   the CRC cannot normalize, out of the guard), and a payload sub-pattern
+   reflects against the head's own variable rather than a projection of the
+   subject. *)
+let split_guard ?(prep = Fun.id) ~scalars (tbl : SI.t) (sup : support)
+    (effectful : string list) (succ : string list)
+    (slots_t : (string * R.term list) option list) (argtyps : typ' option list)
+    (subjects : R.term list)
+    (((s : R.rule), (a : R.term list)) : R.rule * R.term list) : R.term =
+  let ctor_field_typs (et : typ' option) (c : string) : typ list =
+    match SI.variant_case tbl (matcher_type tbl et c) c with
+    | Some (_, ts, _) -> ts
+    | None -> []
+  in
+  let acc = { tests = []; sub = [] } in
+  List.iteri
+    (fun j p ->
+      match (List.nth slots_t j, p) with
+      | Some (c, xs), R.App (_, ps) ->
+          let fts = ctor_field_typs (List.nth argtyps j) c in
+          List.iteri
+            (fun i q ->
+              let fet =
+                match List.nth_opt fts i with
+                | Some t -> Some t.it
+                | None -> None
+              in
+              ptest ~scalars tbl sup acc (List.nth xs i) fet q)
+            ps
+      | Some (c, xs), R.Var v ->
+          acc.sub <- (v, (T.app_t c xs, List.nth argtyps j)) :: acc.sub
+      | None, p ->
+          ptest ~scalars tbl sup acc (List.nth subjects j) (List.nth argtyps j)
+            p)
+    a;
+  sibling_conds_guard ~prep ~scalars tbl sup effectful succ acc s
+
 (* [Some clauses] when the owise rule [r] of [f] qualifies for complement
    enumeration, [None] to fall back to the or-gate path. May raise [Gate]
    (an unreflectable sibling condition) -- the caller rolls [sup] back and
@@ -1201,60 +1345,18 @@ let complement_clauses ~scalars (tbl : SI.t) (sup : support)
     || List.length sib_args <> List.length siblings
   then None
   else
-    let classify j =
-      let args_j = List.map (fun (_, a) -> List.nth a j) sib_args in
-      if List.for_all (function R.Var _ -> true | _ -> false) args_j then
-        Some Pass
-      else
-        match ctor_enum tbl (List.nth argtyps j) with
-        | Some cs
-          when List.for_all
-                 (function
-                   | R.Var _ -> true
-                   | R.App (c, ps) ->
-                       List.assoc_opt c cs = Some (List.length ps))
-                 args_j ->
-            Some (Enum cs)
-        | _ -> None
-    in
-    match
-      List.fold_right
-        (fun j acc ->
-          match (classify j, acc) with
-          | Some p, Some ps -> Some (p :: ps)
-          | _ -> None)
-        (List.init n Fun.id) (Some [])
-    with
+    match enum_positions tbl argtyps sib_args n with
     | None -> None
-    | Some poss
-      when not (List.exists (function Enum _ -> true | Pass -> false) poss) ->
+    | Some poss when not (splittable poss) ->
         None (* purely conditional owise: guard-form or-gates discharge *)
     | Some poss ->
-        (* candidate heads: per-position slots are the enum constructors, or
-           a single [None] slot at a pass-through position *)
-        let slots =
-          List.map
-            (function
-              | Enum cs -> List.map (fun c -> Some c) cs | Pass -> [ None ])
-            poss
-        in
-        let matches tuple (_, a) =
-          List.for_all2
-            (fun slot p ->
-              match (slot, p) with
-              | None, _ | Some _, R.Var _ -> true
-              | Some (c, _), R.App (c', _) -> c = c')
-            tuple a
-        in
-        if
-          List.fold_left (fun n s -> n * List.length s) 1 slots
-          > max_enumeration
-        then None
+        let slots = split_slots poss in
+        if slot_count slots > max_enumeration then None
         else
           let cases =
             List.filter_map
               (fun tuple ->
-                let ms = List.filter (matches tuple) sib_args in
+                let ms = List.filter (tuple_matches tuple) sib_args in
                 if List.exists (fun ((s : R.rule), _) -> s.R.conds = []) ms then
                   None (* an unconditional sibling covers it: owise dead *)
                 else Some (tuple, ms))
@@ -1262,106 +1364,20 @@ let complement_clauses ~scalars (tbl : SI.t) (sup : support)
           in
           if List.length cases > max_complement then None
           else
-            (* Fresh payload variables for an enum position's constructor. They
-             occur in the clause head, so they BIND the sibling sub-patterns
-             reflected against them -- no projection, and no extra variable in
-             the rhs. Avoid every name the owise rule and its siblings use: a
-             guard is built by substituting sibling variables with terms over
-             these. *)
-            let reserved =
-              List.concat_map
-                (fun (u : R.rule) ->
-                  R.vars_of_term u.R.lhs @ R.vars_of_term u.R.rhs
-                  @ List.concat_map
-                      (fun ((a, b) : R.cond) ->
-                        R.vars_of_term a @ R.vars_of_term b)
-                      u.R.conds)
-                (r :: siblings)
-            in
-            let payload (v : string) (k : int) : R.term list =
-              List.init k (fun i ->
-                  let rec pick n =
-                    let s =
-                      if n = 0 then Printf.sprintf "%s_%d" v i
-                      else Printf.sprintf "%s_%d_%d" v i n
-                    in
-                    if List.mem s reserved then pick (n + 1) else s
-                  in
-                  T.var_t (pick 0))
-            in
-            let ctor_field_typs (et : typ' option) (c : string) : typ list =
-              match SI.variant_case tbl (matcher_type tbl et c) c with
-              | Some (_, ts, _) -> ts
-              | None -> []
-            in
+            let reserved = reserved_vars (r :: siblings) in
             Some
               (List.map
                  (fun (tuple, ms) ->
-                   let slots_t =
-                     List.map2
-                       (fun slot v ->
-                         match slot with
-                         | Some (c, k) -> Some (c, payload v k)
-                         | None -> None)
-                       tuple ow_vars
-                   in
-                   let head_args =
-                     List.map2
-                       (fun st v ->
-                         match st with
-                         | Some (c, xs) -> T.app_t c xs
-                         | None -> T.var_t v)
-                       slots_t ow_vars
-                   in
-                   let sub =
-                     List.concat
-                       (List.map2
-                          (fun st v ->
-                            match st with
-                            | Some (c, xs) -> [ (v, T.app_t c xs) ]
-                            | None -> [])
-                          slots_t ow_vars)
+                   let slots_t, head_args, sub =
+                     clause_head reserved ow_vars tuple
                    in
                    (* one negated guard PER covering conditional sibling: a
-                    conjunction of negations, no or-gate. The clause head
-                    already selects the constructors, so enum positions seed
-                    the substitution directly instead of ptest-ing -- keeping
-                    ground matcher constants (the very shape the CRC cannot
-                    normalize) out of the guard. *)
+                    conjunction of negations, no or-gate *)
                    let conds =
                      List.map
-                       (fun ((s : R.rule), a) ->
-                         let acc = { tests = []; sub = [] } in
-                         List.iteri
-                           (fun j p ->
-                             match (List.nth slots_t j, p) with
-                             | Some (c, xs), R.App (_, ps) ->
-                                 (* the head already selects this ctor; its
-                                  payload sub-patterns reflect against the
-                                  head's own variables, not a projection *)
-                                 let fts =
-                                   ctor_field_typs (List.nth argtyps j) c
-                                 in
-                                 List.iteri
-                                   (fun i q ->
-                                     let fet =
-                                       match List.nth_opt fts i with
-                                       | Some t -> Some t.it
-                                       | None -> None
-                                     in
-                                     ptest ~scalars tbl sup acc (List.nth xs i)
-                                       fet q)
-                                   ps
-                             | Some (c, xs), R.Var v ->
-                                 acc.sub <-
-                                   (v, (T.app_t c xs, List.nth argtyps j))
-                                   :: acc.sub
-                             | None, p ->
-                                 ptest ~scalars tbl sup acc (List.nth ow_args j)
-                                   (List.nth argtyps j) p)
-                           a;
-                         ( sibling_conds_guard ~scalars tbl sup effectful succ
-                             acc s,
+                       (fun sa ->
+                         ( split_guard ~scalars tbl sup effectful succ slots_t
+                             argtyps ow_args sa,
                            T.bool_t ~scalars false ))
                        ms
                    in
@@ -1379,9 +1395,11 @@ let complement_clauses ~scalars (tbl : SI.t) (sup : support)
    conditions with the rhs ignored, so it covers output-carrying judgments
    the same way as no-output ones (whose rules all conclude [= true];
    failure is stuckness either way) -- and [holds_<$iterall..>] for a
-   no-binding iterated premise's helper. [holds_<R>] is ONE unconditional
-   or-rule -- "R holds iff some rule applies" is an unordered disjunction --
-   so it adds no critical pairs; [holds_<$iterall..>] is the totalized
+   no-binding iterated premise's helper. [holds_<R>] is unconditional
+   or-rules -- "R holds iff some rule applies" is an unordered disjunction --
+   one of them, or, when that one would call itself, a case split whose heads
+   are pairwise non-unifiable; either way it adds no critical pairs.
+   [holds_<$iterall..>] is the totalized
    and-fold (unconditional step + explicit length-mismatch [false] rules).
    Negated judgment premises ([R(in) = false], today unsatisfiable because a
    judgment never rewrites to [false]) become satisfiable
@@ -1435,9 +1453,84 @@ let replace_cond ~scalars (tbl : SI.t) (succ : string list) ((l, r) : R.cond) :
       if respell then (R.App (T.holds_sym f, args), r) else (l, r)
   | _ -> (l, r)
 
+let or_chain (ts : R.term list) : R.term option =
+  match ts with
+  | [] -> None
+  | t :: ts -> Some (List.fold_left (fun a b -> T.or_t a b) t ts)
+
+(* The complement enumeration's split, applied to a judgment reflection: one
+   clause per constructor tuple, its rhs the disjunction of the guards of
+   exactly the rules that can apply there ([false] where none can, which is
+   what keeps [holds_] total). Dual to {!complement_clauses} -- positive
+   guards or-ed rather than negated guards and-ed, and no tuple dropped -- and
+   it buys the same thing: no all-variable lhs survives, so a guard's
+   recursive call descends into a payload variable of its own head instead of
+   re-entering through [proj_K_i(subject)]. *)
+let holds_split_clauses ~prep ~scalars (tbl : SI.t) (sup : support)
+    (effectful : string list) (succ : string list) (hname : string)
+    (xs : R.term list) (argtyps : typ' option list) (rules : R.rule list) :
+    R.rule list option =
+  let n = List.length xs in
+  let subjects =
+    List.filter_map (function R.Var v -> Some v | _ -> None) xs
+  in
+  let rule_args =
+    List.filter_map
+      (fun (s : R.rule) ->
+        match s.R.lhs with
+        | R.App (_, a) when List.length a = n -> Some (s, a)
+        | _ -> None)
+      rules
+  in
+  if List.length rule_args <> List.length rules then None
+  else
+    match enum_positions tbl argtyps rule_args n with
+    | None -> None
+    | Some poss when not (splittable poss) -> None
+    | Some poss ->
+        let slots = split_slots poss in
+        if slot_count slots > max_enumeration then None
+        else
+          let reserved = reserved_vars rules @ subjects in
+          Some
+            (List.map
+               (fun tuple ->
+                 let slots_t, head_args, _ =
+                   clause_head reserved subjects tuple
+                 in
+                 let gs =
+                   List.map
+                     (split_guard ~prep ~scalars tbl sup effectful succ slots_t
+                        argtyps xs)
+                     (List.filter (tuple_matches tuple) rule_args)
+                 in
+                 T.rule (T.app_t hname head_args)
+                   (Option.value (or_chain gs)
+                      ~default:(T.bool_t ~scalars false)))
+               (tuple_product slots))
+
 (* [holds_<R>(x0..xn-1) = or(g_1 .. g_k)]: one g per rule of [R], built by the
    same machinery as the owise sibling guards (the rules ARE the siblings,
-   the fresh argument variables the subjects). *)
+   the fresh argument variables the subjects).
+
+   A guard that calls back into the reflected set makes that single
+   all-variable rule non-terminating for exactly the reason the owise or-gate
+   is: the guard reaches a rule's recursive argument by projecting the
+   subject, so the call matches an all-variable lhs again with a term no
+   smaller. AProVE refutes both shapes by Theorem 8 [NONLOOP] -- directly
+   ([Type_alpha]: [holds(x0, x1) -> holds(x0, proj_TYPEDEF_1(x1))]) and around
+   a cycle ([holds_Cast_impl(x0, x1) -> holds_Cast_impl_neq($unroll(x0),
+   $unroll(x1))] together with [holds_Cast_impl_neq(x0, x1) ->
+   holds_Cast_impl(proj_ENUM_3_1(x0), x1)]), so the test is any [holds_] call
+   at all, not self-recursion: a mutual cycle needs no rule to mention itself.
+   Split those the way {!complement_clauses} splits an owise and the
+   projection becomes a bound payload variable of the clause's own head; once
+   no reflection in the cycle keeps an all-variable lhs, no cycle survives.
+   A judgment whose subject types do not enumerate keeps the or-gate (with the
+   loop it may carry): dropping the reflection instead would strand every
+   negated use of that judgment and cascade into the reflections that call
+   it -- a bigger loss than the owise path's, where falling back only means
+   keeping one owise attribute. *)
 let gen_rel_holds ~scalars ~prep (tbl : SI.t) (sup : support)
     (effectful : string list) (succ : string list) (name : string)
     (argtyps : typ' option list) (rules : R.rule list) : R.rule list =
@@ -1451,6 +1544,7 @@ let gen_rel_holds ~scalars ~prep (tbl : SI.t) (sup : support)
     if List.length argtyps = arity then argtyps
     else List.init arity (fun _ -> None)
   in
+  let hname = T.holds_sym name in
   let gs =
     List.map
       (fun (ru : R.rule) ->
@@ -1460,12 +1554,26 @@ let gen_rel_holds ~scalars ~prep (tbl : SI.t) (sup : support)
         sibling_guard ~prep ~scalars tbl sup effectful succ xs argtyps ru)
       rules
   in
-  let disj =
-    match gs with
-    | [] -> raise (Gate "judgment without rules")
-    | g :: gs -> List.fold_left (fun a b -> T.or_t a b) g gs
-  in
-  [ T.rule (T.app_t (T.holds_sym name) xs) disj ]
+  match or_chain gs with
+  | None -> raise (Gate "judgment without rules")
+  | Some disj
+    when not (List.exists (has_prefix T.holds_prefix) (R.heads_of_term disj)) ->
+      [ T.rule (T.app_t hname xs) disj ]
+  | Some disj -> (
+      match
+        holds_split_clauses ~prep ~scalars tbl sup effectful succ hname xs
+          argtyps rules
+      with
+      | Some cls ->
+          Printf.eprintf "reflect: holds_ case-split on %s (%d clause(s))\n"
+            name (List.length cls);
+          cls
+      | None ->
+          Printf.eprintf
+            "reflect: holds_ or-gate kept on %s (recursive guard, subjects do \
+             not enumerate)\n"
+            name;
+          [ T.rule (T.app_t hname xs) disj ])
 
 (* The explicit [false] rules a totalized [holds_$iterall../$itercollect..]
    needs for a multi-spine List iteration whose bound streams

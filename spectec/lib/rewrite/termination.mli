@@ -59,8 +59,7 @@ val decisive : Aprove.verdict -> bool
 
     Exposed so [--emit-trs] shows the TRS AProVE is given rather than one
     derived a second way. *)
-val trs_of_slice :
-  Rewrite_system.t -> (string * Unravel.stats, string) result
+val trs_of_slice : Rewrite_system.t -> (string * Unravel.stats, string) result
 
 (** [check ?aprove_bin ?budget system]: [system] is the already-sliced CTRS
     ({!Rewrite_system.slice}). A slice with no rules is [Degenerate] (nothing to

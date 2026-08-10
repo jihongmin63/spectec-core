@@ -75,6 +75,86 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-10 — **judgment reflection도 ⑽의 경우분할이 필요했다**: `holds_` or-gate의 루프 2종 제거
+
+> `b1ca0af6`(masking 복원) 이후 처음으로 termination 열을 전수로 잰 결과가 이걸
+> 드러냈다. 650심볼 중 **NO 23건**, 전부 2,489규칙 이상의 alpha/cast/constraint/
+> call-convention 계열이고 초가 11.0~11.1과 21~23에 뭉쳐 있었다 — 하나의 루프가
+> 의존 폐포를 타고 번진 모양이다. NO는 unravel의 정렬 과대근사 때문일 수도 있으므로
+> **증인을 봐야** 했고, 봤더니 과대근사가 아니었다.
+
+**⑴ 증인 — `holds_<R>`의 or-gate가 ⑺과 같은 모양이었다.** `ParameterType_alpha`
+(2,489규칙, 11초)의 AProVE 서사:
+
+```
+(45) NonLoopProof (COMPLETE)
+By Theorem 8 [NONLOOP] we deduce infiniteness of the QDP.
+  σ' = [x1 / proj_variant_typedefTypeIR_TYPEDEF_2_1(x1)] on the rule
+  HOLDS_TYPE_ALPHA(x0, x1) -> HOLDS_TYPE_ALPHA(x0, proj_variant_typedefTypeIR_TYPEDEF_2_1(x1))
+```
+
+`gen_rel_holds`는 `holds_<R>(x0..xn-1) = or(g_1..g_k)` **무조건 규칙 하나**를
+낸다. 의도적이었다 — 주석이 "so it adds no critical pairs"라고 적고 있다. 그런데
+그 하나의 lhs가 맨변수라, 가드가 형제의 부분항을 `proj_K_i(subject)`로 되찾는 순간
+⑺과 **완전히 같은 모양**이 된다: 인자가 줄지 않고, lhs는 언제나 다시 맞는다.
+⑽이 owise 경로에서 이걸 고칠 때 judgment reflection 경로는 손대지 않았고,
+그래서 결함이 그대로 남아 있었다.
+
+**⑵ 고침은 ⑽ 그대로, 극성만 반대.** `complement_clauses`에서 분할 기계를 떼어내
+공유 함수로 만들고(`enum_positions`/`split_slots`/`tuple_matches`/`clause_head`/
+`split_guard`), `holds_`에 같은 것을 쓴다:
+
+| | `complement_clauses` (owise) | `holds_split_clauses` |
+|---|---|---|
+| 절마다 | 덮는 형제의 가드를 **부정해 and** | 덮는 규칙의 가드를 **긍정해 or** |
+| 아무도 안 덮는 튜플 | 순수 fall-through | `-> false` (전역성 유지) |
+| 무조건 형제가 덮는 튜플 | 버림(owise 죽음) | 버리지 않음 |
+
+사는 것도 ⑽과 같다 — **맨변수 lhs가 하나도 안 남는다.** `proj_TYPEDEF_1(x1)`이
+head의 payload 변수 `x0-1`이 되어 진짜 하강이 되고, 갈린 절들의 head는 서로
+단일화되지 않으므로 "임계쌍을 안 만든다"는 원래 목적도 그대로 유지된다.
+
+**⑶ 자기재귀 검사로는 부족했다 — 측정이 그걸 보여줬다.** 처음엔 owise 경로의 기준
+(`가드가 정의 중인 심볼을 부른다`)을 그대로 옮겼다. 결과는 `Type_alpha` 하나만 분할,
+**NO 23 → 14건 해소, 9건 잔존**. 잔존분(`$merge_constraint_prime`, 3,333규칙)의 증인:
+
+```
+HOLDS_CAST_IMPL(x0, x1)     -> HOLDS_CAST_IMPL_NEQ($unroll_typeIR(x0), $unroll_typeIR(x1))
+HOLDS_CAST_IMPL_NEQ(x0, x1) -> HOLDS_CAST_IMPL(proj_..._serializableEnumTypeIR_ENUM_3_1(x0), x1)
+```
+
+**상호재귀**다. 어느 규칙도 자기 자신을 언급하지 않으므로 자기재귀 검사에 안 걸린다.
+기준을 "가드가 `holds_`를 하나라도 부르면"으로 넓히면 SCC 계산 없이 둘 다 덮인다 —
+고리 안의 어느 반사도 맨변수 lhs를 남기지 않으면 고리는 닫힐 수 없기 때문이다.
+
+**⑷ 열거가 안 되는 판단은 or-gate를 **유지**한다(버리지 않는다).** `Cast_impl`은
+규칙이 `typeIR_a -> typeIR_b` 둘뿐이고 **양쪽 다 맨변수 head**라 나눌 게 없다.
+owise 경로는 이럴 때 `Gate`로 반사를 포기하지만(owise 속성 하나 남기면 그만),
+judgment reflection에서 포기하면 그 판단의 **부정 사용이 전부 좌초되고** 그걸 부르는
+반사들로 연쇄된다. 그래서 or-gate를 남긴다 — 고리는 상대편(`Cast_impl_neq`)이
+갈리면서 이미 끊긴다.
+
+**⑸ 실측** (`--budget 20`, 심볼당 AProVE 별도 프로세스):
+
+| | 자기재귀만 | `holds_` 호출 전체 |
+|---|---|---|
+| 분할된 판단 | `Type_alpha`(1156절) | + `Cast_impl_neq`(1156절), `ParameterType_alpha`(1절) |
+| NO 23건 재측정 | TIMEOUT 14 / **NO 9** | **TIMEOUT 23 / NO 0** |
+| 분석면 | 30,198줄 | 31,164줄 |
+
+불변: impty 골든, **실행면 sha256 `516e8c89…5652e`**(`Reflect`는 분석 전용),
+owise 지문 `44 reflected, 30 complement-enumerated, 0 kept`.
+`holds-Type-alpha` 규칙 안의 `proj-…` 출현은 34개 계열 → **0개**.
+
+TIMEOUT은 미증명이지 결함이 아니다 — ⑽에서 `$find_name_annotation_opt`가
+NO(6.1초)→MAYBE(227.7초)로 간 것과 같은 방향이다.
+
+**교훈** — 2026-08-09의 "판정이 무엇에 대한 것인지도 보라"의 짝: **한 곳에서 고친
+결함은 같은 기계를 쓰는 다른 곳에도 있다고 가정하라.** ⑽의 주석은 분할이 사는 것을
+"맨변수 lhs가 안 남는다"로 정확히 적어놨는데, 바로 아래 `gen_rel_holds`가 "critical
+pair를 안 만들려고" 맨변수 lhs 하나를 일부러 내고 있었다. 그리고 **기준은 증인이
+정한다** — 자기재귀는 그럴듯했지만 상호재귀 증인 하나가 그걸 반증했다.
+
 ### 2026-08-09 — **termination 증명이 규칙의 41.6%를 지운 시스템에 대한 것이었다** (`b1ca0af6`), 그리고 사다리가 사는 게 없다는 것
 
 > 2026-08-06의 재측정을 이어가다 `Program_ok`에 12시간을 걸기 직전에 나왔다. 파서
