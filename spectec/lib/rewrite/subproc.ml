@@ -129,6 +129,13 @@ let session_start ?env ~(cmd : string list) () : session =
   in
   Unix.close r_in;
   Unix.close w_out;
+  (* Non-blocking writes, so a deadline can actually be enforced: [select]
+     reporting the pipe writable only promises SOME space, and a blocking
+     [Unix.write] of a full chunk then sleeps inside the kernel until the child
+     has drained the rest -- past any deadline the caller checks between
+     writes. With [O_NONBLOCK] the write returns short (or [EAGAIN]) and the
+     loop gets to look at the clock. *)
+  Unix.set_nonblock w_in;
   { pid; w_in; r_out; buf = Buffer.create 65536; chunk = Bytes.create 8192 }
 
 (* Non-blocking drain of whatever the child has already written. *)
@@ -145,29 +152,36 @@ let session_drain (s : session) : unit =
   in
   go ()
 
-let session_send (s : session) (data : string) : unit =
+let deadline_in (budget : int) : float =
+  if budget > 0 then Unix.gettimeofday () +. float_of_int budget else infinity
+
+(* The write half is deadlined for the same reason the read half is: the child
+   drains its stdin only as fast as it parses, so a large feed blocks the
+   writer, and a budget that covers only the read bounds nothing. *)
+let session_send (s : session) (data : string) ~(deadline : float) : bool =
   let b = Bytes.of_string data in
   let total = Bytes.length b in
   let rec write_from off =
-    if off >= total then ()
+    if off >= total then true
+    else if deadline -. Unix.gettimeofday () <= 0.0 then false
     else (
       session_drain s;
       match Unix.select [] [ s.w_in ] [] 0.1 with
       | exception Unix.Unix_error (Unix.EINTR, _, _) -> write_from off
       | _, [], _ -> write_from off
-      | _ ->
-          let n = Unix.write s.w_in b off (min 65536 (total - off)) in
-          write_from (off + n))
+      | _ -> (
+          match Unix.write s.w_in b off (min 65536 (total - off)) with
+          | exception
+              Unix.Unix_error
+                ((Unix.EAGAIN | Unix.EWOULDBLOCK | Unix.EINTR), _, _) ->
+              write_from off
+          | n -> write_from (off + n)))
   in
   write_from 0
 
-let session_read (s : session) ~(done_when : string -> bool) ~(timeout : int) :
-    string * bool =
+let session_read (s : session) ~(done_when : string -> bool) ~(deadline : float)
+    : string * bool =
   let timed_out = ref false in
-  let deadline =
-    if timeout > 0 then Unix.gettimeofday () +. float_of_int timeout
-    else infinity
-  in
   let rec loop () =
     if done_when (Buffer.contents s.buf) then ()
     else

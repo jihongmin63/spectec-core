@@ -50,20 +50,38 @@ val absolute : string -> string
     startup once, then many [session_send]/[session_read] cycles reuse it (a
     Full Maude load is ~100s, so per-symbol respawn dominates a sweep).
     [session_send] drains stdout while writing, so a feed larger than the pipe
-    buffer cannot deadlock against the unread output. *)
+    buffer cannot deadlock against the unread output.
+
+    Both halves take the SAME absolute [deadline] ([Unix.gettimeofday] plus the
+    budget), because a unit of work is send-then-read and only the pair of them
+    is what a budget is meant to bound. Deadlining the read alone leaves the
+    write unbounded: a child that stops draining its stdin while it parses a
+    large feed blocks the writer for as long as it likes, and the caller's
+    "timeout" then bounds nothing. That is not hypothetical -- a [--timeout 60]
+    CRC symbol was measured at 35,895s, and the pre-existing sweep it came from
+    already carried 436s rows at the same budget ({!run} is immune because its
+    stdin is a temp file, which is exactly why it uses one). *)
 type session
 
 val session_start : ?env:string array -> cmd:string list -> unit -> session
 
-(** [session_send s data] writes [data] to the live child's stdin. *)
-val session_send : session -> string -> unit
+(** [session_send s data ~deadline] writes [data] to the live child's stdin,
+    draining its output as it goes. Returns [true] if it wrote everything,
+    [false] if [deadline] passed first -- a partially-written feed leaves the
+    child's input mid-term, so the caller must kill the session rather than read
+    from it. [infinity] disables the bound. *)
+val session_send : session -> string -> deadline:float -> bool
 
-(** [session_read s ~done_when ~timeout] reads the child's output accumulated
-    since the previous read until [done_when] holds over it or [timeout] seconds
-    pass, then clears the buffer so the next symbol starts fresh. Returns
+(** [session_read s ~done_when ~deadline] reads the child's output accumulated
+    since the previous read until [done_when] holds over it or [deadline]
+    passes, then clears the buffer so the next symbol starts fresh. Returns
     [(output, timed_out)]. *)
 val session_read :
-  session -> done_when:(string -> bool) -> timeout:int -> string * bool
+  session -> done_when:(string -> bool) -> deadline:float -> string * bool
+
+(** [deadline_in budget] is the absolute time [budget] seconds from now, or
+    [infinity] when [budget <= 0] (the "no limit" spelling the CLIs use). *)
+val deadline_in : int -> float
 
 (** SIGKILL the child and reap it. *)
 val session_kill : session -> unit

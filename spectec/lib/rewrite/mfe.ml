@@ -337,72 +337,107 @@ let check_commands_for (name : string) : string list =
    [Timeout]/[Timeout] and the now-blocked session is killed and respawned for
    the rest (the load is folded into the first symbol's -- and any respawn's --
    deadline). Verdicts match {!check} run per symbol. *)
+let load_budget = 240
+
 let check_batch ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
     ?sig_rules ?(on_result = fun _ _ _ -> ()) (orig : Lang.Il.spec)
     (slices : (string * Rewrite_system.t) list) : (string * result) list =
-  match resolve_mfe_dir mfe_dir with
-  | Error msg ->
-      List.map
-        (fun (label, _) ->
-          let r = { church_rosser = Error msg; coherence = Error msg } in
-          on_result label r 0.0;
-          (label, r))
-        slices
-  | Ok mfe_dir ->
-      let bin = resolve_bin maude_bin in
-      let mfe_path = Subproc.absolute (Filename.concat mfe_dir mfe_entry) in
-      let env = child_env bin in
-      let load_budget = 240 in
-      let start_session () =
-        let s = Subproc.session_start ~env ~cmd:[ bin; "-no-banner" ] () in
-        Subproc.session_send s (Printf.sprintf "load %s\n" mfe_path);
-        s
+  match slices with
+  (* One slice has nothing to amortize -- the session exists only to pay the
+     Full Maude load once across many symbols -- so take {!check}'s path
+     instead. Its stdin is a temp file, so the feed cannot block on a child
+     that is slow to drain it, which makes it the honest way to measure a
+     single symbol. Budget matches a batch's FIRST symbol (the load falls
+     inside it either way), so a row means the same thing on both paths. *)
+  | [ (label, slice) ] ->
+      let r, secs =
+        Subproc.timed (fun () ->
+            check ~timeout:(timeout + load_budget) ?maude_bin ?mfe_dir
+              ~prune_signature ?sig_rules orig slice)
       in
-      let session = ref (Some (start_session ())) in
-      let first = ref true in
-      let check_one idx (label, slice) =
-        let s =
-          match !session with
-          | Some s -> s
-          | None ->
-              let s = start_session () in
-              session := Some s;
-              first := true;
-              s
-        in
-        let name = Printf.sprintf "S_%d" idx in
-        let module_text =
-          To_mfe.module_of_system ~module_name:name ~prune_signature ?sig_rules
-            orig slice
-        in
-        (* Wall-clock the send+read -- the actual checker work. The first symbol
+      on_result label r secs;
+      [ (label, r) ]
+  | _ -> (
+      match resolve_mfe_dir mfe_dir with
+      | Error msg ->
+          List.map
+            (fun (label, _) ->
+              let r = { church_rosser = Error msg; coherence = Error msg } in
+              on_result label r 0.0;
+              (label, r))
+            slices
+      | Ok mfe_dir ->
+          let bin = resolve_bin maude_bin in
+          let mfe_path = Subproc.absolute (Filename.concat mfe_dir mfe_entry) in
+          let env = child_env bin in
+          let start_session () =
+            let s = Subproc.session_start ~env ~cmd:[ bin; "-no-banner" ] () in
+            (* The load line is one short write into an empty pipe; the child has
+           not been asked to do anything yet, so this cannot block. *)
+            ignore
+              (Subproc.session_send s
+                 (Printf.sprintf "load %s\n" mfe_path)
+                 ~deadline:infinity);
+            s
+          in
+          let session = ref (Some (start_session ())) in
+          let first = ref true in
+          let check_one idx (label, slice) =
+            let s =
+              match !session with
+              | Some s -> s
+              | None ->
+                  let s = start_session () in
+                  session := Some s;
+                  first := true;
+                  s
+            in
+            let name = Printf.sprintf "S_%d" idx in
+            let module_text =
+              To_mfe.module_of_system ~module_name:name ~prune_signature
+                ?sig_rules orig slice
+            in
+            (* Wall-clock the send+read -- the actual checker work. The first symbol
            in a (re)spawned session additionally pays the ~100s Full Maude load,
            since [load] executes lazily on the session's first read. *)
-        let (block, timed_out), elapsed =
-          Subproc.timed (fun () ->
-              Subproc.session_send s
-                (Printf.sprintf "%s%s\n" module_text
-                   (String.concat "\n" (check_commands_for name)));
-              let budget = if !first then timeout + load_budget else timeout in
-              first := false;
-              Subproc.session_read s ~done_when:batch_checks_done
-                ~timeout:budget)
-        in
-        let r =
-          if timed_out then (
-            Subproc.session_kill s;
-            session := None;
-            { church_rosser = Timeout; coherence = Timeout })
-          else
-            let norm = Subproc.normalize_ws block in
-            {
-              church_rosser = crc_verdict ~timed_out:false norm;
-              coherence = chc_verdict ~timed_out:false norm;
-            }
-        in
-        on_result label r elapsed;
-        (label, r)
-      in
-      let results = List.mapi check_one slices in
-      (match !session with Some s -> Subproc.session_kill s | None -> ());
-      results
+            let (block, timed_out), elapsed =
+              Subproc.timed (fun () ->
+                  let budget =
+                    if !first then timeout + load_budget else timeout
+                  in
+                  first := false;
+                  (* ONE deadline over send-then-read. The child drains stdin only
+                 as fast as Full Maude parses the module, so a send that is not
+                 deadlined is where the budget leaks: [$cast_binary] was
+                 measured at 35,895s under [--timeout 60] this way. *)
+                  let deadline = Subproc.deadline_in budget in
+                  if
+                    not
+                      (Subproc.session_send s
+                         (Printf.sprintf "%s%s\n" module_text
+                            (String.concat "\n" (check_commands_for name)))
+                         ~deadline)
+                  then ("", true)
+                    (* feed left mid-term: the session is unusable *)
+                  else
+                    Subproc.session_read s ~done_when:batch_checks_done
+                      ~deadline)
+            in
+            let r =
+              if timed_out then (
+                Subproc.session_kill s;
+                session := None;
+                { church_rosser = Timeout; coherence = Timeout })
+              else
+                let norm = Subproc.normalize_ws block in
+                {
+                  church_rosser = crc_verdict ~timed_out:false norm;
+                  coherence = chc_verdict ~timed_out:false norm;
+                }
+            in
+            on_result label r elapsed;
+            (label, r)
+          in
+          let results = List.mapi check_one slices in
+          (match !session with Some s -> Subproc.session_kill s | None -> ());
+          results)
