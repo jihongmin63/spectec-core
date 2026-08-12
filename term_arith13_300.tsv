@@ -1,0 +1,13 @@
+$contains	TIMEOUT	eqs=107 rules=112 u=5 k=5 vars=13 owise=0	300.4
+$contains_prime	TIMEOUT	eqs=104 rules=109 u=5 k=5 vars=13 owise=0	300.5
+$fresh_typeIds	TIMEOUT	eqs=80 rules=84 u=4 k=4 vars=13 owise=0	300.6
+$init_	TIMEOUT	eqs=77 rules=79 u=2 k=2 vars=8 owise=0	301.3
+$name_annotationToken	TIMEOUT	eqs=209 rules=213 u=4 k=4 vars=11 owise=0	303.1
+$name_annotation_opt	TIMEOUT	eqs=256 rules=268 u=12 k=12 vars=21 owise=0	301.3
+$repeat__value	TIMEOUT	eqs=79 rules=81 u=2 k=2 vars=9 owise=0	300.5
+$replace_text	TIMEOUT	eqs=111 rules=114 u=3 k=3 vars=18 owise=0	300.5
+$replace_text_except	TIMEOUT	eqs=111 rules=114 u=3 k=3 vars=18 owise=0	301.3
+$replace_text_except_prime	TIMEOUT	eqs=108 rules=111 u=3 k=3 vars=18 owise=0	300.5
+$replace_text_prime	TIMEOUT	eqs=108 rules=111 u=3 k=3 vars=18 owise=0	300.5
+$tableEntry_lpm_prefix	TIMEOUT	eqs=171 rules=186 u=15 k=15 vars=18 owise=0	300.6
+$tableEntry_lpm_prefix_prime	TIMEOUT	eqs=170 rules=185 u=15 k=15 vars=17 owise=0	300.6

@@ -75,6 +75,29 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-12 — 잔여 TIMEOUT 233의 전수 분류: **68%(159)는 실증된 실루프를 품어 YES가 수학적으로 불가**
+
+재스윕(아래 항목)의 잔여 233을 구조로 갈랐다. 방법: 전 슬라이스 TRS에 decode
+규칙(`d_bitstr_to_int`/`d_int_to_bitstr`) 포함 여부 스캔
+(`sweeps/decode_membership.tsv`), 소형 41은 own-계층 규칙 직독, 실루프 후보는
+**TRS 자신의 규칙만으로 innermost 시뮬레이션**해 증인 확보
+([sweeps/witness/WITNESSES.md](../../../sweeps/witness/WITNESSES.md) ⑶⑷,
+[simulate_w0.py](../../../sweeps/witness/simulate_w0.py)).
+
+| 분류 | 건수 | 성격 |
+|---|---|---|
+| **decode-독** (w=0 진동을 폐포에 포함) | **157** (소형 26 + 대형 131) | SN 거짓 — **어떤 예산에도 YES 불가**. `Program_ok` 포함: 12h 런은 예산 부족이 아니라 목표 불능이었다 |
+| **빈-패턴 실루프** (`$strip_prefix_rec`/`$strip_suffix_rec`) | **2** | `prefix=""`에서 가드 항진·스트립 항등 → 길이 1 순환(증인 ⑷). 0-경계 교훈의 텍스트판 |
+| **arith-blind** (이진 자릿수 산술 속 측도) | **13** | `sub(n,1)`/`add(n,1)`-toward-bound/`div` 하강 — 실제 종료인데 측도가 digit 인코딩에 묻힘. 평평한 300초 재질의로 판별 (`term_arith13_300.tsv`) |
+| **대형 clean** | **61** | 알려진 독 없음, >500규칙 — 유일하게 예산/분해가 의미 있는 구간 |
+
+**스윕 정책 귀결**: decode-독 157 + strip 2는 w=0/빈-패턴이 스펙에서 해소되기
+전까지 **재질의 자체가 낭비다**(159 × ~25s ≈ 66분/스윕). 표의 TIMEOUT 셀은 도구
+출력 그대로 두되 해석을 이 분류로 달았다(verification.md 종합). w=0 항목(아래
+2026-07-09)의 "규명 필요"가 이제 157슬라이스의 SN을 인질로 잡고 있으므로 우선순위가
+올라갔다 — 해소되면(가드 추가 시 재번역, 도달불가 판명 시 그대로) 157건이 전부
+재질의 가능해진다.
+
 ### 2026-08-12 — **termination TIMEOUT 열의 환경 연성: 175/408이 하루 만에 YES로**
 
 시간 감축 논의용 프로브가 우연히 찾아냈다. `$update_headerUnion`(151규칙, TRS 스탯
@@ -2378,6 +2401,22 @@ guarded 절 발생 시 회귀 나오면 자격 검사에 "전 형제 무조건" 
   **단 하나의 진짜 잔여물 = `$bitstr_to_int` w=0 실행 비종료**(아래 신규 이슈). termination
   verdict는 **analysis 표면 한정**(owise drop + isStuckHead ruleless)이라 executable 인증은 후속.
 - [ ] **⚠️ `$bitstr_to_int` w=0 실행 비종료 (신규 2026-07-09, termination 재캘리브레이션에서 발견).**
+  **→ 2026-08-12 기계적 증인 확보 + 폭발 반경 확정**: TRS 규칙만으로 하는 innermost
+  시뮬레이션이 `0→−1→0` 진동을 56스텝에 재현(WITNESSES.md ⑶ — 잘 정렬된 항이라
+  과대근사와 무관한 진짜 비종료). 잔여 termination TIMEOUT 233 중 **157슬라이스**
+  (`Program_ok` 포함)가 이 규칙을 폐포에 품어 SN 증명이 원천 봉쇄됨
+  (`sweeps/decode_membership.tsv`).
+  **→ 같은 날 규명도 종결: 막지 않는다.** 이 스펙의 타입체커는 `bit<0>`을 합법으로
+  수용하고(`const bit<0> A = 0;` succeeded), `$bin_plus`의 **W(unsigned) 절도**
+  `$bitstr_to_int`를 부르므로 `const bit<0> B = A + A;` 두 줄이 타입체킹을
+  실제로 발산시킨다(30초 킬; 대조군 `bit<1>` 덧셈·산술 없는 `bit<0>`·decode 없는
+  `-A`는 전부 성공, `int<0>`은 거부 — WITNESSES.md ⑸, 재현
+  [sweeps/witness/bit0_add.p4](../../../sweeps/witness/bit0_add.p4)). 따라서
+  "도달불가 문서화" 분기는 죽었고 **numerics.ml+builtin.ml 공유 실행 버그** 분기가
+  확정 — 남은 결정은 고치는 방식(bit<0> 산술을 정형성에서 거부 vs decode/encode의
+  w=0 전역화)이며 스펙 소유자 사안. 해소되면 termination 잔여 157건이 재질의
+  가능해진다. (부수 혐의: `$un_minus(0 W 0) = $(2^0−0) = 1` — bit<0>에 표현
+  불가능한 값 생성 가능성, 별도 확인 필요.)
   `builtin.ml:457-489`의 two's-complement decode가 `w=0`이면 목표 구간 `[-2^(w-1),2^(w-1))`가
   공집합이 되어 `n:0→-1→0` 진동 루프(규칙1 `n≥0`→`n-1`, 규칙2 `n<0`→`n+1`, base 도달 불가).
   참조 `numerics.ml:51-56 bitstr_to_int'`도 구조 동일 → w=0에서 같은 루프(**번역은 faithful**,
