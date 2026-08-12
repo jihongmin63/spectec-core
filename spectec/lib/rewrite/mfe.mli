@@ -39,10 +39,13 @@ val batch_checks_done : string -> bool
     [maude_bin] defaults to [SPECTEC_MAUDE_BIN], then a repo-relative [maude].
     [mfe_dir] (holding the Full Maude + CRC/ChC loader) defaults to
     [SPECTEC_MFE_DIR], then [spectec/tools/mfe]; a missing MFE is a clean
-    [Error], not a crash. [timeout] is the whole-run budget in seconds (default
-    60). [prune_signature] (default [false]) restricts the emitted signature to
-    what the rules use ({!To_mfe.module_of_system}) -- verdict-preserving, for
-    when the full signature would drown the checker. *)
+    [Error], not a crash. [timeout] bounds the CHECKING work (module parse + CRC
+    \+ ChC) in seconds, clocked from the end of the MFE load, which is bounded
+    separately (default 60; 0 disables both bounds) -- so the budget a row
+    reports is checker time, not checker time plus the load allowance.
+    [prune_signature] (default [false]) restricts the emitted signature to what
+    the rules use ({!To_mfe.module_of_system}) -- verdict-preserving, for when
+    the full signature would drown the checker. *)
 val check :
   ?timeout:int ->
   ?maude_bin:string ->

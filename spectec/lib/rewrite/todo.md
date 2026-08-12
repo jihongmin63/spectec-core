@@ -75,6 +75,28 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-12 — CRC `--timeout`의 의미론 정직화: 로드/체크 deadline 분리
+
+`43ed519d`가 예산 누수를 막으면서 심볼당 경로의 deadline을
+`timeout + load_budget(240)` 하나로 접었는데, MFE 로드 실측이 **0.38s**(3회 일관)라
+접힌 240초가 사실상 전부 체커에게 넘어갔다 — `--timeout 60` 행이 실제로는 ~300초를
+검사했고, `crc_after_cap.tsv`의 YES 5건(`$bin_band`,`$name_annotationToken`,
+`$set_priorities_of_tableEntryListIR`,`ExternMethod_inst`,`ExternMethods_inst`)이
+60초를 넘겨 성립한, 이 부풀림에 의존한 판정이었다(그중 3건은 300.4s 천장에 밀착).
+
+고침: `run_mfe`가 로드 완료 마커(`MFE> ` 프롬프트 — 배너 직후 정확히 한 번, EOF
+홍수는 맨 `> `)를 관찰해 **체크 단계 시계를 마커 등장 시점부터** 돌린다. 로드는
+`load_budget`이 따로 묶고(하드 실링 load_budget+timeout 유지), `check_batch`의 단일
+슬라이스 위임은 `+ load_budget` 접기를 제거. 검증: `$cast_binary --timeout 30` →
+TIMEOUT **30.8s**(전엔 사실상 270s), `$bin_band --timeout 60` → TIMEOUT 60.8s /
+`--timeout 300` → YES 301.0s.
+
+**스윕 규약이 바뀐다**: 기존 행들의 "60"은 사실상 300이었으므로, 판정을 보존하려면
+앞으로의 CRC 스윕은 **`--timeout 300`을 명시**할 것. `$bin_band`는 판정이 와이어에
+밀착(체크 ~300s 필요)이라 300 예산에서도 경계 위에 있다. TIMEOUT 행의 비용은 그대로
+~300s — 시간 절감은 이 고침의 목적이 아니고(장부 정직화가 목적), 절감은 지문 carry
+쪽 논의로.
+
 ### 2026-08-10 — `max_complement` 제거, 그리고 그게 드러낸 **부분 커버 드롭** (`ab950751`)
 
 캡 두 개는 이름만 비슷하고 성격이 다르다.

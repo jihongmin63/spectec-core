@@ -46,6 +46,18 @@ let string_of_verdict = function
 let module_name = "SPEC"
 let mfe_entry = "src/mfe.maude"
 
+(* The prompt the object loop prints once [load mfe.maude] completes -- the
+   boundary between the load phase and the checking phase. Printed exactly once,
+   before any command output (the end-of-input flood is bare [> ], never
+   [MFE> ]). *)
+let load_marker = "MFE> "
+
+(* Ceiling on the load phase alone -- generous against a cold cache or a slow
+   machine (measured at 0.38s here). Kept OUT of the checking budget: folding
+   the two into one deadline hands whatever the load does not use to the
+   checker, so a [--timeout 60] check was measured running for ~300s. *)
+let load_budget = 240
+
 (* The commands fed after the module: select each tool, then run its check. The
    selection is mandatory -- a bare [(check ...)] does not parse. *)
 let check_commands =
@@ -161,9 +173,34 @@ let batch_checks_done (raw : string) : bool =
   | None -> false
   | Some i -> Subproc.contains (String.sub raw i (String.length raw - i)) "MFE>"
 
+(* [timeout] bounds the CHECKING work (module parse + CRC + ChC), clocked from
+   the moment the [load_marker] prompt appears; the load itself is bounded
+   separately by [load_budget]. One deadline over both either hands the checker
+   the load's unused allowance or, on a machine where the load really is slow,
+   silently steals the check's budget. *)
 let run_mfe ~(bin : string) ~(timeout : int) (feed : string) : string * bool =
-  Subproc.run ~env:(child_env bin) ~done_when:checks_done
-    ~cmd:[ bin; "-no-banner" ] ~feed ~timeout ()
+  let check_started = ref None in
+  let check_expired = ref false in
+  let done_when raw =
+    match !check_started with
+    | None ->
+        if Subproc.contains raw load_marker then
+          check_started := Some (Unix.gettimeofday ());
+        false
+    | Some t0 ->
+        if checks_done raw then true
+        else if timeout > 0 && Unix.gettimeofday () -. t0 > float_of_int timeout
+        then (
+          check_expired := true;
+          true)
+        else false
+  in
+  let total = if timeout > 0 then load_budget + timeout else 0 in
+  let output, timed_out =
+    Subproc.run ~env:(child_env bin) ~done_when ~cmd:[ bin; "-no-banner" ] ~feed
+      ~timeout:total ()
+  in
+  (output, timed_out || !check_expired)
 
 (* -------------------------------------------------------------------------- *)
 (* Verdict classification (over the whitespace-normalized output). *)
@@ -337,8 +374,6 @@ let check_commands_for (name : string) : string list =
    [Timeout]/[Timeout] and the now-blocked session is killed and respawned for
    the rest (the load is folded into the first symbol's -- and any respawn's --
    deadline). Verdicts match {!check} run per symbol. *)
-let load_budget = 240
-
 let check_batch ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
     ?sig_rules ?(on_result = fun _ _ _ -> ()) (orig : Lang.Il.spec)
     (slices : (string * Rewrite_system.t) list) : (string * result) list =
@@ -347,13 +382,14 @@ let check_batch ?(timeout = 60) ?maude_bin ?mfe_dir ?(prune_signature = false)
      Full Maude load once across many symbols -- so take {!check}'s path
      instead. Its stdin is a temp file, so the feed cannot block on a child
      that is slow to drain it, which makes it the honest way to measure a
-     single symbol. Budget matches a batch's FIRST symbol (the load falls
-     inside it either way), so a row means the same thing on both paths. *)
+     single symbol. [check] bounds the load separately, so [timeout] buys the
+     symbol exactly its checking budget -- what a batch symbol gets once the
+     load is paid. *)
   | [ (label, slice) ] ->
       let r, secs =
         Subproc.timed (fun () ->
-            check ~timeout:(timeout + load_budget) ?maude_bin ?mfe_dir
-              ~prune_signature ?sig_rules orig slice)
+            check ~timeout ?maude_bin ?mfe_dir ~prune_signature ?sig_rules orig
+              slice)
       in
       on_result label r secs;
       [ (label, r) ]
