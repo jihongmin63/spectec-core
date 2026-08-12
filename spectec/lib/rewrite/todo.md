@@ -75,6 +75,36 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-12 — **termination TIMEOUT 열의 환경 연성: 175/408이 하루 만에 YES로**
+
+시간 감축 논의용 프로브가 우연히 찾아냈다. `$update_headerUnion`(151규칙, TRS 스탯
+동일)의 행적: 08-07 예산 300에서 MAYBE(279.8s) → 08-10 세 스윕 모두 TIMEOUT(~21s)
+→ **08-12 예산 5에서 1초 YES**. 한-변수 반증: minisat2(08-12 유일한 설치)는
+제거해도 1초 YES, aprove.jar·java·z3·스펙·번역 경로 전부 불변. 크기대별 10개
+스팟체크에서 5개 플립(1,020~1,404규칙이 2~3초) → 650 전수 재스윕(동일 조건, 환경
+지문 스탬프: nproc=32/가용 108GB/loadavg 3.5~5.7)으로 확정:
+
+- **YES 240 → 415 (TIMEOUT→YES 175), YES→비YES 회귀 0, NO/ERROR 0.** 2h33m.
+- 플립 중앙값 1,221규칙, 최대 `Cast_impl` 3,860(19.8s). 건강한 AProVE는 수천 규칙도
+  수 초.
+- 잔여 TIMEOUT 233 = 대형 폐포 192(>500규칙, 중앙값 5,674) + **소형 41**(≤500:
+  `$strip_prefix_rec` 59, `$init_` 79, `$repeat__value` 81, `$fresh_typeIds` 84,
+  `$strip_suffix_rec` 98…). 소형 잔여가 다음 의미론적 표적.
+- 용의자는 당시 이 박스의 JVM 가용 자원(cgroup 배분 추정, 소급 검증 불가). **CRC도
+  초 단위는 묻었다**: `ExternMethod_inst`가 기록 300.4s vs 오늘 ~61s(분리 deadline
+  검증). 단 CRC의 판정 자체는 재현됨($bin_band ~300s 필요, $cast_binary 여전히
+  hard).
+- 무효화된 결론: 08-09의 "≤500 TIMEOUT은 300초 재질의에도 YES 0 → 예산이 아니라
+  구조 문제" — 저하 환경에서 측정된 것. verification.md에서 걷어냄.
+- **교훈: TIMEOUT은 시간 열처럼 환경 지문(nproc/메모리/부하/솔버 유무)과 함께
+  기록해야 하는 판정이다.** 스윕 스크립트가 STATUS에 지문을 스탬프하는 규약 추가
+  (`sweeps/run_term_resweep.sh`).
+- 걸린 후속: ① CRC TIMEOUT 37 + `ExternMethods_inst`를 정직 예산(`--timeout 300`,
+  분리 deadline)으로 재질의 — 일부 닫힐 수 있다. ② 소형 잔여 41의 증인/구조 분석.
+  ③ 상대 종료성 분해(`SN(S)+SN(R/S)⟹SN(R∪S)`, AProVE가 TPDB `->=` 수용 확인,
+  토이 YES)는 실슬라이스 프로브($bin_minus strict 13/상대 212)가 300초에 미착지 —
+  RelADP 기계가 무거워 공짜 아님. 진짜 hard core가 확정된 지금 재프로브 가치 재평가.
+
 ### 2026-08-12 — CRC `--timeout`의 의미론 정직화: 로드/체크 deadline 분리
 
 `43ed519d`가 예산 누수를 막으면서 심볼당 경로의 deadline을
