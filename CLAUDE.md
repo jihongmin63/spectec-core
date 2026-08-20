@@ -103,7 +103,8 @@ is ground truth.
 | [maude/maude_run.ml](spectec/lib/rewrite/maude/maude_run.ml) / `.mli` | Runs an emitted module on a META-TERM start term via a local `maude` binary (`metaReduce`/`metaRewrite`/`metaSearch`); `run_batch` runs many starts in one Maude invocation (module internalized once). |
 | [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_normalize_upgrade` adds the upgrade-only `--crc-normalize` retry. |
 | [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
-| [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Structure-preserving unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
+| [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
+| [qdp.ml](spectec/lib/rewrite/qdp.ml) / `.mli` | One child of AProVE's dependency-graph decomposition, read out of a run's obligation echo and re-posed as a standalone `.qdp` problem (usable-rules pruned + Cε). |
 | [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
 | [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
 | [scc.ml](spectec/lib/rewrite/scc.ml) / `.mli` | Sufficient completeness via CETA Maude 2.7 + old MFE 2.7.1: unconditional over-approximation, pruned functional module, verdict/fidelity/witness-domain classification (the `scc` subcommand). |
@@ -189,13 +190,21 @@ become CTRS conditions; the result/output becomes the rhs.
   makes the sweep resumable. `--crc-normalize` retries an inconclusive verdict
   on the normalized (and pruned) system, upgrade-only (`YES (normalized)`; see
   the CRC normalization section).
-- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--out TSV] FILES…`**
-  — proves per-slice termination by structure-preserving unravel + a direct
-  AProVE run (`Termination.check`; **no MTT** — see below). Row per symbol:
-  `<sym>\t<YES|NO|MAYBE|TIMEOUT|DEGENERATE|ERROR>\t<stats>`. `--all` sweeps
-  `def_symbols` smallest slice first; `--out` makes the sweep resumable
-  (recorded symbols are skipped). `--emit-trs` prints the TPDB TRS instead of
-  running AProVE.
+- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--itrs] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
+  — proves per-slice termination by unravel + a direct AProVE run
+  (`Termination.check`; **no MTT** — see below). Up to **three paths**, in
+  order, stopping at the first YES: the whole slice as one TRS, then that run's
+  open dependency-graph children one at a time (`--no-child-split` disables),
+  then the integer surface where the slice computes arithmetic at all
+  (`--no-integer-retry` disables; `--itrs` runs that surface *alone*, which is
+  what the ITRS columns were measured with). Row per symbol:
+  `<sym>\t<YES|NO|MAYBE|TIMEOUT|DEGENERATE|ERROR>\t<stats>\t<secs>\t<paths>`,
+  where `<paths>` is every path taken with its own verdict and seconds
+  (`whole:TIMEOUT@300.0s children:YES(all children closed)@41.2s`) — that is
+  where a failed split's own numbers survive a row the plain run's verdict
+  won. `--all` sweeps `def_symbols` smallest slice first; `--out` makes the
+  sweep resumable (recorded symbols are skipped). `--emit-trs` prints the TPDB
+  TRS instead of running AProVE.
 - **`scc [--symbol NAME]… | --all [--timeout S] [--ceta-maude-bin P] [--mfe271-dir D] [--emit] [--out TSV] FILES…`**
   — per-slice sufficient completeness via CETA Maude 2.7 + the old MFE 2.7.1
   (`Scc.check`); the row format is the retired `run-scc.sh`'s
@@ -306,14 +315,31 @@ from the CTRS values directly; `aprove.ml` hands it to
 `tools/aprove/runme <file.trs> <budget>`, WST mode; `--emit-trs` shows the
 TRS).
 
-**What `<carried>` is does not matter.** Marchiori's classic form (pass the lhs
-*variables*, flat) and a structure-preserving form (pass the lhs *argument list*
-verbatim inside an inert `k_N` constructor with no defining rule) were measured
-head to head on the same slices with the same AProVE: **both YES**, in 0–1 s.
-`unravel.ml` ships the structure-preserving form — it is the one the 153/153
-sweep and its golden TRSs were measured with. (One trap either way: passing the
+**What `<carried>` is decides which processor closes the cycle** — and at scale
+that decides everything. `unravel.ml` passes the lhs **variables, flat**
+(Marchiori's classic form). Wrapping the lhs *argument list* verbatim in an
+inert `k_N` constructor, which it shipped until 2026-08-19, is equally sound and
+equally provable on a small slice (both YES in 0–1 s, which is how the choice
+was first — and wrongly — judged irrelevant), but it hides the descent from
+size-change analysis: the recursive argument meets a `k_N(...)` that *contains*
+it, so no edge is recorded and only a reduction-pair search can close the cycle.
+One-variable re-measurement on the 577 dependency-graph children of
+`Program_ok`: **keep 317 closed, flat 502**. (One trap either way: passing the
 bare lhs *term* makes the rule reproduce its own redex — AProVE correctly
 answers NO.)
+
+**A whole-system TIMEOUT is then split.** AProVE's `(4) AND` node is one QDP
+child per SCC of the dependency graph, and all 577 of them share the run's ONE
+deadline — so a child its tree leaves open may be hard or may simply never have
+been reached. `termination` re-poses each open child as a standalone problem
+([qdp.ml](spectec/lib/rewrite/qdp.ml)) and gives it the budget alone; all closed
+⟹ YES, by the soundness of the `AND`. Two details make it cheap and sound: the
+child carries **our** exported rules (a superset of whatever the run had reduced
+them to — a superset only adds chains), pruned to the pairs' **usable rules**
+with the Cε pair `c(x,y) → x | y` alongside (sound on a minimal problem; the
+prune is skipped when the echo does not say *minimal*). Measured on four of
+`Program_ok`'s open children: same YES verdicts, 33–36 s → **1–4 s**, since
+~30 s of each was parsing the 4 MB rule set the unpruned child carried.
 
 Measured effect (153 ≤500-rule symbols): `term` goes from YES 117 / MAYBE 12 /
 TIMEOUT 24 through MTT to **YES 153/153**. The slices MTT could not close —
@@ -370,7 +396,7 @@ does not prune at all.
 > component inside them, when the two paths differed in sort encoding, condition
 > encoding, and AProVE budget all at once. Three one-variable-at-a-time
 > experiments settled it: swapping only the unraveling style (variable-passing vs
-> structure-preserving) leaves both at YES; running MTT's captured output
+> variable-passing vs keep-constructor) leaves both at YES; running MTT's captured output
 > directly gives YES; and `mtt.maude` turns out to hardcode a 120 s budget. The
 > measurements and the operational conclusion (don't use MTT; unravel yourself
 > and call AProVE) were unaffected. **Lessons: to claim X causes Y, change X and
@@ -464,7 +490,7 @@ MAYBE/TIMEOUT verdicts; triaging every one left **exactly one real defect**.
   about a second — but only if the premise's destructuring survives as a *match*.
   MTT rewrites it into an `equal(s,t) -> tt` test, which frees the pattern's
   variables and makes the descent invisible. `main.exe termination` unravels
-  structure-preservingly and these all come back YES — see "Do not route
+  and these all come back YES — see "Do not route
   termination through MTT" above.
 - Modular-(B) arith-blindness: the measure lives in the black-boxed arithmetic
   (e.g. `$shr`'s `bpred`); closed only by the (A)-lift. Real termination holds.
@@ -563,6 +589,14 @@ Stale beyond the anchors, in commit order:
   stale at HEAD. They are one family of change — re-measure once, after the
   last of them. The pending full-corpus differential re-run is tracked in
   [todo.md](spectec/lib/rewrite/todo.md).
+- The **termination column is stale as of 2026-08-20 in three ways at once**, so
+  every `sweeps/term*.tsv` and `sweeps/itrs*.tsv` needs re-measuring whole (not
+  patched row-wise): the unraveling now carries the lhs variables flat rather
+  than wrapped (2026-08-19), `termination` takes three paths instead of one
+  (whole → children → integer), and the integer export now goes through
+  `rebind_stuck_guards` like the plain one — before that it proved a system with
+  every stuck-guarded rule silently deleted, so its YES verdicts do not carry.
+  The row also grew a fifth column (the paths taken).
 - The `check_diff_p4_*.tsv` sitting in the repo root are **not** HEAD's numbers.
   The driver is resumable and silently skips every file already recorded, so a
   re-run over a stale TSV validates nothing — move them aside first.

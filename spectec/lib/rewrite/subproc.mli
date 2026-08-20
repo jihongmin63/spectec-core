@@ -6,21 +6,36 @@
     larger than the pipe buffer against the unread stdout), the child is
     launched through [/bin/sh] with the stack limit lifted (legitimately-deep
     critical-pair/tree-automaton/reduction work otherwise dies as a native
-    "Fatal error: stack overflow" and reads as a missing verdict), and output
-    already produced is returned even when the deadline kills the process. *)
+    "Fatal error: stack overflow" and reads as a missing verdict) and in its own
+    session, so the deadline kill reaches the tool's own children (AProVE's
+    z3/minisat backend outlives a SIGKILLed java and then competes with the
+    sweep that spawned it -- see [subproc.ml]), and output already produced is
+    returned even when the deadline kills the process. *)
 
-(** [run ?env ?done_when ~cmd ~feed ~timeout ()] executes [cmd] (an argv whose
-    head is the program path) with [feed] on stdin and returns
+(** [run ?env ?keep ?done_when ~cmd ~feed ~timeout ()] executes [cmd] (an argv
+    whose head is the program path) with [feed] on stdin and returns
     [(output, timed_out)]. [timeout] is the whole-run deadline in seconds (0
     disables it); [timed_out] reports that the deadline (not a finished run)
     stopped the read. [done_when] is polled over the accumulated output: a tool
     with no clean exit (the MFE floods an incomplete-input prompt forever) is
     killed as soon as its output satisfies the predicate; without it the run
     reads to EOF. [env] replaces the child's environment (default: the
-    parent's). The child is always SIGKILLed on the way out, so a verdict
-    already printed is parsed even though the process never exits cleanly. *)
+    parent's). The child's whole process group is always SIGKILLed on the way
+    out, so a verdict already printed is parsed even though the process never
+    exits cleanly, and nothing it spawned is left running.
+
+    [keep] retains only the complete output lines it accepts, discarding the
+    rest as they stream past -- what makes a run whose output is far larger than
+    its interesting part readable at all ({!Aprove}'s obligation echo reprints
+    the whole rule set once per dependency-graph child: gigabytes, of which the
+    dependency pairs are a few thousand lines). It is called EXACTLY ONCE PER
+    LINE, in output order, so a stateful filter may use it to track which
+    section of a tool's output it is in; the trailing partial line a deadline
+    kill leaves behind is dropped. Without it every byte is accumulated
+    verbatim. *)
 val run :
   ?env:string array ->
+  ?keep:(string -> bool) ->
   ?done_when:(string -> bool) ->
   cmd:string list ->
   feed:string ->
@@ -83,5 +98,5 @@ val session_read :
     [infinity] when [budget <= 0] (the "no limit" spelling the CLIs use). *)
 val deadline_in : int -> float
 
-(** SIGKILL the child and reap it. *)
+(** SIGKILL the child's process group and reap it. *)
 val session_kill : session -> unit

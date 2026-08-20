@@ -9,8 +9,8 @@ type stats = {
 }
 
 let string_of_stats s =
-  Printf.sprintf "eqs=%d rules=%d u=%d k=%d vars=%d owise=%d" s.eqs s.rules
-    s.chain_steps s.chain_steps s.vars s.owise
+  Printf.sprintf "eqs=%d rules=%d u=%d vars=%d owise=%d" s.eqs s.rules
+    s.chain_steps s.vars s.owise
 
 (* ------------------------------------------------------------------------- *)
 (* TPDB identifier scrub. CTRS identifiers are [A-Za-z0-9_$] ({!R.sanitize},
@@ -69,7 +69,115 @@ let schedule_conds (lhs_vars : string list) (conds : R.cond list) :
   in
   go lhs_vars conds []
 
-let trs_of_system (t : R.t) : (string * stats, string) result =
+(* What the chain step CARRIES across a condition: the lhs VARIABLES, as direct
+   arguments of [u_i]. The alternative -- wrapping the lhs argument list
+   verbatim in an inert keep-constructor [k_i], which is what this unraveler
+   emitted until 2026-08-19 -- is equally sound and equally provable on a small
+   slice, but it hands AProVE a problem a far more expensive processor has to
+   close, and at scale that decides everything.
+
+   On a structural recursion -- destructure a list in a premise, recurse on the
+   tail -- the two shapes are:
+
+     kept: D(cons(h,t), ..) -> U(b, k(cons(h,t), ..))    U(true, k(cons(h,t), ..)) -> D(t, ..)
+     flat: D(cons(h,t), ..) -> U(b, h, t, ..)            U(true, h, t, ..)          -> D(t, ..)
+
+   Size-change termination compares argument POSITIONS pairwise. Flat, the
+   [cons(h,t)] at D's position 1 meets [t] at U's -- a strict subterm, a strict
+   decrease, and the cycle closes by [QDPSizeChangeProof] at no cost. Kept, that
+   argument meets [k(cons(h,t), ..)], which CONTAINS it: neither a decrease nor
+   an equality, so no edge is recorded at all and size-change has nothing to work
+   with. The cycle is still closable, but only by searching for a reduction pair
+   -- affordable for one slice, not for the 577 dependency-graph children of
+   [Program_ok], where size-change was the only processor that ever succeeded.
+   Measured one-variable on those children: kept closes 317, flat closes 502.
+
+   Flat is an over-approximation of the kept shape, which is the safe direction:
+   the consumer [u(pat, x1..xn)] matches MORE terms than its producer builds
+   (the original arguments' pattern structure and non-linearity are no longer
+   enforced), exactly as dropping the sorts does. *)
+
+(* The unraveling proper: every conditional rule becomes a [u_i] chain, so
+   what comes back is an UNCONDITIONAL rewrite system -- the common core of
+   every plain-TRS export. Kept separate from the printers because the two
+   surfaces spell the same rules differently ({!trs_of_system} in TPDB,
+   {!Itrs.of_system} in ITRS with integer constraints) while the chain
+   construction, its binder accumulation and its coverage checks must stay
+   identical: a divergence there would make the two surfaces prove different
+   systems while claiming to be the same one. *)
+
+let unconditional_rules (t : R.t) :
+    ((R.term * R.term) list * int * int, string) result =
+  let exception Fail of string in
+  try
+    let counter = ref 0 in
+    let owise = ref 0 in
+    let emitted = ref [] in
+    let emit lhs rhs = emitted := (lhs, rhs) :: !emitted in
+    List.iter
+      (fun (r : R.rule) ->
+        if r.owise then incr owise;
+        match r.conds with
+        | [] -> emit r.lhs r.rhs
+        | conds ->
+            let args = match r.lhs with R.App (_, a) -> a | R.Var _ -> [] in
+            let arg_vars =
+              R.dedup_stable (List.concat_map R.vars_of_term args)
+            in
+            let ordered =
+              match schedule_conds arg_vars conds with
+              | Some cs -> cs
+              | None ->
+                  raise
+                    (Fail
+                       ("unorderable conditions in a rule for "
+                       ^ Option.value (R.defined_head r) ~default:"?"))
+            in
+            let bound = ref [] in
+            let cur = ref r.lhs in
+            List.iter
+              (fun (s, pat) ->
+                incr counter;
+                let i = !counter in
+                let u = Printf.sprintf "u_%d" i in
+                let carried = List.map (fun v -> R.Var v) (arg_vars @ !bound) in
+                emit !cur (R.App (u, s :: carried));
+                List.iter
+                  (fun v ->
+                    if (not (List.mem v !bound)) && not (List.mem v arg_vars)
+                    then bound := !bound @ [ v ])
+                  (vars_of pat);
+                cur := R.App (u, pat :: carried))
+              ordered;
+            emit !cur r.rhs)
+      t.R.rules;
+    let rules = List.rev !emitted in
+    (* Every rhs variable must be lhs-bound, or the TRS is malformed. *)
+    List.iter
+      (fun (lhs, rhs) ->
+        let extra =
+          List.filter
+            (fun v -> not (List.mem v (R.vars_of_term lhs)))
+            (R.vars_of_term rhs)
+        in
+        if extra <> [] then
+          raise
+            (Fail
+               (Printf.sprintf "unbound rhs variable(s) %s in %s -> %s"
+                  (String.concat ", " (R.dedup_stable extra))
+                  (R.string_of_term lhs) (R.string_of_term rhs))))
+      rules;
+    Ok (rules, !counter, !owise)
+  with Fail msg -> Error msg
+
+(* Spell a set of unconditional rules as TPDB text: the identifier scrub, the
+   collision table, and the [(VAR ...)] roll-up. Shared with {!Itrs} for the
+   same reason {!unconditional_rules} is -- one scrub, so a symbol has one
+   spelling on both surfaces -- and returned as printed PAIRS rather than a
+   finished document because the two surfaces wrap them differently (ITRS adds
+   a goal header, a hand-written integer prelude, and a [:|:] tail per rule). *)
+let print_rules (rules : (R.term * R.term) list) :
+    ((string * string) list * string list, string) result =
   let exception Fail of string in
   try
     (* One TPDB spelling per source name, and never two sources per spelling.
@@ -111,93 +219,63 @@ let trs_of_system (t : R.t) : (string * stats, string) result =
     let sym f = name "sym " f (tpdb_sym f) in
     let var v = name "var " v (tpdb_var v) in
     let variables = ref [] in
+    (* An integer literal folded in by {!Itrs} is already its own spelling: it
+       must reach the file as [-3], not as a scrubbed identifier. *)
     let rec print (t : R.term) : string =
       match t with
       | R.Var v ->
           let v' = var v in
           if not (List.mem v' !variables) then variables := v' :: !variables;
           v'
+      | R.App (f, []) when String.length f > 1 && f.[0] = '#' ->
+          String.sub f 1 (String.length f - 1)
       | R.App (f, []) -> sym f
       | R.App (f, args) ->
           sym f ^ "(" ^ String.concat ", " (List.map print args) ^ ")"
     in
-    let counter = ref 0 in
-    let owise = ref 0 in
-    let emitted = ref [] in
-    let emit lhs rhs = emitted := (lhs, rhs) :: !emitted in
-    List.iter
-      (fun (r : R.rule) ->
-        if r.owise then incr owise;
-        match r.conds with
-        | [] -> emit r.lhs r.rhs
-        | conds ->
-            let args = match r.lhs with R.App (_, a) -> a | R.Var _ -> [] in
-            let arg_vars =
-              R.dedup_stable (List.concat_map R.vars_of_term args)
-            in
-            let ordered =
-              match schedule_conds arg_vars conds with
-              | Some cs -> cs
-              | None ->
-                  raise
-                    (Fail
-                       ("unorderable conditions in a rule for "
-                       ^ Option.value (R.defined_head r) ~default:"?"))
-            in
-            let bound = ref [] in
-            let cur = ref r.lhs in
-            List.iter
-              (fun (s, pat) ->
-                incr counter;
-                let i = !counter in
-                let u = Printf.sprintf "u_%d" i
-                and k = Printf.sprintf "k_%d" i in
-                let keep =
-                  R.App (k, args @ List.map (fun v -> R.Var v) !bound)
-                in
-                emit !cur (R.App (u, [ s; keep ]));
-                List.iter
-                  (fun v ->
-                    if (not (List.mem v !bound)) && not (List.mem v arg_vars)
-                    then bound := !bound @ [ v ])
-                  (vars_of pat);
-                cur := R.App (u, [ pat; keep ]))
-              ordered;
-            emit !cur r.rhs)
-      t.R.rules;
-    let rules = List.rev !emitted in
-    (* Every rhs variable must be lhs-bound, or the TRS is malformed. *)
-    List.iter
-      (fun (lhs, rhs) ->
-        let extra =
-          List.filter
-            (fun v -> not (List.mem v (R.vars_of_term lhs)))
-            (R.vars_of_term rhs)
-        in
-        if extra <> [] then
-          raise
-            (Fail
-               (Printf.sprintf "unbound rhs variable(s) %s in %s -> %s"
-                  (String.concat ", " (R.dedup_stable extra))
-                  (R.string_of_term lhs) (R.string_of_term rhs))))
-      rules;
     let printed = List.map (fun (lhs, rhs) -> (print lhs, print rhs)) rules in
-    let b = Buffer.create 4096 in
-    Buffer.add_string b
-      (Printf.sprintf "(VAR %s)\n"
-         (String.concat " " (List.sort compare !variables)));
-    Buffer.add_string b "(RULES\n";
-    List.iter
-      (fun (lhs, rhs) -> Buffer.add_string b ("  " ^ lhs ^ " -> " ^ rhs ^ "\n"))
-      printed;
-    Buffer.add_string b ")\n";
-    Ok
-      ( Buffer.contents b,
-        {
-          eqs = List.length t.R.rules;
-          rules = List.length rules;
-          chain_steps = !counter;
-          vars = List.length !variables;
-          owise = !owise;
-        } )
+    Ok (printed, List.sort compare !variables)
   with Fail msg -> Error msg
+
+(* The pieces of one export a consumer of the TRS TEXT cannot recover from it:
+   the printed rules one by one, and the identifiers the [(VAR ...)] header
+   declares. {!Qdp} needs both to re-pose one dependency-graph child against a
+   SUBSET of these rules -- and must take that subset from here rather than
+   re-printing it, since the collision table is resolved over the whole list. *)
+type export = { printed : (string * string) list; vars : string list }
+
+let export_of_system (t : R.t) : (export * stats, string) result =
+  match unconditional_rules t with
+  | Error msg -> Error msg
+  | Ok (rules, chain_steps, owise) -> (
+      match print_rules rules with
+      | Error msg -> Error msg
+      | Ok (printed, vars) ->
+          Ok
+            ( { printed; vars },
+              {
+                eqs = List.length t.R.rules;
+                rules = List.length rules;
+                chain_steps;
+                vars = List.length vars;
+                owise;
+              } ))
+
+(* The TPDB document: a [(VAR ...)] header over [vars] and a [(RULES ...)] block
+   over [printed]. Split from {!export_of_system} so a caller that emits a
+   SUBSET of the same rules ({!Qdp}) spells the header the same way. *)
+let tpdb_document ~(vars : string list) (printed : (string * string) list) :
+    string =
+  let b = Buffer.create 4096 in
+  Buffer.add_string b (Printf.sprintf "(VAR %s)\n" (String.concat " " vars));
+  Buffer.add_string b "(RULES\n";
+  List.iter
+    (fun (lhs, rhs) -> Buffer.add_string b ("  " ^ lhs ^ " -> " ^ rhs ^ "\n"))
+    printed;
+  Buffer.add_string b ")\n";
+  Buffer.contents b
+
+let trs_of_system (t : R.t) : (string * stats, string) result =
+  match export_of_system t with
+  | Error msg -> Error msg
+  | Ok (e, stats) -> Ok (tpdb_document ~vars:e.vars e.printed, stats)

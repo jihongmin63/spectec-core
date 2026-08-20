@@ -25,40 +25,100 @@ let roots ~(all : bool) ~(symbols : string list) ~(all_roots : string list)
     |> List.sort compare |> List.map snd
   else symbols
 
-let recorded_symbols (path : string) : string list =
+let recorded_rows (path : string) : string list =
   if not (Sys.file_exists path) then []
   else
     let ic = open_in path in
     let rec go acc =
       match input_line ic with
-      | line -> (
-          match String.index_opt line '\t' with
-          | Some i -> go (String.sub line 0 i :: acc)
-          | None -> go acc)
-      | exception End_of_file -> acc
+      | line -> go (line :: acc)
+      | exception End_of_file -> List.rev acc
     in
-    let acc = go [] in
-    close_in ic;
-    acc
+    Fun.protect ~finally:(fun () -> close_in ic) (fun () -> go [])
 
-let rows ~out ~roots ~row_of : bool =
-  let recorded = match out with Some p -> recorded_symbols p | None -> [] in
+let recorded_symbols (path : string) : string list =
+  List.filter_map
+    (fun line ->
+      match String.index_opt line '\t' with
+      | Some i -> Some (String.sub line 0 i)
+      | None -> None)
+    (recorded_rows path)
+
+(* A row the sweep copied rather than measured names its source in a trailing
+   [=<symbol>] column. It is appended, never substituted, so a reader that
+   takes a fixed column (the verdict, the stats) sees the same thing it always
+   did, and one that sums the wall clock can tell which rows to leave out --
+   the seconds in a copied row are the source's, and no second run spent
+   them. *)
+let copy_marker = '='
+
+(* A row split into its symbol, the columns after it, and the symbol whose run
+   produced them (itself, unless the row is a copy). *)
+let parse_row (line : string) : string * string * string =
+  match String.split_on_char '\t' line with
+  | [] | [ _ ] -> (line, "", line)
+  | sym :: fields -> (
+      match List.rev fields with
+      | last :: rest when String.length last > 1 && last.[0] = copy_marker ->
+          ( sym,
+            String.concat "\t" (List.rev rest),
+            String.sub last 1 (String.length last - 1) )
+      | _ -> (sym, String.concat "\t" fields, sym))
+
+let rows ~out ~roots ~key ~row_of : bool =
+  let recorded = match out with Some p -> recorded_rows p | None -> [] in
+  let recorded_syms =
+    List.map
+      (fun line ->
+        let sym, _, _ = parse_row line in
+        sym)
+      recorded
+  in
+  (* [key] -> the columns of the row that answered it, the symbol that ran, and
+     whether that row failed. The key is the whole input to the check, so two
+     symbols sharing one is one question asked twice. *)
+  let measured : (string, string * string * bool) Hashtbl.t =
+    Hashtbl.create 64
+  in
+  (* Seeded from the rows already on disk so the saving survives a resume.
+     Only symbols this sweep would visit are seeded: a row naming a symbol the
+     spec no longer defines keys off an empty slice, and every such row would
+     then answer for every other. A seeded row counts as not-failed, matching
+     how a resumed sweep already treats everything it skips. *)
+  List.iter
+    (fun line ->
+      let sym, tail, source = parse_row line in
+      if List.mem sym roots then
+        let k = key sym in
+        if not (Hashtbl.mem measured k) then
+          Hashtbl.replace measured k (tail, source, false))
+    recorded;
   let oc =
     Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
   in
   Fun.protect
     ~finally:(fun () -> Option.iter close_out oc)
     (fun () ->
+      let put line =
+        print_endline line;
+        Option.iter
+          (fun oc ->
+            output_string oc (line ^ "\n");
+            flush oc)
+          oc
+      in
       List.fold_left
         (fun failed sym ->
-          if List.mem sym recorded then failed
+          if List.mem sym recorded_syms then failed
           else
-            let line, row_failed = row_of sym in
-            print_endline line;
-            Option.iter
-              (fun oc ->
-                output_string oc (line ^ "\n");
-                flush oc)
-              oc;
-            failed || row_failed)
+            match Hashtbl.find_opt measured (key sym) with
+            | Some (tail, source, source_failed) ->
+                put (Printf.sprintf "%s\t%s\t%c%s" sym tail copy_marker source);
+                failed || source_failed
+            | None ->
+                let line, row_failed = row_of sym in
+                let _, tail, _ = parse_row line in
+                Hashtbl.replace measured (key sym) (tail, sym, row_failed);
+                put line;
+                failed || row_failed)
         false roots)

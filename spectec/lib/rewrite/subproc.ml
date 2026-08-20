@@ -35,7 +35,66 @@ let absolute (path : string) : string =
   if Filename.is_relative path then Filename.concat (Sys.getcwd ()) path
   else path
 
-let run ?env ?(done_when = fun _ -> false) ~(cmd : string list) ~(feed : string)
+(* The child is launched through a shell that does two things before exec'ing:
+
+   - lifts the stack limit, because the default 8MB is too small for
+     legitimately-deep (not runaway) critical-pair/tree-automaton/reduction
+     computations, which otherwise die as a native "Fatal error: stack overflow"
+     and read as a missing verdict -- the same lesson check_diff_structural_p4.sh
+     already encodes for plain reductions (e73fcb44);
+
+   - puts the child in a NEW SESSION, so [kill_tree] can signal the whole
+     process group rather than one pid. Our [cmd] heads are shell wrappers that
+     [exec] into the real tool ({!Aprove}'s [runme] execs java), so [pid] is the
+     tool itself and a plain SIGKILL does reach it -- but SIGKILL leaves it no
+     chance to reap ITS children, and AProVE's z3/minisat backend is a child.
+     Those survive as orphans pinned to a core: a 650-symbol [termination --all]
+     sweep on 2026-08-13 leaked 25 of them (~24 of 32 cores) within its first
+     20 minutes and then measured its remaining 3 hours against its own load,
+     turning 11 YES verdicts into TIMEOUT with no change in the surface. Since
+     these verdicts are budget-based, that is not a slow run but a wrong answer.
+
+   [setsid] does not fork when the caller is not already a process group leader
+   (ours never is -- it inherits ours), so [pid] stays the tool's pid and
+   becomes its own group leader. Where [setsid] is missing the shell execs
+   directly and [kill_tree] degrades to the old single-pid kill. *)
+let launcher =
+  "ulimit -s unlimited 2>/dev/null\n\
+   if command -v setsid >/dev/null 2>&1; then exec setsid \"$@\"; else exec \
+   \"$@\"; fi"
+
+(* Group first, then the pid alone: the group kill covers the whole tree when
+   the child leads its own group, and the pid kill is what still works when it
+   does not (no [setsid], or a [setsid] that forked). Both are best-effort --
+   ESRCH just means it is already gone. *)
+let kill_tree (pid : int) : unit =
+  (try Unix.kill (-pid) Sys.sigkill with Unix.Unix_error _ -> ());
+  try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ()
+
+(* Retain only the lines [keep] accepts, out of a stream whose bulk is not worth
+   holding. AProVE's obligation echo reprints the whole rule set once per
+   dependency-graph child -- gigabytes, of which the dependency pairs are a few
+   thousand lines -- and accumulating that verbatim would cost more memory than
+   the proof it describes. Lines are handed over complete and in order, so the
+   filter may be stateful (which section of the output it is inside is exactly
+   what decides a line's fate); a partial trailing line is held back until its
+   newline arrives, and dropped if the deadline kills the child first. *)
+let line_splitter (keep : string -> bool) (buf : Buffer.t) :
+    bytes -> int -> unit =
+  let pending = Buffer.create 4096 in
+  fun chunk n ->
+    for i = 0 to n - 1 do
+      let c = Bytes.get chunk i in
+      if c = '\n' then (
+        let line = Buffer.contents pending in
+        Buffer.clear pending;
+        if keep line then (
+          Buffer.add_string buf line;
+          Buffer.add_char buf '\n'))
+      else Buffer.add_char pending c
+    done
+
+let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
     ~(timeout : int) () : string * bool =
   let env = match env with Some e -> e | None -> Unix.environment () in
   (* Feed stdin from a temp file (not a pipe), so a feed larger than the pipe
@@ -49,28 +108,29 @@ let run ?env ?(done_when = fun _ -> false) ~(cmd : string list) ~(feed : string)
       close_out oc;
       let fd_in = Unix.openfile infile [ Unix.O_RDONLY ] 0 in
       let r_out, w_out = Unix.pipe () in
-      (* Launch through a shell that first lifts the stack limit: the default
-         8MB stack is too small for legitimately-deep (not runaway) critical-
-         pair/tree-automaton/reduction computations, which otherwise die as a
-         native "Fatal error: stack overflow" and read as a missing verdict --
-         the same lesson check_diff_structural_p4.sh already encodes for plain
-         reductions (e73fcb44). *)
       let pid =
         Unix.create_process_env "/bin/sh"
-          (Array.of_list
-             ([
-                "/bin/sh";
-                "-c";
-                "ulimit -s unlimited 2>/dev/null; exec \"$@\"";
-                "sh";
-              ]
-             @ cmd))
+          (Array.of_list ([ "/bin/sh"; "-c"; launcher; "sh" ] @ cmd))
           env fd_in w_out w_out
       in
       Unix.close fd_in;
       Unix.close w_out;
       let buf = Buffer.create 65536 in
       let chunk = Bytes.create 8192 in
+      let absorb =
+        match keep with
+        | None -> fun chunk n -> Buffer.add_subbytes buf chunk 0 n
+        | Some keep -> line_splitter keep buf
+      in
+      (* Materialize the buffer only for a caller that actually reads it: the
+         poll runs once per chunk, and a capture run streams gigabytes past in
+         8KB chunks, so copying the accumulated output each time would cost more
+         than the run. *)
+      let poll =
+        match done_when with
+        | None -> fun () -> false
+        | Some done_when -> fun () -> done_when (Buffer.contents buf)
+      in
       let timed_out = ref false in
       let deadline =
         if timeout > 0 then Unix.gettimeofday () +. float_of_int timeout
@@ -82,17 +142,17 @@ let run ?env ?(done_when = fun _ -> false) ~(cmd : string list) ~(feed : string)
         else
           match Unix.select [ r_out ] [] [] (Float.min remaining 0.25) with
           | exception Unix.Unix_error (Unix.EINTR, _, _) -> loop ()
-          | [], _, _ -> if not (done_when (Buffer.contents buf)) then loop ()
+          | [], _, _ -> if not (poll ()) then loop ()
           | _ ->
               let n = Unix.read r_out chunk 0 (Bytes.length chunk) in
               if n = 0 then () (* child closed stdout: run finished *)
               else (
-                Buffer.add_subbytes buf chunk 0 n;
-                if not (done_when (Buffer.contents buf)) then loop ())
+                absorb chunk n;
+                if not (poll ()) then loop ())
       in
       loop ();
       Unix.close r_out;
-      (try Unix.kill pid Sys.sigkill with Unix.Unix_error _ -> ());
+      kill_tree pid;
       ignore (Unix.waitpid [] pid);
       (Buffer.contents buf, !timed_out))
 
@@ -117,14 +177,7 @@ let session_start ?env ~(cmd : string list) () : session =
   let r_out, w_out = Unix.pipe () in
   let pid =
     Unix.create_process_env "/bin/sh"
-      (Array.of_list
-         ([
-            "/bin/sh";
-            "-c";
-            "ulimit -s unlimited 2>/dev/null; exec \"$@\"";
-            "sh";
-          ]
-         @ cmd))
+      (Array.of_list ([ "/bin/sh"; "-c"; launcher; "sh" ] @ cmd))
       env r_in w_out w_out
   in
   Unix.close r_in;
@@ -206,5 +259,5 @@ let session_read (s : session) ~(done_when : string -> bool) ~(deadline : float)
 let session_kill (s : session) : unit =
   (try Unix.close s.w_in with Unix.Unix_error _ -> ());
   (try Unix.close s.r_out with Unix.Unix_error _ -> ());
-  (try Unix.kill s.pid Sys.sigkill with Unix.Unix_error _ -> ());
+  kill_tree s.pid;
   ignore (Unix.waitpid [] s.pid)

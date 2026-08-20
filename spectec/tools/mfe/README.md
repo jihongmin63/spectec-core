@@ -60,13 +60,18 @@ crashing.
   Completeness Checker 2b"); Maude++ is NOT required just to load + run CRC/ChC.
 - Both are gitignored (own licenses, sizable) — see the repo `.gitignore`.
 
-## Termination — `main.exe termination` (structure-preserving unravel + AProVE)
+## Termination — `main.exe termination` (unravel + AProVE)
 
 `main.exe termination --symbol <sym> FILES…` proves per-slice termination
 in-binary: `lib/rewrite/unravel.ml` unravels the analysis slice
-structure-preservingly into a plain TPDB TRS (`--emit-trs` shows it) and
-`lib/rewrite/aprove.ml` hands it straight to AProVE. Only two gitignored
-pieces are needed (under `spectec/tools/`):
+into a plain TPDB TRS (`--emit-trs` shows it) and
+`lib/rewrite/aprove.ml` hands it straight to AProVE. A slice that stays
+unproven then takes two more paths through the same binary — each open child of
+AProVE's own dependency-graph decomposition re-posed as a standalone `.qdp`
+problem (`lib/rewrite/qdp.ml`, `--no-child-split` turns it off), and the
+integer surface where the slice computes arithmetic (`lib/rewrite/itrs.ml`,
+`--no-integer-retry` off, `--itrs` alone). Only two gitignored pieces are needed
+(under `spectec/tools/`):
 
 1. **`tools/aprove/aprove.jar`** — WST backend (`aprove-developers/aprove-releases`);
    `tools/aprove/runme` runs `java -jar aprove.jar -u cli -t $2 -p plain -m wst $1`.

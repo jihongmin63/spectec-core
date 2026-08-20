@@ -1,7 +1,7 @@
-(* Unit tests for the pure analysis-tool plumbing: the structure-preserving
-   unraveling ({!Rewrite.Unravel}), the upgrade-only verdict transfer
+(* Unit tests for the pure analysis-tool plumbing: the unraveling
+   ({!Rewrite.Unravel}), the upgrade-only verdict transfer
    ({!Rewrite.Mfe.upgrade}), the SCC output classification ({!Rewrite.Scc}), and
-   the AProVE stop condition ({!Rewrite.Aprove.verdict_printed}). Running the
+   the AProVE stop condition ({!Rewrite.Aprove.proof_printed}). Running the
    tools themselves is left to the CLI cram tests and the calibration runs. *)
 
 module R = Rewrite.Rewrite_system
@@ -11,6 +11,7 @@ module Mfe = Rewrite.Mfe
 module Aprove = Rewrite.Aprove
 module Subproc = Rewrite.Subproc
 module Scc = Rewrite.Scc
+module Qdp = Rewrite.Qdp
 module Termination = Rewrite.Termination
 
 let failures = ref 0
@@ -51,8 +52,8 @@ let () =
     (stats = { U.eqs = 1; rules = 1; chain_steps = 0; vars = 1; owise = 0 })
 
 let () =
-  (* One condition becomes a u/k chain step; the keep-constructor carries the
-     lhs arguments verbatim. *)
+  (* One condition becomes a chain step; the helper carries the lhs variables
+     flat, as direct arguments. *)
   let trs, stats =
     trs_exn
       (system
@@ -64,18 +65,14 @@ let () =
          ])
   in
   check_str "unravel/one-cond" trs
-    "(VAR x y)\n\
-     (RULES\n\
-    \  d_f(x) -> u_1(d_g(x), k_1(x))\n\
-    \  u_1(y, k_1(x)) -> y\n\
-     )\n";
+    "(VAR x y)\n(RULES\n  d_f(x) -> u_1(d_g(x), x)\n  u_1(y, x) -> y\n)\n";
   check "unravel/one-cond stats"
     (stats = { U.eqs = 1; rules = 2; chain_steps = 1; vars = 2; owise = 0 })
 
 let () =
   (* Conditions are re-ordered to binding order (the guard inspects [b] before
-     the condition that binds it), and a later keep-constructor carries the
-     variables the earlier condition bound. *)
+     the condition that binds it), and a later chain step carries the variables
+     the earlier condition bound. *)
   let trs, _ =
     trs_exn
       (system
@@ -93,9 +90,9 @@ let () =
   check_str "unravel/reorder-and-carry" trs
     "(VAR b t x)\n\
      (RULES\n\
-    \  d_f(x) -> u_1(d_g(x), k_1(x))\n\
-    \  u_1(cons(b, t), k_1(x)) -> u_2(isStuckHead(b), k_2(x, b, t))\n\
-    \  u_2(false, k_2(x, b, t)) -> d_h(b)\n\
+    \  d_f(x) -> u_1(d_g(x), x)\n\
+    \  u_1(cons(b, t), x) -> u_2(isStuckHead(b), x, b, t)\n\
+    \  u_2(false, x, b, t) -> d_h(b)\n\
      )\n"
 
 let () =
@@ -266,16 +263,16 @@ let () =
     "(VAR a x)\n\
      (RULES\n\
     \  d_f(x) -> x\n\
-    \  d_h(a) -> u_1(none, k_1(a))\n\
-    \  u_1(d_f(a), k_1(a)) -> a\n\
+    \  d_h(a) -> u_1(none, a)\n\
+    \  u_1(d_f(a), a) -> a\n\
      )\n";
   let fixed, _ = trs_exn (R.orient_conds sys) in
   check_str "orient/unravel-chain-connected-when-oriented" fixed
     "(VAR a x)\n\
      (RULES\n\
     \  d_f(x) -> x\n\
-    \  d_h(a) -> u_1(d_f(a), k_1(a))\n\
-    \  u_1(none, k_1(a)) -> a\n\
+    \  d_h(a) -> u_1(d_f(a), a)\n\
+    \  u_1(none, a) -> a\n\
      )\n"
 
 (* ------------------------------------------------------------------------- *)
@@ -545,19 +542,23 @@ let () =
    without respawning (the batched-sweep primitive). Exercised with [cat]. *)
 let () =
   let sess = Subproc.session_start ~cmd:[ "/bin/cat" ] () in
-  Subproc.session_send sess "hello\n";
+  (* Send and read share ONE deadline: a unit of work is the pair of them, and
+     a bound on the read alone leaves the write unbounded. *)
+  let deadline = Subproc.deadline_in 5 in
+  check "session/sent" (Subproc.session_send sess "hello\n" ~deadline);
   let out, timed =
     Subproc.session_read sess
       ~done_when:(fun b -> Subproc.contains b "hello")
-      ~timeout:5
+      ~deadline
   in
   check "session/echo" (Subproc.contains out "hello");
   check "session/echo-not-timed" (not timed);
-  Subproc.session_send sess "world\n";
+  let deadline = Subproc.deadline_in 5 in
+  check "session/sent-again" (Subproc.session_send sess "world\n" ~deadline);
   let out2, _ =
     Subproc.session_read sess
       ~done_when:(fun b -> Subproc.contains b "world")
-      ~timeout:5
+      ~deadline
   in
   check "session/second-send" (Subproc.contains out2 "world");
   check "session/buffer-reset" (not (Subproc.contains out2 "hello"));
@@ -593,24 +594,69 @@ let () =
   let (), dt1 = Subproc.timed (fun () -> Unix.sleepf 0.05) in
   check "timed/measures-sleep" (dt1 >= 0.04)
 
-(* Aprove.verdict_printed: the stop condition Subproc polls over a buffer that
-   ends mid-read, so it must fire on a terminated verdict line and on nothing
-   else -- firing early ends the run on a verdict AProVE never gave. *)
+(* An AProVE run as it comes off the wire: the verdict, then the echo, whose
+   proof TREE runs from the "proof of" line to the first obligation separator.
+   The tree's own "(9) YES" is the trap both scanners below exist to survive --
+   it is one closed sub-problem, not the run's answer, and the run here is one
+   AProVE gave up on. *)
+let aprove_killed_run =
+  "KILLED\n\
+   proof of /tmp/spectec_aprove123.trs\n\
+   # AProVE Commit ID: 192b3c9f\n\n\
+   Termination w.r.t. Q of the given QTRS could not be shown:\n\n\
+   (0) QTRS\n\
+   (1) DependencyPairsProof [EQUIVALENT, 0 ms]\n\
+   (2) AND\n\
+  \    (3) QDP\n\
+  \        (4) QDPSizeChangeProof [EQUIVALENT, 0 ms]\n\
+  \        (5) YES\n\n\n\
+   ----------------------------------------\n\n\
+   (0)\n\
+   Obligation:\n"
+
+(* Aprove.proof_printed: the stop condition Subproc polls over a buffer that
+   ends mid-read, so it must fire only once the tree is CLOSED -- the verdict
+   line alone is not enough (the tree costs an instant and is the whole
+   diagnostic), and a separator seen on a partial line is not a line at all. *)
 let () =
-  check "aprove/printed-yes" (Aprove.verdict_printed "some proof\nYES\n");
-  check "aprove/printed-maybe" (Aprove.verdict_printed "MAYBE\nProof:\n");
-  check "aprove/printed-crlf" (Aprove.verdict_printed "YES\r\n");
-  check "aprove/pending-empty" (not (Aprove.verdict_printed ""));
+  check "aprove/printed-closed-tree" (Aprove.proof_printed aprove_killed_run);
+  check "aprove/pending-empty" (not (Aprove.proof_printed ""));
+  (* A verdict with no echo behind it yet: the tree is still coming. *)
+  check "aprove/pending-verdict-only"
+    (not (Aprove.proof_printed "YES\nproof of /tmp/x.trs\n"));
+  check "aprove/pending-open-tree"
+    (not (Aprove.proof_printed "YES\nproof of /tmp/x.trs\n(0) QTRS\n(1) YES\n"));
   check "aprove/pending-narrative"
-    (not (Aprove.verdict_printed "Termination proof:\nDP problem\n"));
+    (not (Aprove.proof_printed "Termination proof:\nDP problem\n"));
   (* The whole point of the terminated-line rule: a read that breaks right
-     after a verdict token is still a partial line. *)
-  check "aprove/pending-partial-line" (not (Aprove.verdict_printed "YES"));
-  check "aprove/pending-partial-prefix"
-    (not (Aprove.verdict_printed "proof\nMAYBE"));
-  (* ...and the same buffer one chunk later, where it was never a verdict. *)
-  check "aprove/not-a-verdict-token"
-    (not (Aprove.verdict_printed "proof\nMAYBE_SUCH_RULE\n"))
+     inside the separator is still a partial line. *)
+  check "aprove/pending-partial-line"
+    (not
+       (Aprove.proof_printed
+          "YES\nproof of /tmp/x.trs\n(0) QTRS\n------------------------"));
+  (* A separator with no echo before it is some other tool's output, not a
+     tree we can hand back. *)
+  check "aprove/pending-separator-without-echo"
+    (not
+       (Aprove.proof_printed "YES\n----------------------------------------\n"))
+
+(* Aprove.proof_tree: exactly the outline, with the obligations behind it and
+   the temp-file path in front of it left out -- the path is a fresh name on
+   every run and would make two identical proofs compare unequal. *)
+let () =
+  let tree = Aprove.proof_tree aprove_killed_run in
+  check "tree/starts-at-commit-id"
+    (String.starts_with ~prefix:"# AProVE Commit ID:" tree);
+  check "tree/keeps-steps" (Subproc.contains tree "(1) DependencyPairsProof");
+  check "tree/keeps-sub-verdict" (Subproc.contains tree "(5) YES");
+  check "tree/drops-temp-path" (not (Subproc.contains tree "spectec_aprove123"));
+  check "tree/drops-separator"
+    (not (Subproc.contains tree "----------------------------------------"));
+  check "tree/drops-obligations" (not (Subproc.contains tree "Obligation:"));
+  check "tree/no-trailing-blank" (String.trim tree = tree);
+  (* No echo at all -- a parse error, a crashed JVM -- is an empty tree, which
+     is what [Termination.report] turns into [None] rather than a blank file. *)
+  check "tree/no-echo-empty" (Aprove.proof_tree "MAYBE\n" = "")
 
 (* Termination.budget_ladder: the budgets a search tries, ascending. AProVE
    announces at its deadline, so a rung costs its own budget -- the ladder must
@@ -686,6 +732,174 @@ let () =
           (Aprove.Error "no YES/NO/MAYBE line in the AProVE output")));
   check "decisive/any-error-keeps-climbing"
     (not (Termination.decisive (Aprove.Error "anything at all")))
+
+(* ------------------------------------------------------------------------- *)
+(* Qdp: reading AProVE's dependency-graph children back out of a run, and
+   re-posing one of them as a problem of its own. Every step here is text
+   parsing against a format we do not control, and each of the three has a
+   failure mode that is silent rather than loud: a tree misread reports a closed
+   child as open (or worse, an open one as closed), an echo misread builds a
+   child out of the wrong rules, and an identifier misclassified as a constant
+   narrows the problem so the proof says less than it claims. *)
+
+(* One whole run: verdict, tree, then the obligation echo. Child (5) closed,
+   child (8) did not -- the case the split exists for. *)
+let aprove_split_run =
+  "KILLED\n\
+   proof of /tmp/x.trs\n\
+   # AProVE Commit ID: 192b3c9f\n\n\
+   (0) QTRS\n\
+   (1) DependencyPairsProof [EQUIVALENT, 10 ms]\n\
+   (2) QDP\n\
+   (3) DependencyGraphProof [EQUIVALENT, 5 ms]\n\
+   (4) AND\n\
+  \    (5) QDP\n\
+  \        (6) QDPSizeChangeProof [EQUIVALENT, 0 ms]\n\
+  \        (7) YES\n\
+  \    (8) QDP\n\n\n\
+   ----------------------------------------\n\n\
+   (5)\n\
+   Obligation:\n\
+   Q DP problem:\n\
+   The TRS P consists of the following rules:\n\n\
+  \   D_F(cons(x0, x1)) -> D_F(x1)\n\n\
+   The TRS R consists of the following rules:\n\n\
+  \   d_f(cons(x0, x1)) -> d_f(x1)\n\
+  \   d_g(cons(x0, x1)) -> d_g(x1)\n\n\
+   Q is empty.\n\
+   We have to consider all minimal (P,Q,R)-chains.\n\
+   ----------------------------------------\n\n\
+   (8)\n\
+   Obligation:\n\
+   Q DP problem:\n\
+   The TRS P consists of the following rules:\n\n\
+  \   D_G(cons(x0, x1)) -> D_G(x1)\n\n\
+   The TRS R consists of the following rules:\n\n\
+  \   d_f(cons(x0, x1)) -> d_f(x1)\n\
+  \   d_g(cons(x0, x1)) -> d_g(x1)\n\n\
+   Q is empty.\n\
+   We have to consider all minimal (P,Q,R)-chains.\n\
+   ----------------------------------------\n"
+
+let filtered (run : string) : string =
+  let keep = Qdp.capture_filter () in
+  String.split_on_char '\n' run |> List.filter keep |> String.concat "\n"
+
+let () =
+  (* The filter drops the R body and nothing else. That body is the submitted
+     system echoed back once per child -- gigabytes on a large slice -- and it
+     is the one section we already have. *)
+  let kept = filtered aprove_split_run in
+  check "qdp/filter-keeps-the-tree" (Subproc.contains kept "(4) AND");
+  check "qdp/filter-keeps-pairs" (Subproc.contains kept "D_G(cons(x0, x1))");
+  check "qdp/filter-keeps-the-q-line" (Subproc.contains kept "Q is empty.");
+  check "qdp/filter-keeps-the-chain-sentence"
+    (Subproc.contains kept "minimal (P,Q,R)-chains");
+  check "qdp/filter-drops-the-rule-body"
+    (not (Subproc.contains kept "d_g(cons(x0, x1)) -> d_g(x1)"));
+  (* The section state resets at every separator, so the SECOND child's pairs
+     survive the first child's rule body. *)
+  check "qdp/filter-recovers-after-a-rule-body"
+    (Subproc.contains kept "(8)\nObligation:")
+
+let () =
+  (* A chain of problem and processor is printed at ONE indentation, so "open"
+     cannot be read off indentation alone: (0) and (2) are continued by the
+     processor beside them, (4) by its branches, (5) by its own proof. Only (8)
+     has nothing after it. *)
+  check "qdp/open-leaves"
+    (Qdp.open_leaves (Aprove.proof_tree aprove_split_run) = [ 8 ]);
+  (* A verdict leaf is not an open one. *)
+  check "qdp/closed-child-is-not-open"
+    (not (List.mem 5 (Qdp.open_leaves (Aprove.proof_tree aprove_split_run))));
+  (* An OR node's branches are alternatives; treating them as conjuncts would
+     prove more than the tree asks, so the whole tree is refused. *)
+  check "qdp/or-node-refuses-the-split"
+    (Qdp.open_leaves "(0) QTRS\n(1) OR\n    (2) QDP\n    (3) QDP\n" = [])
+
+let () =
+  let problems = Qdp.problems (filtered aprove_split_run) in
+  check "qdp/problems-count" (List.length problems = 2);
+  match List.filter (fun (p : Qdp.problem) -> p.Qdp.node = 8) problems with
+  | [ p ] ->
+      check "qdp/problem-pairs"
+        (p.Qdp.pairs = [ "D_G(cons(x0, x1)) -> D_G(x1)" ]);
+      check "qdp/problem-q-empty" (p.Qdp.q = []);
+      (* [(MINIMAL)] is a claim about the chains, and the usable-rules pruning
+         rests on it -- so it is read off the echo, never assumed. *)
+      check "qdp/problem-minimal" p.Qdp.minimal
+  | _ -> check "qdp/problem-node-8" false
+
+let qdp_export =
+  match
+    U.export_of_system
+      (system
+         [
+           rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
+           rule (app "$g" [ app "cons" [ v "h"; v "t" ] ]) (app "$g" [ v "t" ]);
+           rule (app "$unrelated" [ v "x" ]) (v "x");
+         ])
+  with
+  | Ok (e, _) -> e
+  | Error msg -> failwith ("unexpected export error: " ^ msg)
+
+let qdp_problem ?(minimal = true) ?(q = []) pairs : Qdp.problem =
+  { Qdp.node = 8; pairs; q; minimal }
+
+let () =
+  match
+    Qdp.standalone ~export:qdp_export
+      (qdp_problem [ "D_G(cons(x0, x1)) -> D_G(x1)" ])
+  with
+  | Error msg -> check ("qdp/standalone: " ^ msg) false
+  | Ok (text, _) ->
+      check "qdp/standalone-has-pairs"
+        (Subproc.contains text "(PAIRS\n  D_G(cons(x0, x1)) -> D_G(x1)\n)");
+      (* The rules are OURS, pruned to the ones the pairs can reach. *)
+      check "qdp/standalone-keeps-usable-rules"
+        (Subproc.contains text "d_g(cons(h, t)) -> d_g(t)");
+      check "qdp/standalone-drops-unusable-rules"
+        (not (Subproc.contains text "d_unrelated"));
+      (* Dropping rules is a proof step, not a filter: it is sound on a minimal
+         problem only with the C-epsilon pair alongside. *)
+      check "qdp/standalone-adds-c-epsilon"
+        (Subproc.contains text "c_eps(ceps_x, ceps_y) -> ceps_x"
+        && Subproc.contains text "c_eps(ceps_x, ceps_y) -> ceps_y");
+      (* AProVE renamed the pairs' variables; an identifier the header omits
+         parses as a CONSTANT, which would narrow the problem. *)
+      check "qdp/standalone-declares-renamed-vars"
+        (Subproc.contains text "x0" && Subproc.contains text "x1");
+      check "qdp/standalone-declares-our-vars"
+        (Subproc.contains (List.hd (String.split_on_char '\n' text)) " h ");
+      check "qdp/standalone-minimal" (Subproc.contains text "(MINIMAL)")
+
+let () =
+  (* Not minimal: the usable-rules step is not available, so every rule travels
+     and no C-epsilon pair is needed. *)
+  match
+    Qdp.standalone ~export:qdp_export
+      (qdp_problem ~minimal:false [ "D_G(cons(x0, x1)) -> D_G(x1)" ])
+  with
+  | Error msg -> check ("qdp/non-minimal: " ^ msg) false
+  | Ok (text, _) ->
+      check "qdp/non-minimal-keeps-every-rule"
+        (Subproc.contains text "d_unrelated");
+      check "qdp/non-minimal-adds-no-c-epsilon"
+        (not (Subproc.contains text "c_eps"));
+      check "qdp/non-minimal-declares-no-minimality"
+        (not (Subproc.contains text "(MINIMAL)"))
+
+let () =
+  (* An identifier that is neither a renamed variable nor a symbol we exported
+     stops the split. Emitting it anyway would declare it a constant and prove
+     something narrower than the child. *)
+  match
+    Qdp.standalone ~export:qdp_export
+      (qdp_problem [ "D_G(mystery(x0)) -> D_G(x0)" ])
+  with
+  | Ok _ -> check "qdp/unknown-identifier-refused" false
+  | Error msg ->
+      check "qdp/unknown-identifier-refused" (Subproc.contains msg "mystery")
 
 let () =
   if !failures > 0 then (

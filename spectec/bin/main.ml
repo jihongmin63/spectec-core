@@ -171,6 +171,25 @@ let slice_size slicer sym =
     (Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ])
       .Rewrite.Rewrite_system.rules
 
+(* The identity of the question a slice poses, for the sweeps' dedup
+   ({!Cli.Analysis_sweep.rows}'s [key]). Every check the sweeps run --
+   confluence, termination, sufficient completeness -- is a function of the
+   slice alone, so equal slices have equal verdicts, and two symbols in one
+   call-graph SCC always slice equal: reaching each other, they reach the same
+   rules. [owise] is spelled into the digest because
+   {!Rewrite.Rewrite_system.string_of_rule} drops it. *)
+let slice_digest (sliced : Rewrite.Rewrite_system.t) : string =
+  let open Rewrite.Rewrite_system in
+  String.concat "\n"
+    (String.concat "," sliced.vars
+    :: List.map
+         (fun r -> (if r.owise then "owise " else "") ^ string_of_rule r)
+         sliced.rules)
+  |> Digest.string |> Digest.to_hex
+
+let slice_key slicer sym =
+  slice_digest (Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ])
+
 (* The signature is recovered from the WHOLE system even when the emitted
    module is a slice or otherwise transformed: a predicate's domain is the
    join of its call sites, and slicing/condition-dropping delete call sites,
@@ -429,10 +448,29 @@ let confluence_command =
       | None -> []
     in
     let todo = List.filter (fun s -> not (List.mem s recorded)) roots in
+    (* One entry per DISTINCT slice, with the rest of each group parked in
+       [followers]. The MFE is asked about a system, not a name, so symbols
+       that slice equal -- every member of a call-graph SCC does -- would put
+       the same question to it once each: 28 times over for the *_inst family,
+       16 for the statement judgments. Their rows still land, copied from the
+       representative's verdict and marked as copies. This mirrors
+       {!Cli.Analysis_sweep.rows}'s [key]; confluence keeps its own loop for
+       the normalization ladder. *)
+    let followers : (string, string list) Hashtbl.t = Hashtbl.create 16 in
     let slices =
-      List.map
+      let representative = Hashtbl.create 64 in
+      List.filter_map
         (fun sym ->
-          (sym, Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]))
+          let slice = Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ] in
+          match Hashtbl.find_opt representative (slice_digest slice) with
+          | Some rep ->
+              Hashtbl.replace followers rep
+                (Option.value ~default:[] (Hashtbl.find_opt followers rep)
+                @ [ sym ]);
+              None
+          | None ->
+              Hashtbl.replace representative (slice_digest slice) sym;
+              Some (sym, slice))
         todo
     in
     let verdict = Rewrite.Mfe.string_of_verdict in
@@ -456,14 +494,20 @@ let confluence_command =
        batch. *)
     (* The 4th column is the symbol's wall-clock seconds; for a normalized
        verdict it is base + normalize time (the total spent reaching it). *)
-    let emit label crc chc secs row_failed =
-      let line = Printf.sprintf "%s\t%s\t%s\t%.1f" label crc chc secs in
+    let put line =
       print_endline line;
       Option.iter
         (fun oc ->
           output_string oc (line ^ "\n");
           flush oc)
-        oc;
+        oc
+    in
+    let emit label crc chc secs row_failed =
+      put (Printf.sprintf "%s\t%s\t%s\t%.1f" label crc chc secs);
+      List.iter
+        (fun sym ->
+          put (Printf.sprintf "%s\t%s\t%s\t%.1f\t=%s" sym crc chc secs label))
+        (Option.value ~default:[] (Hashtbl.find_opt followers label));
       if row_failed then failed := true
     in
     let emit_base label (r : Rewrite.Mfe.result) secs =
@@ -1051,15 +1095,39 @@ let run_structural_command =
       in
       Ok (out, failed)
 
-(* Per-symbol termination via the structure-preserving unravel + a direct
+(* One file per symbol under [--proof-dir], written as each row lands so an
+   interrupted sweep keeps the trees it already has. Symbol names carry [$] and
+   other punctuation the shell reads, so anything outside a bare filename
+   alphabet becomes [_] -- a mangling, not a sanitization: it never collapses
+   [$f] and [f] onto one path, since only the former grows a leading [_]. *)
+let write_proof_tree ~(dir : string) ~(sym : string) (tree : string option) :
+    unit =
+  match tree with
+  | None -> ()
+  | Some tree ->
+      if not (Sys.file_exists dir) then Core_unix.mkdir_p dir;
+      let basename =
+        String.map
+          (fun c ->
+            match c with
+            | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '.' | '-' | '_' -> c
+            | _ -> '_')
+          sym
+      in
+      let oc = open_out (Filename.concat dir (basename ^ ".proof")) in
+      Fun.protect
+        ~finally:(fun () -> close_out oc)
+        (fun () -> output_string oc (tree ^ "\n"))
+
+(* Per-symbol termination via the unravel + a direct
    AProVE run ({!Rewrite.Termination}) -- deliberately NOT through MTT (whose
    condition-variable unraveling and hard-coded inner budget block exactly
    these proofs; see CLAUDE.md). *)
 let termination_command =
   Core.Command.basic
     ~summary:
-      "prove per-symbol termination of the analysis CTRS (structure-preserving \
-       unravel + AProVE, no MTT)"
+      "prove per-symbol termination of the analysis CTRS (unravel + AProVE, no \
+       MTT)"
   @@
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
@@ -1094,8 +1162,41 @@ let termination_command =
   and emit_trs =
     flag "--emit-trs" no_arg
       ~doc:
-        " print the unraveled TPDB TRS instead of running AProVE (exactly one \
+        " print the unraveled TRS instead of running AProVE (exactly one \
          --symbol)"
+  and itrs =
+    flag "--itrs" no_arg
+      ~doc:
+        " prove on the INTEGER-constraint surface ALONE: the same unraveling \
+         with the structural arithmetic layer (binary-digit nats, \
+         sign-magnitude ints, binary-indexed list ops, the two's-complement \
+         codec) handed to AProVE as native integers and constraints. A \
+         separate surface, not a tuning knob -- its verdicts are about a \
+         differently-encoded system, so do not compare a column measured here \
+         row-wise against a plain-TRS one. Without this flag the surface is \
+         still tried, as the last path of a slice the plain one left unproven \
+         and only where the slice computes arithmetic at all"
+  and no_child_split =
+    flag "--no-child-split" no_arg
+      ~doc:
+        " on an unproven plain run, do NOT re-pose its open dependency-graph \
+         children as standalone problems. The split is what separates a hard \
+         child from one the shared deadline never reached (48 of Program_ok's \
+         75 open children close standalone in a median 37s), but it costs one \
+         more whole-system run plus one run per open child -- turn it off to \
+         measure the plain surface alone"
+  and no_integer_retry =
+    flag "--no-integer-retry" no_arg
+      ~doc:
+        " do not fall back to the integer surface on a slice the plain paths \
+         left unproven"
+  and proof_dir =
+    flag "--proof-dir" (optional string)
+      ~doc:
+        "DIR also write each symbol's AProVE proof tree to DIR/<symbol>.proof \
+         -- the step outline ((0) ITRS, (3) UsableRulesProof, (9) YES) that \
+         says how far the proof got, which a one-word TIMEOUT row does not. \
+         Free: the tree lands in the same instant as the verdict"
   and out =
     flag "--out" (optional string)
       ~doc:
@@ -1115,6 +1216,9 @@ let termination_command =
     (* one head index shared across the whole sweep -- [slice_with] then costs
        O(slice size) per symbol instead of rebuilding the index once per symbol *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
+    let surface =
+      if itrs then Rewrite.Termination.Integer else Rewrite.Termination.Plain
+    in
     let roots =
       Cli.Analysis_sweep.roots ~all ~symbols
         ~all_roots:(Rewrite.def_symbols spec_tr)
@@ -1124,7 +1228,7 @@ let termination_command =
       let slice =
         Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
       in
-      match Rewrite.Termination.trs_of_slice slice with
+      match Rewrite.Termination.export surface slice with
       | Ok (trs, stats) ->
           print_string trs;
           Printf.eprintf "%s\n" (Rewrite.Unravel.string_of_stats stats);
@@ -1134,31 +1238,48 @@ let termination_command =
           Ok true)
     else
       Ok
-        (Cli.Analysis_sweep.rows ~out ~roots ~row_of:(fun sym ->
+        (Cli.Analysis_sweep.rows ~out ~roots ~key:(slice_key slicer)
+           ~row_of:(fun sym ->
              let slice =
                Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
              in
              let report : Rewrite.Termination.report =
-               Rewrite.Termination.check ?aprove_bin ~budget ~budget_from slice
+               Rewrite.Termination.check ?aprove_bin ~budget ~budget_from
+                 ~split_children:(not no_child_split)
+                 ~integer_retry:(not no_integer_retry) ~surface slice
              in
+             Option.iter
+               (fun dir -> write_proof_tree ~dir ~sym report.proof)
+               proof_dir;
              let stats =
                match report.stats with
                | Some s -> Rewrite.Unravel.string_of_stats s
                | None -> "-"
              in
-             (* The 4th column is the wall clock of the answering AProVE run of
-                the budget search: the rungs below it found nothing and are
-                excluded, so this is what the verdict cost, not what finding it
-                cost. ("-" when no AProVE ran -- DEGENERATE or an unravel
+             (* The 4th column is the wall clock of the ANSWERING path: for a
+                budget-ladder run the answering rung alone (the rungs below it
+                found nothing and are excluded, so this is what the verdict
+                cost, not what finding it cost), for a child split every child
+                run it made. ("-" when no AProVE ran -- DEGENERATE or an export
                 error.) *)
              let secs =
                match report.secs with
                | Some s -> Printf.sprintf "%.1f" s
                | None -> "-"
              in
-             ( Printf.sprintf "%s\t%s\t%s\t%s" sym
+             (* The 5th column is every path the check took, in order, with its
+                own verdict and seconds -- where a split's "48/75 closed, node
+                911 TIMEOUT" survives a row whose verdict is the plain run's. *)
+             let paths =
+               match report.steps with
+               | [] -> "-"
+               | steps ->
+                   String.concat " "
+                     (List.map Rewrite.Termination.string_of_step steps)
+             in
+             ( Printf.sprintf "%s\t%s\t%s\t%s\t%s" sym
                  (Rewrite.Termination.string_of_verdict report.verdict)
-                 stats secs,
+                 stats secs paths,
                match report.verdict with
                | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
                    false
@@ -1236,7 +1357,8 @@ let scc_command =
       Ok false)
     else
       Ok
-        (Cli.Analysis_sweep.rows ~out ~roots ~row_of:(fun sym ->
+        (Cli.Analysis_sweep.rows ~out ~roots ~key:(slice_key slicer)
+           ~row_of:(fun sym ->
              let slice =
                Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
              in

@@ -12,7 +12,9 @@ module Of_maude = Of_maude
 module Mfe = Mfe
 module Subproc = Subproc
 module Unravel = Unravel
+module Itrs = Itrs
 module Aprove = Aprove
+module Qdp = Qdp
 module Termination = Termination
 module Scc = Scc
 
