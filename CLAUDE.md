@@ -568,7 +568,7 @@ actually proves.
 |---|---|---|---|
 | `92618dc2` | 2026-07-10 | **differential**, full corpus, both surfaces: native completeness 0 / soundness 1 (issue1944) / Phase D 1227/1227 MATCH, and structural Phase D 1227/1227 MATCH / 0 MISMATCH ([spectec-structural-completeness-soundness.md](spectec-structural-completeness-soundness.md)) | CRC/term |
 | `5647b883` | 2026-07-13 | **CRC/ChC + termination**: both columns of the 153-symbol sweep re-measured on this analysis surface (`21eac0b6`'s matcher-guard fold) — term at `3fbbe1d6`, CRC/ChC here ([verification-notes.md](verification-notes.md)) | differential |
-| `bff805ec` | 2026-07-23 | **CRC/ChC + termination, with per-symbol timing**: full 153-symbol ≤500 sweep re-measured on this tree with the `Subproc.timed` instrumentation — CRC/ChC YES 146 (5 normalized) / TIMEOUT 7, term YES 153/153. **ChC column halted 2026-07-24** (verdict always tracked CRC — dropped from the tables). Times taken **serially** (one fresh process per symbol): parallel sharding was verified verdict-identical (0 false timeouts) but inflates heavy-symbol times up to ~40× under memory contention, so it is unfit for timing. `$bin_minus` term needs budget 1800; `$write_bits_from_value` term needs AProVE `-Xss512m` (proof-export stack overflow, not a search failure) ([verification.md](verification.md) / [verification-notes.md](verification-notes.md)) | differential |
+| `bff805ec` | 2026-07-23 | **CRC/ChC + termination, with per-symbol timing**: full 153-symbol ≤500 sweep re-measured on this tree with the `Subproc.timed` instrumentation — CRC/ChC YES 146 (5 normalized) / TIMEOUT 7, term YES 153/153. **The term column of this row is RETRACTED** (2026-08-26): it predates `bae6e096`, which fixed a verdict parser that read a sub-proof's `YES` out of the echo of a run AProVE had given up on, so a `KILLED` run was recorded as a proof. 34 of its 145 still-existing rows answer AT the deadline, which is that bug's signature, and 32 of those 34 do not prove on the plain surface today even at budget 1800; the other 2 (`$strip_prefix_rec`, `$strip_suffix_rec`, YES in half a second there) bisect to `b1ca0af6`, the fix that restored the 41.6% of conditional rules the `isStuckHead` guard had been deleting from the TRS — so all 34 are measuring-side artifacts and NONE of them is a regression — see [term_145_2026-08-22.tsv](sweeps/term_145_2026-08-22.tsv) and the 2026-08-26 entry in [todo.md](spectec/lib/rewrite/todo.md). Read `term YES 153/153` as **YES 111 measured + 34 unproven**. **ChC column halted 2026-07-24** (verdict always tracked CRC — dropped from the tables). Times taken **serially** (one fresh process per symbol): parallel sharding was verified verdict-identical (0 false timeouts) but inflates heavy-symbol times up to ~40× under memory contention, so it is unfit for timing. `$bin_minus` term needs budget 1800; `$write_bits_from_value` term needs AProVE `-Xss512m` (proof-export stack overflow, not a search failure) ([verification.md](verification.md) / [verification-notes.md](verification-notes.md)) | differential |
 
 **`5647b883` is the bisect anchor**: its analysis columns are current, and the
 only *executable*-surface commit separating it from the differential-verified
@@ -589,14 +589,17 @@ Stale beyond the anchors, in commit order:
   stale at HEAD. They are one family of change — re-measure once, after the
   last of them. The pending full-corpus differential re-run is tracked in
   [todo.md](spectec/lib/rewrite/todo.md).
-- The **termination column is stale as of 2026-08-20 in three ways at once**, so
+- The **termination column is stale as of 2026-08-20 in four ways at once**, so
   every `sweeps/term*.tsv` and `sweeps/itrs*.tsv` needs re-measuring whole (not
   patched row-wise): the unraveling now carries the lhs variables flat rather
   than wrapped (2026-08-19), `termination` takes three paths instead of one
-  (whole → children → integer), and the integer export now goes through
+  (whole → children → integer), the integer export now goes through
   `rebind_stuck_guards` like the plain one — before that it proved a system with
-  every stuck-guarded rule silently deleted, so its YES verdicts do not carry.
-  The row also grew a fifth column (the paths taken).
+  every stuck-guarded rule silently deleted, so its YES verdicts do not carry —
+  and the integer surface now lifts an `eq` guard against an integer literal
+  into a `:|:` constraint instead of leaving it a chain step, which is what a
+  `-- if n =/= 0` compiles to (`$fresh_typeIds` TIMEOUT → YES 16.5s at the same
+  budget). The row also grew a fifth column (the paths taken).
 - The `check_diff_p4_*.tsv` sitting in the repo root are **not** HEAD's numbers.
   The driver is resumable and silently skips every file already recorded, so a
   re-run over a stale TSV validates nothing — move them aside first.

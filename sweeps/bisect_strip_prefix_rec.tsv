@@ -1,0 +1,8 @@
+bff805ec	YES	$strip_prefix_rec	YES	eqs=53 rules=59 u=6 k=6 vars=10 owise=0
+HEAD	TIMEOUT	$strip_prefix_rec	TIMEOUT	eqs=53 rules=59 u=6 vars=11 owise=0	61.3	whole:TIMEOUT@61.3s
+3988f2ecda8b48e52258a4135caa66806ea85fdd	YES	$strip_prefix_rec	YES	eqs=53 rules=59 u=6 k=6 vars=10 owise=0	0.8
+40074861232a885e047cd09dfe6b873e0c4d99f9	YES	$strip_prefix_rec	YES	eqs=53 rules=59 u=6 k=6 vars=10 owise=0	0.7
+0a594e51cb650d81953722705211093c97b4f33b	TIMEOUT	$strip_prefix_rec	TIMEOUT	eqs=53 rules=59 u=6 k=6 vars=11 owise=0	61.3
+a88c66d307643037831162876085a16c61962bc0	YES	$strip_prefix_rec	YES	eqs=53 rules=59 u=6 k=6 vars=10 owise=0	0.7
+103d18eb51e48478a924e0317e509f72c4090791	YES	$strip_prefix_rec	YES	eqs=53 rules=59 u=6 k=6 vars=10 owise=0	0.7
+b1ca0af609aea94988ac6ecbe0ad70a3fd43ddb7	TIMEOUT	$strip_prefix_rec	TIMEOUT	eqs=53 rules=59 u=6 k=6 vars=11 owise=0	61.3

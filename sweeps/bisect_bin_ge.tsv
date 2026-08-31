@@ -1,0 +1,8 @@
+bff805ec	YES	$bin_ge	YES	eqs=183 rules=203 u=20 k=20 vars=13 owise=0
+HEAD	TIMEOUT	$bin_ge	TIMEOUT	eqs=183 rules=203 u=20 vars=18 owise=0	600.7	whole:TIMEOUT@600.7s
+3988f2ecda8b48e52258a4135caa66806ea85fdd	YES	$bin_ge	YES	eqs=183 rules=203 u=20 k=20 vars=13 owise=0	5.7
+40074861232a885e047cd09dfe6b873e0c4d99f9	YES	$bin_ge	YES	eqs=183 rules=203 u=20 k=20 vars=12 owise=0	5.7
+0a594e51cb650d81953722705211093c97b4f33b	TIMEOUT	$bin_ge	TIMEOUT	eqs=183 rules=203 u=20 k=20 vars=18 owise=0	602.1
+a88c66d307643037831162876085a16c61962bc0	TIMEOUT	$bin_ge	TIMEOUT	eqs=183 rules=203 u=20 k=20 vars=12 owise=0	600.6
+bae6e09692af6bb9d4b1e1602efc082f1067747b	TIMEOUT	$bin_ge	TIMEOUT	eqs=183 rules=203 u=20 k=20 vars=12 owise=0	600.6
+dd39e4fa2d5903510d5ee3e2608f82a1cdae5bf4	YES	$bin_ge	YES	eqs=183 rules=203 u=20 k=20 vars=12 owise=0	5.7

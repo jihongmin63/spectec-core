@@ -75,6 +75,90 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-08-31 — **"회귀 34개"는 회귀가 아니었다. 기준선의 34행이 애초에 증명이 아니었다** (`bae6e096`)
+
+`sweeps/term_24_plain_2026-08-22.tsv`가 24/24 TIMEOUT@1800으로 끝나서, 기준선
+`bff805ec`가 plain으로 증명하던 34개를 지금은 못 한다는 그림이 나왔습니다. 원인을
+`$bin_ge` 하나로 이분탐색(`sweeps/bisect_symbol.sh`, 66커밋)한 결과:
+
+```
+FIRST BAD: bae6e096  fix(rewrite): read AProVE's verdict from the header, not the proof echo
+```
+
+**범인은 회귀를 넣은 커밋이 아니라, 거짓 YES를 내던 파서를 고친 커밋입니다.** 그전에는
+`verdict_line`이 버퍼 전체에서 첫 `YES`/`NO`/`MAYBE` 줄을 찾았는데, `KILLED`(AProVE가
+자기 마감을 알리는 표시)는 그 토큰이 아니어서 스캔이 그걸 지나쳐 echo로 들어가
+**하위 DP 문제 하나의 `YES`를 런 전체의 답으로 기록**했습니다. 즉 AProVE가 포기한 런이
+종료 증명으로 남았습니다.
+
+기준선(2026-07-23)은 그 수정(2026-08-05)보다 2주 앞섭니다. 지문이 정확히 맞습니다:
+
+| 기준선 | 지금 | 수 |
+|---|---|---|
+| 마감 전 YES | plain YES | **109** |
+| **마감(≥300초)에서 YES** | 모델(itrs)로만 | **24** |
+| **마감에서 YES** | TIMEOUT | **8** |
+| 마감에서 YES | plain YES | 2 |
+| 마감 전 YES | TIMEOUT | **2** |
+
+기준선 145행 중 **마감에서 YES를 찍은 게 정확히 34개**이고, 우리가 "후퇴"라 부른 것도
+정확히 34개이며, 그 34개 중 32개가 겹칩니다. 마감에 답한다는 것은 진짜 증명의 모습이
+아니라 **`KILLED`를 YES로 오독한 흔적**입니다.
+
+**따라서 열은 나빠진 게 아니라 정직해졌습니다.** `CLAUDE.md`의 앵커 표에서
+`bff805ec`의 term 열은 **철회**했습니다(`term YES 153/153` → 실측 111 + 미증명 34).
+
+`RESULTS-2026-08-07.md` §5는 이 34개를 보고 *"마감에서 답한 것들이라 증명 가능성의
+경계에 걸쳐 있었다"* 고 적고 판정을 보류했는데, 원인을 AProVE의 마감 통보 습성으로
+돌렸습니다 — 파서 결함이 그 **하루 전**에 이미 고쳐져 있었는데도요. 같은 저장소가 이미
+찾아 고친 결함을, 그 결함이 만든 데이터를 해석할 때 떠올리지 못한 것입니다.
+**교훈: 도구를 고쳤으면 그 도구가 만든 과거 데이터를 전부 다시 의심하라.**
+
+### 남은 2개도 회귀가 아니었다 — 두 번째 범인도 fix 커밋이다 (`b1ca0af6`)
+
+```
+$strip_prefix_rec   기준선 YES 0.5초 → 지금 TIMEOUT (b1800에선 MAYBE@675.5s)
+$strip_suffix_rec   기준선 YES 0.6초 → 지금 TIMEOUT
+```
+
+0.5초는 마감 근처가 아니라 파서 아티팩트일 수 없어서, 이 둘만 진짜 회귀 후보로
+남았습니다. `$strip_prefix_rec`을 예산 60으로 이분탐색한 결과:
+
+```
+FIRST BAD: b1ca0af6  fix(rewrite): prove termination of the rules the isStuckHead guard hid
+```
+
+그 커밋은 `Crc_surface.fold_premise_binders`가 죽은 바인더를 `isStuckHead($g(A)) =
+false`로 바꿔 놓은 것을 되돌립니다(`rebind_stuck_guards`). 분석 표면은 `isStuckHead`를
+정의하지 않으므로, 언레이블링하면 그 가드는 **절대 발화할 수 없는 소비자**
+`u(false, ..) -> r`가 되고 그 규칙의 rhs와 거기 실린 재귀가 TRS에서 통째로
+사라집니다 — `specs/p4`에서 조건 규칙 2,510개 중 **1,044개(41.6%)**.
+
+즉 기준선의 `$strip_prefix_rec` YES 0.5초는 **그 재귀가 빠진 시스템**의 종료를
+증명한 것이었습니다. 규칙을 되살리자 증명이 안 되는 게 정상입니다.
+
+### 결론: `bff805ec` term 열에 진짜 회귀는 **0개**
+
+34개 전부가 측정 쪽 결함 둘의 산물이고, 둘 다 이미 고쳐져 있었습니다:
+
+| 원인 | 수 | 고친 커밋 |
+|---|---|---|
+| `KILLED` 런의 echo에서 하위 증명의 `YES`를 읽음 | 32 | `bae6e096` (2026-08-05) |
+| `isStuckHead` 가드가 조건 규칙 41.6%를 TRS에서 삭제 | 2 | `b1ca0af6` (2026-08-09) |
+
+**열은 나빠진 적이 없습니다. 측정이 정직해졌을 뿐입니다.** 그리고 잔여 10개는
+"닫히던 게 안 닫히는 것"이 아니라 **한 번도 증명된 적이 없는 것**입니다 — 그중 8개는
+파서 결함으로 YES처럼 보였고, 2개는 재귀가 빠진 시스템에서 YES처럼 보였습니다.
+
+### 부산물 — bisect를 한 번 잘못 돌렸다
+
+첫 실행은 7개 probe가 전부 `ERROR: aprove/runme not found`였는데도 그걸 bad로 세어
+창의 첫 커밋을 범인으로 지목했습니다. 직접 원인은 `spectec/tools/`가 창 안 커밋들에서
+**추적되는 실제 디렉터리**라 `ln -sfn`이 그 안에 링크를 만든 것이고, 진짜 원인은
+**끝점을 검증하지 않고 탐색을 돌린 것**입니다. 지금은 스크립트가 `probe(GOOD)=YES`와
+`probe(BAD)≠YES`를 먼저 확인하고, 아니면 abort합니다. 무효한 실행은
+`sweeps/logs/bisect_bin_ge.INVALID.*`.
+
 ### 2026-08-20 — **판정 경로가 셋이 되었다**: `Termination.check`의 자식 분할 + ITRS 재시도, 캐리어는 flat 하나로
 
 앞의 두 항목(캐리어, 자식 단독 실행)이 측정으로 끝낸 이야기를 코드로 옮겼다. `termination`
