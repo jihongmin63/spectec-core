@@ -1,0 +1,10 @@
+$bin_band	TIMEOUT	eqs=203 rules=249 u=46 vars=30 owise=0	1800.9	whole:TIMEOUT@1800.9s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] qdp TIMEOUT, re-slice not asked for)@3601.9s itrs:TIMEOUT@1809.1s
+$bin_bor	TIMEOUT	eqs=203 rules=249 u=46 vars=30 owise=0	1801.8	whole:TIMEOUT@1801.8s children:TIMEOUT(0/5 closed, node 45 [d_bor_nat_cross] qdp TIMEOUT, re-slice not asked for)@3601.8s itrs:TIMEOUT@1801.8s
+$bin_bxor	TIMEOUT	eqs=200 rules=240 u=40 vars=26 owise=0	1800.9	whole:TIMEOUT@1800.9s children:TIMEOUT(0/4 closed, node 45 [d_bxor_nat] qdp TIMEOUT, re-slice not asked for)@3602.0s itrs:TIMEOUT@1802.2s
+$bin_shr	TIMEOUT	eqs=216 rules=292 u=76 vars=49 owise=0	1801.3	whole:TIMEOUT@1801.3s children:TIMEOUT(0/6 closed, node 45 [bpow_nat,bpow_nat_aux] qdp TIMEOUT, re-slice not asked for)@3601.9s itrs:TIMEOUT@1801.8s
+$bitacc_offset_op	TIMEOUT	eqs=286 rules=678 u=392 vars=316 owise=0	1803.0	whole:TIMEOUT@1803.0s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] qdp TIMEOUT, re-slice not asked for)@3602.1s itrs:TIMEOUT@1801.5s
+$bitacc_range_op	TIMEOUT	eqs=284 rules=770 u=486 vars=315 owise=0	1802.3	whole:TIMEOUT@1802.3s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] qdp TIMEOUT, re-slice not asked for)@3602.1s itrs:TIMEOUT@1801.6s
+$name_annotationToken	TIMEOUT	eqs=209 rules=213 u=4 vars=11 owise=0	1800.7	whole:TIMEOUT@1800.7s children:TIMEOUT(0/1 closed, node 30 [d_int_to_text_nat] qdp TIMEOUT, re-slice not asked for)@3601.4s itrs:TIMEOUT@1802.1s
+$name_annotation_opt	TIMEOUT	eqs=256 rules=268 u=12 vars=21 owise=0	1800.7	whole:TIMEOUT@1800.7s children:TIMEOUT(0/1 closed, node 30 [d_int_to_text_nat] qdp TIMEOUT, re-slice not asked for)@3601.7s itrs:TIMEOUT@1805.8s
+$strip_prefix_rec	MAYBE	eqs=53 rules=59 u=6 vars=11 owise=0	675.5	whole:MAYBE@675.5s children:MAYBE(0/1 closed, node 31 [d_strip_prefix_rec] qdp TIMEOUT, re-slice not asked for)@2476.2s itrs:TIMEOUT@1801.8s
+$strip_suffix_rec	TIMEOUT	eqs=91 rules=98 u=7 vars=13 owise=0	1801.9	whole:TIMEOUT@1801.9s children:TIMEOUT(0/1 closed, node 36 [d_strip_suffix_rec] qdp TIMEOUT, re-slice not asked for)@3603.7s itrs:TIMEOUT@1802.2s

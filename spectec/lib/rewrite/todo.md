@@ -166,6 +166,59 @@ false`로 바꿔 놓은 것을 되돌립니다(`rebind_stuck_guards`). 분석 �
 `probe(BAD)≠YES`를 먼저 확인하고, 아니면 abort합니다. 무효한 실행은
 `sweeps/logs/bisect_bin_ge.INVALID.*`.
 
+### 2026-08-22 — **term 열 재측정 (145행): YES 135인데 그중 24개가 모델 수준이고, children 경로는 0개를 닫았다**
+
+`sweeps/run_term145.sh`, `bff805ec` 기준선의 심볼 집합에서 모노모피즘으로 특수화된
+8개(`$dom_map` `$empty_map` `$exists` `$filter` `$forall` `$is_some` `$ite`
+`$opt_as_seq`)를 뺀 **145개**를 현재 표면에서 직렬로. `--reslice-children`은 끔.
+원자료 `sweeps/term_145_2026-08-22.tsv`.
+
+| | |
+|---|---|
+| 판정 | YES **135** / TIMEOUT **10** |
+| 답한 경로 | whole **111** · children **0** · itrs **24** |
+| 기준선(153행 전부 YES) 대비 | YES→YES 135, YES→TIMEOUT 10 |
+
+**"YES 135"는 두 종류의 진술을 합산한 수입니다.** 기준선은 전부 **plain 표면**
+YES였는데, 이번에 plain으로 답한 건 111개뿐이고 24개는 `itrs:`가 구했습니다 —
+그리고 ITRS의 YES는 슬라이스가 아니라 **그 모델**에 대한 진술입니다(2026-08-21에
+문서를 정정한 그 이유: `Itrs.of_system`은 산술 층 규칙을 지우고 손으로 쓴 정수 정의를
+대입하므로 과대근사가 아님). plain만 놓고 세면 145 중 111입니다.
+
+그런데 예산도 다릅니다 — 기준선은 일부 심볼에 1800초를 썼고 이번 plain cap은
+300초입니다. **재질의 pass는 verdict가 TIMEOUT인 10개만 다시 묻기 때문에, itrs가 구한
+24개는 plain 1800초를 한 번도 안 물어봤습니다.** 이게 이번 측정 설계의 구멍이라
+`sweeps/run_term24_plain.sh`가 그 24개를 `--no-integer-retry --no-child-split
+--budget 1800`으로 다시 묻습니다(`term_24_plain_2026-08-22.tsv`). YES면 그 행은 예산
+아티팩트였고 plain 열은 온전한 것이고, TIMEOUT이면 정말 모델로만 되는 것이라 열이
+그렇게 말해야 합니다.
+
+**children 경로가 145개 전체에서 YES를 0개 냈습니다** — 심볼당 ~600초를 쓰면서요.
+자식 분할의 이득(`Program_ok` 577개 중 550개)은 이 집합에 없는 훨씬 큰 심볼에서
+측정된 것이고, 이 규모대에서는 비용만입니다. 스윕에서 켜 둘 이유가 없습니다.
+
+**진짜 plain 단축 하나**: `$write_bits_from_value` 기준선 1320.4초 → **whole:YES
+0.8초** (양쪽 다 plain — flat 캐리어 전환의 효과로 보임). 반면 `$bin_minus` 1800.5초
+→ 0.7초는 **같은 표면이 아닙니다**: whole은 여전히 TIMEOUT@301.3s이고 0.7초는 itrs.
+표면을 안 보고 초만 비교하면 정확히 이런 착시가 납니다.
+
+**잔여 10개는 예산 연성이 아니고, §8의 미결 결정 위에 그대로 앉아 있습니다.**
+`--budget 1800` 재질의에서 (측정된 5/5 모두) 다시 TIMEOUT. 막는 자식이 4개 패밀리뿐:
+
+| 막는 자식 | 심볼 |
+|---|---|
+| `d_band_nat_cross` · `d_bor_nat_cross` · `d_bxor_nat` | `$bin_band` `$bin_bor` `$bin_bxor` `$bitacc_offset_op` `$bitacc_range_op` |
+| `bpow_nat, bpow_nat_aux` | `$bin_shr` |
+| `d_int_to_text_nat` | `$name_annotationToken` `$name_annotation_opt` |
+| `d_strip_prefix_rec` / `d_strip_suffix_rec` | 각 1개 |
+
+앞의 넷(`$band_nat_cross` `$bor_nat_cross` `$bxor_nat` `$int_to_text_nat`)은 §8이
+"builtin은 알고 있다고 처리" **방침 미결**로 적어둔 헬퍼 6개 중 4개입니다. 즉 이
+열의 잔여는 새 결함이 아니라 **아직 안 내린 결정**입니다.
+
+진행 중: b1800 재질의 10개 중 5개, 그리고 그 뒤에 큐잉된 24개 plain@1800.
+`verification.md`의 termination 열은 그 둘이 끝나기 전까지 갱신하지 않습니다.
+
 ### 2026-08-21 (정정 2) — **`Itrs.of_system`이 슬라이스 루트를 지웠다. 그 루트의 `itrs:YES`는 공허했다**
 
 아래 "정정" 항목이 근거로 쓴 `itrs:YES@0.6s` 두 줄은 **그 심볼이 들어 있지 않은
