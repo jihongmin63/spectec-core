@@ -242,7 +242,22 @@ let literal (i : int) : R.term = R.App ("#" ^ string_of_int i, [])
 
    [bpred]/[bsub] go to the clamped [sub] because that is what they are: the
    magnitude type has no negatives, and Coq's [Pos.pred] of zero is zero.
-   [bis_zero] becomes an equality test rather than a constructor look. *)
+
+   [bis_zero] becomes [leq(a, 0)] rather than [eq(a, 0)], and the difference is
+   not cosmetic. This is the b-layer, so [a] is a MAGNITUDE: the CTRS sorts it
+   nat. Routed through the generic [eq], the guard [bis_zero(a) = false] lifts
+   to the constraint [a != 0], which lets [a] be negative -- and then
+   [div(a, 2)] does not descend toward the base case, so a bit-decomposition
+   recursion has no visible measure. Through [leq] it lifts to [a > 0], which
+   is what the sort said all along. Measured on the [$bor_nat] cycle alone
+   (AProVE, budget 60): [!= 0] is KILLED, [> 0] is YES in 0.7s. The wider
+   [!= 0] is not unsound -- it is the sorted CTRS's information being thrown
+   away, and this puts it back.
+
+   [<= 0] rather than [= 0] on the true side for the same reason: on a nat they
+   are the same set, and the inequality is what the constraint solver reasons
+   with. It also keeps [!=] out of the export, which AProVE's [IDPNonInf]
+   crashes on. *)
 let blayer : (string * (R.term list -> R.term)) list =
   let app f args = R.App (f, args) in
   [
@@ -259,7 +274,7 @@ let blayer : (string * (R.term list -> R.term)) list =
     ("bleq", fun a -> app "leq" a);
     ("blt", fun a -> app "lt" a);
     ("bpow_nat", fun a -> app "pow" a);
-    ("bis_zero", fun a -> app "eq" (a @ [ literal 0 ]));
+    ("bis_zero", fun a -> app "leq" (a @ [ literal 0 ]));
   ]
 
 (* [blayer] retargets a b-layer CALL, which is all that is needed while

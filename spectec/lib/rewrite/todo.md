@@ -166,6 +166,44 @@ false`로 바꿔 놓은 것을 되돌립니다(`rebind_stuck_guards`). 분석 �
 `probe(BAD)≠YES`를 먼저 확인하고, 아니면 abort합니다. 무효한 실행은
 `sweeps/logs/bisect_bin_ge.INVALID.*`.
 
+### 2026-08-31 — **정렬 손실을 고쳤다: `bis_zero`는 `eq`가 아니라 `leq`로 간다** (`itrs.ml`)
+
+위 항목이 표적으로 짚은 둘 중 첫째. 실질 변경은 한 줄이다:
+
+```diff
+- ("bis_zero", fun a -> app "eq"  (a @ [ literal 0 ]));
++ ("bis_zero", fun a -> app "leq" (a @ [ literal 0 ]));
+```
+
+`bis_zero`는 **b-layer**, 즉 이진 nat의 영 판정이라 인자가 magnitude이고 CTRS가 nat로
+정렬한다. 일반 `eq`로 보내면 `equality_relation`이 `bis_zero(a) = false`를 제약
+`a != 0`으로 올리는데, 그건 `a`가 음수여도 참이라 `div(a, 2)`가 기저를 향해 줄지
+않는다 — 비트 분해 재귀의 측도가 사라진다. `leq`로 보내면 `comparison_relation`이
+이미 아는 대로 `a > 0`이 되고, 이건 정렬이 처음부터 말하던 것이다.
+
+값은 위 항목의 단독 측정 그대로다: 같은 사이클이 `!= 0`이면 KILLED, `> 0`이면
+**YES 0.7초**. 부수적으로 내보내기에서 `!=`가 사라져 AProVE `IDPNonInf`의 알려진
+예외도 피한다.
+
+**표면 영향은 정수 표면 하나뿐이다.** `Itrs`를 쓰는 곳은 `termination.ml`의
+`Integer` 하나(`grep`으로 확인)이고, impty 골든 byte-identical, 실행 표면 sha256
+`175bf048…` 불변.
+
+**회귀 검사 6/6 통과** (`--itrs --budget 300`, 직렬):
+
+| 심볼 | 기준(08-22) | 수정 후 |
+|---|---|---|
+| `$bin_ge` | YES 0.7s | YES 0.7s |
+| `$bin_shl` | YES 1.3s | YES 1.4s |
+| `$int_of_integerValue` | YES 0.7s | YES 0.7s |
+| `$un_minus` | YES 0.7s | YES 0.7s |
+| `$set_priorities_of_tableEntryListIR` | YES 23.8s | YES 24.0s |
+| `$write_value_from_bits` | YES 26.6s | YES 27.1s |
+
+**이 수정만으로 뒤집히는 행은 없다** — 전체 슬라이스는 여전히 자식에 도달하지
+못한다(위 항목). 정보를 되돌린 것이지 경로를 연 것이 아니다. 남은 표적은 **ITRS
+표면의 자식 분할** 하나다.
+
 ### 2026-08-31 — **헬퍼 방침은 필요 없었다: 잔여를 막는 건 사이클이 아니라 ITRS 표면에 자식 분할이 없다는 것**
 
 §8이 "builtin은 알고 있다고 처리"를 미결로 남겨 둔 헬퍼 넷이 잔여 8행을 막고 있다고
