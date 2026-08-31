@@ -1157,8 +1157,7 @@ let write_child_report ~(path : string) ~(budget : int)
   Fun.protect
     ~finally:(fun () -> close_out oc)
     (fun () ->
-      output_string oc
-        "node\tnames\tpairs\tqdp\tqdp_rules\tqdp_secs\tslice\tslice_rules\tslice_secs\tslice_bare\tslice_bare_secs\tprocessors\n";
+      output_string oc "node\tnames\tpairs\tverdict\trules\tsecs\tprocessors\n";
       flush oc;
       let processors (proof : string) =
         String.split_on_char '\n' proof
@@ -1188,30 +1187,12 @@ let write_child_report ~(path : string) ~(budget : int)
         let declared, synthesized =
           List.partition (fun n -> String.contains n '@') named
         in
-        (* A re-ask the licence check refused has no verdict and no seconds:
-           the reason stands in the verdict column, so a reader is never left
-           reading a blank as "it did not close". *)
-        let asked = function
-          | Ok (a : Rewrite.Termination.attempt) ->
-              Printf.sprintf "%s\t%d\t%.1f"
-                (Rewrite.Termination.string_of_verdict a.verdict)
-                a.rules a.secs
-          | Error msg -> Printf.sprintf "UNLICENSED: %s\t0\t0.0" msg
-        in
-        let bare = function
-          | Ok (a : Rewrite.Termination.attempt) ->
-              Printf.sprintf "%s\t%.1f"
-                (Rewrite.Termination.string_of_verdict a.verdict)
-                a.secs
-          | Error _ -> "-\t0.0"
-        in
         let line =
-          Printf.sprintf "%d\t%s\t%d\t%s\t%d\t%.1f\t%s\t%s\t%s" c.node
+          Printf.sprintf "%d\t%s\t%d\t%s\t%d\t%.1f\t%s" c.node
             (String.concat "," (declared @ synthesized))
             c.pairs
             (Rewrite.Termination.string_of_verdict c.qdp.verdict)
-            c.qdp.rules c.qdp.secs (asked c.slice) (bare c.slice_bare)
-            (processors c.qdp.proof)
+            c.qdp.rules c.qdp.secs (processors c.qdp.proof)
         in
         print_endline line;
         output_string oc (line ^ "\n");
@@ -1229,11 +1210,7 @@ let write_child_report ~(path : string) ~(budget : int)
             List.length
               (List.filter
                  (fun (c : Rewrite.Termination.child) ->
-                   c.qdp.verdict = Rewrite.Termination.Yes
-                   ||
-                   match c.slice with
-                   | Ok a -> a.verdict = Rewrite.Termination.Yes
-                   | Error _ -> false)
+                   c.qdp.verdict = Rewrite.Termination.Yes)
                  children)
           in
           Printf.eprintf "%d/%d children closed\n" closed (List.length children);
@@ -1307,18 +1284,6 @@ let termination_command =
          the child that does not close (the same child re-sliced from the CTRS \
          and proved as a plain TRS) -- turn it off to measure the plain \
          surface alone"
-  and reslice_children =
-    flag "--reslice-children" no_arg
-      ~doc:
-        " on a child the standalone .qdp re-pose left open, ask it a SECOND \
-         way: re-slice the source CTRS at the symbols its dependency pairs \
-         name and prove that slice terminating as a plain TRS. Off by default \
-         because what it buys is unproven -- measured one variable at a time \
-         on $bin_shl's pow_int child, the .qdp and the slice carry the same 65 \
-         rules and both TIMEOUT, and the 4s YES belongs to the slice without \
-         the C-epsilon pair, which closes nothing. It costs one more run on \
-         every child that does not close; measure it with --child-report \
-         rather than turning it on for a sweep"
   and no_integer_retry =
     flag "--no-integer-retry" no_arg
       ~doc:
@@ -1337,16 +1302,11 @@ let termination_command =
         "TSV measure EVERY open dependency-graph child of the whole-system run \
          instead of checking the symbol -- one row per child (node, the \
          symbols its dependency pairs recurse through and where the spec \
-         declares them, pairs, then the same child asked THREE ways, and the \
-         processors that closed the first). The three are: as a standalone \
-         .qdp problem; as the source CTRS re-sliced at the symbols its pairs \
-         name and proved as a plain TRS, which the check falls back to and \
-         which reads UNLICENSED where the two inclusions that justify it do \
-         not hold; and that same slice WITHOUT the C-epsilon pair, which is a \
-         reference figure only (it closes nothing -- it says what the pair \
-         costs). The check itself stops at the first child that does not \
-         close, which is right for a verdict and is exactly what hides the \
-         distribution a residue is read from (exactly one --symbol)"
+         declares them, how many pairs, its verdict and seconds given the \
+         budget alone, and the processors that closed it). The check itself \
+         stops at the first child that does not close, which is right for a \
+         verdict and is exactly what hides the distribution a residue is read \
+         from (exactly one --symbol)"
   and child_budget =
     flag "--child-budget" (optional int)
       ~doc:
@@ -1415,7 +1375,7 @@ let termination_command =
                  in
                  let report : Rewrite.Termination.report =
                    Rewrite.Termination.check ?aprove_bin ~budget ~budget_from
-                     ~split_children:(not no_child_split) ~reslice_children
+                     ~split_children:(not no_child_split)
                      ~integer_retry:(not no_integer_retry) ~surface
                      ~roots:[ sym ] slice
                  in

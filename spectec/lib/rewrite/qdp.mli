@@ -64,13 +64,12 @@ val problems : string -> problem list
     the unraveling rather than the recursion. *)
 val pair_heads : export:Unravel.export -> problem -> string list
 
-(** Everything re-posing one child needs, derived once so the two ways of
-    re-posing it cannot drift apart:
+(** Everything re-posing one child needs, derived once so {!document} and any
+    later reader of the same child cannot drift apart:
 
     - [seeds] -- the symbols of [export] the dependency pairs name, anywhere in
       a pair rather than at its root alone. They are what the child depends on,
-      so they are both the usable-rules seeds below and the heads a caller
-      re-slicing the source CTRS should slice from ({!Termination}).
+      and so the seeds of the usable-rules prune below.
     - [rules] -- [R]'s safe superset: [export]'s rules, pruned to the problem's
       USABLE ones when (and only when) the problem is minimal.
     - [cepsilon] -- the projection pair [c(x,y) -> x | y] that the usable-rules
@@ -95,25 +94,6 @@ val reposed : export:Unravel.export -> problem -> (reposed, string) result
 
 (** The TPDB [.qdp] text of one re-posed child. *)
 val document : problem -> reposed -> string
-
-(** Whether proving [rules] terminating closes [problem] -- the licence a caller
-    needs before answering a child by proving a SYSTEM rather than by re-posing
-    the child as a dependency-pair problem.
-
-    Two inclusions carry it, and both are checked syntactically rather than
-    argued: every pair of [P] is an instance of a dependency pair of [rules],
-    and every rule of {!reposed.rules} -- {!reposed.cepsilon} included -- is in
-    [rules]. Given both, a [(P,Q,R)]-chain is a [(DP(rules), rules)]-chain, so
-    termination of [rules] leaves the child none. The projection pair is part of
-    the second inclusion rather than left to the caller's care: {!reposed.rules}
-    is the usable-rules PRUNE, a proof step sound only alongside it, so a system
-    proved without it does not close the child however well it is proved.
-
-    [Error] names the first pair or rule that fails, and is a fallback rather
-    than a defect: AProVE's transformation processors can REWRITE a pair, and a
-    rewritten pair is outside every dependency-pair set of ours. *)
-val closed_by :
-  reposed -> problem -> rules:(string * string) list -> (unit, string) result
 
 (** [standalone ~export problem] is the TPDB [.qdp] text of one child, with the
     number of rewrite rules it carries.

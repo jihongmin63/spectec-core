@@ -31,16 +31,9 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
       deadline across every child, so what its tree leaves open is a mix of
       "hard" and "never reached": on [Program_ok], 48 of the 75 children open
       after 3600s close standalone in a median 37s. Each child is asked as a
-      standalone dependency-pair problem ({!Qdp.standalone}) and, where
-      [reslice_children] is on and that left it open, a second time as a plain
-      TRS re-sliced from the source CTRS ({!reask}). The second ask is OFF by
-      default: it costs one more run on every child that does not close, and
-      what it buys is unproven -- on the one child measured one variable at a
-      time, the [.qdp] and the slice carry the SAME 65 rules and both TIMEOUT,
-      and the 4s YES belongs to the slice WITHOUT the projection pair, which
-      closes nothing (2026-08-21). Reports [Yes] only when every open child
-      closed, which by the soundness of AProVE's [AND] node is the proof the
-      whole run was after.
+      standalone dependency-pair problem ({!Qdp.standalone}) and given the
+      budget alone. Reports [Yes] only when every open child closed, which by
+      the soundness of AProVE's [AND] node is the proof the whole run was after.
     - [Integer_trs] -- the whole slice on the integer surface ({!Itrs}), tried
       only where the slice actually computes arithmetic. It is what reaches the
       residue the other two cannot: a descent that lives inside the structural
@@ -153,50 +146,6 @@ val export :
 
 val extension : surface -> string
 
-(** One open child asked the OTHER way: instead of re-posing it as a
-    dependency-pair problem ({!Qdp.standalone}), the source CTRS re-sliced at
-    the symbols its pairs name and unraveled into a plain TRS, which AProVE then
-    proves terminating from scratch -- the question [termination --symbol] asks,
-    aimed at the child.
-
-    It is worth asking because the [.qdp] FORM can be what is hard:
-    [$cast_enum]'s node 140 ([pow_int, pow_int_aux], 2 pairs / 65 rules) is
-    TIMEOUT at 900s as a [.qdp] and YES in 3.9s as a slice, while its node 142
-    is TIMEOUT both ways -- an alternative, not a law, which is why it runs
-    behind the [.qdp] rather than in front of it.
-
-    [Error] when {!Qdp.closed_by} refuses the two inclusions that license
-    answering the child this way, or when the slice turns out to be the whole
-    system (nothing to gain, and it is the run that already failed). A refusal
-    is a fallback, not a defect.
-
-    The rules are SELECTED from [export] rather than unraveled again from the
-    slice: {!Unravel}'s chain helpers are numbered over the whole rule list, so
-    a separate unraveling would spell them differently and the child's pairs
-    would match nothing. [export] must therefore be {!Unravel.export_of_system}
-    of [system]'s {!proof_surface}. *)
-type reask = {
-  licensed : string;
-      (** the slice plus {!Qdp.reposed}'s projection pair -- the submission the
-          licence check passed, and the only one whose [Yes] closes the child *)
-  bare : string;
-      (** the same slice WITHOUT the projection pair: not licensed, never used
-          to close anything, and present only so [--child-report] can measure
-          what the pair costs. Adding it is the whole difference between this
-          path and the plain [termination --symbol] the idea was measured on,
-          and C-epsilon is Toyama's counterexample -- it can turn a terminating
-          system non-terminating, so "it is only two rules" is not an argument
-          available here. *)
-  rules : int;
-  bare_rules : int;
-}
-
-val reask :
-  export:Unravel.export ->
-  system:Rewrite_system.t ->
-  Qdp.problem ->
-  (reask, string) result
-
 (** What one AProVE run on one child came back with. *)
 type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
 
@@ -204,28 +153,10 @@ type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
     it is around ([heads], the symbols its dependency pairs run through -- the
     export's spelling, which {!To_ctrs.symbol_origins} turns into the
     declaration and its source line), how many dependency pairs it has, and what
-    each way of asking it made of it.
-
-    - [qdp] -- the child re-posed as a standalone dependency-pair problem
-      ({!Qdp.standalone}), which is what {!check}'s split tries first.
-    - [slice] -- the source CTRS re-sliced at the symbols the pairs name and
-      proved as a plain TRS from scratch, plus the projection pair the
-      usable-rules prune needs. [Error] when the two inclusions that license
-      this ({!Qdp.closed_by}) do not hold, which is a fallback rather than a
-      defect.
-    - [slice_bare] -- the same slice WITHOUT the projection pair. Measured,
-      never believed: it is not licensed to close anything, and it is here only
-      because adding the pair is what separates this path from the plain
-      [termination --symbol] the idea was measured on, and that difference
-      should be a number. *)
-type child = {
-  node : int;
-  heads : string list;
-  pairs : int;
-  qdp : attempt;
-  slice : (attempt, string) result;
-  slice_bare : (attempt, string) result;
-}
+    it cost re-posed as a standalone dependency-pair problem ({!Qdp.standalone})
+    with the budget to itself -- which is exactly what {!check}'s split asks of
+    it, minus the early exit. *)
+type child = { node : int; heads : string list; pairs : int; qdp : attempt }
 
 (** Every open child of an unproven whole-system run, each given the budget to
     itself -- the measurement behind {!check}'s [Children] path, which answers
@@ -256,15 +187,13 @@ val child_report :
     the cost of that "as little time as needed" guarantee.
 
     [split_children] (default true) and [integer_retry] (default true) enable
-    the two fallback paths, and [reslice_children] (default FALSE) the second
-    way of asking a child inside the split ({!reask}). All three run only where
-    the plain whole-system run left the slice unproven -- and [integer_retry]
-    only where the slice computes arithmetic at all ({!Itrs.has_arithmetic}),
-    since without it the integer surface re-proves the same system under another
-    name. Both cost real time on a symbol that stays unproven: the split pays
-    one more whole-system run (to capture the decomposition), one run per open
-    child, and a second run on the child that does not close (the slice re-ask),
-    and the integer retry another ladder.
+    the two fallback paths. Both run only where the plain whole-system run left
+    the slice unproven -- and [integer_retry] only where the slice computes
+    arithmetic at all ({!Itrs.has_arithmetic}), since without it the integer
+    surface re-proves the same system under another name. Both cost real time on
+    a symbol that stays unproven: the split pays one more whole-system run (to
+    capture the decomposition) plus one run per open child, and the integer
+    retry another ladder.
 
     [surface] (default [Plain]) pins the check to ONE surface and takes the
     fallbacks away with it -- [~surface:Integer] is the integer-only column, not
@@ -279,7 +208,6 @@ val check :
   ?budget:int ->
   ?budget_from:int ->
   ?split_children:bool ->
-  ?reslice_children:bool ->
   ?integer_retry:bool ->
   ?surface:surface ->
   roots:string list ->
