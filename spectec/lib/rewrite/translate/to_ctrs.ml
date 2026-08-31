@@ -1960,3 +1960,59 @@ let def_symbols (spec : spec) : string list =
       | RelD { relid = id; _ } -> Some (rel_sym id)
       | TypD _ | BuiltinDecD _ -> None)
     spec
+
+(* Where a CTRS symbol came from in the source.
+
+   The symbol spellings above are lossy on purpose ({!R.sanitize} maps [']
+   to [_prime], [->] to [minus_gt]) and the type-derived families
+   ([subty_]/[match_]/[variant_]/[field_]) name a type rather than a
+   declaration, so a symbol read back out of a checker's output cannot be
+   turned into the name the spec uses -- let alone into the line that declares
+   it. This is the map that can, built by minting each definition's symbols the
+   same way the translation does, and keeping the declaration's own id and
+   region beside them.
+
+   Diagnostics only: it is the spec a slice was translated FROM, so a symbol a
+   later pass invented (a monomorphized instance, an iteration helper) has no
+   entry, and a caller must fall back on the CTRS spelling. *)
+type origin = { name : string; at : region }
+
+let symbol_origins (spec : spec) : (string, origin) Hashtbl.t =
+  let origins = Hashtbl.create 1024 in
+  let add sym name at =
+    if not (Hashtbl.mem origins sym) then
+      Hashtbl.replace origins sym { name; at }
+  in
+  let of_typ (synid : id) (deftyp : deftyp) =
+    let t = synid.it and at = synid.at in
+    add (subty_sym t) t at;
+    add (eq_sym t) t at;
+    match deftyp.it with
+    | StructT fields ->
+        add (struct_sym t) t at;
+        List.iter
+          (fun (a, _) ->
+            let field = t ^ "." ^ Xl.Atom.to_string a.it in
+            add (field_sym t a) field at;
+            add (upd_field_sym t a) field at)
+          fields
+    | VariantT cases ->
+        List.iter
+          (fun (tc : typcase) ->
+            let origin = tc.origin.it.synid.it in
+            let mixop = Mixfix.to_mixop tc.notation.it in
+            let case = t ^ " " ^ Mixfix.to_string mixop in
+            add (variant_sym origin mixop) case at;
+            add (match_sym t mixop) case at)
+          cases
+    | PlainT _ -> ()
+  in
+  List.iter
+    (fun def ->
+      match def.it with
+      | DecD { defid = id; _ } | BuiltinDecD { defid = id; _ } ->
+          add (func_sym id) ("$" ^ id.it) id.at
+      | RelD { relid = id; _ } -> add (rel_sym id) id.it id.at
+      | TypD { synid; deftyp; _ } -> of_typ synid deftyp)
+    spec;
+  origins

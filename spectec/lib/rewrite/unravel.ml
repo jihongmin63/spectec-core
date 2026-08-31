@@ -106,17 +106,37 @@ let schedule_conds (lhs_vars : string list) (conds : R.cond list) :
    identical: a divergence there would make the two surfaces prove different
    systems while claiming to be the same one. *)
 
-let unconditional_rules (t : R.t) :
-    ((R.term * R.term) list * int * int, string) result =
+type unraveled = {
+  unconditional : (R.term * R.term) list;
+  defines : (string * string) list;
+  steps : int;
+  dropped_owise : int;
+}
+
+let unconditional_rules (t : R.t) : (unraveled, string) result =
   let exception Fail of string in
   try
     let counter = ref 0 in
     let owise = ref 0 in
     let emitted = ref [] in
+    (* Which CTRS symbol each emitted symbol came from: a defined head from
+       itself, a chain helper from the head of the rule whose condition
+       introduced it. A helper's NUMBER is assigned by a counter over the whole
+       rule list, so it is the one thing about an unraveling that is not a
+       function of the rule alone -- which is why a caller wanting the
+       unraveling of a SUBSET must select from these rules rather than unravel
+       the subset (its helpers would be numbered differently), and why it needs
+       this table to know which rules to select. *)
+    let defines : (string, string) Hashtbl.t = Hashtbl.create 512 in
+    let define sym origin =
+      if origin <> "" then Hashtbl.replace defines sym origin
+    in
     let emit lhs rhs = emitted := (lhs, rhs) :: !emitted in
     List.iter
       (fun (r : R.rule) ->
         if r.owise then incr owise;
+        let origin = Option.value (R.defined_head r) ~default:"" in
+        define origin origin;
         match r.conds with
         | [] -> emit r.lhs r.rhs
         | conds ->
@@ -140,6 +160,7 @@ let unconditional_rules (t : R.t) :
                 incr counter;
                 let i = !counter in
                 let u = Printf.sprintf "u_%d" i in
+                define u origin;
                 let carried = List.map (fun v -> R.Var v) (arg_vars @ !bound) in
                 emit !cur (R.App (u, s :: carried));
                 List.iter
@@ -167,7 +188,15 @@ let unconditional_rules (t : R.t) :
                   (String.concat ", " (R.dedup_stable extra))
                   (R.string_of_term lhs) (R.string_of_term rhs))))
       rules;
-    Ok (rules, !counter, !owise)
+    Ok
+      {
+        unconditional = rules;
+        defines =
+          List.sort compare
+            (Hashtbl.fold (fun k v acc -> (k, v) :: acc) defines []);
+        steps = !counter;
+        dropped_owise = !owise;
+      }
   with Fail msg -> Error msg
 
 (* Spell a set of unconditional rules as TPDB text: the identifier scrub, the
@@ -242,23 +271,30 @@ let print_rules (rules : (R.term * R.term) list) :
    declares. {!Qdp} needs both to re-pose one dependency-graph child against a
    SUBSET of these rules -- and must take that subset from here rather than
    re-printing it, since the collision table is resolved over the whole list. *)
-type export = { printed : (string * string) list; vars : string list }
+type export = {
+  printed : (string * string) list;
+  vars : string list;
+  origins : (string * string) list;
+}
 
 let export_of_system (t : R.t) : (export * stats, string) result =
   match unconditional_rules t with
   | Error msg -> Error msg
-  | Ok (rules, chain_steps, owise) -> (
-      match print_rules rules with
+  | Ok u -> (
+      match print_rules u.unconditional with
       | Error msg -> Error msg
       | Ok (printed, vars) ->
+          let origins =
+            List.map (fun (sym, origin) -> (tpdb_sym sym, origin)) u.defines
+          in
           Ok
-            ( { printed; vars },
+            ( { printed; vars; origins },
               {
                 eqs = List.length t.R.rules;
-                rules = List.length rules;
-                chain_steps;
+                rules = List.length u.unconditional;
+                chain_steps = u.steps;
                 vars = List.length vars;
-                owise;
+                owise = u.dropped_owise;
               } ))
 
 (* The TPDB document: a [(VAR ...)] header over [vars] and a [(RULES ...)] block

@@ -27,12 +27,13 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
       termination column before 2026-08-20 measured, and still the path that
       answers for most symbols.
     - [Children] -- the open children of that run's own dependency-graph
-      decomposition, each re-posed as a standalone problem and given the budget
-      alone ({!Qdp}). A whole-system run shares one deadline across every child,
-      so what its tree leaves open is a mix of "hard" and "never reached": on
-      [Program_ok], 48 of the 75 children open after 3600s close standalone in a
-      median 37s. Reports [Yes] only when every open child closed, which by the
-      soundness of AProVE's [AND] node is the proof the whole run was after.
+      decomposition, each given the budget alone. A whole-system run shares one
+      deadline across every child, so what its tree leaves open is a mix of
+      "hard" and "never reached": on [Program_ok], 48 of the 75 children open
+      after 3600s close standalone in a median 37s. Each child is asked as a
+      standalone dependency-pair problem ({!Qdp.standalone}) and given the
+      budget alone. Reports [Yes] only when every open child closed, which by
+      the soundness of AProVE's [AND] node is the proof the whole run was after.
     - [Integer_trs] -- the whole slice on the integer surface ({!Itrs}), tried
       only where the slice actually computes arithmetic. It is what reaches the
       residue the other two cannot: a descent that lives inside the structural
@@ -138,9 +139,43 @@ type surface = Plain | Integer
     AProVE under (which is how AProVE selects the problem type -- ITRS text in a
     [.trs] file is a parse error, not an ITRS run). *)
 val export :
-  surface -> Rewrite_system.t -> (string * Unravel.stats, string) result
+  roots:string list ->
+  surface ->
+  Rewrite_system.t ->
+  (string * Unravel.stats, string) result
 
 val extension : surface -> string
+
+(** What one AProVE run on one child came back with. *)
+type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
+
+(** One open child of the whole-system run, measured on its own: the recursion
+    it is around ([heads], the symbols its dependency pairs run through -- the
+    export's spelling, which {!To_ctrs.symbol_origins} turns into the
+    declaration and its source line), how many dependency pairs it has, and what
+    it cost re-posed as a standalone dependency-pair problem ({!Qdp.standalone})
+    with the budget to itself -- which is exactly what {!check}'s split asks of
+    it, minus the early exit. *)
+type child = { node : int; heads : string list; pairs : int; qdp : attempt }
+
+(** Every open child of an unproven whole-system run, each given the budget to
+    itself -- the measurement behind {!check}'s [Children] path, which answers
+    with a verdict and therefore stops at the first child that does not close.
+    Here none is skipped, so the result is the distribution: which children
+    close, which recursions the rest are around, and what each cost.
+
+    [budget] runs the whole-system capture, [child_budget] (default [budget])
+    each of the up-to-three runs per child. [on_child] is called as each row
+    lands, since a run over a large slice takes an hour and a sweep wants its
+    rows before the end. [Error] when the run gave no children to measure -- the
+    same conditions under which {!check}'s split reports [Unavailable]. *)
+val child_report :
+  ?aprove_bin:string ->
+  ?budget:int ->
+  ?child_budget:int ->
+  ?on_child:(child -> unit) ->
+  Rewrite_system.t ->
+  (child list, string) result
 
 (** [check ?aprove_bin ?budget system]: [system] is the already-sliced CTRS
     ({!Rewrite_system.slice}). A slice with no rules is [Degenerate] (nothing to
@@ -152,7 +187,7 @@ val extension : surface -> string
     the cost of that "as little time as needed" guarantee.
 
     [split_children] (default true) and [integer_retry] (default true) enable
-    the two fallback paths, which run only where the plain whole-system run left
+    the two fallback paths. Both run only where the plain whole-system run left
     the slice unproven -- and [integer_retry] only where the slice computes
     arithmetic at all ({!Itrs.has_arithmetic}), since without it the integer
     surface re-proves the same system under another name. Both cost real time on
@@ -162,7 +197,12 @@ val extension : surface -> string
 
     [surface] (default [Plain]) pins the check to ONE surface and takes the
     fallbacks away with it -- [~surface:Integer] is the integer-only column, not
-    an integer-first pipeline. *)
+    an integer-first pipeline.
+
+    [roots] are the heads [system] was sliced from. Only the integer surface
+    reads them, and only because it DELETES the arithmetic layer: see
+    {!Itrs.of_system} for why a root inside that layer has to be named to
+    survive its own replacement. *)
 val check :
   ?aprove_bin:string ->
   ?budget:int ->
@@ -170,5 +210,6 @@ val check :
   ?split_children:bool ->
   ?integer_retry:bool ->
   ?surface:surface ->
+  roots:string list ->
   Rewrite_system.t ->
   report

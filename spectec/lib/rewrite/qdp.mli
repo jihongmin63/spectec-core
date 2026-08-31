@@ -54,6 +54,47 @@ val open_leaves : string -> int list
     split. *)
 val problems : string -> problem list
 
+(** The symbols a child's dependency pairs recurse through -- the child's NAME,
+    which its node id is not: it is what turns a residue list from "nodes 1410,
+    1411, ..." into the families it consists of. In the export's own spelling
+    (the dependency-pair symbols the echo prints are its uppercase), so a caller
+    holding the spec can resolve each one to the declaration and its source line
+    through {!To_ctrs.symbol_origins}. Chain helpers [u_<n>] drop out whenever
+    anything else is present: one per condition of the source rule, they name
+    the unraveling rather than the recursion. *)
+val pair_heads : export:Unravel.export -> problem -> string list
+
+(** Everything re-posing one child needs, derived once so {!document} and any
+    later reader of the same child cannot drift apart:
+
+    - [seeds] -- the symbols of [export] the dependency pairs name, anywhere in
+      a pair rather than at its root alone. They are what the child depends on,
+      and so the seeds of the usable-rules prune below.
+    - [rules] -- [R]'s safe superset: [export]'s rules, pruned to the problem's
+      USABLE ones when (and only when) the problem is minimal.
+    - [cepsilon] -- the projection pair [c(x,y) -> x | y] that the usable-rules
+      prune is sound only alongside; empty when nothing was dropped and the
+      prune was therefore not taken. Whoever emits [rules] must emit these too.
+    - [vars] -- the identifiers a [(VAR ...)] header must declare for the three
+      above plus the pairs: [export]'s own, the ones AProVE renamed to, and the
+      [C-epsilon] pair's.
+
+    [Error] rather than a silently different system when an identifier in the
+    pairs is neither a variable ([x<n>], the names AProVE renames to) nor a
+    symbol of [export]: an undeclared identifier parses as a CONSTANT, which
+    would specialize the problem and prove something narrower than was asked. *)
+type reposed = {
+  seeds : string list;
+  rules : (string * string) list;
+  cepsilon : (string * string) list;
+  vars : string list;
+}
+
+val reposed : export:Unravel.export -> problem -> (reposed, string) result
+
+(** The TPDB [.qdp] text of one re-posed child. *)
+val document : problem -> reposed -> string
+
 (** [standalone ~export problem] is the TPDB [.qdp] text of one child, with the
     number of rewrite rules it carries.
 
@@ -66,9 +107,6 @@ val problems : string -> problem list
     is taken only when [problem.minimal] holds and why those two rules are
     emitted whenever anything was dropped.
 
-    [Error] rather than a silently different system when an identifier in the
-    pairs is neither a variable ([x<n>], the names AProVE renames to) nor a
-    symbol of [export]: an undeclared identifier parses as a CONSTANT, which
-    would specialize the problem and prove something narrower than was asked. *)
+    [Error] as {!reposed}. *)
 val standalone :
   export:Unravel.export -> problem -> (string * int, string) result

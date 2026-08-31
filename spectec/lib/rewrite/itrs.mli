@@ -36,8 +36,20 @@
     variable, which has no integer value to fold to. That is deliberately an
     error and not a silent pass-through: the constructor would survive as an
     uninterpreted symbol disconnected from the arithmetic that defined it, and
-    AProVE would prove termination of a different system. *)
-val of_system : Rewrite_system.t -> (string * Unravel.stats, string) result
+    AProVE would prove termination of a different system.
+
+    [roots] are the heads the slice was taken from. They matter because the
+    replaced layer is DELETED here: a root that is itself one of the replaced
+    operations keeps none of its own rules, and without being named as a root it
+    would be pruned along with them -- leaving an export that does not contain
+    the symbol the proof is supposed to be about. Named, it gets its integer
+    definition back (or, for a b-layer operation, the retargeting {!blayer}
+    applies at call sites written out as a rule), and a root that has no integer
+    definition at all is an [Error] rather than a vacuous [YES]. *)
+val of_system :
+  roots:string list ->
+  Rewrite_system.t ->
+  (string * Unravel.stats, string) result
 
 (** Whether the slice names any operation of the layer this surface replaces --
     the arithmetic interface and its binary engine, the binary-indexed list

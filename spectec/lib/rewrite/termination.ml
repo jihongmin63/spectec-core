@@ -113,9 +113,9 @@ let trs_of_slice (system : Rewrite_system.t) :
    follow, since AProVE reads the problem type off it. *)
 type surface = Plain | Integer
 
-let export = function
+let export ~(roots : string list) = function
   | Plain -> trs_of_slice
-  | Integer -> fun system -> Itrs.of_system (proof_surface system)
+  | Integer -> fun system -> Itrs.of_system ~roots (proof_surface system)
 
 let extension = function Plain -> ".trs" | Integer -> ".itrs"
 
@@ -168,15 +168,20 @@ let probe ?aprove_bin ~budget ~budget_from ~ext ~trs () : Aprove.run * float =
 
 type split_outcome = Closed | Unclosed of string | Unavailable of string
 
-let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
-    split_outcome =
+(* The children of one whole-system run, in tree order, with the export they are
+   to be re-posed against. Separated from the running because two callers want
+   the same children for different reasons: {!split} stops at the first that
+   does not close (a checker has its answer there), while {!child_report} runs
+   every one of them (a measurement wants the distribution). *)
+let children ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
+    (Unravel.export * Qdp.problem list, string) result =
   (* The child carries OUR rules, not the ones the echo printed back: the same
      export the whole run was given, which is a superset of whatever the run had
      reduced them to by the time it reached this child, and a superset only adds
      chains. Re-derived here rather than threaded in, because it costs
      milliseconds against a run that costs the budget. *)
   match Unravel.export_of_system (proof_surface system) with
-  | Error msg -> Unavailable msg
+  | Error msg -> Error msg
   | Ok (export, _) -> (
       let run =
         Aprove.check ?aprove_bin ~budget ~ext:".trs"
@@ -184,7 +189,7 @@ let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
           ~trs ()
       in
       match Qdp.open_leaves run.Aprove.proof with
-      | [] -> Unavailable "no open child in the proof tree"
+      | [] -> Error "no open child in the proof tree"
       | leaves ->
           let echoed = Qdp.problems run.Aprove.captured in
           let problem node =
@@ -194,43 +199,109 @@ let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
           in
           let missing = List.filter (fun node -> problem node = None) leaves in
           if missing <> [] then
-            (* Either the echo was cut short by [echo_slack] or the open node
-               is not a dependency-pair problem at all. Splitting on the
-               children that did arrive would prove a strict subset of what the
-               tree needs. The node ids are what makes the next occurrence
+            (* Either the echo was cut short by [echo_slack] or the open node is
+               not a dependency-pair problem at all. Splitting on the children
+               that did arrive would prove a strict subset of what the tree
+               needs. The node ids are what makes the next occurrence
                diagnosable: re-running [runme] by hand on the same export shows
                whether that node's obligation was printed at all. *)
-            Unavailable
+            Error
               (Printf.sprintf
                  "node(s) %s not in the echo (%d open, %d obligations)"
                  (String.concat "," (List.map string_of_int missing))
                  (List.length leaves) (List.length echoed))
-          else
-            let total = List.length leaves in
-            let rec close closed = function
-              | [] -> Closed
-              | node :: rest -> (
-                  let p = Option.get (problem node) in
-                  match Qdp.standalone ~export p with
-                  | Error msg ->
-                      Unavailable (Printf.sprintf "node %d: %s" node msg)
-                  | Ok (text, _) -> (
-                      let child =
-                        Aprove.check ?aprove_bin ~budget ~ext:".qdp" ~trs:text
-                          ()
-                      in
-                      match child.Aprove.verdict with
-                      | Aprove.Yes -> close (closed + 1) rest
-                      | v ->
-                          (* One child that does not close leaves the whole system
-                         unproven, so the remaining children are not worth their
-                         budget; the count says how far the split got. *)
-                          Unclosed
-                            (Printf.sprintf "%d/%d closed, node %d %s" closed
-                               total node
-                               (Aprove.string_of_verdict v))))
+          else Ok (export, List.filter_map problem leaves))
+
+let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
+    split_outcome =
+  match children ?aprove_bin ~budget ~system ~trs () with
+  | Error msg -> Unavailable msg
+  | Ok (export, problems) ->
+      let total = List.length problems in
+      let rec close closed = function
+        | [] -> Closed
+        | (p : Qdp.problem) :: rest -> (
+            match Qdp.standalone ~export p with
+            | Error msg ->
+                Unavailable (Printf.sprintf "node %d: %s" p.Qdp.node msg)
+            | Ok (text, _) -> (
+                let child =
+                  Aprove.check ?aprove_bin ~budget ~ext:".qdp" ~trs:text ()
+                in
+                match child.Aprove.verdict with
+                | Aprove.Yes -> close (closed + 1) rest
+                | v ->
+                    (* One child that does not close leaves the whole system
+                       unproven, so the remaining children are not worth their
+                       budget; the count says how far the split got. *)
+                    Unclosed
+                      (Printf.sprintf "%d/%d closed, node %d [%s] %s" closed
+                         total p.Qdp.node
+                         (String.concat "," (Qdp.pair_heads ~export p))
+                         (Aprove.string_of_verdict v))))
+      in
+      close 0 problems
+
+(* One row per open child, every one of them run: what {!split} answers with a
+   verdict, measured instead. The distribution is the thing a residue is read
+   from -- which children close, which recursion the ones that do not are around
+   ([heads]), and what each cost -- and the early exit that makes {!split} a
+   cheap checker is exactly what hides it.
+
+   The budget is the child's own ([child_budget]), so a row says what the child
+   costs when nothing else is competing for the deadline -- which is the
+   comparison {!split} is built on. *)
+type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
+type child = { node : int; heads : string list; pairs : int; qdp : attempt }
+
+let child_report ?aprove_bin ?(budget = 300) ?child_budget
+    ?(on_child = fun (_ : child) -> ()) (system : Rewrite_system.t) :
+    (child list, string) result =
+  let child_budget = Option.value child_budget ~default:budget in
+  match export ~roots:[] Plain system with
+  | Error msg -> Error msg
+  | Ok (trs, _) -> (
+      match children ?aprove_bin ~budget ~system ~trs () with
+      | Error msg -> Error msg
+      | Ok (export, problems) ->
+          let attempt ~ext ~rules text =
+            let run, secs =
+              Subproc.timed (fun () ->
+                  Aprove.check ?aprove_bin ~budget:child_budget ~ext ~trs:text
+                    ())
             in
-            close 0 leaves)
+            {
+              verdict = of_aprove run.Aprove.verdict;
+              secs;
+              rules;
+              proof = run.Aprove.proof;
+            }
+          in
+          Ok
+            (List.map
+               (fun (p : Qdp.problem) ->
+                 let qdp =
+                   match Qdp.standalone ~export p with
+                   | Error msg ->
+                       {
+                         verdict = Error msg;
+                         secs = 0.0;
+                         rules = 0;
+                         proof = "";
+                       }
+                   | Ok (text, rules) -> attempt ~ext:".qdp" ~rules text
+                 in
+                 let row =
+                   {
+                     node = p.Qdp.node;
+                     heads = Qdp.pair_heads ~export p;
+                     pairs = List.length p.Qdp.pairs;
+                     qdp;
+                   }
+                 in
+                 on_child row;
+                 row)
+               problems))
 
 (* ------------------------------------------------------------------------- *)
 
@@ -259,13 +330,13 @@ let report_of ~stats ~(tree : string option) (steps : step list) : report =
 
 let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
     ?(split_children = true) ?(integer_retry = true) ?(surface = Plain)
-    (system : Rewrite_system.t) : report =
+    ~(roots : string list) (system : Rewrite_system.t) : report =
   let failed verdict =
     { verdict; stats = None; secs = None; proof = None; steps = [] }
   in
   if system.Rewrite_system.rules = [] then failed Degenerate
   else
-    match export surface system with
+    match export ~roots surface system with
     | Error msg -> failed (Error msg)
     | Ok (trs, stats) -> (
         let tree_of (run : Aprove.run) =
@@ -303,7 +374,7 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
           else if not (integer_retry && Itrs.has_arithmetic system) then
             report_of ~stats ~tree:(tree_of whole) steps
           else
-            match export Integer system with
+            match export ~roots Integer system with
             | Error msg ->
                 report_of ~stats ~tree:(tree_of whole)
                   (steps

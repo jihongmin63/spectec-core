@@ -1119,6 +1119,103 @@ let write_proof_tree ~(dir : string) ~(sym : string) (tree : string option) :
         ~finally:(fun () -> close_out oc)
         (fun () -> output_string oc (tree ^ "\n"))
 
+(* How a child of the dependency-graph decomposition gets a NAME.
+
+   {!Rewrite.Qdp.pair_heads} says which symbols the child's dependency pairs
+   recurse through, in the TPDB spelling the export uses -- which is two scrubs
+   away from anything a person reads: [$f] prints as [d_f], and the CTRS names
+   are already sanitized ([callableId'] -> [callableId_prime]). Only the spec
+   can undo that, so the naming happens here, where it is loaded: TPDB spelling
+   -> the slice's own CTRS symbol -> the declaration and the line that declares
+   it ({!Rewrite.To_ctrs.symbol_origins}). A symbol a later pass invented has no
+   declaration to find, and keeps its CTRS spelling. *)
+let child_naming (spec_tr : Lang.Il.spec) (slice : Rewrite.Rewrite_system.t) :
+    string -> string =
+  let origins = Rewrite.To_ctrs.symbol_origins spec_tr in
+  let of_tpdb = Hashtbl.create 512 in
+  List.iter
+    (fun sym -> Hashtbl.replace of_tpdb (Rewrite.Unravel.tpdb_sym sym) sym)
+    (Rewrite.Rewrite_system.defined_heads slice);
+  fun head ->
+    match Hashtbl.find_opt of_tpdb head with
+    | None -> head
+    | Some sym -> (
+        match Hashtbl.find_opt origins sym with
+        | None -> sym
+        | Some { Rewrite.To_ctrs.name; at } ->
+            Printf.sprintf "%s@%s:%d" name
+              (Filename.basename at.left.file)
+              at.left.line)
+
+(* [--child-report]: every open child measured, rows streamed as they land (the
+   run takes an hour on a large slice, and a row that only exists at the end is
+   a row nobody watches). *)
+let write_child_report ~(path : string) ~(budget : int)
+    ~(child_budget : int option) ?aprove_bin ~(naming : string -> string)
+    (slice : Rewrite.Rewrite_system.t) =
+  let oc = open_out path in
+  Fun.protect
+    ~finally:(fun () -> close_out oc)
+    (fun () ->
+      output_string oc "node\tnames\tpairs\tverdict\trules\tsecs\tprocessors\n";
+      flush oc;
+      let processors (proof : string) =
+        String.split_on_char '\n' proof
+        |> List.filter_map (fun line ->
+               let line = String.trim line in
+               match String.index_opt line ' ' with
+               | None -> None
+               | Some i -> (
+                   let word =
+                     String.sub line (i + 1) (String.length line - i - 1)
+                   in
+                   match String.index_opt word ' ' with
+                   | None ->
+                       if String.ends_with ~suffix:"Proof" word then Some word
+                       else None
+                   | Some j ->
+                       let word = String.sub word 0 j in
+                       if String.ends_with ~suffix:"Proof" word then Some word
+                       else None))
+        |> List.sort_uniq compare |> String.concat ","
+      in
+      let row (c : Rewrite.Termination.child) =
+        (* Declared symbols first: a cycle also runs through helpers the
+           translation synthesized ([$itermap_...]), which have no declaration
+           to name and would otherwise bury the handful of names that do. *)
+        let named = List.map naming c.heads in
+        let declared, synthesized =
+          List.partition (fun n -> String.contains n '@') named
+        in
+        let line =
+          Printf.sprintf "%d\t%s\t%d\t%s\t%d\t%.1f\t%s" c.node
+            (String.concat "," (declared @ synthesized))
+            c.pairs
+            (Rewrite.Termination.string_of_verdict c.qdp.verdict)
+            c.qdp.rules c.qdp.secs (processors c.qdp.proof)
+        in
+        print_endline line;
+        output_string oc (line ^ "\n");
+        flush oc
+      in
+      match
+        Rewrite.Termination.child_report ?aprove_bin ~budget ?child_budget
+          ~on_child:row slice
+      with
+      | Error msg ->
+          Printf.eprintf "child report: %s\n" msg;
+          Ok true
+      | Ok children ->
+          let closed =
+            List.length
+              (List.filter
+                 (fun (c : Rewrite.Termination.child) ->
+                   c.qdp.verdict = Rewrite.Termination.Yes)
+                 children)
+          in
+          Printf.eprintf "%d/%d children closed\n" closed (List.length children);
+          Ok (closed < List.length children))
+
 (* Per-symbol termination via the unravel + a direct
    AProVE run ({!Rewrite.Termination}) -- deliberately NOT through MTT (whose
    condition-variable unraveling and hard-coded inner budget block exactly
@@ -1183,8 +1280,10 @@ let termination_command =
          children as standalone problems. The split is what separates a hard \
          child from one the shared deadline never reached (48 of Program_ok's \
          75 open children close standalone in a median 37s), but it costs one \
-         more whole-system run plus one run per open child -- turn it off to \
-         measure the plain surface alone"
+         more whole-system run, one run per open child, and a second run on \
+         the child that does not close (the same child re-sliced from the CTRS \
+         and proved as a plain TRS) -- turn it off to measure the plain \
+         surface alone"
   and no_integer_retry =
     flag "--no-integer-retry" no_arg
       ~doc:
@@ -1197,6 +1296,23 @@ let termination_command =
          -- the step outline ((0) ITRS, (3) UsableRulesProof, (9) YES) that \
          says how far the proof got, which a one-word TIMEOUT row does not. \
          Free: the tree lands in the same instant as the verdict"
+  and child_report =
+    flag "--child-report" (optional string)
+      ~doc:
+        "TSV measure EVERY open dependency-graph child of the whole-system run \
+         instead of checking the symbol -- one row per child (node, the \
+         symbols its dependency pairs recurse through and where the spec \
+         declares them, how many pairs, its verdict and seconds given the \
+         budget alone, and the processors that closed it). The check itself \
+         stops at the first child that does not close, which is right for a \
+         verdict and is exactly what hides the distribution a residue is read \
+         from (exactly one --symbol)"
+  and child_budget =
+    flag "--child-budget" (optional int)
+      ~doc:
+        "S AProVE's budget per child in --child-report (default: --budget). A \
+         child that closes takes seconds; one that does not costs the whole of \
+         this, so it is what sets the run's length"
   and out =
     flag "--out" (optional string)
       ~doc:
@@ -1207,6 +1323,9 @@ let termination_command =
     Cli.Analysis_sweep.require_roots ~cmd:"termination" ~all ~symbols;
     if emit_trs then
       Cli.Analysis_sweep.require_single_symbol ~flag:"--emit-trs" ~all ~symbols;
+    if child_report <> None then
+      Cli.Analysis_sweep.require_single_symbol ~flag:"--child-report" ~all
+        ~symbols;
     Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
     @@ fun () ->
     let* spec = parse_spec_files filenames in
@@ -1224,66 +1343,78 @@ let termination_command =
         ~all_roots:(Rewrite.def_symbols spec_tr)
         ~slice_size:(slice_size slicer)
     in
-    if emit_trs then (
-      let slice =
-        Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
-      in
-      match Rewrite.Termination.export surface slice with
-      | Ok (trs, stats) ->
-          print_string trs;
-          Printf.eprintf "%s\n" (Rewrite.Unravel.string_of_stats stats);
-          Ok false
-      | Error msg ->
-          Printf.eprintf "unravel: %s\n" msg;
-          Ok true)
-    else
-      Ok
-        (Cli.Analysis_sweep.rows ~out ~roots ~key:(slice_key slicer)
-           ~row_of:(fun sym ->
-             let slice =
-               Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
-             in
-             let report : Rewrite.Termination.report =
-               Rewrite.Termination.check ?aprove_bin ~budget ~budget_from
-                 ~split_children:(not no_child_split)
-                 ~integer_retry:(not no_integer_retry) ~surface slice
-             in
-             Option.iter
-               (fun dir -> write_proof_tree ~dir ~sym report.proof)
-               proof_dir;
-             let stats =
-               match report.stats with
-               | Some s -> Rewrite.Unravel.string_of_stats s
-               | None -> "-"
-             in
-             (* The 4th column is the wall clock of the ANSWERING path: for a
+    match child_report with
+    | Some path ->
+        let slice =
+          Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
+        in
+        write_child_report ~path ~budget ~child_budget ?aprove_bin
+          ~naming:(child_naming spec_tr slice)
+          slice
+    | None ->
+        if emit_trs then (
+          let slice =
+            Rewrite.Rewrite_system.slice_with slicer ~roots:[ List.hd roots ]
+          in
+          match
+            Rewrite.Termination.export ~roots:[ List.hd roots ] surface slice
+          with
+          | Ok (trs, stats) ->
+              print_string trs;
+              Printf.eprintf "%s\n" (Rewrite.Unravel.string_of_stats stats);
+              Ok false
+          | Error msg ->
+              Printf.eprintf "unravel: %s\n" msg;
+              Ok true)
+        else
+          Ok
+            (Cli.Analysis_sweep.rows ~out ~roots ~key:(slice_key slicer)
+               ~row_of:(fun sym ->
+                 let slice =
+                   Rewrite.Rewrite_system.slice_with slicer ~roots:[ sym ]
+                 in
+                 let report : Rewrite.Termination.report =
+                   Rewrite.Termination.check ?aprove_bin ~budget ~budget_from
+                     ~split_children:(not no_child_split)
+                     ~integer_retry:(not no_integer_retry) ~surface
+                     ~roots:[ sym ] slice
+                 in
+                 Option.iter
+                   (fun dir -> write_proof_tree ~dir ~sym report.proof)
+                   proof_dir;
+                 let stats =
+                   match report.stats with
+                   | Some s -> Rewrite.Unravel.string_of_stats s
+                   | None -> "-"
+                 in
+                 (* The 4th column is the wall clock of the ANSWERING path: for a
                 budget-ladder run the answering rung alone (the rungs below it
                 found nothing and are excluded, so this is what the verdict
                 cost, not what finding it cost), for a child split every child
                 run it made. ("-" when no AProVE ran -- DEGENERATE or an export
                 error.) *)
-             let secs =
-               match report.secs with
-               | Some s -> Printf.sprintf "%.1f" s
-               | None -> "-"
-             in
-             (* The 5th column is every path the check took, in order, with its
+                 let secs =
+                   match report.secs with
+                   | Some s -> Printf.sprintf "%.1f" s
+                   | None -> "-"
+                 in
+                 (* The 5th column is every path the check took, in order, with its
                 own verdict and seconds -- where a split's "48/75 closed, node
                 911 TIMEOUT" survives a row whose verdict is the plain run's. *)
-             let paths =
-               match report.steps with
-               | [] -> "-"
-               | steps ->
-                   String.concat " "
-                     (List.map Rewrite.Termination.string_of_step steps)
-             in
-             ( Printf.sprintf "%s\t%s\t%s\t%s\t%s" sym
-                 (Rewrite.Termination.string_of_verdict report.verdict)
-                 stats secs paths,
-               match report.verdict with
-               | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
-                   false
-               | _ -> true )))
+                 let paths =
+                   match report.steps with
+                   | [] -> "-"
+                   | steps ->
+                       String.concat " "
+                         (List.map Rewrite.Termination.string_of_step steps)
+                 in
+                 ( Printf.sprintf "%s\t%s\t%s\t%s\t%s" sym
+                     (Rewrite.Termination.string_of_verdict report.verdict)
+                     stats secs paths,
+                   match report.verdict with
+                   | Rewrite.Termination.Yes | Rewrite.Termination.Degenerate ->
+                       false
+                   | _ -> true )))
 
 (* Per-symbol sufficient completeness via the CETA-enabled Maude 2.7 + old MFE
    2.7.1 backend ({!Rewrite.Scc}); the row format is the retired run-scc.sh's,

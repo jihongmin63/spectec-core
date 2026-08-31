@@ -19,6 +19,13 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
 정합니다** — 측정 freeze 10월 말, `== false` 근사 정량화(실험 ⑨)와 증분 게이트 비용(실험 ⑩)이
 그쪽의 최우선 항목입니다. 이 파일은 **무엇을 할지**, PAPER.md는 **왜 그것을 쓰는지**를 답니다.
 
+> **원자료 주의 (2026-08-20).** 아래 날짜별 항목들이 증거로 인용하는 `sweeps/` 밑의
+> 측정 산출물(`.tsv`/`.itrs`/`.trs`/`.qdp`/`proof_*`)은 대부분 추적되지 않는 스크래치였고
+> 2026-08-20 정리에서 삭제됐다. **항목 본문에 적힌 수치가 기록의 전부이며**, 인용된
+> 파일명은 그 측정이 무엇이었는지를 가리키는 이름으로만 읽어야 한다. 살아남은 것은
+> `sweeps/itrs-probe/closed-form-decode.patch`와 커밋된 `sweeps/*.md`뿐이다. 재측정은
+> 파일을 되찾는 게 아니라 스윕을 다시 도는 것이다.
+
 ## 현재 상태
 
 - ✅ 빌드됨·온전: `Rewrite_system`(`{vars;rules}` + `string_of_term`·질의·`slice` +
@@ -158,6 +165,349 @@ false`로 바꿔 놓은 것을 되돌립니다(`rebind_stuck_guards`). 분석 �
 **끝점을 검증하지 않고 탐색을 돌린 것**입니다. 지금은 스크립트가 `probe(GOOD)=YES`와
 `probe(BAD)≠YES`를 먼저 확인하고, 아니면 abort합니다. 무효한 실행은
 `sweeps/logs/bisect_bin_ge.INVALID.*`.
+
+### 2026-08-21 (정정 2) — **`Itrs.of_system`이 슬라이스 루트를 지웠다. 그 루트의 `itrs:YES`는 공허했다**
+
+아래 "정정" 항목이 근거로 쓴 `itrs:YES@0.6s` 두 줄은 **그 심볼이 들어 있지 않은
+시스템**의 종료를 증명한 것이었습니다. 결론(자식을 정수 표면으로 보내면 닫힌다)은
+고친 표면에서 다시 재어 살아남았지만, 숫자는 갈아끼웠습니다.
+
+**기전.** `dropped`가 교체 대상 머리(`replaced_head`)의 규칙을 전부 걷어냅니다.
+그 머리가 **슬라이스의 루트 자신**이면 살아남은 규칙 어디에도 그 이름이 안 남고,
+`reachable_prelude used candidates`가 도달 불가로 보아 **그 자리를 메우라고 써 둔
+정수 정의까지 같이 잘라 냅니다.** `undefined` 검사도 못 잡습니다 — 그 검사는
+"규칙에 살아남았는데 정의가 없는 머리"만 보는데, 루트는 흔적 없이 사라지니까요.
+
+    $ termination --symbol '$int_to_bitstr' --itrs --emit-trs   # 고치기 전
+    (RULES
+      negate_int_pos_aux(...) ... add ... sub ... negate_int ...   # 8줄, 전부 잔여물
+    )                                                             # $int_to_bitstr 없음
+
+한 변수 대조 — 코덱을 **호출하는** 쪽은 멀쩡했습니다:
+
+    $bin_plus       (호출자)   48규칙, 코덱 있음
+    $bitstr_to_int  (루트 자신) 12규칙, 코덱 0
+    $int_to_bitstr  (루트 자신)  8규칙, 코덱 0
+
+**고침 (`itrs.ml`, `~roots` 추가).** `Itrs.of_system`이 슬라이스 루트를 받아
+`used`에 심고, 그러면 ⑴ 그 루트의 정수 정의가 가지치기에서 살아남고 ⑵ 정의가
+아예 없는 루트는 기존 `undefined` 검사에 그대로 걸려 **공허한 YES 대신 ERROR**가
+됩니다. b-layer 루트(`bpow_nat` 등)는 `blayer` 재지정이 *호출 지점*에서만 일어나
+루트일 때는 아무 일도 안 하므로, 같은 표를 규칙으로 써 내는 `blayer_bridge`를
+붙였습니다. `Termination.check`/`export`도 `~roots`를 받습니다.
+
+    bpow_nat  →  bpow_nat(x, y) -> pow(x, y)  + pow 2줄
+    bcompare  →  unravel: replaced head(s) left with no integer definition: bcompare
+
+**고친 표면에서 다시 잰 값 (예산 300s, 직렬):**
+
+    $int_to_bitstr  itrs:YES@0.7s   rules=19 (전 8)
+    $bitstr_to_int  itrs:YES@0.7s   rules=26 (전 12)
+    bpow_nat        itrs:YES@0.7s   rules=3
+    pow_int         itrs:YES@0.7s   rules=8
+
+교체 머리가 **아닌** 루트에는 무영향입니다(`$bin_plus` 48규칙 그대로): 심는 이름이
+프렐류드 머리와 겹치지 않으면 `reachable_prelude`는 아무것도 더 keep 하지 않습니다.
+
+**재측정 대상.** `--itrs`로 잰 행 중 **루트가 `arith_heads`/`list_heads`/
+`codec_prefixes`에 든 것**은 전부 다시 재야 합니다(84개 심볼이 그 집합). 그 외 행은
+그대로 유효합니다. 아래 "정정" 항목의 `itrs:YES@0.6s` 두 줄은 이 항목의 0.7s로
+읽으세요.
+
+**교훈:** 어떤 층을 *삭제하고 다른 표현으로 되돌려 주는* 변환은, 질문의 주어가 그
+층 안에 있을 때를 따로 봐야 합니다. 도달성 가지치기는 "누가 부르는가"만 보는데,
+루트는 아무도 부르지 않습니다.
+
+### 2026-08-21 (정정, 같은 날 후속) — **산술 자식이 안 닫히는 진짜 이유는 표면이다. 자식 분할과 ITRS가 조합되지 않는다**
+
+아래 Cε 항목은 *완전 재작성 세계 안에서는* 맞지만 원인을 잘못 짚었다. 한 변수씩
+더 밀어 본 결과 결정 변수는 Cε도 최내도 아니라 **어느 표면에 올리느냐**였다.
+
+**측정 (현재 트리, 각 단독 실행, 예산 300s):**
+
+    $bitstr_to_int  whole:TIMEOUT@300.8s  children:TIMEOUT(0/1)@601.9s  itrs:YES@0.6s
+    $int_to_bitstr  whole:TIMEOUT@300.7s  children:TIMEOUT(0/1)@601.5s  itrs:YES@0.6s
+
+이 둘이 정확히 `$cast_enum`의 열린 자식들이다. plain 표면에서는 통짜로도 자식으로도
+안 닫히고 ITRS에서 **0.6초**에 닫힌다. 이유는 하강 측도가 `-n`이고 그게 줄어들려면
+`2^w >= 1`을 알아야 하는데, 구조적 이진 자릿수(`bd0`/`bd1`) 위에서 `pow_int`의 재귀
+정의를 뚫어야 하기 때문 — CLAUDE.md가 "modular-(B) 산술 맹목"이라 부르는 경우다.
+
+**구조적 빈 구멍: 세 번째 경로(ITRS)는 통짜 슬라이스에만 적용되고 `Qdp.standalone`은
+언제나 plain `.qdp`를 낸다.** `$cast_enum`은 통짜로는 plain·ITRS 둘 다 너무 크고
+(2,032규칙, 각 TIMEOUT), 자식은 작지만 plain에서 산술 맹목이다. 그래서 세 경로를
+다 태워도 닫히지 않는다 — 각 경로가 혼자서는 맞는 도구를 맞는 크기에 못 댄다.
+
+건전하게 메우는 후보 둘 (미결):
+
+1. **자식을 정수 표면으로 재제출.** 자식의 pairs가 plain 심볼(`d_int_to_bitstr`,
+   `bd0`, ...)로 쓰여 있고 `Itrs.of_system`의 심볼계는 다르므로, 단순히 규칙만
+   갈아끼울 수 없다. pairs 자체를 정수 표면으로 옮기는 작업이 필요.
+2. **열린 자식을 그 pair-head 심볼의 슬라이스로 되돌려 3경로 전체를 태운다.**
+   `Qdp.pair_heads`가 이미 자식을 심볼 이름으로 부르려고 존재한다. 건전성은
+   usable-rules 정리(minimal + Cε)로 논증해야 하고, `slice(S)`가 Cε 하에서도
+   종료함을 요구하므로 그 부분을 따로 적어야 한다.
+
+**최내(innermost)는 곁길이었다 — 되돌렸다.** `(STRATEGY INNERMOST)` 한 줄을
+`unravel.ml`에 넣어 재 봤고, 패치는 `sweeps/`가 아니라 세션 스크래치패드의
+`innermost-experiment.patch`에만 있다. 재 본 내용:
+
+| | 완전 재작성 | 최내 |
+|---|---|---|
+| 자식 `.qdp` (65규칙, Cε 포함) | KILLED@900s, 프로세서 0 | YES 4s |
+| `$fresh_typeIds` 통짜 84규칙 | TIMEOUT@900s | YES 5s |
+| `$cast_enum` 통짜 2,032규칙 | TIMEOUT | KILLED@300s (OOM 5회) |
+| 미해결 7개(`$bor_nat` 계열 6 + `$tableEntry_lpm_prefix'`) | TIMEOUT | **7/7 KILLED** |
+
+즉 최내는 Cε 병목을 없애 주지만 **얻는 게 ITRS 경로가 이미 주는 것과 겹친다**
+(`$fresh_typeIds`는 ITRS로 16.9초에 닫힌다). 반면 증명하는 명제가 완전 종료 →
+최내 종료로 **약해진다**. 정당화 근거(Maude `eq` 축약이 최내)는 있지만
+SN(TRS)⟹SN(CTRS) 논증을 최내 판으로 다시 쓰고 unraveling 정리의 최내 대응을
+확인해야 한다. 얻는 것이 겹치므로 지금 치를 값은 아니다.
+
+**최내 실험이 딸려서 잡은 진짜 버그 (`qdp.ml`, 최내와 무관):** `is_renamed_var`가
+`x<n>`만 인식해서 AProVE가 스스로 만든 변수를 상수로 볼 뻔했고, 실제로는 split을
+`ERROR`로 거부했다. AProVE의 신선 변수 이름은 관측된 대로 `x`/`y`/`z` + 인덱스이며,
+평범한 철자가 이미 우리 `(VAR ...)`에 있으면 인덱스 앞에 밑줄이 붙는다 — `y0..y3`을
+선언하고 `z`를 안 쓰는 실행이 `z0..z4`는 맨몸으로, `y_0`은 밑줄로 돌려받는다.
+**완전 재작성에서도 터진다**: `Type_wf`의 완전 재작성 에코에 `x_<n>`이 1,750번 나온다.
+잘못 읽어도 안전한 방향(문제가 일반화되어 더 어려워짐, YES는 전이)이라는 논거를
+주석에 적었다.
+
+### 2026-08-21 — **자식 분할이 산술 자식에서 못 닫는 이유는 Cε다** (그리고 `TRUE`/`FALSE` 트리 어휘)
+
+두 가지를 잡았습니다. 하나는 고쳤고, 하나는 **고치면 안 되는 것**입니다.
+
+**(1) 트리 어휘 누락 — 고침.** `Qdp.is_verdict`가 `YES`/`NO`/`MAYBE`만 알았는데,
+`DependencyGraphProof`가 그래프를 비워 분기를 닫으면 AProVE는 `TRUE`를 찍고 에코
+본문도 `TRUE` 한 줄뿐입니다(의무 없음). 이걸 열린 자식으로 세어 없는 의무를 찾다
+**분할 전체를 거부**했습니다. `is_verdict`에 `TRUE`를 넣고, `FALSE`는 `is_refuted`로
+분리해 `OR`처럼 트리 전체를 거부하게 했습니다 — `FALSE`는 분기를 닫지도 재제출되지도
+않으므로 조용히 넘기면 "모든 자식이 닫혔다"는 **거짓 YES**가 됩니다. 유닛 테스트
+2개(`qdp/true-terminal-is-closed`, `qdp/false-terminal-refuses-the-split`).
+
+효과: `$subst_externMethodTypeDefEnv`·`$cast_enum`이 거부 → 실제 분할. `Type_wf`는
+열린 잎 2→1. `Type_wf`가 `bsplit2`에서 여전히 거부된 건 별개 원인(그 실행의 에코
+절단)이고, 단독 실행하면 정상 분할됩니다(`0/1 closed, node 233`). 잘리지 않은 원본
+29MB로 `open_leaves`를 재현하면 열린 잎은 정확히 `[233]` 하나이고 의존쌍 103개와
+함께 에코에 있습니다.
+
+**(2) Cε가 증명을 못 하게 만든다 — 고치면 안 됨.** `$cast_enum`의 자식 `pow_int`은
+단독 슬라이스 `.trs`(63규칙)로는 **YES 4초**인데, 재제출된 `.qdp`(65규칙)로는
+**900초 KILLED, 프로세서 0개**입니다. `--aprove-bin`을 복사 래퍼로 돌려 실제 `.qdp`를
+잡고 한 변수씩 바꿔 격리했습니다:
+
+| 변형 | 규칙 | Cε | 결과 |
+|---|---|---|---|
+| v1 (실제 자식) | 65+2 | 있음 | KILLED 120s (900s도 동일) |
+| v2 (`(MINIMAL)` 제거) | 65+2 | 있음 | KILLED |
+| v3 (`(VAR)` 226→6) | 65+2 | 있음 | KILLED |
+| v4 (둘 다) | 65+2 | 있음 | KILLED |
+| **v5** | 65 | **없음** | **YES 4s** |
+| v6 (가지치기 없음) | 2034 | 없음 | KILLED 180s |
+
+기각된 원인: `(MINIMAL)` 지시자, `(VAR …)` 226개 선언, `.qdp` 전용 전략
+(`automatic_strategies.properties`는 `QDP`·`TRS` 둘 다 `aprove.Auto.current`로 같음).
+
+**기전**: Cε가 있으면 AProVE가 값싼 처리기들을 건너뛰고
+`QDPReductionPair[Order=KBO[Engine=MINISAT]]`로 직행해
+`aprove.DPFramework.Orders.Utility.KBO.IntMatrix.multiply`에서 예산을 통째로 태웁니다
+(`bmul`/`badd` 이진 산술 규칙 위에서 부등식계가 폭발). 없으면
+`MNOCProof → UsableRulesProof → QReductionProof → TransformationProof →
+DependencyGraphProof → … → MRRProof → TRUE`가 **전부 0ms**에 끝납니다.
+
+**그런데 Cε는 뺄 수 없습니다.** 그게 usable-rules 가지치기를 건전한 증명 단계로
+만들어 주는 조건입니다(Urbain 2004; Giesl et al., JAR 2006) — R에서 규칙을 덜어낸
+문제의 유한성은 원래 문제의 유한성을 함의하지 않고, 그 간극을 메우는 게 Cε입니다.
+치환 인스턴스가 임의 심볼을 들여올 수 있으므로 "도달 불가능한 규칙 버리기"로
+우회할 수도 없습니다. v5는 **진단이지 해법이 아니며**, 그대로 채택하면 거짓 YES를
+양산합니다.
+
+**남은 건전한 후보는 "가지치기를 아예 안 하기"** 하나입니다(가지치기가 없으면 Cε도
+불필요). v6이 180초에 죽었으므로 예산이 원인인지 확인 중. 성립하면 `Qdp.standalone`의
+가지치기는 파싱 시간을 사는 최적화였을 뿐(qdp.mli가 그렇게 적어 둠)이므로,
+산술이 섞인 자식에서만 끄는 선택이 가능합니다.
+
+**측정에 미치는 뜻**: 자식 분할의 TIMEOUT은 "이 자식이 어렵다"가 아니라 **Cε가
+붙었다**는 뜻일 수 있습니다. `$cast_enum`의 열린 자식 4개
+(`pow_int`/`$int_to_bitstr`/`$repeat__value`/`$bitstr_to_int`)가 전부 이 부류이고,
+넷 다 프로세서 0개로 900초를 태웠습니다. `Program_ok`의 미증명 25개 중 Group A
+15개도 같은 의심을 받아야 합니다.
+
+**주의**: `$fresh_typeIds`는 이 부류가 **아닙니다** — 단독 슬라이스를 plain 표면에
+900초 줘도 TIMEOUT이고(84규칙), ITRS에서만 16.9초에 닫힙니다. 그건 표면 문제입니다.
+
+
+### 2026-08-20 — **`eq` 가드도 제약이어야 했다** (`Itrs.equality_relation`), 그리고 `Program_ok` 자식 73개의 분포는 193규칙에서 갈린다
+
+**08-18 항목이 `leq`/`lt`/`nonneg_int`에 대해 고친 결함의 나머지 절반이 `eq`에 남아
+있었다.** 스펙은 nat 가드를 `-- if n =/= 0`으로 쓰고 그건 조건 `eq(n, 0) = false`가
+되는데, `lift_guards`가 `eq`를 몰라 그대로 사슬 단계가 되고 하강 근거가 제약 논리에서
+사라진다. `Itrs.equality_relation`이 이걸 `:|:` 제약으로 되돌린다.
+
+`eq`는 제네릭 구조적 등호라 무조건 올릴 수 없다. **한쪽이 접힌 정수 리터럴일 때만**
+올린다: 원본 CTRS가 order-sorted라 리터럴이 반대편 인자의 sort를 확정하고, 그게 스펙이
+이 가드를 쓰는 유일한 형태다. 정수가 아니면 두 형태 **모두** 발화하지 않으므로(구조적
+`eq` 규칙에 생성자-정수리터럴 짝이 없고, 비정수 제약은 평가되지 않는다) 등가가 유지된다.
+
+```
+- u_1(crcv1, n, St0) -> u_2(eq(n, 0), n, St0, crcv1)          불투명한 사슬 단계
++ d_fresh_typeIds(itrsz1, St0) -> u_1(...) :|: itrsz1 != 0     제약이 사슬 전 단계에
+```
+
+| 예산 120 ITRS, 심볼 고정 | 이전 | 이후 |
+|---|---|---|
+| `$fresh_typeIds` | TIMEOUT 120.8s | **YES 16.5s** (u 4→3) |
+| `$repeat__value` | YES 5.8s | YES 7.0s (u 2→1) |
+| `$bin_shr` | TIMEOUT | TIMEOUT (u 50 불변 — 올릴 가드가 없다) |
+| `$bin_bor` | TIMEOUT | TIMEOUT (u 20→16, 4개 올랐지만 부족) |
+
+**손으로 만든 근사가 실제 수정을 과소평가했다.** 사슬 단계를 남긴 채 제약 규칙 두 개를
+덧대는 형태는 같은 예산에서 128초였는데, 단계를 없애고 제약을 사슬 전체에 싣는 실제
+리프트는 16.5초다. 프로브로 방향을 잡되 수치는 구현으로 다시 재야 한다.
+
+**`Program_ok` 자식 전수 측정** (`--child-report`, 전체 예산 300 / 자식 120).
+자식 이름은 `To_ctrs.symbol_origins`가 붙인다(TPDB 철자 → 슬라이스 CTRS 심볼 →
+`선언명@파일:줄`).
+
+- **73자식: YES 48 / TIMEOUT 25.** 닫힌 48건은 평균 7.1초(최대 60.8초, 합 339초)로
+  싸다. AProVE 순수 시간 57.2분.
+- 잔여 25건이 **규칙 수 193과 2034 사이에서 완전히 이분된다**: 아래 15건(57–193규칙)은
+  전부 산술(`bpow_nat`·`pow_int`·`$repeat__value`·`$fresh_typeIds`·`$int_to_text_nat`·
+  `$shr`·`$shr_arith`·`$bor_nat`·`$band_nat`·`$bxor_nat`·`$int_to_bitstr`·
+  `$bitstr_to_int`·`$tableEntry_lpm_prefix'`), 위 10건(2034–16626규칙)은 대형 구조
+  (`$cast_enum`·`$subst_externMethodTypeDefEnv`·`Type_wf`계열·`Cast_expl`·`$cast_binary`·
+  `Argument_eval_lctk`·`ArgumentList_ok`·`BlockElementStmtList_ok`·`ParserStmtList_ok`·
+  `InstDecl_objectInitializer_ok`).
+- **작은 잔여의 절반 이상이 spec이 아니라 prelude에 있다.** `bpow_nat`·`pow_int`·
+  `$bor_nat`·`$band_nat`·`$int_to_bitstr`·`$bitstr_to_int`·`$int_to_text_nat`은 650개
+  슬라이스 루트 어디에도 없다 — `--symbol`로 겨냥조차 안 되는 산술 라이브러리 내부다.
+
+**`$fresh_typeIds`의 원인은 산술이 아니라 gensym 상태 표현이었다 (변형 5개로 분리).**
+`Gensym.thread`가 심는 상태는 `cat(St0, cons(chr(39), nil))` — 문자 하나씩 자라는
+문자열이고, 그게 모든 재귀 호출을 타고 흐른다.
+
+| 변형 (한 번에 한 변수) | 결과 |
+|---|---|
+| 원본, 예산 120 / 300 | TIMEOUT / **YES 302s** |
+| `n≠0` 가드를 제약으로 | YES 128s |
+| 성장을 `cat` 대신 `cons`로 | YES 121s |
+| 성장 자체를 제거 | YES **5s** |
+| 상태를 네이티브 정수 카운터로 | YES **7s** |
+
+즉 지배 요인은 **성장 그 자체**이고 `cat`은 부수적이다. 정수 카운터는 근사가 아니라
+구현 선택이다(gensym에 필요한 건 서로 다름뿐).
+
+**다만 대형 심볼에서는 이 변수를 관측하지 못했다.** `$subst_externMethodTypeDefEnv`
+(ITRS 3058규칙)와 `Argument_eval_lctk`(7469규칙)는 예산 300에서 base·카운터 **양쪽 다
+YES/NO/MAYBE 줄을 아예 출력하지 못했다**(전단조차 못 끝냄). 결론은 "효과 없음"이 아니라
+**"더 큰 예산 없이는 알 수 없음"**이다. 슬라이스에 gensym이 실린 대형 자식은 10건 중
+6건이고, `ArgumentList_ok`에서는 14569규칙 중 **1616(11%)**이 상태 변수를 나른다 — 그것도
+하필 증명해야 할 리스트·치환 재귀 규칙들이다. 표현 변경의 값어치는 여기서 갈리는데,
+아직 재지 못했다.
+
+**표현 변경이 정수 표면 한정 이득이라는 점도 기록해 둔다.** 구조적 표면에서 nat은
+Peano/이진이라 카운터도 여전히 자라는 항이고, 실행 표면에서 카운터로부터 이름을 만들려면
+int→text가 필요한데 `$int_to_text_nat`이 마침 잔여 자식 중 하나다.
+
+**잔여 25건의 수동 검토 — 실루프는 없고, 둘 다 예산 문제도 아니다.**
+
+*Group A(산술 15건, 57–193규칙).* `bpow_nat`·`pow_int`·`$repeat__value`·`$fresh_typeIds`·
+`$int_to_text_nat`·`$shr(_arith)`·`$bor_nat(_cross)`·`$band_nat(_cross)`·`$bxor_nat`·
+`$int_to_bitstr`·`$bitstr_to_int`·`$tableEntry_lpm_prefix'`. 전부 실제로 종료하고 하강이
+`pow`/`div`/`sub` 안에 묻힌 arith-blind다. **예산이 아니라는 직접 증거**: `$bin_bor`을
+정수 표면 예산 300과 900으로 돌린 트리가 노드 941로 완전히 동일하다(전략 소진).
+
+`w=0` 계열에 대한 정정: `ISSUE-bit0-divergence.md`는 그 경계가 157 슬라이스(`Program_ok`
+포함)의 종료성을 provably false로 만든다고 적지만, **이 트리에는 해당하지 않는다** —
+방출된 규칙이 `d_bitstr_to_int(w, n) -> 0 :|: w <= 0`이고 재귀 가지는 `w > 0`으로 막혀
+있다(작업 트리의 `builtin.ml` 수정이 측정에 들어가 있다). 잔여는 증명 가능한 거짓이
+아니라 **미증명**이다.
+
+*Group B(대형 구조 10건, 2034–16626규칙).* `$cast_*` 계열·`$subst_externMethodTypeDefEnv`·
+`Type_wf` 계열·`Cast_expl(_neq)`·`$cast_binary`·`Argument_eval_lctk`·`ArgumentList_ok`
+계열·`Block/Stmt/SwitchCase` 계열·`ParserStmt` 계열·`InstDecl/ObjectDecl` 계열. 전부 AST
+구조 재귀다. **예산 가설은 기각됐다**: 자식 예산 120초 대신 심볼 슬라이스에 **600초**를
+주고 plain 단독으로 돌린 결과가 **10/10 TIMEOUT**이다. 그리고 usable-rules 가지치기가 이
+무리에선 아무것도 못 줄인다 — `$subst_externMethodTypeDefEnv`의 슬라이스가 3141규칙,
+자식이 3143규칙으로 사실상 같다. 크기 자체가 벽이다.
+
+닫힌 48건의 상한이 이 판단의 기준이다: `$gen_constraint`(5327규칙/59쌍) 58.1초,
+`holds_Cast_impl`(3853/68) 60.8초, `$free_callableTypeDefIR`(1420/**119쌍**) 19.8초가
+닫혔다 — 규칙 수천 개나 쌍 100개 이상이 그 자체로 장애는 아니다.
+
+구조 하강을 스펙만으로 단정할 수 없어 따로 표시해 둔 2건: **`$cast_binary`**(자기 재귀가
+아니라 `Cast_impl`/`Type_alpha` 경유 17쌍 순환)와 **`Type_wf` 계열**(타입이 자기를
+참조하면 하강이 무너진다). 이 둘은 실루프 위트니스를 찾아볼 후보다.
+
+**`Program_ok`을 통째로 정수 표면에서 예산 3600으로 돌려 봤다 — TIMEOUT인데 트리가
+이유를 말한다.** `eqs=13321 rules=19970 u=6823`.
+
+```
+(1) ITRStoIDPProof [EQUIVALENT, 1593.7 s]   예산의 44%를 전단이 먹는다
+(3) ItpfGraphProof              596 ms
+(5) IDependencyGraphProof         0 ms
+(6) AND                                      IDP 자식 약 540개
+    (7)…            UsableRulesProof [0 ms] → IDP   손댄 건 80개
+    (81)…(704)      IDP                             나머지는 도달조차 못 함
+```
+
+**하나도 닫히지 않았다.** plain 표면의 자식 굶주림과 같은 구조인데 전단이 먼저 절반을
+먹는다. 그래서 정수 표면에도 자식 분할이 필요하고, 이득은 plain보다 크다 — 독립 자식은
+1594초짜리 ITRS→IDP 변환을 통째로 건너뛴다.
+
+**AProVE는 `.idp`를 되읽는다.** `extension.properties`에
+`idp = aprove.InputModules.Programs.newIDP.Translator`가 있고, `NewIDPParser` 토큰은
+`PREDEFINED · RULES · EDGES · INITIALNODES · STRATEGY · MINIMAL · CONDITION ·
+CONSTRUCTOR`다. 에코도 그래프째로 찍는다(노드별 변수 첨자 `itrsz9[27]`, 간선
+`(21) -> (27), if (…)`). **다만 QDP 분할보다 훨씬 무겁다**: `(VAR)(PAIRS)(RULES)(Q)`만
+옮기면 됐던 것과 달리 의존 그래프의 간선·위치·변수개명을 재구성해야 한다. 가능성은
+확인됐고 비용도 확인됐다 — 착수 여부는 별건.
+
+### `IDPNonInf`이 `!=`에서 예외로 죽는다 (그리고 그게 판정을 바꾸지는 못했다)
+
+`$bin_bor`의 ITRS 실행 출력 맨 앞:
+
+```
+Aborted … Exec. 10, IDPNonInf with some error. Reason: java.lang.IllegalArgumentException:
+can not interpret predefined function !=_2.
+   aprove…IDPGInterpretation.getPolynomialFromFunction(IDPGInterpretation.java:871)
+```
+
+10건 전부 같은 예외다. `IDPNonInf`은 정수 순환을 닫는 처리기이고(08-18에 `$contains_prime`을
+닫은 게 `IDPNonInfProof`였다), `!=`를 다항식 해석으로 옮기지 못한다. CTRS에서 nat은
+sort상 음이 아니므로 `n != 0` ⟺ `n > 0`인데, ITRS가 무타입이라 그 등가를 잃고 `!=`를 쓴다.
+
+| 예산 300(`$contains_prime`은 120) | `!=` (현행) | `> 0` | `< 0 \|\| > 0` |
+|---|---|---|---|
+| `$bin_bor` `IDPNonInf` 크래시 | **10** | **0** | **0** |
+| `$bin_bor` QDP 노드(탐색량) | 1906 | 297 | 944 |
+| `$bin_bor` 판정 | 미증명 | 미증명 | 미증명 |
+| `$contains_prime` 판정(예산 120) | TIMEOUT | (치환 무효 — 위 참조) | (치환 무효) |
+| `$fresh_typeIds` 판정(예산 120) | **YES 16s** | **TIMEOUT** | YES 39s |
+
+**크래시 원천은 우리 가드만이 아니다.** `$contains_prime`의 ITRS에는 `!=`가 딱 한 줄,
+프렐류드 자신의 정수 등호 규칙 `eq(x, y) -> false :|: x != y`뿐인데 그것만으로 크래시가
+10건 난다.
+
+**08-18 사례로 회귀를 재려던 시도는 두 번 틀렸다(자기 점검용으로 남긴다).** 첫째, 치환
+패턴이 `x != 0`이라 위의 `x != y` 한 줄에 닿지 않아 **같은 파일을 세 번 돌렸다**(세 md5가
+같다). 둘째, 그 출력을 `grep -E '^(YES|NO|MAYBE|TIMEOUT)'`로 읽었는데 AProVE 출력에는
+**하위 의무의 판정 줄이 섞여 있어** 중첩 `YES`를 최상위로 오독했다 — 실제로는 셋 다
+예산 120에서 TIMEOUT이다. 판정은 반드시 `Aprove.header_lines`의 규칙(에코 시작
+`proof of ` 이전 헤더에서만 찾기)으로 읽어야 한다. **2026-08-06에 판정 파서 결함이
+termination 열 전체를 무효화했던 것과 같은 실패 모드다.**
+
+**크래시는 없앴지만 판정은 하나도 안 움직였다.** 그리고 예산 900을 줘도 `> 0` 변형의
+트리는 노드 941로 300초와 **완전히 동일하다** — AProVE가 전략을 소진하고 멈춘다. 즉
+`$bin_bor`은 예산 문제가 아니고, 트리를 보면 `(10) IDPtoQDPProof [SOUND, 9 ms]`로 즉시
+평범한 QDP로 내려가 거기서 `TransformationProof` 수백 개를 돈다 — 08-18이 이미 "남은 두
+번째 장애물"로 적어 둔 그것이다.
+
+**그래서 `!=` 방출을 바꾸는 수정은 아직 하지 않았다.** 크래시 제거와 탐색량 감소는
+실측됐지만 판정 이득이 없고, 08-18은 `!=`가 분해형보다 **낫다**고 기록하고 있다(그때
+측정은 `!=`로 YES 15s가 나온, `IDPNonInf`이 살아 있던 사례다). 방출을 바꾸려면 그 사례를
+세 철자로 되재서 회귀가 없음을 먼저 보여야 한다.
 
 ### 2026-08-20 — **판정 경로가 셋이 되었다**: `Termination.check`의 자식 분할 + ITRS 재시도, 캐리어는 flat 하나로
 
@@ -413,8 +763,8 @@ YES가 아니다. 미해결 의무를 읽으면 `IDPtoQDPProof [SOUND]`가 산�
 > 썼다. 틀렸다. `runme`를 직접 돌리면(조기 종료 없이) 각 자식의 P·R·Q가 그대로 찍히고,
 > AProVE는 그걸 도로 받는다 — `aprove/Framework/Input/extension.properties`에
 > `qdp = newTrs.Translator`가 있고 문법은 `(VAR)(PAIRS)(RULES)(Q)(MINIMAL)(EDGES)`다.
-> 손으로 변환한 자식 하나(`sweeps/itrs-probe/child221_real.qdp`, PAIRS 3 / RULES 88 /
-> Q 76 / VAR 19)가 파싱되어 QDP 프로세서를 통과했다. **불가능하다고 말하기 전에 도구가
+> 손으로 변환한 자식 하나(PAIRS 3 / RULES 88 / Q 76 / VAR 19)가 파싱되어 QDP
+> 프로세서를 통과했다. **불가능하다고 말하기 전에 도구가
 > 실제로 무엇을 읽는지 확인할 것** — 이 저장소가 MTT에서 이미 배운 교훈이다.
 > 다만 그 자식에게 300초를 통째로 줘도 `QReductionProof`만 적용되고 닫히지 않았으므로,
 > 조작 가능성이 곧 수익은 아니다. 수익 여부는 아래 항목이 측정으로 답한다.
@@ -744,7 +1094,8 @@ YES 유지, impty 골든 byte-identical, 오라클 스팟 12/12 MATCH.
 differential과 termination 전수는 아직 재측정되지 않았다(RESULTS-2026-08-07 3부의
 무효화 장부). 실행면 sha256 `175bf048…` 기준으로 둘 다 재실행 — 결과는 아래.
 
-원자료·프로브: `sweeps/itrs-probe/`.
+원자료·프로브: `sweeps/itrs-probe/` — 측정 산출물(`.itrs`/`.trs`/`.qdp`)은 이후
+정리로 삭제됐고 `closed-form-decode.patch`만 남아 있다. 수치는 본문에 적힌 것이 전부.
 
 ### 2026-08-13 — w=0 수정 재검증: differential 클린, 그리고 **스윕이 자기 부하로 오답을 냈다**
 

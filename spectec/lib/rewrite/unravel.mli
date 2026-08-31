@@ -43,17 +43,24 @@ type stats = {
 
 val string_of_stats : stats -> string
 
-(** The unraveling itself, before any surface's spelling: every conditional rule
-    turned into its [u_i] chain, returning
-    [(unconditional rules, chain steps, rules whose [owise] was dropped)].
-    Shared with {!Itrs}, which spells the same rules with integer constraints --
-    the chain construction and its coverage checks must not diverge between the
-    two surfaces, or they would prove different systems under the same name.
-    [Error] as for {!trs_of_system}, minus the identifier-collision case (no
-    identifier is spelled here). *)
-val unconditional_rules :
-  Rewrite_system.t ->
-  ((Rewrite_system.term * Rewrite_system.term) list * int * int, string) result
+(** One unraveled system before any surface's spelling. Shared with {!Itrs},
+    which spells the same rules with integer constraints -- the chain
+    construction and its coverage checks must not diverge between the two
+    surfaces, or they would prove different systems under the same name. *)
+type unraveled = {
+  unconditional : (Rewrite_system.term * Rewrite_system.term) list;
+  defines : (string * string) list;
+      (** every symbol the unraveling defines, paired with the CTRS symbol whose
+          rule produced it: a defined head with itself, a chain helper [u_<n>]
+          with the head of the rule whose condition introduced it. *)
+  steps : int;  (** [u_i] helpers introduced (one per condition) *)
+  dropped_owise : int;  (** rules whose [owise] attribute was dropped *)
+}
+
+(** Every conditional rule turned into its [u_i] chain. [Error] as for
+    {!trs_of_system}, minus the identifier-collision case (no identifier is
+    spelled here). *)
+val unconditional_rules : Rewrite_system.t -> (unraveled, string) result
 
 (** Spell unconditional rules as TPDB text, returning the printed [(lhs, rhs)]
     pairs and the sorted variable names for the [(VAR ...)] header. Shared with
@@ -71,12 +78,25 @@ val print_rules :
 val tpdb_sym : string -> string
 
 (** One unraveled system as its exporters need it: the printed rules one by one,
-    and the identifiers the [(VAR ...)] header declares. A caller that emits a
-    SUBSET of the rules ({!Qdp}) must select from [printed] rather than re-print
-    its subset -- the collision table is resolved over the whole rule list, so a
-    subset printed on its own may spell a symbol differently and silently name
-    another system. *)
-type export = { printed : (string * string) list; vars : string list }
+    the identifiers the [(VAR ...)] header declares, and where each defined
+    symbol came from. A caller that emits a SUBSET of the rules ({!Qdp},
+    {!Termination}'s slice re-ask) must select from [printed] rather than
+    re-print its subset. Two reasons, either one sufficient: the collision table
+    is resolved over the whole rule list, so a subset printed on its own may
+    spell a symbol differently; and the [u_<n>] helpers are numbered by a
+    counter over the whole rule list, so unraveling a subset separately numbers
+    them differently again. Selecting keeps one spelling for one system, which
+    is what lets a caller compare its subset against what AProVE printed back.
+
+    [origins] is {!unraveled.defines} in the TPDB spelling of its key: the
+    symbol a printed rule's left-hand side is rooted by, paired with the CTRS
+    symbol whose rule produced it. That is what turns "these rules" into "the
+    rules of these CTRS heads" -- the question a slice asks. *)
+type export = {
+  printed : (string * string) list;
+  vars : string list;
+  origins : (string * string) list;
+}
 
 val export_of_system : Rewrite_system.t -> (export * stats, string) result
 

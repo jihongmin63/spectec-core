@@ -17,8 +17,9 @@
    4s. What it costs is the CALLER's proof, which has to carry the whole library
    in its usable rules.
 
-   Three things this must get right, each measured rather than assumed
-   (`sweeps/itrs-probe/FINDINGS.md`):
+   Three things this must get right, each measured rather than assumed (the
+   probe files the measurements were taken on were scratch and are gone; the
+   numbers each bullet carries are what survived):
 
    - [monus] keeps its clamp. Naturals are non-negative by SORT in the CTRS, and
      ITRS is untyped, so that invariant is simply gone here: [sub(n,1)] on a
@@ -261,6 +262,43 @@ let blayer : (string * (R.term list -> R.term)) list =
     ("bis_zero", fun a -> app "eq" (a @ [ literal 0 ]));
   ]
 
+(* [blayer] retargets a b-layer CALL, which is all that is needed while
+   something still calls it -- and is nothing at all when the head IS the slice
+   root, since the rules that got dropped are its own and no call site is left
+   to retarget. Written out as a RULE the same table becomes the root's
+   definition, so a slice about [bpow_nat] exports a system that still contains
+   [bpow_nat]. *)
+let rec render (t : R.term) : string =
+  match t with
+  | R.Var v -> v
+  | R.App (f, []) when String.length f > 1 && f.[0] = '#' ->
+      String.sub f 1 (String.length f - 1)
+  | R.App (f, []) -> Unravel.tpdb_sym f
+  | R.App (f, args) ->
+      Unravel.tpdb_sym f ^ "(" ^ String.concat ", " (List.map render args) ^ ")"
+
+(* The arity the slice itself gives a head. Taken from the rules rather than
+   from a table beside {!blayer}, so the two cannot drift apart. *)
+let arity_of (t : R.t) (head : string) : int option =
+  List.find_map
+    (fun (r : R.rule) ->
+      match r.R.lhs with
+      | R.App (f, args) when f = head -> Some (List.length args)
+      | _ -> None)
+    t.R.rules
+
+let blayer_bridge (t : R.t) (head : string) : string option =
+  match (List.assoc_opt head blayer, arity_of t head) with
+  | Some build, Some arity ->
+      let args = List.filteri (fun i _ -> i < arity) [ R.Var "x"; R.Var "y" ] in
+      if List.length args <> arity then None
+      else
+        Some
+          (Printf.sprintf "  %s(%s) -> %s" (Unravel.tpdb_sym head)
+             (String.concat ", " (List.map render args))
+             (render (build args)))
+  | _ -> None
+
 let rec fold_ints ?(pattern = false) (t : R.term) : R.term =
   let fold = fold_ints ~pattern in
   match int_of_term t with
@@ -314,7 +352,7 @@ let unfolded (t : R.term) : string list =
    it to [l] would not merely match more, it would hand the right-hand side a
    different NUMBER, and a recursion that descended might not. So these were an
    error, and they are the whole of the residual's coverage gap: every one of
-   the 16 ERROR rows in sweeps/itrs_arith.tsv is this and nothing else.
+   the 16 ERROR rows the arithmetic sweep produced is this and nothing else.
 
    The fix keeps the case split but moves it from the pattern to a constraint,
    which is EXACT rather than an approximation -- the rule fires on precisely
@@ -419,6 +457,28 @@ let sign_test_relation (head : string) (expect : bool) : string option =
   | ("nonneg_int" | "sub_nat"), false -> Some "< 0"
   | _ -> None
 
+(* [eq] carries the same arithmetic guard as the comparisons above, but it is
+   the GENERIC structural equality -- the specs write a nat guard as
+   [-- if n =/= 0], which translates to the condition [eq(n, 0) = false], and
+   left as a chain step it hides the very fact the recursion rests on. Measured
+   on [$fresh_typeIds]: behind [eq] the proof needs a budget above 120s (it runs
+   out there and closes at 300); as a constraint it closes at 120.
+
+   Lifting [eq] is only exact where the operands really are integers, and a rule
+   cannot say what sort a variable has. An integer LITERAL on one side settles
+   it: the source CTRS is order-sorted, so [eq]'s other argument has the literal's
+   sort. That is also the only shape the guard is ever written in. Restricting to
+   it costs nothing and keeps the equivalence: on integers the constraint holds on
+   exactly the instances the [eq] rules reduced to that boolean, and on anything
+   else NEITHER form fires (the structural [eq] rules have no case pairing a
+   constructor with an integer literal, and a constraint over a non-integer does
+   not evaluate). *)
+let equality_relation (head : string) (expect : bool) : string option =
+  match (head, expect) with
+  | "eq", true -> Some "="
+  | "eq", false -> Some "!="
+  | _ -> None
+
 (* What a constraint can name directly. A compound argument would have to be
    rendered as an arithmetic EXPRESSION, which is a separate job; left as a chain
    step it keeps the behaviour this had before. *)
@@ -430,6 +490,8 @@ let operand_of_term (t : R.term) : operand option =
   | R.App (s, []) when String.length s > 1 && s.[0] = '#' ->
       Some (Olit (String.sub s 1 (String.length s - 1)))
   | _ -> None
+
+let is_literal : operand -> bool = function Olit _ -> true | Ovar _ -> false
 
 (* The rule with its comparison conditions removed, plus the constraints they
    became. The variables those constraints mention are renamed system-wide fresh
@@ -447,6 +509,13 @@ let lift_guards (next : int ref) (r : R.rule) :
         | [ x; y ], Some rel, _ -> (
             match (operand_of_term x, operand_of_term y) with
             | Some x, Some y -> Some (x, Some y, rel)
+            | _ -> None)
+        | [ x; y ], None, _ -> (
+            match
+              (equality_relation h expect, operand_of_term x, operand_of_term y)
+            with
+            | Some rel, Some x, Some y when is_literal x || is_literal y ->
+                Some (x, Some y, rel)
             | _ -> None)
         | [ x ], _, Some rel ->
             Option.map (fun x -> (x, None, rel)) (operand_of_term x)
@@ -540,10 +609,10 @@ let integer_prelude =
     "  mul(x, y) -> x * y";
     (* Native [/] and [%], not a repeated-subtraction recursion.
        AProVE's ITRS front end accepts both and, more to the point, KNOWS
-       [x / 2 < x] for [x > 0]: the probe [sweeps/itrs-probe/p8_nativediv.itrs]
-       -- the bit-decomposition shape of [$band]/[$bor]/[$bxor] stripped to
-       nothing else, [bits(l,r) -> (l%2)*(r%2) + 2*bits(l/2, r/2)] -- is YES in
-       1s, closed by the dependency graph alone.
+       [x / 2 < x] for [x > 0]: a probe holding the bit-decomposition shape of
+       [$band]/[$bor]/[$bxor] and nothing else,
+       [bits(l,r) -> (l%2)*(r%2) + 2*bits(l/2, r/2)], is YES in 1s, closed by
+       the dependency graph alone.
 
        Defining [div] recursively instead hides exactly that fact. The
        recursion terminates and is easy to prove terminating on its own, but it
@@ -757,7 +826,8 @@ let has_arithmetic (t : R.t) : bool =
         @ List.concat_map (fun (s, p) -> names s @ names p) r.R.conds))
     t.R.rules
 
-let of_system (t : R.t) : (string * Unravel.stats, string) result =
+let of_system ~(roots : string list) (t : R.t) :
+    (string * Unravel.stats, string) result =
   let kept = List.filter (fun r -> not (dropped r)) t.R.rules in
   (* Sign dispatch first: it rewrites the lhs and substitutes into the rest, so
      folding must see the result, not the constructors it removes. *)
@@ -818,7 +888,7 @@ let of_system (t : R.t) : (string * Unravel.stats, string) result =
       let system = { t with R.rules = guarded } in
       match Unravel.unconditional_rules system with
       | Error msg -> Error msg
-      | Ok (rules, chain_steps, owise) -> (
+      | Ok { Unravel.unconditional = rules; steps; dropped_owise; _ } -> (
           match Unravel.print_rules rules with
           | Error msg -> Error msg
           | Ok (printed, variables) ->
@@ -834,6 +904,23 @@ let of_system (t : R.t) : (string * Unravel.stats, string) result =
                 @ codec_helpers
               in
               let used = symbols_used rules in
+              (* A slice whose ROOT is itself a replaced head keeps none of its
+                 own rules, so nothing left in [rules] names it and the
+                 reachability filter below would prune the very replacement
+                 written to stand in for it -- exporting a system that no longer
+                 contains the symbol the slice is about, and a YES that says
+                 nothing about it. Seeding the roots is what keeps the
+                 replacement; it is also what lets the [undefined] check below
+                 see a root whose rules vanished without one, instead of
+                 answering a question about the empty remainder. *)
+              List.iter
+                (fun r ->
+                  Hashtbl.replace used r ();
+                  Hashtbl.replace used (Unravel.tpdb_sym r) ())
+                roots;
+              let candidates =
+                candidates @ List.filter_map (blayer_bridge t) roots
+              in
               (* Can a scalar reach [eq] at all? Only if folding left an
                  integer literal or an arithmetic head behind. *)
               let has_integers =
@@ -918,7 +1005,7 @@ let of_system (t : R.t) : (string * Unravel.stats, string) result =
                     {
                       Unravel.eqs = List.length t.R.rules;
                       rules = List.length rules + List.length extra;
-                      chain_steps;
+                      chain_steps = steps;
                       vars = List.length vars;
-                      owise;
+                      owise = dropped_owise;
                     } )))

@@ -28,6 +28,24 @@ val of_spec :
     defines, in declaration order. *)
 val def_symbols : Lang.Il.spec -> string list
 
+(** Where a CTRS symbol came from: the name the SPEC declares it under, and the
+    line that declares it. *)
+type origin = { name : string; at : Common.Source.region }
+
+(** [symbol_origins spec] maps each symbol the translation mints back to its
+    declaration. The symbol spellings are lossy on purpose ([sanitize] turns [']
+    into [_prime], [->] into [minus_gt]) and the type-derived families
+    ([subty_]/[match_]/[variant_]/[field_]) name a type rather than a
+    declaration, so a symbol read back out of a checker's output cannot
+    otherwise be turned into the name the spec uses -- let alone into its source
+    line. Give it the TRANSLATED spec ({!Pipeline.translated_spec}), the one the
+    slice was built from.
+
+    Diagnostics only, and partial by construction: a symbol a later pass
+    invented (an iteration helper, a monomorphized instance) has no declaration
+    to point at, so a caller falls back on the CTRS spelling. *)
+val symbol_origins : Lang.Il.spec -> (string, origin) Hashtbl.t
+
 (** The constructor of a one-case variant type [name] in the spec: a builder
     wrapping its arguments in that case's [variant_<origin>_<mixop>] symbol.
     [None] when the name is undefined or not a single-case variant. *)

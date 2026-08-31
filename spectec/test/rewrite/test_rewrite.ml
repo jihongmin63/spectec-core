@@ -11,6 +11,7 @@ module Mfe = Rewrite.Mfe
 module Aprove = Rewrite.Aprove
 module Subproc = Rewrite.Subproc
 module Scc = Rewrite.Scc
+module Itrs = Rewrite.Itrs
 module Qdp = Rewrite.Qdp
 module Termination = Rewrite.Termination
 
@@ -161,6 +162,87 @@ let () =
   check "unravel/sanitized-var" (String.length trs > 0);
   check_str "unravel/sanitized-var text" trs
     "(VAR a_minus_b)\n(RULES\n  d_f(a_minus_b) -> a_minus_b\n)\n"
+
+(* ------------------------------------------------------------------------- *)
+(* Itrs: which guards reach the constraint solver. *)
+
+let itrs_exn ?(roots = []) sys =
+  match Itrs.of_system ~roots sys with
+  | Ok (text, _) -> text
+  | Error msg -> failwith ("unexpected itrs error: " ^ msg)
+
+let () =
+  (* A nat guard is written [-- if n =/= 0] and arrives as the condition
+     [eq(n, 0) = false]. Left as a chain step it hides the fact the recursion
+     rests on, exactly as an unlifted [leq] would; the integer LITERAL is what
+     makes it safe to read the generic [eq] as an integer comparison. *)
+  let text =
+    itrs_exn
+      (system
+         [
+           rule
+             ~conds:[ (app "eq" [ v "n"; app "bzero" [] ], app "false" []) ]
+             (app "$f" [ v "n" ])
+             (app "$f" [ app "sub" [ v "n"; app "bone" [] ] ]);
+         ])
+  in
+  check "itrs/eq-literal-guard-lifted"
+    (Subproc.contains text "d_f(itrsz1) -> d_f(sub(itrsz1, 1)) :|: itrsz1 != 0");
+  check "itrs/eq-literal-guard-leaves-no-chain-step"
+    (not (Subproc.contains text "u_1(eq("))
+
+let () =
+  (* Both operands variables: nothing says they are integers, so the guard stays
+     a chain step over the structural [eq]. *)
+  let text =
+    itrs_exn
+      (system
+         [
+           rule
+             ~conds:[ (app "eq" [ v "x"; v "y" ], app "false" []) ]
+             (app "$g" [ v "x"; v "y" ])
+             (app "true" []);
+         ])
+  in
+  check "itrs/eq-open-guard-kept"
+    (Subproc.contains text "d_g(x, y) -> u_1(eq(x, y), x, y)")
+
+let () =
+  (* A slice ROOT inside the replaced layer keeps none of its own rules, so
+     nothing left names it -- and the reachability prune would take its integer
+     replacement with it, exporting a system that does not contain the symbol
+     the proof is about. Naming the root is what keeps the replacement. *)
+  let codec = system [ rule (app "$bitstr_to_int" [ v "w"; v "n" ]) (v "n") ] in
+  let text = itrs_exn ~roots:[ "$bitstr_to_int" ] codec in
+  check "itrs/replaced-root-keeps-its-definition"
+    (Subproc.contains text "d_bitstr_to_int(w, n) -> itrs_dec1(pow(2, w), n)");
+  check "itrs/unnamed-replaced-root-is-empty"
+    (not (Subproc.contains (itrs_exn codec) "d_bitstr_to_int"))
+
+let () =
+  (* [blayer] retargets a CALL, so a b-layer head that is itself the root has
+     no call site left to retarget; the same table written out as a rule is its
+     definition. *)
+  let text =
+    itrs_exn ~roots:[ "bpow_nat" ]
+      (system [ rule (app "bpow_nat" [ v "x"; v "y" ]) (v "x") ])
+  in
+  check "itrs/blayer-root-gets-a-bridge"
+    (Subproc.contains text "bpow_nat(x, y) -> pow(x, y)");
+  check "itrs/blayer-root-bridge-target-is-defined"
+    (Subproc.contains text "pow(x, y) -> x * pow(x, y - 1)")
+
+let () =
+  (* A root the integer surface has no counterpart for is an error, not a
+     proof about the empty remainder. *)
+  match
+    Itrs.of_system ~roots:[ "bcompare" ]
+      (system [ rule (app "bcompare" [ v "x"; v "y" ]) (v "x") ])
+  with
+  | Error msg ->
+      check "itrs/undefined-root-errors"
+        (Subproc.contains msg "no integer definition: bcompare")
+  | Ok _ -> check "itrs/undefined-root-errors" false
 
 (* ------------------------------------------------------------------------- *)
 (* sanitize: the spellings the CTRS symbol names are built from. *)
@@ -815,7 +897,34 @@ let () =
   (* An OR node's branches are alternatives; treating them as conjuncts would
      prove more than the tree asks, so the whole tree is refused. *)
   check "qdp/or-node-refuses-the-split"
-    (Qdp.open_leaves "(0) QTRS\n(1) OR\n    (2) QDP\n    (3) QDP\n" = [])
+    (Qdp.open_leaves "(0) QTRS\n(1) OR\n    (2) QDP\n    (3) QDP\n" = []);
+  (* [TRUE] closes a branch without being a WST verdict: a dependency-graph step
+     that empties the graph prints it, and the echo gives that node no obligation
+     at all. Counted as open, it makes the whole split unavailable. *)
+  check "qdp/true-terminal-is-closed"
+    (Qdp.open_leaves
+       "(0) QTRS\n\
+        (1) DependencyPairsProof [EQUIVALENT, 1 ms]\n\
+        (2) QDP\n\
+        (3) DependencyGraphProof [EQUIVALENT, 0 ms]\n\
+        (4) AND\n\
+       \    (5) QDP\n\
+       \    (6) DependencyGraphProof [EQUIVALENT, 0 ms]\n\
+       \    (7) TRUE\n\
+       \    (8) QDP\n"
+    = [ 8 ]);
+  (* [FALSE] neither closes a branch nor can be re-posed, so the tree is refused
+     rather than silently closed over it. *)
+  check "qdp/false-terminal-refuses-the-split"
+    (Qdp.open_leaves
+       "(0) QTRS\n\
+        (1) DependencyPairsProof [EQUIVALENT, 1 ms]\n\
+        (2) QDP\n\
+        (3) DependencyGraphProof [EQUIVALENT, 0 ms]\n\
+        (4) AND\n\
+       \    (5) FALSE\n\
+       \    (6) QDP\n"
+    = [])
 
 let () =
   let problems = Qdp.problems (filtered aprove_split_run) in
@@ -900,6 +1009,54 @@ let () =
   | Ok _ -> check "qdp/unknown-identifier-refused" false
   | Error msg ->
       check "qdp/unknown-identifier-refused" (Subproc.contains msg "mystery")
+
+(* ------------------------------------------------------------------------- *)
+(* Answering a child by proving a SYSTEM instead of re-posing the child.
+
+   The dangerous failure here is the quiet one: a system that does NOT prove the
+   child, proved anyway, and its YES read as the child closed. Two inclusions
+   stand between those, so every test below is about one of them holding or
+   being refused. *)
+
+let () =
+  (* Where each emitted symbol came from. A chain helper is numbered by a
+     counter over the whole rule list, so it is the one part of an unraveling
+     that is not a function of its own rule -- and knowing the rule it belongs to
+     is what lets a slice select it rather than renumber it. *)
+  match
+    U.export_of_system
+      (system
+         [
+           rule
+             ~conds:[ (app "$p" [ v "x" ], app "true" []) ]
+             (app "$f" [ v "x" ])
+             (v "x");
+           rule (app "$p" [ v "x" ]) (app "true" []);
+         ])
+  with
+  | Error msg -> check ("unravel/origins: " ^ msg) false
+  | Ok (e, _) ->
+      check "unravel/origins-name-the-defining-head"
+        (List.assoc_opt "d_f" e.U.origins = Some "$f");
+      check "unravel/origins-name-a-helper's-rule"
+        (List.assoc_opt "u_1" e.U.origins = Some "$f")
+
+let qdp_child = qdp_problem [ "D_G(cons(x0, x1)) -> D_G(x1)" ]
+
+let reposed_exn (p : Qdp.problem) : Qdp.reposed =
+  match Qdp.reposed ~export:qdp_export p with
+  | Ok r -> r
+  | Error msg -> failwith ("unexpected reposed error: " ^ msg)
+
+let () =
+  let r = reposed_exn qdp_child in
+  (* Every symbol the pairs NAME, not the pair roots alone: they are the seeds
+     the usable-rules prune runs from, so a slice that does not cover them
+     cannot contain the rules the child carries. *)
+  check "qdp/reposed-seeds" (List.sort compare r.Qdp.seeds = [ "cons"; "d_g" ]);
+  check "qdp/reposed-prunes-to-usable"
+    (r.Qdp.rules = [ ("d_g(cons(h, t))", "d_g(t)") ]);
+  check "qdp/reposed-carries-c-epsilon" (List.length r.Qdp.cepsilon = 2)
 
 let () =
   if !failures > 0 then (

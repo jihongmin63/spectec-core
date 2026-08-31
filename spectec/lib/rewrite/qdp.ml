@@ -136,8 +136,22 @@ let is_processor (label : string) : bool =
   in
   String.ends_with ~suffix:"Proof" name
 
+(* A node that carries a RESULT rather than an obligation, so it is not a child
+   anything can be re-posed from. [TRUE] is the one that is not a WST verdict: a
+   [DependencyGraphProof] that empties the graph discharges its branch with it,
+   and the echo prints the node with [TRUE] as the whole body -- no obligation at
+   all. Reading it as an open child made {!Termination.children} look for an
+   obligation that does not exist and refuse the entire split, which is what
+   [$subst_externMethodTypeDefEnv], [$cast_enum] and [Type_wf] were doing
+   (2026-08-21). *)
 let is_verdict (label : string) : bool =
-  match label with "YES" | "NO" | "MAYBE" -> true | _ -> false
+  match label with "YES" | "NO" | "MAYBE" | "TRUE" -> true | _ -> false
+
+(* A label that makes the whole tree unusable, for the same reason [OR] does: it
+   is not an obligation, so it cannot be re-posed, and unlike [TRUE] it does not
+   mean the branch closed. Counting it as neither would let a split report "all
+   children closed" over a branch that did not. *)
+let is_refuted (label : string) : bool = label = "FALSE"
 
 let is_connective (label : string) : bool =
   match label with "AND" | "OR" -> true | _ -> false
@@ -153,7 +167,8 @@ let open_leaves (tree : string) : int list =
   (* An OR node's branches are alternatives: closing all the leaves under it
      proves more than the tree needs, and reading it as a conjunction would be a
      guess about a shape we have never seen printed. Refuse the whole tree. *)
-  if List.exists (fun (_, _, label) -> label = "OR") nodes then []
+  if List.exists (fun (_, _, label) -> label = "OR" || is_refuted label) nodes
+  then []
   else
     let rec go = function
       | [] -> []
@@ -218,6 +233,55 @@ let problems (captured : string) : problem list =
   go (String.split_on_char '\n' captured) None Skip []
 
 (* -------------------------------------------------------------------------- *)
+(* Naming a child. *)
+
+(* A node id is unique and says nothing. What a child IS, is the recursion its
+   dependency pairs run around, and the root symbols of those pairs name it --
+   which is what turns a residue list from "nodes 1410, 1411, ..." into the
+   families it consists of. Returned in the EXPORT's own spelling, so a caller
+   holding the spec can look the symbol up (the declaration's own name and its
+   source line are the spec's to give, not ours: {!To_ctrs.symbol_origins}).
+
+   Chain helpers [u_<n>] drop out whenever anything else is present -- there is
+   one per condition of the source rule, so they name the unraveling rather than
+   the recursion. *)
+let is_chain_helper (sym : string) : bool =
+  String.length sym > 2
+  && (sym.[0] = 'u' || sym.[0] = 'U')
+  && sym.[1] = '_'
+  && String.for_all
+       (function '0' .. '9' -> true | _ -> false)
+       (String.sub sym 2 (String.length sym - 2))
+
+let pair_heads ~(export : U.export) (problem : problem) : string list =
+  let exported : (string, string) Hashtbl.t = Hashtbl.create 1024 in
+  let vars = Hashtbl.create 1024 in
+  List.iter (fun v -> Hashtbl.replace vars v ()) export.U.vars;
+  List.iter
+    (fun (lhs, rhs) ->
+      List.iter
+        (fun tok ->
+          if not (Hashtbl.mem vars tok) then
+            Hashtbl.replace exported (upper tok) tok)
+        (identifiers lhs @ identifiers rhs))
+    export.U.printed;
+  let roots =
+    List.filter_map
+      (fun line -> match identifiers line with h :: _ -> Some h | [] -> None)
+      problem.pairs
+    |> List.sort_uniq compare
+  in
+  let named =
+    match List.filter (fun r -> not (is_chain_helper r)) roots with
+    | [] -> roots
+    | kept -> kept
+  in
+  List.sort_uniq compare
+    (List.map
+       (fun r -> Option.value (Hashtbl.find_opt exported (upper r)) ~default:r)
+       named)
+
+(* -------------------------------------------------------------------------- *)
 (* The standalone problem. *)
 
 (* Usable rules: the rules defining a symbol the pairs name, closed under the
@@ -278,8 +342,15 @@ let fresh (taken : (string, unit) Hashtbl.t) (base : string) : string =
   in
   go 0
 
-let standalone ~(export : U.export) (problem : problem) :
-    (string * int, string) result =
+type reposed = {
+  seeds : string list;
+  rules : (string * string) list;
+  cepsilon : (string * string) list;
+  vars : string list;
+}
+
+let reposed ~(export : U.export) (problem : problem) : (reposed, string) result
+    =
   (* An identifier of the export is one or the other: a variable if the
      [(VAR ...)] header declares it, a symbol otherwise. [taken] is both, and
      only serves to keep a fresh name fresh. *)
@@ -305,17 +376,26 @@ let standalone ~(export : U.export) (problem : problem) :
      as the UPPERCASE of the symbol it came from, so the two lookups below cover
      what a child can name -- and anything left over stops the split, because an
      identifier the [(VAR ...)] header omits parses as a CONSTANT, narrowing the
-     problem to prove less than the child asked. The [x<n>] arm is the other
-     naming AProVE is known to print, kept so a renamed run is recognised rather
-     than refused. *)
+     problem to prove less than the child asked. The last arm is the scheme
+     AProVE names the variables IT introduces by -- one of [x]/[y]/[z] and an
+     index, with an underscore before the index when the plain spelling is
+     already taken. Both halves are observed, not guessed: a run whose [(VAR
+     ...)] declares [y0..y3] and no [z] at all gets back [z0..z4] bare and [y_0]
+     underscored. The introducer is [TransformationProof]'s instantiation, which
+     the innermost surface reaches where the full one does not. Reading one of
+     AProVE's SYMBOLS as a variable this way would only generalize the child
+     (more chains, a harder problem, a [YES] that still transfers); it is the
+     converse -- an unrecognised name parsing as a CONSTANT -- that the error
+     below exists to prevent. *)
   let by_upper : (string, string) Hashtbl.t = Hashtbl.create 1024 in
   Hashtbl.iter (fun sym () -> Hashtbl.replace by_upper (upper sym) sym) symbols;
   let is_renamed_var tok =
-    String.length tok > 1
-    && tok.[0] = 'x'
+    let index_from = if String.length tok > 2 && tok.[1] = '_' then 2 else 1 in
+    String.length tok > index_from
+    && (match tok.[0] with 'x' | 'y' | 'z' -> true | _ -> false)
     && String.for_all
          (function '0' .. '9' -> true | _ -> false)
-         (String.sub tok 1 (String.length tok - 1))
+         (String.sub tok index_from (String.length tok - index_from))
   in
   let unknown = ref None and seeds = ref [] and renamed = ref [] in
   List.iter
@@ -374,28 +454,36 @@ let standalone ~(export : U.export) (problem : problem) :
                 let app = Printf.sprintf "%s(%s, %s)" c x y in
                 [ (app, x); (app, y) ]
           in
-          let header_vars =
-            export.U.vars
-            @ List.sort compare (Rewrite_system.dedup_stable !renamed)
-            @ match ceps with None -> [] | Some (_, x, y) -> [ x; y ]
-          in
-          let rules = kept @ ceps_rules in
-          let b = Buffer.create 65536 in
-          Buffer.add_string b
-            (Printf.sprintf "(VAR %s)\n" (String.concat " " header_vars));
-          Buffer.add_string b "(PAIRS\n";
-          List.iter
-            (fun p -> Buffer.add_string b ("  " ^ p ^ "\n"))
-            problem.pairs;
-          Buffer.add_string b ")\n(RULES\n";
-          List.iter
-            (fun (lhs, rhs) ->
-              Buffer.add_string b ("  " ^ lhs ^ " -> " ^ rhs ^ "\n"))
-            rules;
-          Buffer.add_string b ")\n";
-          if problem.q <> [] then (
-            Buffer.add_string b "(Q\n";
-            List.iter (fun t -> Buffer.add_string b ("  " ^ t ^ "\n")) problem.q;
-            Buffer.add_string b ")\n");
-          if problem.minimal then Buffer.add_string b "(MINIMAL)\n";
-          Ok (Buffer.contents b, List.length rules))
+          Ok
+            {
+              seeds = Rewrite_system.dedup_stable !seeds;
+              rules = kept;
+              cepsilon = ceps_rules;
+              vars =
+                (export.U.vars
+                @ List.sort compare (Rewrite_system.dedup_stable !renamed)
+                @ match ceps with None -> [] | Some (_, x, y) -> [ x; y ]);
+            })
+
+let document (problem : problem) (r : reposed) : string =
+  let b = Buffer.create 65536 in
+  Buffer.add_string b (Printf.sprintf "(VAR %s)\n" (String.concat " " r.vars));
+  Buffer.add_string b "(PAIRS\n";
+  List.iter (fun p -> Buffer.add_string b ("  " ^ p ^ "\n")) problem.pairs;
+  Buffer.add_string b ")\n(RULES\n";
+  List.iter
+    (fun (lhs, rhs) -> Buffer.add_string b ("  " ^ lhs ^ " -> " ^ rhs ^ "\n"))
+    (r.rules @ r.cepsilon);
+  Buffer.add_string b ")\n";
+  if problem.q <> [] then (
+    Buffer.add_string b "(Q\n";
+    List.iter (fun t -> Buffer.add_string b ("  " ^ t ^ "\n")) problem.q;
+    Buffer.add_string b ")\n");
+  if problem.minimal then Buffer.add_string b "(MINIMAL)\n";
+  Buffer.contents b
+
+let standalone ~(export : U.export) (problem : problem) :
+    (string * int, string) result =
+  match reposed ~export problem with
+  | Error msg -> Error msg
+  | Ok r -> Ok (document problem r, List.length r.rules + List.length r.cepsilon)
