@@ -219,6 +219,117 @@ YES였는데, 이번에 plain으로 답한 건 111개뿐이고 24개는 `itrs:`�
 진행 중: b1800 재질의 10개 중 5개, 그리고 그 뒤에 큐잉된 24개 plain@1800.
 `verification.md`의 termination 열은 그 둘이 끝나기 전까지 갱신하지 않습니다.
 
+### 2026-08-21 (후속) — **열린 자식을 "슬라이스"로 재질문하는 평면 경로**, 그리고 그 건전성이 Cε를 요구했다는 것
+
+열린 dependency-graph 자식을 `.qdp`로 재제출하는 것 말고, 그 자식의 pair가 이름
+붙이는 심볼들로 **원본 CTRS를 다시 슬라이스해서 평범한 평면 TRS로 처음부터 증명**하는
+경로를 붙였습니다 (`Termination.reask`). `.qdp` **형식 자체가** 문제를 어렵게
+만드는 경우가 실재하기 때문입니다 — `$cast_enum`의 node 140(`pow_int,
+pow_int_aux`, 2 pairs / 65 rules)은 `.qdp` @900s TIMEOUT인데 슬라이스로는 YES
+3.9s, 반면 node 142(`$repeat__value`)는 양쪽 다 TIMEOUT. 일반 법칙이 아니라
+대안이라서, `.qdp` **뒤에** 붙는 폴백이고 (`check`의 Children 경로) 자식별 대조는
+`--child-report`가 행으로 냅니다. **다만 기본은 OFF입니다**(`--reslice-children`
+opt-in) — 아래 실측이 이득을 뒷받침하지 않는데 안 닫히는 자식마다 AProVE 런을 한 번
+더 먹기 때문입니다.
+
+**착수 전에 계약을 세우다 보니 지시서에 없던 결정이 하나 나왔습니다.** 닫으려는 건
+자식 QDP 문제 `(P_i, Q, R_i)`의 유한성이고 증명하는 건 `SN(T_sub)`이라, 다리는 두
+포함뿐입니다:
+
+- (a) `P_i ⊆ DP(T_sub)`
+- (b) `R_i ⊆ T_sub`
+
+(b)를 **문자 그대로는 검사할 수 없습니다.** `Qdp.capture_filter`가 자식의 `R`
+섹션을 통째로 버리기 때문에(자식 하나당 전체 규칙 집합 재출력 — `Program_ok`에서
+2.9GB) 우리가 아는 건 `R_i ⊆ export.printed`(전체)뿐이고, `T_sub`는 그보다 작으니
+포함이 안 섭니다. 세울 수 있는 유일한 길은 `.qdp` 경로가 이미 쓰는 **usable-rules
+정리를 한 번 더** 쓰는 것입니다:
+
+```
+(P_i,Q,R_i) 유한 ⟸ (P_i,Q, U(P_i,R_i) ∪ Cε) 유한 ⟸ (P_i,Q, U ∪ Cε) 유한
+                   U = usable(P_i, export.printed) ⊇ U(P_i,R_i)
+```
+
+그래서 검사는 (a) + (b′) `U ⊆ T_sub`가 되고, **증명 대상이 `SN(T_sub)`가 아니라
+`SN(T_sub ∪ Cε)`가 됩니다.** Cε는 장식이 아니라 정리의 전제고, Toyama의 반례가
+정확히 `Cε`라 "두 규칙쯤"으로 넘길 수 없습니다 — 종료하는 시스템을 비종료로 만들 수
+있습니다. 따라서 **위의 `pow_int` YES 3.9s는 `termination --symbol`(Cε 없음)로 잰
+숫자이고, Cε를 얹은 제출물에서 그대로 재현된다는 보장이 없습니다.** 사용자 결정:
+Cε를 넣되(건전 경로), `--child-report`가 **Cε 없는 판정도 같은 슬라이스에 대해 같이
+재서** 그 대가를 숫자로 남긴다 (`slice_bare` 열 — 아무것도 닫지 않는 참고 수치).
+
+`Qdp.closed_by`가 두 포함을 실제로 검사합니다. (a)는 `T_sub`의 dependency pair를
+직접 계산해서 자식의 pair를 **인스턴스 매칭**합니다 — AProVE가 pair의 변수를
+`x0`/`x1`로 개명하고 instantiation 프로세서가 특수화하므로 등호가 아니라 인스턴스
+관계입니다. pair를 **rewrite**하는 프로세서를 거친 자식은 우리 DP 집합 밖이라 검사가
+거부하고, 그때는 `.qdp`가 유일한 건전한 질문 방식입니다 — 결함이 아니라 폴백.
+
+두 가지 함정이 있었고 둘 다 코드에 박아뒀습니다:
+
+- **슬라이스를 따로 unravel하면 안 됩니다.** `u_<n>` 헬퍼는 규칙 리스트 전체에 걸친
+  카운터로 번호가 붙어서, 부분집합을 따로 언레이블링하면 같은 헬퍼가 다른 이름을
+  얻고 자식의 pair가 아무것과도 매칭되지 않습니다. 그래서 `Unravel.export`에
+  `origins`(정의된 심볼 → 그 규칙의 CTRS head)를 실어, **전체 export의 printed에서
+  부분집합을 골라내는** 방식으로 갑니다. 철자가 한 벌이라 (a)·(b′)가 텍스트 그대로
+  성립합니다.
+- **슬라이스 루트는 `pair_heads`가 아니라 `Qdp.reposed.seeds`입니다.**
+  `pair_heads`는 사람에게 자식을 이름 붙이려고 헬퍼를 버리므로, 그걸 루트로 쓰면
+  (b′)가 슬라이스가 지킬 이유가 없던 규칙에서 깨집니다. seeds(=pair가 어디서든
+  이름 붙이는 모든 심볼)를 루트로 잡으면 CTRS 슬라이스의 하향 폐포가 TRS 수준
+  usable 폐포를 덮습니다.
+
+**ITRS는 이 경로에 넣지 않습니다** (사용자 결정, 재론 금지). `Itrs.of_system`은 첫
+동작이 replaced 규칙 **삭제** + 손으로 쓴 정수 정의 대입이라 과대근사가 아니고,
+코덱은 아예 다른 알고리즘(±2^w 보정 루프 → 닫힌 식)입니다. 위 (b′) 검사가 ITRS를
+자동으로 거부합니다 — 자식이 든 usable 규칙이 `I_sub`에 없으니까. 이 김에 사실과
+달랐던 문서 두 곳을 정정했습니다: `itrs.ml`/`itrs.mli`의 "평면 TRS와 같은 방향의
+건전성", `termination.mli`의 `type surface` "both over-approximating the same
+CTRS, so a Yes on either transfers to the slice". 둘 다 **"ITRS는 모델이고 그
+YES는 모델 수준 진술(코덱은 한 단계 더 약함)"**로 바꿨습니다. 행 표기는 현행
+유지 — verdict 열은 그대로 `YES`, 구분은 paths 열의 `itrs:`가 합니다.
+
+**첫 실측이 이 경로의 전제를 흔들었습니다** (`$bin_shl`, budget 30 / child 20):
+
+| node | names | pairs | `.qdp` | slice **+Cε** | slice **−Cε** |
+|---|---|---|---|---|---|
+| 45 | `pow_int, pow_int_aux` | 2 | TIMEOUT (65규칙) | TIMEOUT (65규칙) | **YES 4.0s** |
+| 46 | `$int_to_bitstr` | 4 | TIMEOUT (177) | TIMEOUT (177) | TIMEOUT |
+
+node 45는 `$cast_enum`의 node 140과 같은 `pow_int` 패밀리이고, `−Cε`의 4.0s는
+지시서가 인용한 3.9s와 일치합니다. 그런데 `.qdp`와 slice의 **규칙 집합이 똑같이
+65개**였습니다 — 즉 두 제출물의 차이가 *형식*뿐이었고, **형식만으로는 판정이 안
+움직였습니다.** 움직인 건 Cε 두 줄입니다. 이전 세션의 "`.qdp` 형식 자체가 문제를
+어렵게 만든다"는 결론은 형식과 Cε를 한꺼번에 바꾼 비교였습니다 — MTT에서 얻은 그
+교훈("X가 Y를 일으킨다고 하려면 X만 바꿔라")에 다시 걸린 셈입니다.
+
+구조 논증도 같은 쪽을 가리킵니다. 루트를 usable 규칙들의 head에서 뽑도록 고친 뒤로
+`T_sub ⊇ U`가 항상 참이므로, slice 재질문은 `.qdp`보다 **더 많은 규칙 위에서 더 센
+것**(SCC 하나의 사슬 유한성이 아니라 시스템 전체의 종료)을 묻습니다. 살 수 있는 건
+"AProVE가 자기 분해를 다시 해서 다른 궤적을 탄다"뿐인데, node 45에서 그게 일어나지
+않았습니다. 그래서 기본 OFF.
+
+((b′) 검사가 우리 쪽 결함도 하나 잡았습니다: node 47이 `the system is missing the
+rule and(true, y) -> y`로 거부됐는데, usable 폐포는 **언레이블링된** 규칙 위에서,
+슬라이스 폐포는 **CTRS** 규칙 위에서 도는 탓이었습니다. 루트를 usable 규칙들의
+head에서 뽑도록 고쳐 구조적으로 성립하게 했습니다 — 루트는 자기 head의 모든 규칙을
+지키므로.)
+
+budget 300 재확인(Cε가 치명적인지 그냥 비싼지)은 **아직**입니다.
+
+**다음 방향은 term 열 전수 재측정으로 정했습니다** (2026-08-22, 사용자 결정). 지금
+모든 설계 판단이 stale 숫자 위에 서 있습니다 — 캐리어 flat 전환, 경로 3개화, 정수
+표면 `rebind_stuck_guards`, `eq` 가드 제약화, 루트 삭제 버그가 전부 열을 무효화했고,
+행 자체도 5열로 늘었습니다. `sweeps/run_term145.sh`가 `bff805ec` 기준선의 심볼 집합
+(153개 중 모노모피즘으로 특수화된 8개를 뺀 **145개**, 행 대조 가능)을 현재 표면에서
+직렬로 다시 잽니다. `--reslice-children`은 끄고 — 이 열은 기본 check가 밟는 세 경로를
+재는 것입니다. 300초 cap에서 원리상 YES가 안 나오는 심볼들(기준선의 `$bin_minus`
+1800.5초, `$write_bits_from_value` 1320.4초, `$bin_shr` 420.2초)을 위해 TIMEOUT 행에
+`--budget 1800` 재질의 pass가 뒤따릅니다. `$cast_enum`은 측정 대상이
+아닙니다 — 건전한 경로가 전부 소진됐고(plain 통짜 KILLED @2,032규칙 JVM ~30GB OOM,
+plain 자식 5/5 TIMEOUT @900s, itrs 통짜 KILLED에 분해 자체 없음), 이 경로를 만들어도
+자식 5개 중 140 하나만 닫히며 node 158(pairs 143 / rules 2,032 = 사실상 원래 문제
+전체)이 남습니다. 잔여로 기록.
+
 ### 2026-08-21 (정정 2) — **`Itrs.of_system`이 슬라이스 루트를 지웠다. 그 루트의 `itrs:YES`는 공허했다**
 
 아래 "정정" 항목이 근거로 쓴 `itrs:YES@0.6s` 두 줄은 **그 심볼이 들어 있지 않은

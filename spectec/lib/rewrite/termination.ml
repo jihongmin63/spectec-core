@@ -166,7 +166,10 @@ let probe ?aprove_bin ~budget ~budget_from ~ext ~trs () : Aprove.run * float =
    ours: every open child closed, plus the closed ones the run already proved,
    is the proof the whole run was assembling. *)
 
-type split_outcome = Closed | Unclosed of string | Unavailable of string
+type split_outcome =
+  | Closed of string
+  | Unclosed of string
+  | Unavailable of string
 
 (* The children of one whole-system run, in tree order, with the export they are
    to be re-posed against. Separated from the running because two callers want
@@ -212,14 +215,123 @@ let children ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
                  (List.length leaves) (List.length echoed))
           else Ok (export, List.filter_map problem leaves))
 
-let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
+(* The OTHER way to ask a child: instead of re-posing it as a dependency-pair
+   problem, re-slice the SOURCE CTRS at the symbols its pairs name and prove
+   that slice terminating from scratch -- the same question
+   [termination --symbol] asks, aimed at the child.
+
+   Why bother, when the [.qdp] re-pose is the child itself and this is a detour:
+   the [.qdp] FORM can be the thing that is hard. Measured on two open children
+   of [$cast_enum], node 140 ([pow_int, pow_int_aux], 2 pairs / 65 rules) is
+   TIMEOUT as a [.qdp] at 900s and YES in 3.9s as a slice, while node 142
+   ([$repeat__value], 3 pairs / 83 rules) is TIMEOUT both ways. So it is a real
+   alternative and not a general law, which is why it runs as a FALLBACK behind
+   the [.qdp] rather than in front of it, and why [--child-report] measures both
+   per child rather than picking one.
+
+   What licenses answering the child this way is {!Qdp.closed_by}, checked here
+   rather than assumed -- the slice being a dependency closure makes the two
+   inclusions plausible, which is not the same as true. The projection pair
+   travels with the rules for the same reason it travels with the [.qdp]: the
+   rules are the usable-rules prune. *)
+
+type reask = { licensed : string; bare : string; rules : int; bare_rules : int }
+
+(* The symbol a printed rule defines, read off its left-hand side. No TPDB
+   identifier contains a bracket, so the head ends where the arguments begin. *)
+let printed_head (lhs : string) : string =
+  match String.index_opt lhs '(' with
+  | Some i -> String.sub lhs 0 i
+  | None -> lhs
+
+let reask ~(export : Unravel.export) ~(system : Rewrite_system.t)
+    (p : Qdp.problem) : (reask, string) result =
+  let surfaced = proof_surface system in
+  match Qdp.reposed ~export p with
+  | Error msg -> Error msg
+  | Ok r -> (
+      let origin : (string, string) Hashtbl.t = Hashtbl.create 1024 in
+      List.iter
+        (fun (sym, source) -> Hashtbl.replace origin sym source)
+        export.Unravel.origins;
+      (* What to slice from. Not {!Qdp.pair_heads}, which drops chain helpers
+         because it is naming the child for a person; and not the pairs' own
+         symbols either, which is not enough: the usable-rules closure runs over
+         the UNRAVELED rules and the slice's over the CTRS ones, and the two
+         disagree often enough to matter (on [$bitstr_to_int]'s child the
+         closure wanted [and(true, y) -> y] and the slice had no reason to keep
+         it, so the licence was refused over a gap of our own making).
+
+         Taking a root per usable RULE settles it by construction: a root keeps
+         every rule of its head, so every usable rule is in the slice and the
+         second inclusion cannot fail. The seeds go in too, for the symbol whose
+         rules the prune left empty. A seed with no entry here is a constructor:
+         nothing defines it, so there is nothing to slice from. *)
+      let roots =
+        Rewrite_system.dedup_stable
+          (List.filter_map (Hashtbl.find_opt origin)
+             (r.Qdp.seeds
+             @ List.map (fun (lhs, _) -> printed_head lhs) r.Qdp.rules))
+      in
+      if roots = [] then Error "the pairs name no defined symbol"
+      else
+        let reachable =
+          Rewrite_system.reachable_heads ~roots surfaced.Rewrite_system.rules
+        in
+        (* Selected from the whole export rather than unraveled again from the
+           slice: the [u_<n>] helpers are numbered over the whole rule list, so
+           a separate unraveling would spell the same helpers differently and
+           the child's pairs would match nothing. *)
+        let sub =
+          List.filter
+            (fun (lhs, _) ->
+              match Hashtbl.find_opt origin (printed_head lhs) with
+              | Some source -> Hashtbl.mem reachable source
+              | None -> false)
+            export.Unravel.printed
+        in
+        let rules = sub @ r.Qdp.cepsilon in
+        if List.length sub = List.length export.Unravel.printed then
+          Error "the slice is the whole system"
+        else
+          match Qdp.closed_by r p ~rules with
+          | Error msg -> Error msg
+          | Ok () ->
+              Ok
+                {
+                  licensed = Unravel.tpdb_document ~vars:r.Qdp.vars rules;
+                  bare = Unravel.tpdb_document ~vars:r.Qdp.vars sub;
+                  rules = List.length rules;
+                  bare_rules = List.length sub;
+                })
+
+let split ?aprove_bin ~reslice ~budget ~(system : Rewrite_system.t) ~trs () :
     split_outcome =
   match children ?aprove_bin ~budget ~system ~trs () with
   | Error msg -> Unavailable msg
   | Ok (export, problems) ->
       let total = List.length problems in
-      let rec close closed = function
-        | [] -> Closed
+      (* The slice re-ask runs only where the [.qdp] did not close the child, so
+         a split closes at least what it closed before this path existed; the
+         cost is one extra run on the child that stops the split. *)
+      let resliced (p : Qdp.problem) : (unit, string) result =
+        if not reslice then Error "re-slice not asked for"
+        else
+          match reask ~export ~system p with
+          | Error msg -> Error (Printf.sprintf "slice unavailable (%s)" msg)
+          | Ok rk -> (
+              let run =
+                Aprove.check ?aprove_bin ~budget ~ext:".trs" ~trs:rk.licensed ()
+              in
+              match run.Aprove.verdict with
+              | Aprove.Yes -> Ok ()
+              | v -> Error ("slice " ^ Aprove.string_of_verdict v))
+      in
+      let rec close closed resliced_count = function
+        | [] ->
+            Closed
+              (if resliced_count = 0 then ""
+               else Printf.sprintf "%d via re-slice" resliced_count)
         | (p : Qdp.problem) :: rest -> (
             match Qdp.standalone ~export p with
             | Error msg ->
@@ -229,18 +341,26 @@ let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
                   Aprove.check ?aprove_bin ~budget ~ext:".qdp" ~trs:text ()
                 in
                 match child.Aprove.verdict with
-                | Aprove.Yes -> close (closed + 1) rest
-                | v ->
-                    (* One child that does not close leaves the whole system
-                       unproven, so the remaining children are not worth their
-                       budget; the count says how far the split got. *)
-                    Unclosed
-                      (Printf.sprintf "%d/%d closed, node %d [%s] %s" closed
-                         total p.Qdp.node
-                         (String.concat "," (Qdp.pair_heads ~export p))
-                         (Aprove.string_of_verdict v))))
+                | Aprove.Yes -> close (closed + 1) resliced_count rest
+                | v -> (
+                    match resliced p with
+                    | Ok () -> close (closed + 1) (resliced_count + 1) rest
+                    | Error why ->
+                        let why =
+                          Printf.sprintf "qdp %s, %s"
+                            (Aprove.string_of_verdict v)
+                            why
+                        in
+                        (* One child that does not close leaves the whole system
+                           unproven, so the remaining children are not worth
+                           their budget; the count says how far the split got. *)
+                        Unclosed
+                          (Printf.sprintf "%d/%d closed, node %d [%s] %s" closed
+                             total p.Qdp.node
+                             (String.concat "," (Qdp.pair_heads ~export p))
+                             why))))
       in
-      close 0 problems
+      close 0 0 problems
 
 (* One row per open child, every one of them run: what {!split} answers with a
    verdict, measured instead. The distribution is the thing a residue is read
@@ -248,11 +368,21 @@ let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
    ([heads]), and what each cost -- and the early exit that makes {!split} a
    cheap checker is exactly what hides it.
 
-   The budget is the child's own ([child_budget]), so a row says what the child
-   costs when nothing else is competing for the deadline -- which is the
-   comparison {!split} is built on. *)
+   Each child is asked THREE ways, because the question the report exists to
+   answer is which way is worth taking: the [.qdp] re-pose, the licensed slice
+   re-ask, and that same slice without the projection pair. The third is not an
+   answer to anything -- see {!reask.bare} -- it is there so the pair's cost is
+   a measured number rather than an assumption. *)
 type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
-type child = { node : int; heads : string list; pairs : int; qdp : attempt }
+
+type child = {
+  node : int;
+  heads : string list;
+  pairs : int;
+  qdp : attempt;
+  slice : (attempt, string) result;
+  slice_bare : (attempt, string) result;
+}
 
 let child_report ?aprove_bin ?(budget = 300) ?child_budget
     ?(on_child = fun (_ : child) -> ()) (system : Rewrite_system.t) :
@@ -291,12 +421,24 @@ let child_report ?aprove_bin ?(budget = 300) ?child_budget
                        }
                    | Ok (text, rules) -> attempt ~ext:".qdp" ~rules text
                  in
+                 let attempts :
+                     (attempt, string) result * (attempt, string) result =
+                   match reask ~export ~system p with
+                   | Error msg -> (Error msg, Error msg)
+                   | Ok rk ->
+                       ( Ok (attempt ~ext:".trs" ~rules:rk.rules rk.licensed),
+                         Ok (attempt ~ext:".trs" ~rules:rk.bare_rules rk.bare)
+                       )
+                 in
+                 let slice, slice_bare = attempts in
                  let row =
                    {
                      node = p.Qdp.node;
                      heads = Qdp.pair_heads ~export p;
                      pairs = List.length p.Qdp.pairs;
                      qdp;
+                     slice;
+                     slice_bare;
                    }
                  in
                  on_child row;
@@ -329,8 +471,9 @@ let report_of ~stats ~(tree : string option) (steps : step list) : report =
   }
 
 let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
-    ?(split_children = true) ?(integer_retry = true) ?(surface = Plain)
-    ~(roots : string list) (system : Rewrite_system.t) : report =
+    ?(split_children = true) ?(reslice_children = false) ?(integer_retry = true)
+    ?(surface = Plain) ~(roots : string list) (system : Rewrite_system.t) :
+    report =
   let failed verdict =
     { verdict; stats = None; secs = None; proof = None; steps = [] }
   in
@@ -359,11 +502,13 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
             else
               let outcome, secs =
                 Subproc.timed (fun () ->
-                    split ?aprove_bin ~budget ~system ~trs ())
+                    split ?aprove_bin ~reslice:reslice_children ~budget ~system
+                      ~trs ())
               in
               let verdict, note =
                 match outcome with
-                | Closed -> (Yes, "all children closed")
+                | Closed "" -> (Yes, "all children closed")
+                | Closed extra -> (Yes, "all children closed, " ^ extra)
                 | Unclosed note | Unavailable note ->
                     (of_aprove whole.Aprove.verdict, note)
               in

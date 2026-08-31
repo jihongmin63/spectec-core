@@ -1059,6 +1059,80 @@ let () =
   check "qdp/reposed-carries-c-epsilon" (List.length r.Qdp.cepsilon = 2)
 
 let () =
+  let r = reposed_exn qdp_child in
+  let usable = r.Qdp.rules @ r.Qdp.cepsilon in
+  (* The system the child's rules and dependency pairs both live in: licensed. *)
+  check "qdp/closed-by-accepts-a-covering-system"
+    (Qdp.closed_by r qdp_child ~rules:usable = Ok ());
+  (* AProVE renames a pair's variables and its instantiation processors
+     specialize them, so a pair is an INSTANCE of a dependency pair rather than
+     equal to one. *)
+  check "qdp/closed-by-accepts-an-instantiated-pair"
+    (Qdp.closed_by
+       (reposed_exn (qdp_problem [ "D_G(cons(cons(x0, x2), x1)) -> D_G(x1)" ]))
+       (qdp_problem [ "D_G(cons(cons(x0, x2), x1)) -> D_G(x1)" ])
+       ~rules:usable
+    = Ok ());
+  (* The projection pair is the side condition of the prune that produced those
+     rules, so a system without it does not close the child however well it is
+     proved. *)
+  check "qdp/closed-by-refuses-a-system-without-c-epsilon"
+    (Result.is_error (Qdp.closed_by r qdp_child ~rules:r.Qdp.rules));
+  (* A rule the child carries and the system does not: the R-steps of a chain
+     would leave the system. *)
+  check "qdp/closed-by-refuses-a-missing-rule"
+    (Result.is_error (Qdp.closed_by r qdp_child ~rules:r.Qdp.cepsilon));
+  (* A pair no rule of the system induces -- what an AProVE processor that
+     REWRITES a pair leaves behind. Nothing here is wrong; the licence is simply
+     not available, and the [.qdp] re-pose is. *)
+  let rewritten = qdp_problem [ "D_G(cons(x0, x1)) -> D_F(x1)" ] in
+  check "qdp/closed-by-refuses-a-pair-that-is-no-dependency-pair"
+    (Result.is_error
+       (Qdp.closed_by (reposed_exn rewritten) rewritten ~rules:usable))
+
+let reask_system =
+  system
+    [
+      rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
+      rule (app "$g" [ app "cons" [ v "h"; v "t" ] ]) (app "$g" [ v "t" ]);
+      rule (app "$unrelated" [ v "x" ]) (v "x");
+    ]
+
+let () =
+  match Termination.reask ~export:qdp_export ~system:reask_system qdp_child with
+  | Error msg -> check ("termination/reask: " ^ msg) false
+  | Ok rk ->
+      (* The slice is the child's own recursion and its downward closure, taken
+         from the WHOLE export's printed rules so the helper spellings the
+         child's pairs name still mean the same symbols. *)
+      check "termination/reask-keeps-the-child's-rules"
+        (Subproc.contains rk.Termination.licensed "d_g(cons(h, t)) -> d_g(t)");
+      check "termination/reask-drops-what-the-child-does-not-reach"
+        (not (Subproc.contains rk.Termination.licensed "d_unrelated"));
+      check "termination/reask-carries-c-epsilon"
+        (Subproc.contains rk.Termination.licensed "c_eps");
+      check "termination/reask-counts-its-rules"
+        (rk.Termination.rules = 3 && rk.Termination.bare_rules = 1);
+      (* The bare variant is the measurement, and it is exactly the same slice
+         minus the pair -- never a second, differently-sliced system. *)
+      check "termination/reask-bare-drops-c-epsilon"
+        (Subproc.contains rk.Termination.bare "d_g(cons(h, t)) -> d_g(t)"
+        && not (Subproc.contains rk.Termination.bare "c_eps"))
+
+let () =
+  (* A child whose pairs reach every head slices to the system the whole-system
+     run already failed on. Re-running it proves nothing new, so the path steps
+     aside rather than spending a budget. *)
+  let whole =
+    qdp_problem [ "D_UNRELATED(x0) -> D_F(x0)"; "D_F(cons(x0, x1)) -> D_G(x1)" ]
+  in
+  match Termination.reask ~export:qdp_export ~system:reask_system whole with
+  | Ok _ -> check "termination/reask-refuses-the-whole-system" false
+  | Error msg ->
+      check "termination/reask-refuses-the-whole-system"
+        (Subproc.contains msg "whole system")
+
+let () =
   if !failures > 0 then (
     Printf.eprintf "%d test failure(s)\n" !failures;
     exit 1)
