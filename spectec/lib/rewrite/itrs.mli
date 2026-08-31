@@ -18,10 +18,18 @@
     has no decreasing argument at all. Exact rather than approximating -- the
     rule fires on precisely the instances it fired on before.
 
-    Same soundness direction as the plain TRS: sorts are dropped, so this
-    over-approximates the sorted CTRS and a YES transfers to it while a NO does
-    not (it may be an artifact of untyped variables ranging over values the
-    sorts exclude).
+    A YES here does NOT mean what a plain-TRS YES means. Dropping the sorts is
+    an over-approximation, the safe direction the plain TRS also has, but it is
+    the smaller half of what this export does: it DELETES the rules of the
+    replaced layer and substitutes integer definitions for them, and deleting
+    rules makes a termination proof easier rather than harder. So this is a
+    MODEL of the slice, not an over-approximation of it, and a YES is a
+    statement about the model -- the slice terminates provided the arithmetic
+    behaves as these integer rules say. Weaker again for the codec, where the
+    substitute is a different algorithm (a closed formula in place of the spec's
+    +/-2^w correction loop), so a YES says nothing about that loop. A NO
+    transfers no better, and additionally may be an artifact of untyped
+    variables ranging over values the sorts exclude.
 
     [Error] on everything {!Unravel.trs_of_system} errors on, plus an OPEN
     scalar magnitude -- a rule matching [int_pos(x)] or building [bd0(p)] on a

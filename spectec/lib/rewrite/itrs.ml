@@ -33,10 +33,23 @@
      one symbol used both ways; it does, and it is faster than the wrapped
      encoding (15s vs 24s).
 
-   Soundness is the same direction as the plain TRS: sorts are dropped, so the
-   ITRS is an over-approximation of the sorted CTRS and YES transfers to it,
-   while NO does not (it may be an artifact of untyped variables ranging over
-   values the sorts exclude). *)
+   WHAT A YES HERE MEANS -- and it is NOT what a plain-TRS YES means. Dropping
+   the sorts is an over-approximation, the same safe direction the plain TRS
+   has, but that covers only part of what happens below. The first thing
+   {!of_system} does is DELETE every rule of the replaced layer and substitute
+   hand-written integer definitions for them, and deleting rules makes a
+   termination proof EASIER, not harder -- so this is not an over-approximation
+   of the slice at all. It is a MODEL of it, and a YES is a statement about the
+   model: the slice terminates PROVIDED the arithmetic behaves as these integer
+   rules say. For the arithmetic proper that proviso is close to a definition
+   (the b-layer computes exactly integer addition and the rest). For the codec
+   it is weaker again, because the substitute is not the same algorithm: the
+   spec's [$bitstr_to_int]/[$int_to_bitstr] correct by looping a +/-2^w
+   adjustment where {!itrs_dec1}/{!itrs_enc1} evaluate a closed formula, so a
+   YES says nothing about the loop's own termination.
+
+   A NO transfers no better, and for one more reason on top: untyped variables
+   range over values the sorts exclude. *)
 
 module R = Rewrite_system
 

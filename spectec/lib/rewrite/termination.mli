@@ -11,9 +11,13 @@
     transfers to the original slice; every other verdict is only about the TRS.
 
     A check takes up to three paths, in order, and stops at the first [Yes]
-    ({!path}). They are not settings of one run: each proves the SAME slice
-    through a different over-approximation, so any one's [Yes] is the slice's,
-    while none of their unproven verdicts says anything about the others. *)
+    ({!path}). They are not settings of one run, and none of their unproven
+    verdicts says anything about the others. Nor do their [Yes]es weigh the
+    same: the two plain-TRS paths over-approximate the slice, so their [Yes] is
+    the slice's, while [Integer_trs] proves a MODEL of it (see {!surface}) and
+    its [Yes] is a statement about that model. A row tells the two apart by the
+    path named in {!report.steps}, not by the verdict, which is spelled [YES]
+    either way. *)
 
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
 
@@ -42,8 +46,10 @@ type step = { path : path; verdict : verdict; secs : float; note : string }
 
 type report = {
   verdict : verdict;
-      (** [Yes] if any path proved it; otherwise the whole-system run's own
-          verdict, since no other path refutes anything. *)
+      (** [Yes] if any path answered [Yes]; otherwise the whole-system run's own
+          verdict, since no other path refutes anything. Which path it was is in
+          {!steps}, and it matters -- an [Integer_trs] [Yes] is about a model of
+          the slice rather than the slice ({!surface}). *)
   stats : Unravel.stats option;
   secs : float option;
       (** Wall clock of the ANSWERING path: for a budget-ladder run the
@@ -111,11 +117,21 @@ val trs_of_slice : Rewrite_system.t -> (string * Unravel.stats, string) result
     [Integer] is {!Itrs.of_system}, the same unraveling with the structural
     arithmetic layer handed to AProVE's native integers and constraints.
 
-    These are two SURFACES, not two settings of one. Their verdicts are about
-    differently-encoded systems -- both over-approximating the same CTRS, so a
-    [Yes] on either transfers to the slice, but neither's MAYBE says anything
-    about the other -- so a column measured on one must not be compared row-wise
-    against a column measured on the other. *)
+    These are two SURFACES, not two settings of one, and they do not carry the
+    same weight. [Plain] only ever ADDS to the slice -- it drops the sorts,
+    drops [owise], flattens what a chain step carries -- so it over-approximates
+    and its [Yes] is the slice's. [Integer] is a MODEL: {!Itrs.of_system} begins
+    by DELETING the rules of the arithmetic layer and substituting hand-written
+    integer definitions, which is the direction that makes a proof easier rather
+    than harder, so its [Yes] is a statement about the model and does not
+    transfer to the slice on its own. The codec ([$bitstr_to_int] /
+    [$int_to_bitstr]) is a step weaker again: there the substitute is not the
+    same algorithm but a closed formula in place of a correction loop.
+
+    Neither surface's MAYBE says anything about the other either, so a column
+    measured on one must not be compared row-wise against a column measured on
+    the other. In a row, an [Integer] answer is told apart by the [itrs:] entry
+    in the paths column, not by the verdict, which is spelled the same. *)
 type surface = Plain | Integer
 
 (** The export a surface uses, and the temp-file extension it must be handed to
