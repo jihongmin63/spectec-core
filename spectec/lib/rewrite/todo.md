@@ -82,6 +82,68 @@ Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
+### 2026-09-01 — 【research note】 finite variant property는 이 파이프라인에 적용 대상이 아니다 — 그러나 그 전제가 이진 nat 인코딩의 **자유 생성자 가정**을 드러낸다
+
+> FVP(finite variant property)를 이 프로젝트에 쓸 수 있는지 검토했다. 결론은
+> **쓸 수 없고 쓸 이유도 없다**. 다만 검토 과정에서 FVP 후속 결과(variant
+> satisfiability)가 요구하는 *자유 생성자* 전제가, 우리 이진 nat 인코딩이
+> sort로 강제하지 못하고 손검증 불변식으로만 유지하는 지점과 정확히 겹친다는
+> 걸 확인했다. 후자가 이 항목의 실질이다.
+
+**FVP 자체는 무관하다 (기록만).** FVP는 등식 이론을 규칙부 E와 공리부 B로 나눴을 때
+임의 항의 variant(치환 후 E,B-정규형과 그 치환의 쌍)가 유한한 대표 집합으로 커버되는
+성질이고, 그 값어치는 E,B-단일화의 결정성과 narrowing 기반 기호적 도달성 분석이다
+(Comon-Lundh–Delaune RTA 2005; Escobar–Sasse–Meseguer, folding variant narrowing 2012).
+숫자 이론 중 FVP를 갖는 건 XOR(ACUN)·아벨 군처럼 **공리로 주어진** 것들이고,
+**생성자 재귀로 정의된 산술은 갖지 않는다.** 우리 세 스칼라 표현 전부 후자다:
+
+- **Structural 이진 nat** — `badd(bd0 p, bd0 q) = bd0(badd p q)` 꼴로 우변이 자기
+  자신을 품으므로 `badd(x,y)`의 생성자 narrowing이 피연산자 자릿수를 따라 무한히
+  뻗는다. 이진이라 Peano보다 O(log n)으로 싼 것이지, variant가 유한해지지는 않는다.
+  sign-magnitude int도 같은 자리 위에 있다.
+- **Native 스칼라** — Maude 내장 `Nat`/`Int`는 등식이 아니라 hook이라 variant/narrowing
+  기계의 바깥이고, 애초에 실행 표면 전용이라 분석에 등장하지 않는다.
+
+검증하려는 성질(합류성·종료성·충분완전성)이 variant 기법이 주는 것과 종류가 달라서,
+FVP는 도입 후보가 아니다. 확인이 필요하면 `get variants badd(X, Y) .`가 끝나지 않는 걸
+보면 된다.
+
+**진짜 접점 — 생성자가 서명 수준에서 자유가 아니다.** FVP의 후속인 variant
+satisfiability(Meseguer–Skeirik)는 *FVP + 자유 생성자*에서 초기 대수의 QF 충족가능성
+결정 절차를 얻는다. 우리는 FVP 쪽에서 이미 탈락이라 이 정리를 쓸 일이 없지만, **자유
+생성자 전제**는 우리가 이미 돌리는 SCC가 요구하는 것과 같은 종류이고, 거기서 이진
+인코딩의 알려진 약점이 드러난다:
+
+- [ctrs_term.ml](translate/ctrs_term.ml)의 주석대로, `Maude_sorts`가 심볼 이름당 서명
+  하나만 지원해서 Coq의 zero-free `positive` **sort**를 따로 둘 수 없다. 실측:
+  [maude_sorts.ml](maude/maude_sorts.ml)에 `bzero, bone : NatV`,
+  `bd0, bd1 : NatV -> NatV` — 즉 **`bd0(bzero)`는 well-sorted**인데 0의 비정규 철자다.
+- canonicity(`bd0`/`bd1`는 절대 `bzero`를 감싸지 않는다)는 타입이 아니라
+  [prelude.ml](translate/prelude.ml)의 **모든 규칙을 손으로 검증한 불변식**으로만
+  유지된다. 그리고 그 손검증의 전제는 명시적으로 **"canonical 피연산자가 주어지면"**이다.
+- `bzero`/`bone`/`bd0`/`bd1`은 Structural 이론에서 `[ctor]`로 선언된다
+  (`Maude_sorts.scalar_ctor_syms`), 즉 **SCC가 보는 생성자 항 집합에 비정규 항이 들어
+  있다**. 따라서 SCC의 YES는 "모든 기저 항이 *어떤* 생성자 항으로 내려간다"까지이지
+  "*canonical* 이진 nat으로 내려간다"가 아니다. 그 간극은 손검증 불변식이 메우고 있고,
+  검사기가 확인해 주는 게 아니다.
+
+**따라서 triage 규칙 하나:** 이진 nat 계열의 CRC MAYBE나 SCC witness가
+`bd0(bzero)`/`bd1(bzero)` 모양 항을 물고 있으면 **spurious**다 — 불변식이 배제하는
+입력인데 서명이 배제하지 못해서 검사기가 양화 범위에 넣은 것이다. 반대로 판정의
+안전 방향은 유지된다(입력을 넓게 잡는 쪽이라 YES는 그대로 유효).
+현재 기록된 witness에서 실제로 관찰된 적은 없다 —
+`sweeps/witness/*.md`·`sweeps/*.md`에 `bd0`/`bd1` 0건.
+
+**논의/확인 필요:**
+- [ ] **canonicity를 검사기가 보게 할지.** 두 갈래다. (a) `NatV`의 zero-free 부분
+  sort를 두려면 `Maude_sorts`의 "심볼당 서명 하나" 제약을 풀어야 하고, 그건
+  서명 복구 레이어 전체를 건드린다. (b) 불변식을 등식이 아니라 **분석 표면의 문서화된
+  가정**으로 명시하고 위 triage 규칙만 유지한다. 비용상 (b)가 기본값이고, (a)는 실제로
+  비정규 witness가 관찰될 때만 검토할 값어치가 있다.
+- [ ] **`[ctor]` 선언과 실제 canonical 상(像)의 불일치를 PAPER.md §6(threats)에 넣을지.**
+  §2의 R3(생성자 판별 규율)이 SC의 전제로 선언돼 있는데, 이진 nat은 그 규율을
+  sort가 아니라 손검증으로 만족시키는 유일한 계열이다. threats에 한 문장 값어치는 있다.
+
 ### 2026-08-31 — **"회귀 34개"는 회귀가 아니었다. 기준선의 34행이 애초에 증명이 아니었다** (`bae6e096`)
 
 `sweeps/term_24_plain_2026-08-22.tsv`가 24/24 TIMEOUT@1800으로 끝나서, 기준선
