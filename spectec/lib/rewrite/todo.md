@@ -144,6 +144,94 @@ satisfiability(Meseguer–Skeirik)는 *FVP + 자유 생성자*에서 초기 대�
   §2의 R3(생성자 판별 규율)이 SC의 전제로 선언돼 있는데, 이진 nat은 그 규율을
   sort가 아니라 손검증으로 만족시키는 유일한 계열이다. threats에 한 문장 값어치는 있다.
 
+### 2026-09-01 — **ITRS 자식 분할을 붙이려다 진짜 범인을 찾았다: 리터럴 제수의 `div`/`mod` 래퍼 — 인라인 한 패스로 잔여 8행 전부 YES** (`itrs.ml` `inline_literal_divisors`)
+
+자식 분할 설계에 앞서 "AProVE가 독립 입력으로 무엇을 받는지"를 실물로 확인하는
+것부터 시작했고(아래 ①), 그 확인이 진행되면서 잔여 8행의 전제 자체가
+무너졌다(②). 결국 붙인 것은 자식 분할이 아니라 인코더의 한 패스다(③).
+
+**① 확인된 사실 — 자식 분할을 되살릴 때 그대로 쓸 것.**
+
+- ITRS 런의 `(6) AND` 자식은 IDP 문제가 맞다. AProVE에는 **`.idp` 단독 입력
+  형식이 존재한다** (`aprove/Framework/Input/extension.properties`:
+  `idp = ...newIDP.Translator`; 문법은 `(VAR)(PREDEFINED)(RULES)(TERMS)(EDGES)
+  (INITIALNODES)(STRATEGY)(MINIMAL)` — pair graph 전체를 요구하는 무거운 형식).
+- 실용적 재질의는 **pairs-as-rules `.itrs`**다: obligation echo의
+  `(n): PAIR -> PAIR` 줄을 변수만 개명해(`name[pairidx]` — pair 번호가 붙는다)
+  규칙으로 다시 내면, `ITRStoIDPProof`가 `:|:` 제약을 `Cond_*` 항 인코딩으로
+  옮겨 놓았기 때문에 제약이 그대로 보존된다. 장난감 2-SCC로 파스·판정 검증(YES).
+- **usable 축소가 여기서는 최적화가 아니라 정합성 조건이다.** `.qdp`는 `(PAIRS)`
+  섹션이 P를 고정하지만 `.itrs`에는 P/R 구분이 없어서, 전체 R을 동반하면 R의
+  모든 정의 심볼이 DP를 다시 만들어 **전체 문제의 재제출**이 된다 — pow 자식:
+  전체 R 동반 KILLED@60, usable 축소 후 **YES 0초**. 자식은 innermost(echo의
+  Q가 전체 lhs를 덮는다)라 Cε 없이 [FROCOS05] 면허로 충분하다.
+- 재질의 단위는 deepest open leaf가 아니라 **AND 직계 자식**이다: `$bin_bxor`
+  트리에서 한 자식(`(7) IDP`)에 `IDPtoQDPProof`가 **두 갈래**(노드 10, 338)로
+  달려, leaf 단위로는 같은 자식을 두 번 묻게 된다.
+
+**② 전제 붕괴 — 막는 자식은 unreached가 아니라 hard였다.** 2026-08-31 항목은
+"두 사이클 다 개별로는 1초 미만인데 전체는 자식에 도달하지 못한다"고 읽었지만,
+**충실한 방출형으로 재질의한 막는 자식은 단독 300초를 줘도 KILLED다**
+(`d_bxor_nat` 자식 KILLED@300; `$name_annotationToken`의 `d_int_to_text_nat`
+자식도 KILLED@300 — 후자는 전체 런이 60+노드를 진행한, 도달됐던 자식이다).
+0.7초였던 "사이클 단독" 프로브는 연산을 **인라인으로** 쓴 컴팩트형이었고,
+결정 변수는 사이클도 u-체인도 아니라 표기였다. 한 변수 격리(@60, 직렬):
+
+| 프로브 (bxor_nat 사이클) | 판정 |
+|---|---|
+| 충실한 방출형 (u-체인 + `div`/`mod` 래퍼) | KILLED@300 |
+| 체인 접음 + **래퍼 유지** | KILLED@60 |
+| 체인 접음 + **인라인 `/` `%`** | **YES 1초** |
+| `d_int_to_text_nat` 자식, `z / 10` 인라인 | **YES 1초** |
+
+기제: dependency pair의 **인자**에 들어간 `div(l, 2)`는 정의 심볼이라 pair
+graph의 간선 조건이 산술이 아닌 도달성(`div(l,2) ->^* l'`)이 되고, `IDPNonInf`가
+불발하면 AProVE는 `IDPtoQDPProof [SOUND]` → transformation 체인으로 빠져 어떤
+예산이든 태운다. `integer_prelude`의 `div(x,y) -> x / y :|: y > 0` 주석이 근거로
+든 1초 프로브(`bits(l,r) -> … 2*bits(l/2, r/2)`)는 인라인 표기였다 — 얇은
+래퍼 규칙이 사실을 보이게 해 준다는 그 문단의 암묵적 주장이 pair-인자 위치에서
+반증된 것. pow 단일-진입에 대한 2026-08-31의 경고("산술 제약이 도달성 조건으로
+바뀐다")와 같은 기제다.
+
+**③ 수정 — `Itrs.inline_literal_divisors`.** 제수가 **양의 정수 리터럴**인
+`div`/`mod` 호출을 값 위치에서 네이티브 infix로 인라인한다(`div(l, 2)` →
+`l / 2`; 프린터 쪽은 `Unravel.print_rules`의 기존 `#` 리터럴 escape를 이항
+infix로 확장 — `#/`가 `a / b`로 인쇄, 중첩 infix 피연산자는 괄호). **정확
+변환이다**: 가드 `y > 0`이 리터럴로 방출 시점에 결정되므로 래퍼 규칙이 모든
+인스턴스에서 밟았을 한 스텝을 미리 밟는 것뿐이고, 0·음수 리터럴은 호출을
+남겨(0-나눗셈의 의도된 stuck 보존) 변수 제수는 래퍼 규칙이 그대로 맡는다.
+도달 불가가 된 `div` prelude 규칙은 `reachable_prelude`가 자동으로 떨군다.
+
+**검증** (전부 이 트리, 직렬, KST 12:40–12:50):
+
+- 실행면 sha256 `175bf048…` **불변**, impty 골든 byte-identical (분석 전용).
+- 회귀 6/6 — 기준선(08-31)과 일치: `$bin_ge` 0.7s, `$bin_shl` 1.3s,
+  `$int_of_integerValue` 0.7s, `$un_minus` 0.7s,
+  `$set_priorities_of_tableEntryListIR` 24.0s, `$write_value_from_bits` 27.5s.
+- **잔여 8행 전부 `whole:YES`** (`--itrs --budget 300`): `$bin_band` 1.6s ·
+  `$bin_bor` 1.4s · `$bin_bxor` 1.1s · `$bin_shr` 161.6s ·
+  `$bitacc_offset_op` 63.0s · `$bitacc_range_op` 59.7s ·
+  `$name_annotationToken` 0.9s · `$name_annotation_opt` 1.1s.
+
+원자료 주의: 프로브 산출물(`bxor300.out` 전체 echo, `child7*`/`child16*` 격리
+프로브, `*_inline.itrs`)은 세션 스크래치라 사라진다 — **본문 수치가 기록의
+전부다.** ITRS 열이 있는 `sweeps/itrs*.tsv`·`term_145*`는 이 변경으로 재측정
+대상(기존 규칙대로 파일을 옮기고 새로 돌 것).
+
+**처분: "ITRS 표면의 자식 분할" 표적은 은퇴한다.** 8행 모두 wrapper-hard 자식을
+최소 하나 갖고 있어 분할만으로는 판정이 안 바뀌고(분할이 구했을 unreached-easy
+자식도 실재한다 — bxor의 pow 자식은 단독 0초인데 전체 런에선 미도달 — 그러나
+그걸 닫아도 wrapper-hard 자식이 남는다), 인라인 후에는 8행이 whole로 닫혀 분할할
+대상이 없다. 되살릴 조건: 대형 심볼의 ITRS 런에서 자식 수 자체가 마감을 넘기는
+사례가 실측되면, 위 ①의 확인 사실에서 시작할 것.
+
+**교훈.** (a) "사이클 단독 0.7초"처럼 프로브로 잰 수치는 **프로브의 표기**에 대한
+진술이다 — 방출형과 표기가 다르면 같은 사이클이 아니며, 이번엔 그 차이가 전부였다.
+(b) 도구가 실제로 받는 것을 확인하는 5분이 이번에도 설계 전체를 뒤집었다(MTT
+교훈의 재현 — 이번엔 순방향으로). (c) 재질의 형식마다 prune의 의미가 다르다:
+`.qdp`는 P가 고정이라 coarse seed가 싸지만, `.itrs`는 실은 규칙이 곧 P라
+coarse가 SCC를 복제한다.
+
 ### 2026-08-31 — **"회귀 34개"는 회귀가 아니었다. 기준선의 34행이 애초에 증명이 아니었다** (`bae6e096`)
 
 `sweeps/term_24_plain_2026-08-22.tsv`가 24/24 TIMEOUT@1800으로 끝나서, 기준선
@@ -267,6 +355,13 @@ false`로 바꿔 놓은 것을 되돌립니다(`rebind_stuck_guards`). 분석 �
 표면의 자식 분할** 하나다.
 
 ### 2026-08-31 — **헬퍼 방침은 필요 없었다: 잔여를 막는 건 사이클이 아니라 ITRS 표면에 자식 분할이 없다는 것**
+
+> **표적 정정 (2026-09-01, 위 항목).** 이 항목이 남긴 표적 둘 중 ①(정렬 복구,
+> `bis_zero`→`leq`)은 유효했지만 ②(자식 분할)는 표적이 아니었다: 막는 자식은
+> 도달하지 못한 게 아니라 **재질의해 단독 예산을 줘도 안 닫히는** 문제였고, 아래
+> "사이클 단독 YES 0.7초" 표는 인라인 표기 프로브에 대한 진술이라 방출형에는
+> 성립하지 않는다. 실제 범인은 리터럴 제수의 `div`/`mod` 래퍼이고,
+> `inline_literal_divisors`로 잔여 8행 전부가 whole로 닫혔다 — 전말은 위 항목.
 
 §8이 "builtin은 알고 있다고 처리"를 미결로 남겨 둔 헬퍼 넷이 잔여 8행을 막고 있다고
 읽었는데, **표적을 잘못 짚고 있었다.** `$bin_bor`의 ITRS 표면을 한 변수씩 세 번

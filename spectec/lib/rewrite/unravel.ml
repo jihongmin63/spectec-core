@@ -249,7 +249,11 @@ let print_rules (rules : (R.term * R.term) list) :
     let var v = name "var " v (tpdb_var v) in
     let variables = ref [] in
     (* An integer literal folded in by {!Itrs} is already its own spelling: it
-       must reach the file as [-3], not as a scrubbed identifier. *)
+       must reach the file as [-3], not as a scrubbed identifier. Its BINARY
+       counterpart is a predefined infix operator -- [#/] spells [a / b]
+       ({!Itrs.inline_literal_divisors}) -- with an operand that is itself such
+       an infix parenthesized, so nesting never leaves its grouping to
+       precedence rules this printer has no reason to know. *)
     let rec print (t : R.term) : string =
       match t with
       | R.Var v ->
@@ -259,6 +263,16 @@ let print_rules (rules : (R.term * R.term) list) :
       | R.App (f, []) when String.length f > 1 && f.[0] = '#' ->
           String.sub f 1 (String.length f - 1)
       | R.App (f, []) -> sym f
+      | R.App (f, [ a; b ]) when String.length f > 1 && f.[0] = '#' ->
+          let operand t =
+            match t with
+            | R.App (g, [ _; _ ]) when String.length g > 1 && g.[0] = '#' ->
+                "(" ^ print t ^ ")"
+            | _ -> print t
+          in
+          operand a ^ " "
+          ^ String.sub f 1 (String.length f - 1)
+          ^ " " ^ operand b
       | R.App (f, args) ->
           sym f ^ "(" ^ String.concat ", " (List.map print args) ^ ")"
     in

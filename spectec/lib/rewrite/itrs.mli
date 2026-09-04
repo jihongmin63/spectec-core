@@ -16,7 +16,12 @@
     for is invisible to the constraint solver, which is fatal in a counting-up
     recursion: the measure is [n_len - n], so with [n < n_len] hidden the cycle
     has no decreasing argument at all. Exact rather than approximating -- the
-    rule fires on precisely the instances it fired on before.
+    rule fires on precisely the instances it fired on before. Division and
+    remainder by a positive literal are emitted as the native infix operators
+    for the same reason: called through the prelude's [div]/[mod] wrappers they
+    are defined symbols in a dependency pair's argument, which hides a halving
+    recursion's descent just as thoroughly -- and equally exactly, since the
+    literal decides the wrapper's guard at emission time.
 
     A YES here does NOT mean what a plain-TRS YES means. Dropping the sorts is
     an over-approximation, the safe direction the plain TRS also has, but it is

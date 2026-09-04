@@ -66,9 +66,11 @@ val unconditional_rules : Rewrite_system.t -> (unraveled, string) result
     pairs and the sorted variable names for the [(VAR ...)] header. Shared with
     {!Itrs} so one identifier scrub and one collision table serve both surfaces.
     A nullary symbol spelled [#<digits>] prints bare, which is how {!Itrs} gets
-    a folded integer literal into the file rather than a scrubbed identifier.
-    [Error] on an identifier collision between two distinct SYMBOLS (two
-    distinct variables are renumbered instead). *)
+    a folded integer literal into the file rather than a scrubbed identifier; a
+    BINARY [#]-headed symbol prints as the infix operator it names ([#/] spells
+    [a / b]), which is how {!Itrs} gets a literal-divisor division past the
+    prelude's [div] wrapper. [Error] on an identifier collision between two
+    distinct SYMBOLS (two distinct variables are renumbered instead). *)
 val print_rules :
   (Rewrite_system.term * Rewrite_system.term) list ->
   ((string * string) list * string list, string) result

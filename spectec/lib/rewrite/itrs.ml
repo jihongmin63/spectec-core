@@ -17,7 +17,7 @@
    4s. What it costs is the CALLER's proof, which has to carry the whole library
    in its usable rules.
 
-   Three things this must get right, each measured rather than assumed (the
+   Four things this must get right, each measured rather than assumed (the
    probe files the measurements were taken on were scratch and are gone; the
    numbers each bullet carries are what survived):
 
@@ -33,6 +33,11 @@
      two integer-constraint rules. The open question was whether AProVE accepts
      one symbol used both ways; it does, and it is faster than the wrapped
      encoding (15s vs 24s).
+   - Division by a literal is INLINED as the native operator, not called
+     through the prelude's [div] wrapper: in a dependency pair's argument the
+     wrapper is a defined symbol that hides the descent from the integer
+     solver, and that alone was the term column's last eight >=300s rows --
+     see {!inline_literal_divisors} for the one-variable measurements.
 
    WHAT A YES HERE MEANS -- and it is NOT what a plain-TRS YES means. Dropping
    the sorts is an over-approximation, the same safe direction the plain TRS
@@ -329,6 +334,53 @@ let rec fold_ints ?(pattern = false) (t : R.term) : R.term =
           match List.assoc_opt f blayer with
           | Some build when not pattern -> build args
           | _ -> R.App (f, args)))
+
+(* Division and remainder by a positive integer LITERAL, spelled as the native
+   infix operator instead of a call to the prelude's [div]/[mod] ([#/] and
+   [#%], printed infix by {!Unravel.print_rules}).
+
+   The wrapper rule [div(x, y) -> x / y :|: y > 0] is not enough, and measuring
+   that is what closed the term column's last eight rows. A recursion that
+   halves its argument puts [div(l, 2)] in a dependency pair's ARGUMENT, and
+   there the call is a defined symbol: the pair graph's edge condition becomes
+   the reachability [div(l, 2) ->^* l'] instead of arithmetic the solver can
+   read, [IDPNonInf] never fires, and AProVE falls back to an [IDPtoQDP]
+   conversion whose transformation chain eats any budget -- standalone with the
+   budget to itself just as inside the whole run, so this is not a scheduling
+   problem a child split could fix. One-variable on the [$bxor_nat] cycle
+   (chain collapsed either way, budget 60): through the wrapper KILLED, inlined
+   YES in 1s. On whole slices the wrapper was the entire residue: all eight
+   >=300s rows ([$bin_band]/[$bin_bor]/[$bin_bxor]/[$bin_shr],
+   [$bitacc_offset_op]/[$bitacc_range_op], [$name_annotationToken]/
+   [$name_annotation_opt]) close in 1-164s with only this inline applied
+   (2026-09-01).
+
+   Inlining is EXACT, not an approximation: the guard [y > 0] is decided at
+   emission time by the literal, so this merely performs, once, the rewrite
+   step the wrapper rule would have performed on every instance. A zero or
+   negative literal keeps the call -- and with it the deliberate stuckness of
+   division by zero -- and a variable divisor keeps the wrapper rule, which
+   stays in the prelude for exactly those. Value positions only: a pattern
+   cannot match on an infix operator, and no pattern can head with the defined
+   [div]/[mod] anyway ({!Rewrite_system.orient_conds}). *)
+let inline_literal_divisors (t : R.term) : R.term =
+  let positive (k : string) =
+    match int_of_string_opt (String.sub k 1 (String.length k - 1)) with
+    | Some n -> n > 0
+    | None -> false
+  in
+  let rec go t =
+    match t with
+    | R.Var _ -> t
+    | R.App (f, args) -> (
+        let args = List.map go args in
+        match (f, args) with
+        | ("div" | "mod"), [ _; R.App (k, []) ]
+          when String.length k > 1 && k.[0] = '#' && positive k ->
+            R.App ((if f = "div" then "#/" else "#%"), args)
+        | _ -> R.App (f, args))
+  in
+  go t
 
 (* Every scalar constructor must be gone after folding. One that survives is an
    OPEN magnitude -- a rule matching [int_pos(x)] or building [bd0(p)] on a
@@ -637,6 +689,15 @@ let integer_prelude =
        inside a black box" failure this whole surface exists to remove, just
        one layer down.
 
+       Measured later (2026-09-01), even THIS thin wrapper hides it where it
+       costs most: the probe above wrote [l/2] inline, and a call [div(l, 2)]
+       in a dependency pair's argument still makes the edge a reachability
+       through a defined symbol rather than arithmetic. Literal-divisor calls
+       are therefore inlined away before emission
+       ({!inline_literal_divisors}); this rule's remaining job is the variable
+       divisors ([mod_int(n, p)] under the codec), which no inline can
+       decide.
+
        Guarded on [y > 0] so division by zero stays irreducible, as it is in
        {!Prelude}. Both are the nat layer, whose arguments are magnitudes, so
        the sign wrappers below never hand them a negative and the
@@ -868,10 +929,12 @@ let of_system ~(roots : string list) (t : R.t) :
         {
           r with
           R.lhs = fold_ints ~pattern:true r.R.lhs;
-          R.rhs = fold_ints r.R.rhs;
+          R.rhs = inline_literal_divisors (fold_ints r.R.rhs);
           R.conds =
             List.map
-              (fun (s, p) -> (fold_ints s, fold_ints ~pattern:true p))
+              (fun (s, p) ->
+                ( inline_literal_divisors (fold_ints s),
+                  fold_ints ~pattern:true p ))
               r.R.conds;
         })
       lifted
