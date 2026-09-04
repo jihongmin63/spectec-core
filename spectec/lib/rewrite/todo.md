@@ -144,6 +144,39 @@ satisfiability(Meseguer–Skeirik)는 *FVP + 자유 생성자*에서 초기 대�
   §2의 R3(생성자 판별 규율)이 SC의 전제로 선언돼 있는데, 이진 nat은 그 규율을
   sort가 아니라 손검증으로 만족시키는 유일한 계열이다. threats에 한 문장 값어치는 있다.
 
+### 2026-09-02 — **145 전수 재측정: term 열 YES 143 / TIMEOUT 2 — 인라인이 잔여 8을 정확히, 그리고 그것만 뒤집었다** (`term_145_2026-09-01.tsv`)
+
+아래 2026-09-01 항목의 인코더 변경을 반영한 열 전체 재측정.
+`sweeps/run_term145_0901.sh` — **08-22 프로토콜 그대로**(같은 145 심볼, 같은
+플래그, 두 단계: 기본 ladder cap 300 → TIMEOUT 행만 b1800), 커밋된 08-22
+파일들은 보존하고 새 날짜 파일로. 두 열의 델타가 인코더 변경(`bis_zero`→`leq`
+`9cd816c9` + `inline_literal_divisors` 미커밋)만을 재도록 했다. 직렬; 트리
+스탬프는 status 로그에(HEAD `3e4fdb1f` + 미커밋 인라인). 09-01 15:48 시작,
+도중 세션 종료로 한 번 중단됐다가(126/145에서, resumable로 손실 없이 재개)
+09-02 17:45 KST 완료.
+
+**결과** (`term_145_2026-09-01.tsv`, b1800은 `_b1800.tsv`):
+
+| | 08-22 열 | 09-01 열 |
+|---|---|---|
+| YES | 135 (whole 111 · itrs 24 · children 0) | **143** (whole 111 · itrs **32** · children 0) |
+| TIMEOUT | 10 | **2** |
+
+전이는 정확히 셋뿐이다: **YES→YES 135** (답한 경로 플립 0, 2배·5초 초과
+느려진 행 0 — 인라인이 기존 증명을 하나도 건드리지 않았다), **TIMEOUT→YES 8**
+(= 잔여 8 그대로: `$bin_band/bor/bxor/shr` `$bitacc_offset/range_op`
+`$name_annotationToken/_opt`), **TIMEOUT→TIMEOUT 2** (`$strip_prefix_rec`
+`$strip_suffix_rec` — b1ca0af6이 되살린 재귀의 그 둘. b1800 재질의도 08-31과
+같은 그림: prefix `whole:MAYBE@649.9s`(08-31 MAYBE@675.5s의 재현) /
+suffix TIMEOUT, 양쪽 다 자식 `d_strip_*_rec` 미종결, itrs도 TIMEOUT).
+children 경로는 이번에도 145행에서 YES 0 — 08-22의 관찰 그대로다.
+
+itrs가 답한 32행의 YES는 여전히 **모델에 대한 진술**이다(경로 열에 `itrs:`로
+표시). 남는 후속 둘, 둘 다 열 갱신이 아니라 별도 결정: (i) itrs가 구한 32행에
+plain@1800을 물은 적 없다는 08-22의 측정 구멍은 24행 시절 `term_24_plain`이
+전부 TIMEOUT으로 닫았고, 새로 늘어난 8행에 같은 질문을 할지. (ii)
+`verification.md`의 650심볼 열은 여전히 145만 다시 잰 상태라는 것.
+
 ### 2026-09-01 — **ITRS 자식 분할을 붙이려다 진짜 범인을 찾았다: 리터럴 제수의 `div`/`mod` 래퍼 — 인라인 한 패스로 잔여 8행 전부 YES** (`itrs.ml` `inline_literal_divisors`)
 
 자식 분할 설계에 앞서 "AProVE가 독립 입력으로 무엇을 받는지"를 실물로 확인하는

@@ -1,0 +1,2 @@
+$strip_prefix_rec	MAYBE	eqs=53 rules=59 u=6 vars=11 owise=0	649.9	whole:MAYBE@649.9s children:MAYBE(0/1 closed, node 31 [d_strip_prefix_rec] TIMEOUT)@2445.5s itrs:TIMEOUT@1800.7s
+$strip_suffix_rec	TIMEOUT	eqs=91 rules=98 u=7 vars=13 owise=0	1801.9	whole:TIMEOUT@1801.9s children:TIMEOUT(0/1 closed, node 36 [d_strip_suffix_rec] TIMEOUT)@3602.5s itrs:TIMEOUT@1802.0s
