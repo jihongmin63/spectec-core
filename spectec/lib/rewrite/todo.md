@@ -144,6 +144,36 @@ satisfiability(Meseguer–Skeirik)는 *FVP + 자유 생성자*에서 초기 대�
   §2의 R3(생성자 판별 규율)이 SC의 전제로 선언돼 있는데, 이진 nat은 그 규율을
   sort가 아니라 손검증으로 만족시키는 유일한 계열이다. threats에 한 문장 값어치는 있다.
 
+### 2026-09-03 — **Program_ok 자식 분열 측정 (plain child-report): 열린 70 중 46 닫힘 / 24 미종결 — 미종결의 13개는 ITRS가 슬라이스 단위로 이미 닫는 바로 그 산술 사이클** (`program_ok_children_0902.tsv`)
+
+`termination --symbol Program_ok --child-report --budget 3600 --child-budget
+300` (plain 표면 — 이 계기는 `.qdp` 재질의 경로라 `inline_literal_divisors`와
+무관), tmux 세션에서 직렬, 10:35–13:49 KST (캡처 ~77분 + 자식 70런 ~2시간).
+드라이버 `sweeps/run_program_ok_children_0902.sh`; 비재개형(TSV truncate + 매번
+새 캡처)이므로 tmux가 세션 teardown 유실(09-01/09-02에 두 번 겪은 그것)의 대책.
+
+**3600초 전체 런이 열어 둔 자식 70개: 단독 300초에 46 YES / 24 TIMEOUT.**
+keep-캐리어 시절의 75/48(2026-08-19 이전)과 같은 그림이다. 닫힌 46의 비용은
+med 4.7s / p90 16.1s / max 204.8s이고 43개를 `QDPOrderProof`(reduction-pair
+탐색 — 공유 런이 감당 못 하는 그 프로세서)가 닫았다 — "unreached-easy"는 이
+규모에서 실재하고, 그걸 걷어내고 남는 잔여가 아래다.
+
+**미종결 24의 패밀리 분해**:
+
+| 패밀리 | 수 | 노드 (names) |
+|---|---|---|
+| **산술/b-layer 사이클 — ITRS가 슬라이스 단위로 닫는 바로 그것들** | 13 | `$int_to_text_nat` · `$bor_nat`/`$bor_nat_cross`/`$bxor_nat`/`$band_nat`/`$band_nat_cross` · `bpow_nat(+aux)` · `pow_int(+aux)` · `$int_to_bitstr` · `$bitstr_to_int` · `$fresh_typeIds` · `$shr(+aux)` · `$shr_arith(+aux)` |
+| 타이핑 관계 대형 상호재귀 SCC | 7 | `CallableTypeDef_wf`± · `Cast_expl`± · `Argument_eval_lctk`± · `ArgumentList_ok/CallableTarget_ok`± · `BlockElementStmtList_ok`± · `InstDecl_objectInitializer_ok`± · `ParserStmtList_ok`± |
+| 기타 | 4 | `$cast_binary`(17p/5459r — usable 자체가 무겁다) · `$repeat__value`(08-21의 그 자식: `.qdp`도 슬라이스도 TIMEOUT) · `$tableEntry_lpm_prefix'`(08-31 처분표의 미결 항목 — 여기 실재) · `$cast_enum` 캐스트 패밀리 |
+
+읽는 법 두 가지. (a) plain 표면의 Program_ok 잔여는 절반 이상이 modular-(B)
+arith-blindness다 — 13개 전부, 어제 145 열에서 `itrs:`가 답한 행들의 막던
+사이클과 같은 이름들이다(`bor_nat` 등은 잔여 8의 그 사이클). 단, **표면이
+달라 합성되지는 않는다**: itrs YES는 모델에 대한 진술이라 Program_ok의 plain
+AND에 그 자식의 닫힘으로 넣을 수 없다. (b) 산술을 걷어낸 나머지(7+4)가
+Program_ok 종료 증명의 진짜 미해결 — 대형 상호재귀 SCC와 무거운 캐스트
+패밀리다. rc=1은 미종결 자식이 남았다는 CLI의 정상 신호.
+
 ### 2026-09-02 — **145 전수 재측정: term 열 YES 143 / TIMEOUT 2 — 인라인이 잔여 8을 정확히, 그리고 그것만 뒤집었다** (`term_145_2026-09-01.tsv`)
 
 아래 2026-09-01 항목의 인코더 변경을 반영한 열 전체 재측정.
