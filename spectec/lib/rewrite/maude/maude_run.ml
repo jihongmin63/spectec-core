@@ -101,7 +101,7 @@ let resolve_bin = function
    that kind; also marks a missing Nth search solution. *)
 let down_err = "$downerr"
 
-(* The emitted spec module's name (matches {!To_maude.module_of_spec}'s default)
+(* The emitted spec module's name (matches {!To_maude.module_of_system}'s default)
    and the memoized constant the wrapper binds its reflection to, so [upModule]
    (heavy: it reflects the whole ~50k-line module) is evaluated once per Maude
    invocation and reused by every program in a batch. *)

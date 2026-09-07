@@ -63,7 +63,7 @@ val select_strategy : Rewrite_system.t -> strategy
 val string_of_strategy : strategy -> string
 
 (** The [--crc-normalize] transform: {!select_strategy}'s choice, then
-    {!order_conds}. Opt-in; never part of the shared {!Pipeline.ctrs_of_spec}
+    {!order_conds}. Opt-in; never part of the shared {!Pipeline.compile}
     surface, and never seen by execution/termination/ChC. [?strategy] overrides
     the selection (to measure one arm). *)
 val crc_normalize : ?strategy:strategy -> Rewrite_system.t -> Rewrite_system.t

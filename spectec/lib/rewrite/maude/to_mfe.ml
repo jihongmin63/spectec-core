@@ -5,8 +5,8 @@ module MS = Maude_sorts
 module T = Ctrs_term
 
 (** Emit a {!Rewrite_system.t} (the structural analysis system,
-    {!Rewrite.rewrite_spec}) as an {b order-sorted} Full-Maude system module for
-    the Maude Formal Environment (Church-Rosser + Coherence checkers).
+    {!Rewrite.compile}) as an {b order-sorted} Full-Maude system module for the
+    Maude Formal Environment (Church-Rosser + Coherence checkers).
 
     This is the analysis counterpart of {!To_maude}: it recovers each operator's
     IL sort via the shared {!Maude_sorts} (so the MFE reasons over the spec's
@@ -103,7 +103,7 @@ let prune_signature_view ~sg ~(used : (string * int) list) ~typed_rules
     List.filter keep sorts )
 
 (* Emit the order-sorted analysis module. [orig] is the elaborated IL spec (for
-   sort recovery); [sys] is the structural CTRS ({!Rewrite.rewrite_spec}).
+   sort recovery); [sys] is the structural CTRS ({!Rewrite.compile}).
    [full_maude] (default [true], {!Mfe.check}'s use) wraps the module in Full
    Maude's [(mod ... endm)] parens, needed for the MFE's CRC/ChC loop to accept
    it as a term. [false] emits it as a plain STOCK-Maude module ([mod ... endm
@@ -131,7 +131,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   let sig_rules = Option.value sig_rules ~default:sys.R.rules in
   let tbl, inj_subsorts = MS.recover ~rules:sig_rules Structural orig tenv in
   let edges = MS.inference_edges inj_subsorts in
-  let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
+  let var_hints = Var_hints.of_spec orig in
   let hint = MS.var_hint_fn tenv var_hints in
   MS.predicate_domains ~mode:predicates ~edges ~hint tbl sig_rules;
   let sg0 sym arity = MS.signature tbl sym arity in
@@ -341,7 +341,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      regardless of [strat]. For a disjunct/conjunct that is only STUCK
      (unreduced but finite, {!bb116cc9}'s original case) that costs nothing
      extra; for one that is a genuinely unfolding RECURSIVE call (a judgment
-     guard calling itself on a not-yet-decided projection, run-structural's
+     guard calling itself on a not-yet-decided projection, run --structural's
      new ground-execution use of this same module) [comm] forces exactly the
      unbounded evaluation [strat] was there to avoid, which surfaced as
      Maude's own "Fatal error: stack overflow" reducing P4's [Program_ok].
@@ -414,7 +414,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      [eqg] itself ever needing to decide "not equal"). Ground execution has no
      unifier: a real distinct pair like [eqg(int, bit32)] simply never matches
      [eqg(x, x)] and, with no other equation for the symbol, sits stuck
-     forever -- discovered via [run-structural], where this alone wedges every
+     forever -- discovered via [run --structural], where this alone wedges every
      owise/judgment guard built on top of it (e.g. [holds-Type-alpha]'s base
      case) into a non-terminating retry loop instead of resolving to [false].
      Adding this as a THIRD, unconditional equation would double-count: it

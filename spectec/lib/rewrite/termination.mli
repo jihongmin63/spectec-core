@@ -117,8 +117,8 @@ val decisive : Aprove.verdict -> bool
 val proof_surface : Rewrite_system.t -> Rewrite_system.t
 
 (** The TRS {!check} proves terminating: {!proof_surface}, then
-    {!Unravel.trs_of_system}. Exposed so [--emit-trs] shows the TRS AProVE is
-    given rather than one derived a second way. *)
+    {!Unravel.trs_of_system}. Exposed so [--emit] shows the TRS AProVE is given
+    rather than one derived a second way. *)
 val trs_of_slice : Rewrite_system.t -> (string * Unravel.stats, string) result
 
 (** Which export a proof runs on. [Plain] is {!trs_of_slice}'s TPDB TRS;

@@ -30,55 +30,36 @@ updated per-change; this file is trimmed periodically).
 
 ## Pipeline
 
-```
-Lang.Il.spec ──translated_spec──▶ Simplify (identity) ──▶ To_ctrs.of_spec ~scalars ──▶ Gensym.thread
-      (Defunctionalize ▸ Monomorphize)
-                                                              │
-                        Structural scalars ──▶ Rewrite_system.t ──▶ Reflect (hoist_matchers/owise)
-                        (self-contained Peano/                       + Crc_surface folds
-                         sign-magnitude/char-list/                        │
-                         own-bool)                                        ▼
-                                                                    To_mfe ──▶ MFE (CRC + ChC)
-                        Native scalars ──▶ Rewrite_system.t ──▶ To_maude ──▶ executable Maude module
-                        (Maude's built-in
-                         Bool/Nat/Int/String,
-                         wrapped: nat(3), int(-5), bool(true), txt("E."))
+`Rewrite.compile ~target:(Analysis | Execution) spec_il` is the single entry.
+It returns `{ spec; system }`: the specialized spec and its rewriting system.
+Always give emitters, start-term encoders, and decoders that returned `spec`,
+because specialization renames definitions.
+
+```text
+IL → Defunctionalize → Monomorphize → To_ctrs.of_spec (+Builtin)
+   → Gensym.thread → orient_conds
+   → Analysis only: hoist_matchers → expand_subty_guards → fold_premise_binders
+                    → order_conds → align_guards → owise → order_conds
+   → { spec; system }
 ```
 
-Two pipeline entries in [pipeline.ml](spectec/lib/rewrite/pipeline.ml):
-`ctrs_of_spec` (analysis: `~scalars:Structural`, then a chain of analysis-only
-passes split across `Reflect` (`hoist_matchers`/`expand_subty_guards`/
-`align_guards`/`owise`) and `Crc_surface` (`fold_premise_binders`/`order_conds`)
-that turn opaque guards into disjoint head patterns and owise/negation guards the
-MFE's CRC can discharge — see `Pipeline.ctrs_of_spec` for the exact stage order)
-and `maude_system_of_spec` (execution: `~scalars:Native`, a **direct**
-translation target, not a re-fold of the structural system; exposed as
-`Rewrite.maude_system` so a run driver builds it once and threads it into the
-run encoders instead of each rebuilding it). Both wrap the same core translation
-with `Pipeline.translated_spec` first (`Defunctionalize` then `Monomorphize` —
-the spec every Maude surface must also be given as its `orig`, since both passes
-rename definitions) and `Gensym.thread` last, closing with
-`Rewrite_system.orient_conds` so every condition `(s, t)` carries the evaluated
-side first and never heads its pattern with a defined symbol (`order_conds`
-schedules on that split and `Unravel` lifts `t` into a helper's lhs, where a
-call there severs the chain); each pass is the identity on a spec that doesn't
-use its feature (so `impty` goldens are untouched).
+`Analysis` uses structural scalars for the checkers; `Execution` directly
+uses native Maude scalar wrappers. Their theories and analysis-only stages
+are intentional. `Simplify` was an identity and has been removed, along with
+`To_ctrs.of_spec`'s redundant `orig` argument. `Prem_env` remains absent.
 
-**`Simplify.simplify_spec` is deliberately the identity** in this project — the
-original `rewrite` branch ran semantics-preserving IL→IL rewriting here (a
-`Prem_env` union-find driving variable substitution, pattern folding, redundant-
-premise removal); this project dropped that so `To_ctrs` is the sole
-translation surface, and `Prem_env` was not reimplemented. Don't be misled by
-stale doc comments elsewhere (`rewrite.mli`/`rewrite.ml`) that still describe
-the old Prem_env-based behavior — [translate/simplify.ml](spectec/lib/rewrite/translate/simplify.ml)
-is ground truth.
+CLI implementations live in `spectec/lib/cli/rewrite/` (`spectec.rewrite_cli`).
+`run --structural` selects direct execution of the analysis module; both run
+modes share one compilation, input resolution, batching, and result comparison.
+See [refactoring.md](spectec/lib/rewrite/refactoring.md) for API/CLI migration
+and verification details.
 
 ## Module map
 
 | File | Role |
 |------|------|
-| [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: re-exports submodules, `rewrite_spec = Pipeline.ctrs_of_spec`, `maude_system = Pipeline.maude_system_of_spec`, `def_symbols`. |
-| [pipeline.ml](spectec/lib/rewrite/pipeline.ml) / `.mli` | `ctrs_of_spec` (analysis) and `maude_system_of_spec` (execution); the shared `build`/`build_with` core. |
+| [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: shared `compile ~target` returning `{ spec; system }`, submodules, and `def_symbols`. |
+| [pipeline.ml](spectec/lib/rewrite/pipeline.ml) / `.mli` | Shared `compile ~target`, specialization, and analysis-only finishing passes. |
 | [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), the condition orientation invariant (`orient_conds`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are `crc_surface.ml`/`scc_surface.ml`), no Maude module emission (`maude/`). |
 | [crc_surface.ml](spectec/lib/rewrite/crc_surface.ml) / `.mli` | Analysis (CRC) normalization passes lifted out of the data model: `fold_premise_binders`, `order_conds`, `crc_unravel`, `crc_normalize`. |
 | [scc_surface.ml](spectec/lib/rewrite/scc_surface.ml) / `.mli` | SCC over-approximation passes: `drop_conds`, `linearize_lhs`. |
@@ -87,7 +68,6 @@ is ground truth.
 | [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`. Every SpecTecx relation is input-moded (`hint(input …)`), hence functional — relations translate like functions and emit as equations (`--relations-as-rules` is the only rl/crl path, a `--search` debugging override). The invariant is enforced at elaboration (`fetch_rel_input_dirs`: a hint-less relation defaults to all-input with a warning), so the translator needs no guard of its own. |
 | [translate/var_hints.ml](spectec/lib/rewrite/translate/var_hints.ml) / `.mli` | Per-symbol variable→IL-type map (from `VarE` notes), used only by `To_maude` to restore narrow declared types. |
 | [translate/spec_index.ml](spectec/lib/rewrite/translate/spec_index.ml) / `.mli` | One constructor/field/relation-signature index built per spec (physical-equality memo), so `Reflect`, `Of_maude`, `Maude_sorts` and `To_maude` derive their views from it instead of each re-walking the whole spec. |
-| [translate/simplify.ml](spectec/lib/rewrite/translate/simplify.ml) / `.mli` | **Identity** — see above. |
 | [translate/exp_map.ml](spectec/lib/rewrite/translate/exp_map.ml) / `.mli` | Shallow one-level IL traversal helpers (`map_subexps`/`subexps`/`exps_of_prem`), used by `Defunctionalize`. |
 | [translate/builtin.ml](spectec/lib/rewrite/translate/builtin.ml) / `.mli` | CTRS rules for P4's collection builtins (`BuiltinDecD`s the interpreter implements natively); fed to `of_spec` as `extra_defs`. |
 | [translate/gensym.ml](spectec/lib/rewrite/translate/gensym.ml) / `.mli` | Makes `$fresh_typeId`/`$fresh_tid` pure via state threading (`thread`, `effectful_syms`, `root_syms`, `seed_text`). Runs last in the pipeline; identity on gensym-free specs. |
@@ -171,7 +151,7 @@ become CTRS conditions; the result/output becomes the rhs.
 ## CLI entry points ([bin/main.ml](spectec/bin/main.ml))
 
 - **`rewrite [--ctrs] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--list-symbols] [--sizes] [--relations-as-rules] FILES…`**
-  — default emits the executable Maude module (`To_maude.module_of_spec`).
+  — default emits the executable Maude module (`To_maude.module_of_system`).
   `--ctrs` dumps the analysis CTRS instead (`To_mfe.module_of_system`, what
   `confluence` sends the MFE); `--symbol` slices to one dependency closure and
   `--slice-dir` dumps every slice in one translation. `--unconditional` (SCC)
@@ -180,7 +160,7 @@ become CTRS conditions; the result/output becomes the rhs.
   untouched, so verdicts are preserved). `--list-symbols` lists the sliceable
   symbols (the names the `--symbol`/`--all` checkers take) and `--sizes` ranks
   them by slice rule count — the cheap tractability proxy. (To inspect the
-  elaborated IL itself, use the `elab` command — `Simplify` is the identity, so
+  elaborated IL itself, use the `elab` command — there is no IL simplification pass, so
   there is no separate "simplified" dump.)
 - **`confluence [--symbol NAME]… | --all [--crc-normalize] [--timeout S] [--maude-bin P] [--mfe-dir D] [--out TSV] FILES…`**
   — per-slice MFE CRC+ChC (`Mfe.check`), one TSV row per symbol
@@ -191,7 +171,7 @@ become CTRS conditions; the result/output becomes the rhs.
   makes the sweep resumable. `--crc-normalize` retries an inconclusive verdict
   on the normalized (and pruned) system, upgrade-only (`YES (normalized)`; see
   the CRC normalization section).
-- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--itrs] [--itrs-lengths] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
+- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit] [--itrs] [--itrs-lengths] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
   — proves per-slice termination by unravel + a direct AProVE run
   (`Termination.check`; **no MTT** — see below). Up to **four paths**, in
   order, stopping at the first YES: the whole slice as one TRS, then that run's
@@ -208,7 +188,7 @@ become CTRS conditions; the result/output becomes the rhs.
   (`whole:TIMEOUT@300.0s children:YES(all children closed)@41.2s`) — that is
   where a failed split's own numbers survive a row the plain run's verdict
   won. `--all` sweeps `def_symbols` smallest slice first; `--out` makes the
-  sweep resumable (recorded symbols are skipped). `--emit-trs` prints the TPDB
+  sweep resumable (recorded symbols are skipped). `--emit` prints the TPDB
   TRS instead of running AProVE.
 - **`scc [--symbol NAME]… | --all [--timeout S] [--ceta-maude-bin P] [--mfe271-dir D] [--emit] [--out TSV] FILES…`**
   — per-slice sufficient completeness via CETA Maude 2.7 + the old MFE 2.7.1
@@ -217,7 +197,7 @@ become CTRS conditions; the result/output becomes the rhs.
   the exact/approx fidelity and the witness-domain triage. `--all` sweeps every
   defined head (the derived `subty_`/`match_`/`holds_` predicates included);
   `--emit` prints the pruned functional module the checker sees.
-- **`run [--start TERM | --imp FILE… | --p4 FILE… -i DIR] [--emit] [--search|--rewrite] [--relations-as-rules] [--bound N] [--check-p4] [--maude-bin P] [--timeout S] FILES…`**
+- **`run [--structural] [--start TERM | --imp FILE… | --p4 FILE… -i DIR] [--emit] [--search|--rewrite] [--relations-as-rules] [--bound N] [--check-p4] [--maude-bin P] [--timeout S] FILES…`**
   — emits the execution module and runs a start term through a local Maude via
   reflection (`Maude_run`). `--imp`/`--p4` build the start term from a source
   program (repeatable — batches through one Maude invocation, amortizing
@@ -317,7 +297,7 @@ its variables are bound by matching and the descent is syntactically visible.
 
 This is what `main.exe termination` does (`unravel.ml` builds the plain TRS
 from the CTRS values directly; `aprove.ml` hands it to
-`tools/aprove/runme <file.trs> <budget>`, WST mode; `--emit-trs` shows the
+`tools/aprove/runme <file.trs> <budget>`, WST mode; `--emit` shows the
 TRS).
 
 **What `<carried>` is decides which processor closes the cycle** — and at scale
@@ -671,7 +651,7 @@ execution module from ~78k lines to **~29k**, and `run --emit` from ~10s to ~1s;
 internalization and per-program cost scale with module size and have not been
 re-measured (this environment has no `spectec/tools/maude`).
 
-The fixed ~80s is why **`run`/`run-structural` default to `--timeout 0` (no
+The fixed ~80s is why **`run`/`run --structural` default to `--timeout 0` (no
 limit)**: any fixed default below it turns a perfectly good run into a `TIMEOUT`
 before the first program even starts (this silently broke `check_diff_p4.sh`'s
 per-file fallback path). Bound the run from the caller instead — as the harness

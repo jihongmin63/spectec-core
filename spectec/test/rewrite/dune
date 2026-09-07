@@ -1,3 +1,10 @@
 (test
  (name test_rewrite)
+ (modules test_rewrite)
  (libraries spectec.rewrite))
+
+(test
+ (name test_pipeline)
+ (modules test_pipeline)
+ (libraries spectec spectec.rewrite)
+ (deps ../../specs/impty/base/spec.spectec))

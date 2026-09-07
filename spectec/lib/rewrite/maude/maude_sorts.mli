@@ -2,8 +2,8 @@
     executable one ({!To_maude}, native scalar theory) and the analysis one
     ({!To_mfe}, structural scalar theory). A CTRS term carries no sorts
     ({!Rewrite_system}), so each operator's Maude signature is recovered here
-    from the original (un-simplified) IL spec's [TypD]/[RelD]/[DecD], using the
-    same naming functions {!To_ctrs} used in the rules.
+    from the specialized IL spec's [TypD]/[RelD]/[DecD], using the same naming
+    functions {!To_ctrs} used in the rules.
 
     Everything sits under a single universal supersort [Val]; the internal sort
     inference, the predicate-domain fixpoint and the constructor bookkeeping

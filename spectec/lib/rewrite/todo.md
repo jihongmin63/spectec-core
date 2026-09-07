@@ -26,59 +26,20 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
 > `sweeps/itrs-probe/closed-form-decode.patch`와 커밋된 `sweeps/*.md`뿐이다. 재측정은
 > 파일을 되찾는 게 아니라 스윕을 다시 도는 것이다.
 
-## 현재 상태
+## 현재 구조
 
-- ✅ 빌드됨·온전: `Rewrite_system`(`{vars;rules}` + `string_of_term`·질의·`slice` +
-  `string_of_system_maude`/`ops_of_system`), `To_ctrs` 심볼/빌더 레이어 + thin 질의
-  (`def_symbols`·`input_moded_rel_syms`·`rule_head_syms` — 뒤 둘은 2026-07-14
-  삭제: 모든 SpecTecx 관계가 입력-모드라 각각 "전 관계"/∅ 상수였다),
-  `pipeline`/`rewrite`, `Mfe`(CRC+ChC 브리지), **CLI 배선**(`bin/main.ml`
-  `rewrite`/`verify`/`run` + `bin/dune`에 `spectec.rewrite`).
-- ✅ 복구됨(지원 패스, `rewrite` 브랜치에서): `exp_map`(IL 얕은 traversal),
-  `defunctionalize`(def-인자 specialization), `gensym`(`$fresh` 상태 스레딩),
-  `builtin`(P4 컬렉션 builtin 규칙). `pipeline`이 두 경로(Structural/Native)에서
-  공통 `build`로 wrap: Defunctionalize FIRST → `of_spec ~extra_defs:Builtin` →
-  Gensym LAST. impty엔 전부 identity(골든 무영향). 단, `gensym`은
-  `Prem_env.gensym_ids` 대신 자체 `gensym_ids`를 가짐(Prem_env 미복구).
-- ✅ **`Simplify` = identity (이 프로젝트의 설계 결정).** `simplify_spec`은 스펙을
-  그대로 반환합니다. `To_ctrs`가 유일한 번역 표면이라, 옛 IL→IL 단순화 로직(과 그것만
-  먹이던 `Prem_env`)은 **재도입하지 않습니다.** 따라서 `Prem_env` 재구현 불필요.
-- ✅ **Maude 백엔드 복구·컴파일됨**(`rewrite` 브랜치에서): `to_maude`(스텁→복구),
-  `maude_run`·`of_maude`(삭제됐던 것 복구), `maude_theory`. `maude_theory`는 새
-  설계에 맞게 **죽은 `native_system` fold 패스를 제거**하고, 공유 저수준 역할만
-  남김 — wrapper 철자(`nat`/`int`/`bool`/`txt`) + 리터럴 빌더(`nat_t`/…)·
-  `is_literal_sym`·`string_literal`·`chars_value`. (Native 항은 옛 fold가 아니라
-  `of_spec ~scalars:Native`가 직접 생성.)
-- ✅ **`To_ctrs.of_spec`·`var_type_hints` 포팅 완료.** 분석/실행 모두 동작하며
-  impty/base 골든이 byte-identical로 고정됨. (스텁 아님.)
-- ⛔ 삭제 유지: `prem_env`(불필요), `cocoweb`·`muterm`·`aprove`·`termination`
-  (COPS/TPDB 표면 제거 — 분석 confluence는 MFE 한 경로; termination은 MTT/AProVE를
-  Maude 2.7.1 스택으로 외부 구동, 아래 참조).
+- 번역 진입점: `Rewrite.compile ~target:(Analysis | Execution)` → `{ spec; system }`.
+  `Defunctionalize → Monomorphize → To_ctrs (+Builtin) → Gensym → orient_conds`를
+  공유하고, 분석 목표에만 `Reflect`/`Crc_surface`를 적용한다.
+- 항등 모듈 `Simplify`와 `To_ctrs.of_spec`의 중복 명세 인자를 제거했다.
+  `Prem_env` 단순화는 도입하지 않는다.
+- CLI: `lib/cli/rewrite/`에서 `rewrite`, `run`, `confluence`, `termination`, `scc`를
+  구현한다. `bin/main.ml`은 이 명령들을 등록한다.
+- 실행 경로는 `run`으로 통합했다. 구조적 오라클은 `run --structural`이고,
+  내보내기 플래그는 `termination --emit`이다. 과거 명령 이름은 별칭으로 남기지 않는다.
+- 백엔드와 판정 로직은 유지한다. 날짜별 과거 측정은 아래 기록의 시점에 한정된다.
 
-## 파이프라인
-
-```
-Lang.Il.spec → Simplify → To_ctrs.of_spec ~scalars:(Structural|Native)
-  ├ Structural → string_of_system_maude → Mfe (CRC + ChC)   ← 분석
-  └ Native     → To_maude → maude 실행                        ← 실행
-```
-
-## 가로지르는 작업
-
-- [x] **CLI 최소 배선** (done) — `bin/main.ml`에 `spectec.rewrite`를 link하고
-  `Rewrite.` 파사드로 세 서브커맨드 연결:
-  - `rewrite` — 기본은 **실행 모듈**(`To_maude.module_of_spec`); `--ctrs`=분석 CTRS
-    덤프(`string_of_system_maude ~rule_heads`, verify가 MFE에 넘기는 텍스트),
-    `--relations-as-rules`.
-  - `verify` — MFE `Mfe.check`(CRC+ChC), `--symbol` 슬라이스·`--list-symbols`·
-    `--timeout`/`--maude-bin`/`--mfe-dir`; 둘 다 YES 아니면 exit 1.
-  - `run` — 현재 **모듈 emit만**(실행/`--imp`/`--p4`/`--check-p4`는 M2: `Maude_run`·
-    `Of_maude`·targets `maude_start_term` 복귀 시).
-  `Mfe.check`/maude 표면이 받는 `rule_heads`(= 비입력-moded relation)는
-  `To_ctrs.rule_head_syms`로 계산(`input_moded_rel_syms`의 여집합 — 이 `rule_heads`
-  배선은 항상 ∅이어서 2026-07-14 통째로 삭제됨, 분석 표면은 순수 등식). 세 커맨드 모두
-  컴파일·dispatch 확인 — 호출 시 각 백엔드 스텁(M1 `of_spec`/`Simplify`, M2
-  `To_maude`)의 `failwith`에 도달하며, 스텁을 채우면 즉시 동작.
+이번 리팩토링의 변경 범위와 검증: [refactoring.md](refactoring.md).
 
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 

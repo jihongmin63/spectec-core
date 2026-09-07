@@ -8,7 +8,7 @@ open Ctrs_term
     (e.g. [Eval_expr]'s subject is [expr], but the "id" rule's [x] is really an
     [id]), and recovering the narrower declared type is what keeps such a rule
     from overlapping its siblings. The type is still on each [VarE] note in the
-    simplified spec, so collect it per defined symbol. *)
+    specialized spec, so collect it per defined symbol. *)
 
 (* Every [(variable name, IL type)] occurring in [e], descending through casts
    and all sub-expressions. A bare iterated variable [x*]/[x?] ([IterE] over a

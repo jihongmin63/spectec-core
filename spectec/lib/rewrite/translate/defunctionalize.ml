@@ -3,7 +3,7 @@
    A template (a definition with a [DefP] parameter) is specialized per call
    into a first-order copy with the def-parameter substituted away, and the call
    rewritten to that copy; chained and recursive def-parameter passing runs to
-   closure. Runs before {!Simplify}, memoized one slot by physical equality, and
+   closure. Runs before {!Monomorphize}, memoized one slot by physical equality, and
    the identity on a spec with no [def]-parameters. *)
 
 open Lang.Il

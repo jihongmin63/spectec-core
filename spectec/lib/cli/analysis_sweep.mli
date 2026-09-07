@@ -8,7 +8,7 @@
 val require_roots : cmd:string -> all:bool -> symbols:string list -> unit
 
 (** Exit 2 with a usage line unless the single-symbol emit flag ([flag], e.g.
-    ["--emit-trs"]) came with exactly one [--symbol] and no [--all]. *)
+    ["--emit"]) came with exactly one [--symbol] and no [--all]. *)
 val require_single_symbol :
   flag:string -> all:bool -> symbols:string list -> unit
 
@@ -34,6 +34,10 @@ val recorded_symbols : string -> string list
     the symbol whose run produced them -- itself, unless the row carries the
     trailing [=<symbol>] column that marks a copy. *)
 val parse_row : string -> string * string * string
+
+(** Stream rows to stdout and append/flush each row to [out] when provided. The
+    channel is closed even if the sweep raises. *)
+val with_output : out:string option -> ((string -> unit) -> 'a) -> 'a
 
 (** Run [row_of] over every requested slice root, printing each TSV row as it
     lands and appending it to [out] when given (skipping symbols the file

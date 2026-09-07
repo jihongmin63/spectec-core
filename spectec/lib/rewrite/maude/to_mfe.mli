@@ -1,5 +1,5 @@
 (** Emit a {!Rewrite_system.t} (the structural analysis system,
-    {!Rewrite.rewrite_spec}) as an {b order-sorted} Full-Maude module for the
+    {!Rewrite.compile}) as an {b order-sorted} Full-Maude module for the
     analysis tools: the MFE's Church-Rosser/Coherence checkers ({!Mfe}), the old
     MFE's Sufficient Completeness Checker ({!Scc}), and the direct structural
     execution leg ({!Maude_run.run_batch_direct}). *)

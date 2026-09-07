@@ -1,0 +1,13 @@
+(library
+ (name rewrite_cli)
+ (public_name spectec.rewrite_cli)
+ (libraries
+  spectec
+  spectec.rewrite
+  spectec.cli
+  spectec.targets.impty
+  spectec.targets.p4
+  core
+  core_unix)
+ (preprocess
+  (pps ppx_let)))

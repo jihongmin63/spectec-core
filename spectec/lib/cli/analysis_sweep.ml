@@ -65,6 +65,25 @@ let parse_row (line : string) : string * string * string =
             String.sub last 1 (String.length last - 1) )
       | _ -> (sym, String.concat "\t" fields, sym))
 
+let with_output ~out f =
+  let oc =
+    Option.map
+      (fun path -> open_out_gen [ Open_append; Open_creat ] 0o644 path)
+      out
+  in
+  Fun.protect
+    ~finally:(fun () -> Option.iter close_out oc)
+    (fun () ->
+      let put line =
+        print_endline line;
+        Option.iter
+          (fun oc ->
+            output_string oc (line ^ "\n");
+            flush oc)
+          oc
+      in
+      f put)
+
 let rows ~out ~roots ~key ~row_of : bool =
   let recorded = match out with Some p -> recorded_rows p | None -> [] in
   let recorded_syms =
@@ -93,32 +112,20 @@ let rows ~out ~roots ~key ~row_of : bool =
         if not (Hashtbl.mem measured k) then
           Hashtbl.replace measured k (tail, source, false))
     recorded;
-  let oc =
-    Option.map (fun p -> open_out_gen [ Open_append; Open_creat ] 0o644 p) out
-  in
-  Fun.protect
-    ~finally:(fun () -> Option.iter close_out oc)
-    (fun () ->
-      let put line =
-        print_endline line;
-        Option.iter
-          (fun oc ->
-            output_string oc (line ^ "\n");
-            flush oc)
-          oc
-      in
+  with_output ~out (fun put ->
       List.fold_left
         (fun failed sym ->
           if List.mem sym recorded_syms then failed
           else
-            match Hashtbl.find_opt measured (key sym) with
+            let k = key sym in
+            match Hashtbl.find_opt measured k with
             | Some (tail, source, source_failed) ->
                 put (Printf.sprintf "%s\t%s\t%c%s" sym tail copy_marker source);
                 failed || source_failed
             | None ->
                 let line, row_failed = row_of sym in
                 let _, tail, _ = parse_row line in
-                Hashtbl.replace measured (key sym) (tail, sym, row_failed);
+                Hashtbl.replace measured k (tail, sym, row_failed);
                 put line;
                 failed || row_failed)
         false roots)

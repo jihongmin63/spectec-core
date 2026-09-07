@@ -11,16 +11,14 @@ type scalar_theory = Ctrs_term.scalar_theory = Structural | Native
 
 (** Translate an elaborated IL spec into a CTRS ({!Rewrite_system.t}).
 
-    [orig] is the spec before {!Simplify.simplify_spec}; it supplies the type
-    definitions and relation signatures used to derive constructor/matcher/
-    subtype rules and to split relation arguments. [simplified] is the spec
-    whose function clauses and relation rules become the body rewrite rules.
-    [extra_defs] are additional definition rules added to the prunable pool.
-    [scalars] selects the scalar theory (default [Structural]). *)
+    The same spec supplies type definitions, relation signatures, function
+    clauses, and relation rules. Use {!Pipeline.compile} to specialize an
+    elaborated spec with higher-order or polymorphic calls first. [extra_defs]
+    are additional definition rules added to the prunable pool. [scalars]
+    selects the scalar theory (default [Structural]). *)
 val of_spec :
   ?scalars:scalar_theory ->
   ?extra_defs:Rewrite_system.rule list ->
-  orig:Lang.Il.spec ->
   Lang.Il.spec ->
   Rewrite_system.t
 
@@ -38,8 +36,8 @@ type origin = { name : string; at : Common.Source.region }
     ([subty_]/[match_]/[variant_]/[field_]) name a type rather than a
     declaration, so a symbol read back out of a checker's output cannot
     otherwise be turned into the name the spec uses -- let alone into its source
-    line. Give it the TRANSLATED spec ({!Pipeline.translated_spec}), the one the
-    slice was built from.
+    line. Give it the TRANSLATED spec ({!Pipeline.compile}), the one the slice
+    was built from.
 
     Diagnostics only, and partial by construction: a symbol a later pass
     invented (an iteration helper, a monomorphized instance) has no declaration

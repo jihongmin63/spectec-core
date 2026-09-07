@@ -8,8 +8,8 @@ module T = Ctrs_term
     executable one ({!To_maude}, native scalar theory) and the analysis one
     ({!To_mfe}, structural scalar theory). A CTRS term carries no sorts
     ({!Rewrite_system}), so each operator's Maude signature is recovered here
-    from the original (un-simplified) IL spec's [TypD]/[RelD]/[DecD], using the
-    {e same} naming functions {!To_ctrs} used in the rules.
+    from the specialized IL spec's [TypD]/[RelD]/[DecD], using the {e same}
+    naming functions {!To_ctrs} used in the rules.
 
     Everything sits under a single universal supersort [Val] (every sort is
     [< Val]); this is the pragmatic resolution of the parametric polymorphism
@@ -515,7 +515,7 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
    the narrow declared domain those applications sit at the ERROR kind, where
    no equation -- not even an [and]/[or] short-circuit -- can ever match, so
    the guard is permanently and silently stuck (commit 1874d212, found as a
-   run-structural failure). Widening every predicate to [Val] was the blunt
+   run --structural failure). Widening every predicate to [Val] was the blunt
    fix; {!predicate_domains} instead takes the JOIN of the subjects the rules
    actually pass, which is by construction wide enough to be well-sorted and
    as narrow as the spec allows. *)

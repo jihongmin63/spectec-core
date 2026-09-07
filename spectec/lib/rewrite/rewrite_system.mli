@@ -1,6 +1,6 @@
 (** Conditional term-rewriting system (CTRS) representation produced from an
-    elaborated + simplified IL spec: the data model, term/rule queries, symbol
-    slicing, the diagnostic printer, and the shared Maude lexical layer.
+    specialized IL spec: the data model, term/rule queries, symbol slicing, the
+    diagnostic printer, and the shared Maude lexical layer.
 
     The IL -> CTRS translation is in {!To_ctrs}; the checker-facing pass
     families are {!Crc_surface} (analysis normalization) and {!Scc_surface}

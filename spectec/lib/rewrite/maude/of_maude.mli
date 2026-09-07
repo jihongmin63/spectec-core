@@ -21,8 +21,8 @@ val canonicalize : Lang.Il.value list -> Lang.Il.value list
     interpreter's relation output, so the two are directly
     {!Lang.Il.Eq.eq_values}-comparable. Raises {!Parse_error} when [term] does
     not denote a clean value of [rel]'s output type (e.g. a stuck term).
-    [system] (the translated system the run used, {!Rewrite.maude_system})
-    supplies which relations thread the gensym state. *)
+    [system] (the translated system the run used, {!Rewrite.compile}) supplies
+    which relations thread the gensym state. *)
 val values_of_result :
   Lang.Il.spec ->
   rel:string ->

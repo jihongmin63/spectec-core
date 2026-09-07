@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # check_diff_structural_p4.sh — differential review of the STRUCTURAL oracle
-# (`run-structural`, the CTRS/Maude analysis surface run as real ground-term
+# (`run --structural`, the CTRS/Maude analysis surface run as real ground-term
 # reduction) against the reference interpreter, over the whole P4 corpus.
 #
 # This is check_diff_p4.sh's sibling for the THIRD oracle leg (todo.md's
@@ -67,6 +67,7 @@
 # finish in bounded space, so if small-width programs start showing spurious
 # TIMEOUT, raise it.
 set -u
+export TZ=Asia/Seoul
 cd "$(dirname "$0")"
 
 EXE=spectec/_build/default/bin/main.exe
@@ -85,7 +86,7 @@ ITIMEOUT=${ITIMEOUT:-60}
 CHUNK=${CHUNK:-50}
 BATCH_TIMEOUT=${BATCH_TIMEOUT:-600}
 MEMLIMIT_KB=${MEMLIMIT_KB:-4000000}   # ~4GB virtual memory per Maude invocation
-# Per-program Maude reduction cap (the run-structural --timeout, applied to each
+# Per-program Maude reduction cap (the run --structural --timeout, applied to each
 # start term INSIDE a batch, not to the whole invocation). Default 0 = unbounded
 # so every reduction runs to a real normal form -- required for a trustworthy
 # result-value comparison (a clipped reduction would report a spurious
@@ -129,7 +130,7 @@ done < "$CORPUS"
 tA1=$(date +%s); dur_A=$((tA1-tA0))
 echo "[A] done: $(grep -c $'^PASS\t' "$IPROG") PASS / $(grep -c $'^FAIL\t' "$IPROG") FAIL [$(fmt_dur $dur_A)]" >&2
 
-# --- Phase B: Structural (run-structural) verdicts, batched + resumable ---
+# --- Phase B: Structural (run --structural) verdicts, batched + resumable ---
 # OK = reduced to a typing result (`result:`); STUCK = `FAIL (stuck)`; OOM =
 # Maude killed by a signal (the OS/cgroup memory limit -- the Peano-width
 # wall, see header); ERROR = front-end/parse failure or any other Maude
@@ -144,14 +145,14 @@ classify_text() {
 }
 classify_one() {  # one program via its own run (the per-file fallback)
   local f="$1" raw rc
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$ITIMEOUT" "$EXE" run-structural --p4 "$f" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$ITIMEOUT" "$EXE" run --structural --p4 "$f" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
   if [ "$rc" -eq 124 ]; then printf 'TIMEOUT\t%s\n' "$f"
   else printf '%s\t%s\n' "$(classify_text "$raw")" "$f"; fi
 }
 classify_chunk() {  # a whole chunk in ONE invocation; split per `=== file ===`
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run --structural "${args[@]}" -i "$INC" --timeout "$REDUCE_TIMEOUT" $SPEC 2>&1); rc=$?
   if [ "$rc" -ne 0 ]; then
     # covers both the shell-level timeout (124) AND the whole batched Maude
     # process dying (OOM or otherwise) -- either way, none of this chunk's
@@ -181,7 +182,7 @@ touch "$MPROG"
 mapfile -t todo < <(while IFS= read -r f; do
   awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$MPROG" || echo "$f"
 done < "$CORPUS")
-echo "[B] Structural (run-structural) verdicts, batched (CHUNK=$CHUNK, MEMLIMIT_KB=$MEMLIMIT_KB): $(( total - ${#todo[@]} )) done, ${#todo[@]} to run ..." >&2
+echo "[B] Structural (run --structural) verdicts, batched (CHUNK=$CHUNK, MEMLIMIT_KB=$MEMLIMIT_KB): $(( total - ${#todo[@]} )) done, ${#todo[@]} to run ..." >&2
 tB0=$(date +%s)
 i=0
 while [ "$i" -lt "${#todo[@]}" ]; do
@@ -216,7 +217,7 @@ awk -F'\t' '$2=="FAIL" && $4=="OK" { print $1 }'        "$JOINED" | sort > "$SOU
 resultmatch_chunk() {
   local files=("$@") args=() f raw rc
   for f in "${files[@]}"; do args+=(--p4 "$f"); done
-  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run-structural "${args[@]}" -i "$INC" --check-p4 --timeout "$REDUCE_TIMEOUT" $SPEC 2>/dev/null); rc=$?
+  raw=$(ulimit -v "$MEMLIMIT_KB"; ulimit -s unlimited; timeout "$BATCH_TIMEOUT" "$EXE" run --structural "${args[@]}" -i "$INC" --check-p4 --timeout "$REDUCE_TIMEOUT" $SPEC 2>/dev/null); rc=$?
   if [ "$rc" -ne 0 ]; then
     for f in "${files[@]}"; do printf 'TIMEOUT\n'; done; return
   fi

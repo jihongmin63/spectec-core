@@ -64,7 +64,7 @@ crashing.
 
 `main.exe termination --symbol <sym> FILES…` proves per-slice termination
 in-binary: `lib/rewrite/unravel.ml` unravels the analysis slice
-into a plain TPDB TRS (`--emit-trs` shows it) and
+into a plain TPDB TRS (`--emit` shows it) and
 `lib/rewrite/aprove.ml` hands it straight to AProVE. A slice that stays
 unproven then takes two more paths through the same binary — each open child of
 AProVE's own dependency-graph decomposition re-posed as a standalone `.qdp`

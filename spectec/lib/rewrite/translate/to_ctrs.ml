@@ -1,8 +1,8 @@
 open Common.Source
 open Lang.Il
 
-(** Translation from elaborated + simplified IL into the COPS CTRS
-    representation ({!Rewrite_system}).
+(** Translation from specialized IL into the CTRS representation
+    ({!Rewrite_system}).
 
     Two families of rules are produced:
 
@@ -11,7 +11,7 @@ open Lang.Il
       from each [TypD] -- variant constructors, their matchers, struct field
       accessors, and subtype predicates.
 
-    - {b spec body rules} (from [DecD]/[RelD] of the simplified spec): function
+    - {b spec body rules} (from [DecD]/[RelD] of the specialized spec): function
       clauses and relation rules become (conditional) rewrite rules.
 
     The prelude/type-derived family is then pruned ([prune_unused]) down to the
@@ -1007,9 +1007,8 @@ let rec prem_binder_names (orig : spec) (prem : prem) : string list =
 
 (* Split an iterated premise's variables into the (bound, binding) ids: bound
    guide the iteration, binding are produced and collected per step. A co-iterated
-   binder that no longer occurs anywhere in [inner] is stale ([Simplify]
-   substituted it away) and is dropped, so it is not classified as a bound spine
-   the call site never supplies. *)
+   binder absent from [inner] is dropped, so it is not classified as a bound
+   spine the call site never supplies. *)
 let iter_split (orig : spec) (inner : prem) (vars : var list) :
     string list * string list =
   let binders = prem_binder_names orig inner in
@@ -1441,7 +1440,7 @@ let blocks_of_def (def : def) : (exp list * exp list * prem list) list =
      with [Some ctx] instead emits a fused-named definition while the helper
      body calls the bare name, leaving that call undefined (and the fused
      definition unreachable, hence pruned). *)
-let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
+let iter_helper_defs ~scalars (spec : spec) : R.rule list =
   let defs = Helper_defs.create 32 in
   let add (sym, rules) = Helper_defs.add defs sym rules in
   let rec visit_exp ctx (e : exp) =
@@ -1452,7 +1451,7 @@ let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
   let rec visit_prem ctx (p : prem) =
     match p.it with
     | IterPr (inner, _) ->
-        List.iter add (iterpr_defs ~scalars orig ctx p);
+        List.iter add (iterpr_defs ~scalars spec ctx p);
         visit_prem None inner
     | _ -> List.iter (visit_exp ctx) (Exp_map.exps_of_prem p)
   in
@@ -1463,7 +1462,7 @@ let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
       (* Populate the registry (and [absorbed]) as the rule assembly does; the
          resulting terms/conditions are only used for their side effects here. *)
       List.iter (fun e -> ignore (pattern_of_exp ~scalars ~ctx fresh e)) heads;
-      ignore (conds_of_prems ~scalars orig ~ctx fresh prems);
+      ignore (conds_of_prems ~scalars spec ~ctx fresh prems);
       List.iter (fun e -> ignore (term_of_exp ~scalars ~ctx e)) results;
       List.iter (visit_exp (Some ctx)) heads;
       List.iter (visit_exp (Some ctx)) results;
@@ -1476,13 +1475,13 @@ let iter_helper_defs ~scalars (orig : spec) (spec : spec) : R.rule list =
    target and every type a [subty_<T>] definition recurses into (a variant case's
    field types and a plain alias's underlying type). The named [subty_<T>]
    helpers themselves come from [defs_of_typ]; scalars from the prelude. *)
-let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
+let sub_helper_defs ~scalars (spec : spec) : R.rule list =
   let defs = Helper_defs.create 64 in
   let has_typdef name =
     List.exists
       (fun (d : def) ->
         match d.it with TypD { synid = tid; _ } -> tid.it = name | _ -> false)
-      orig
+      spec
   in
   (* Ensure the structural helper for target type [t] (and its inner types) is
      present. *)
@@ -1532,7 +1531,7 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
           require elem.it)
     | _ -> ()
   in
-  (* every type a [subty_<T>] definition recurses into (from [orig]'s types) *)
+  (* every type a [subty_<T>] definition recurses into (from [spec]'s types) *)
   List.iter
     (fun (def : def) ->
       match def.it with
@@ -1545,7 +1544,7 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
             typcases
       | TypD { deftyp = { it = PlainT u; _ }; _ } -> require u.it
       | _ -> ())
-    orig;
+    spec;
   (* every [SubE] target: the `<:` guards (including under iteration) and any
      `<:` nested in value position *)
   let rec targets_of_exp (e : exp) =
@@ -1561,14 +1560,14 @@ let sub_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
     (fun (heads, results, prems) ->
       List.iter targets_of_exp (heads @ results);
       List.iter targets_of_prem prems)
-    (List.concat_map blocks_of_def simplified);
+    (List.concat_map blocks_of_def spec);
   Helper_defs.rules defs
 
 (* Every (comparing collection builtin, compared type) the spec calls for, one
    entry per distinct specialization -- deduplicated on the SUFFIX, since two
    syntactically different [typ'] values that spell the same descriptor are the
    same copy and emitting both would define the symbol twice. *)
-let builtin_specializations (simplified : spec) : (string * typ') list =
+let builtin_specializations (spec : spec) : (string * typ') list =
   let rec of_exp (e : exp) =
     (match e.it with
     | CallE (id, k :: _, _) when builtin_compares id.it -> [ (id.it, k.it) ]
@@ -1582,7 +1581,7 @@ let builtin_specializations (simplified : spec) : (string * typ') list =
         @ List.concat_map
             (fun p -> List.concat_map of_exp (Exp_map.exps_of_prem p))
             prems)
-      (List.concat_map blocks_of_def simplified)
+      (List.concat_map blocks_of_def spec)
   in
   List.fold_left
     (fun acc (id, t) ->
@@ -1603,7 +1602,7 @@ let builtin_specializations (simplified : spec) : (string * typ') list =
    instantiation's own fields are types in turn, the traversal closes over them
    -- [map<id, type>] pulls in [set<pair<id, type>>], then [pair<id, type>],
    then [id] and [type] -- and each is emitted once. *)
-let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
+let eq_helper_defs ~scalars (spec : spec) : R.rule list =
   let defs = Helper_defs.create 64 in
   let typdef name =
     List.find_map
@@ -1612,7 +1611,7 @@ let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
         | TypD { synid = tid; tparams; deftyp } when tid.it = name ->
             Some (tparams, deftyp.it)
         | _ -> None)
-      orig
+      spec
   in
   let field_typs (dt : deftyp') : typ' list =
     match dt with
@@ -1697,7 +1696,7 @@ let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
           require elem.it)
     | _ -> ()
   in
-  (* every type an [eq_<T>] definition recurses into (from [orig]'s types) *)
+  (* every type an [eq_<T>] definition recurses into (from [spec]'s types) *)
   List.iter
     (fun (def : def) ->
       match def.it with
@@ -1709,9 +1708,9 @@ let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
       | TypD { tparams = []; deftyp; _ } ->
           List.iter require (field_typs deftyp.it)
       | _ -> ())
-    orig;
+    spec;
   (* the compared type of every collection-builtin specialization *)
-  List.iter (fun (_, t) -> require t) (builtin_specializations simplified);
+  List.iter (fun (_, t) -> require t) (builtin_specializations spec);
   (* every comparison site's operand type, and every membership site's element
      type (its [mem_<T>] recurses through this same dispatch) *)
   let rec operands_of_exp (e : exp) =
@@ -1727,13 +1726,13 @@ let eq_helper_defs ~scalars (orig : spec) (simplified : spec) : R.rule list =
       List.iter
         (fun p -> List.iter operands_of_exp (Exp_map.exps_of_prem p))
         prems)
-    (List.concat_map blocks_of_def simplified);
+    (List.concat_map blocks_of_def spec);
   Helper_defs.rules defs
 
 (* The [mem_<T>] helpers, one per element type a [<-] test ranges over. Same
    fold over the [cons]/[nil] spine the prelude's polymorphic [mem] does, but
    deciding each element with the element type's own equality. *)
-let mem_helper_defs ~scalars (simplified : spec) : R.rule list =
+let mem_helper_defs ~scalars (spec : spec) : R.rule list =
   let defs = Helper_defs.create 16 in
   let require (elem : typ') =
     let sym = mem_sym elem in
@@ -1755,9 +1754,9 @@ let mem_helper_defs ~scalars (simplified : spec) : R.rule list =
     (fun (heads, results, prems) ->
       List.iter elems_of_exp (heads @ results);
       List.iter (fun p -> List.iter elems_of_exp (Exp_map.exps_of_prem p)) prems)
-    (List.concat_map blocks_of_def simplified);
+    (List.concat_map blocks_of_def spec);
   (* the set builtins decide membership at their compared type too *)
-  List.iter (fun (_, t) -> require t) (builtin_specializations simplified);
+  List.iter (fun (_, t) -> require t) (builtin_specializations spec);
   Helper_defs.rules defs
 
 (* The usage-based false-completion that makes [subty_<T>] total. At every
@@ -1774,14 +1773,13 @@ let mem_helper_defs ~scalars (simplified : spec) : R.rule list =
    on both sides; tuple/list/option pairs co-descend into their element types
    (the structural helpers recurse elementwise, so the element predicate needs
    its complement too). Deduplicated per (predicate, constructor). *)
-let sub_complement_defs ~scalars (orig : spec) (simplified : spec) : R.rule list
-    =
+let sub_complement_defs ~scalars (spec : spec) : R.rule list =
   let seen = Hashtbl.create 64 in
   let rec complement (target : typ') (subject : typ') : R.rule list =
-    match (unalias orig target, unalias orig subject) with
+    match (unalias spec target, unalias spec subject) with
     | VarT { synid = tid; _ }, VarT { synid = sid; _ } when tid.it <> sid.it
       -> (
-        match (typcases_of orig tid.it, typcases_of orig sid.it) with
+        match (typcases_of spec tid.it, typcases_of spec sid.it) with
         | Some tcs, Some scs ->
             let t_infos = List.map case_info_of_typcase tcs in
             List.concat_map
@@ -1841,7 +1839,7 @@ let sub_complement_defs ~scalars (orig : spec) (simplified : spec) : R.rule list
   List.concat_map
     (fun (heads, results, prems) ->
       List.concat_map of_exp (heads @ results) @ List.concat_map of_prem prems)
-    (List.concat_map blocks_of_def simplified)
+    (List.concat_map blocks_of_def spec)
 
 (* -------------------------------------------------------------------------- *)
 (* Spec body rules. *)
@@ -1928,21 +1926,16 @@ let prune_unused (defs : R.rule list) (body : R.rule list) : R.rule list =
       | None -> false)
     defs
 
-let of_spec ?(scalars = Structural) ?(extra_defs = []) ~(orig : spec)
-    (simplified : spec) : R.t =
+let of_spec ?(scalars = Structural) ?(extra_defs = []) (spec : spec) : R.t =
   let type_rules =
-    Prelude.rules ~scalars @ List.concat_map (defs_of_typ ~scalars) orig
+    Prelude.rules ~scalars @ List.concat_map (defs_of_typ ~scalars) spec
   in
-  let body_rules = List.concat_map (rules_of_def ~scalars orig) simplified in
-  let iter_rules = iter_helper_defs ~scalars orig simplified in
+  let body_rules = List.concat_map (rules_of_def ~scalars spec) spec in
+  let iter_rules = iter_helper_defs ~scalars spec in
   let sub_rules =
-    sub_helper_defs ~scalars orig simplified
-    @ sub_complement_defs ~scalars orig simplified
+    sub_helper_defs ~scalars spec @ sub_complement_defs ~scalars spec
   in
-  let eq_rules =
-    eq_helper_defs ~scalars orig simplified
-    @ mem_helper_defs ~scalars simplified
-  in
+  let eq_rules = eq_helper_defs ~scalars spec @ mem_helper_defs ~scalars spec in
   let type_rules =
     prune_unused
       (type_rules @ iter_rules @ sub_rules @ eq_rules @ extra_defs)

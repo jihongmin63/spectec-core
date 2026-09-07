@@ -17,18 +17,16 @@
    Every symbol that transitively reaches a gensym (the "effectful" symbols)
    gets an extra state argument and returns a [tuple(result, state')]; inside
    its rules the state is threaded through the conditions in premise order.
-   Each effectful call occurrence counts as one issuance -- the premise
-   environment {!Simplify} reuses must keep such calls out of the equivalence
-   classes (see {!gensym_ids}) so one instance is never duplicated into many. *)
+   Each effectful call occurrence counts as one issuance, so translation must
+   never duplicate one occurrence into multiple calls. *)
 
 module R = Rewrite_system
 module T = Ctrs_term
 module SS = Set.Make (String)
 
 (* The gensym builtins the interpreter implements as a global counter
-   ([$fresh_typeId] for p4, [$fresh_tid] for p4-old). The premise environment
-   {!Simplify} reuses must keep calls to these opaque (out of the equivalence
-   classes) so an issuance is never duplicated. *)
+   ([$fresh_typeId] for p4, [$fresh_tid] for p4-old). Calls to these must remain
+   distinct until state threading. *)
 let gensym_ids = [ "fresh_typeId" (* p4 *); "fresh_tid" (* p4-old *) ]
 
 let root_syms : string list =

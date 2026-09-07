@@ -1,46 +1,22 @@
-(** Emit a translated spec as an executable, order-sorted Maude system module.
-
-    Unlike the analysis surface ({!Rewrite_system.string_of_system_maude} over
-    structural scalars, feeding the MFE confluence/coherence check), this
-    targets Maude's built-in theory so the module can be {e run}:
-    functions/prelude become equations, input-moded relations become equations
-    too (so a [reduce] is deterministic), other relations become rules, and a
-    start term is reduced/searched. [relations_as_rules] forces every relation
-    back to a rule (the old behaviour, for exploring non-determinism via
-    search).
-
-    Sorts and operator signatures are recovered from the original
-    (un-simplified) spec, so the elaborated spec is the input. See the module
-    implementation for the order-sorted [Val] supersort scheme and the
-    Maude-surface conventions. *)
-
-(** Translate [orig] (an elaborated IL spec) all the way to Maude module text,
-    over the direct Maude path ({!Pipeline.maude_system_of_spec}, i.e.
-    {!To_ctrs.of_spec} with [~scalars:Native]): scalar values are wrapped
-    built-in literals and the omitted scalar prelude
-    ({!Prelude.native_replaced_heads}) is supplied as one-line delegation
-    equations, so arithmetic and text operations run in constant time instead of
-    structural recursion. *)
-val module_of_spec :
-  ?module_name:string ->
-  ?relations_as_rules:bool ->
-  ?predicates:Maude_sorts.predicate_mode ->
-  Lang.Il.spec ->
-  string
+(** Emit an execution-target system as an order-sorted Maude module. Scalar
+    operations delegate to native theories. Functions and input-moded relations
+    are equations; [relations_as_rules] emits relations as rules for search.
+    Pass the specialized [spec] and [system] returned by {!Rewrite.compile} with
+    [~target:Execution] together, so signature recovery sees the emitted
+    definition names. *)
 
 (** The reducible symbols (functions/relations/ops) of an already-translated
-    system ({!Rewrite.maude_system}) in Maude spelling. Pass to {!Maude_run.run}
-    as [~defined_heads] so a normal form still mentioning one of them is
-    reported as stuck (a failed run). *)
+    system ({!Rewrite.compile}) in Maude spelling. Pass to {!Maude_run.run} as
+    [~defined_heads] so a normal form still mentioning one of them is reported
+    as stuck (a failed run). *)
 val maude_defined_heads : Rewrite_system.t -> string list
 
-(** Emit the module for an already-translated system (a
-    {!Pipeline.maude_system_of_spec} result), given the [orig] spec it came from
-    (needed for the sorts/signatures). [predicates] selects how the per-type
-    predicates ([match_]/[subty_]/[holds_]/[eqg]) are typed: [Narrow] (default)
-    recovers each domain from use ({!Maude_sorts.predicate_domains}), [Wide]
-    keeps the blunt [Val] of commit 1874d212 (to bisect a regression back to
-    that pass). *)
+(** Emit the module for the [system] from {!Pipeline.compile}, given its
+    specialized [spec] as [orig] (needed for sorts/signatures). [predicates]
+    selects how the per-type predicates ([match_]/[subty_]/[holds_]/[eqg]) are
+    typed: [Narrow] (default) recovers each domain from use
+    ({!Maude_sorts.predicate_domains}), [Wide] keeps the blunt [Val] of commit
+    1874d212 (to bisect a regression back to that pass). *)
 val module_of_system :
   ?module_name:string ->
   ?relations_as_rules:bool ->
@@ -100,7 +76,7 @@ val stuck_head_eqs : (string * int) list -> string list
     Appends the gensym seed when the translated [system] threads [rel]
     ({!Gensym}); such a run normalizes to [tuple(result, final-state)] instead
     of the bare result. [system] is the one the module was emitted from
-    ({!Rewrite.maude_system}). *)
+    ({!Rewrite.compile}). *)
 val meta_start_app :
   Lang.Il.spec -> Rewrite_system.t -> string -> string list -> string
 

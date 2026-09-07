@@ -1,66 +1,44 @@
-# `rewrite` 라이브러리 핵심 로직 — 재구현 설계 기준
+# `rewrite` 라이브러리 핵심 로직
 
-> `new-rewrite` 브랜치는 `rewrite` 브랜치(IL → CTRS/Maude)를 재작성하기 위한
-> **골격**입니다. 이 문서는 기존 `rewrite` 라이브러리가 **핵심으로 삼았던 로직**을
-> 보존합니다 — 골격에서 *지운* 모듈(아래 §5·§6)의 알고리즘까지 포함해, 재구현할 때
-> 설계 기준으로 삼기 위함입니다. 운영/빌드 절차와 더 긴 변경 이력은 [CLAUDE.md]를
-> 보세요; 이 문서는 *무엇을 왜 그렇게 번역하는가*에 집중합니다.
->
-> 현재 상태: 데이터 모델(`rewrite_system.ml`), `to_ctrs`의 심볼/빌더 레이어 +
-> 번역 스텁, 오케스트레이션(`pipeline`/`rewrite`)은 온전. **지원 패스(§5:
-> `exp_map`/`defunctionalize`/`gensym`/`builtin`)와 Maude 백엔드(§6:
-> `to_maude`/`maude_run`/`of_maude`/`maude_theory`)는 `rewrite` 브랜치에서 복구해
-> 컴파일·배선 완료** — `of_spec` 스텁에 막혀 런타임은 아직 `failwith`. **`simplify`는
-> 이 프로젝트에서 의도적으로 identity**(§4), 그래서 `prem_env`는 재구현하지 않습니다.
-> **남은 스텁은 `to_ctrs`의 `of_spec`·`var_type_hints` 둘뿐.** 여전히 지운 것
-> (`cocoweb`/`muterm`/`aprove`/`termination`)은 `git checkout rewrite -- <file>`로
-> 복구 가능.
+현재 번역·분석·실행 경로는 구현되어 있다. 이 문서의 알고리즘 설명에는 옛
+`rewrite` 브랜치의 설계 메모도 포함되어 있으며, 날짜가 붙은 측정은 해당 시점의
+증거로 읽는다. 현재 작업 목록은 [todo.md](todo.md), 이번 API/CLI 변경과 검증은
+[refactoring.md](refactoring.md)를 참고한다.
 
----
+## 1. 아키텍처 — 하나의 컴파일 진입점
 
-## 1. 아키텍처 — 두 파이프라인, 그리고 분기 지점
-
-```
-Lang.Il.spec (elaborated)
-   │  Defunctionalize → Simplify → To_ctrs.of_spec ~scalars:?? (+Builtin) → Gensym.thread
-   │                                                      ▲
-   │                          스칼라 이론이 유일한 분기점 ──┘
-   ├─(분석)  of_spec ~scalars:Structural → Rewrite_system.t
-   │            → string_of_system_maude → Mfe(CRC confluence + ChC coherence)
-   └─(실행)  of_spec ~scalars:Native   → Rewrite_system.t   ← ② 재-fold 없음, 직접 생성
-                → To_maude → Maude_run → Of_maude
+```text
+Rewrite.compile ~target spec_il
+  → Defunctionalize → Monomorphize
+  → To_ctrs.of_spec ~scalars (+ Builtin)
+  → Gensym.thread → Rewrite_system.orient_conds
+  → Analysis일 때만 Reflect / Crc_surface
+  → { spec; system }
 ```
 
-**핵심: 두 경로는 *같은* 구조적 번역을 공유하고, 스칼라 이론
-(`To_ctrs.scalar_theory = Structural | Native`) 하나에서만 갈라진다.** 그래서
-Maude 시스템은 구조적 시스템을 *다시 fold하는 별도 패스(옛 `Maude_theory`)* 없이
-번역 단계에서 **직접** 만들어진다. variant/struct/relation/함수 규칙은 두 경로에서
-동일하고, 스칼라 leaf와 prelude만 달라진다.
+`target`은 `Analysis | Execution`이다. 공통 번역에서 `Analysis`는 자립적인 이진
+nat·부호-크기 int·문자 리스트·bool 규칙을 만들고, `Execution`은 Maude 내장
+Bool/Nat/Int/String wrapper를 직접 만든다. 두 표현은 각 소비자가 필요로 하는
+이론이므로 유지한다. 구조적 결과를 native로 다시 변환하는 패스는 없다.
 
-**왜 두 파이프라인인가.** 같은 번역 결과를 두 표면이 소비하는데, 스칼라(수·불리언·
-문자열) 표현이 서로 달라야 한다:
+분석 전용 순서는 `hoist_matchers → expand_subty_guards → fold_premise_binders
+→ order_conds → align_guards → owise → order_conds`이다. 첫 번째 `order_conds`는
+fold가 앞에 삽입한 `isStuckHead` 조건을 바인딩 순서로 정렬한다. `owise` 반사가
+조건을 순서대로 읽기 때문에 이 단계의 위치를 바꾸면 안 된다.
 
-- **분석(structural)**: CTRS/COPS·TPDB에는 외부 이론이 없다. 그래서 스칼라를
-  *자립적 구조*로 인코딩한다 — nat은 Peano `zero`/`succ`, int는 부호-크기
-  `int_pos`/`int_neg`, text는 문자 리스트, bool은 자체 `true`/`false`. 산술도
-  구조적 재귀 규칙(prelude)으로 정의. 이래야 confluence/termination 도구가 닫힌
-  시스템을 본다.
-- **실행(built-in theory)**: Maude에는 GMP 기반 `Bool`/`Nat`/`Int`/`String`이 있다.
-  그래서 ground 스칼라를 내장 이론 위 wrapper 생성자로 인코딩하고(`nat(3)`,
-  `int(-5)`, `bool(true)`, `txt("E.")`), 손으로 쓴 스칼라 prelude 규칙
-  (`native_replaced_heads`)은 *처음부터 안 내고*, `To_maude`가 한 줄 delegation으로
-  방출(`eq add(nat(X),nat(Y)) = nat(X+Y)`). 상수시간 산술.
+컴파일 결과의 `spec`은 특수화 후의 명세이며 `system`과 반드시 함께 사용한다.
+특수화는 정의를 복제·재명명하므로 입력 IL에서 시그니처를 찾으면 생성된 이름을
+놓친다. Maude 방출·시작항 인코딩·결과 디코딩·슬라이스 루트 조회는 반환된 명세를
+사용한다. `Rewrite.def_symbols`는 시스템을 만들지 않고 특수화된 루트만 조회한다.
 
-두 파이프라인은 **`of_spec`의 `~scalars` 인자**에서 갈라진다. `Structural`이면 위
-구조적 인코딩+prelude, `Native`면 wrapper 인코딩+prelude 생략. **별도 fold 패스는
-없다** — 옛 설계의 `Maude_theory.native_system`(구조적 시스템을 받아 다시 fold)은
-이 seam으로 대체돼 삭제됐다. 분석 표면은 구조적 시스템을 그대로 유지한다.
+`Simplify`는 항등 함수였으므로 제거했다. `To_ctrs.of_spec`도 `orig`와
+`simplified`를 따로 받지 않고 한 명세에서 시그니처와 본문을 모두 읽는다.
+`Prem_env` 기반 IL 단순화를 도입하지 않는다는 설계는 그대로다.
 
-**`orig`(simplify 이전 spec)를 함께 넘기는 이유:** 타입 정의와 relation 시그니처
-(생성자/matcher/subtype 규칙, relation 인자 입출력 분할에 필요)는 *un-simplified*
-형태에서 읽어야 한다. 그래서 `To_ctrs.of_spec ~orig:spec (Simplify.simplify_spec spec)`.
-**단, 이 프로젝트에서 `Simplify.simplify_spec`은 identity(§4)**라 `orig`와 번역 대상이
-같은 스펙이다 — `of_spec`는 un-simplified IL을 직접 번역한다.
+CLI 구현은 `lib/cli/rewrite/`의 별도 `spectec.rewrite_cli` 라이브러리에 있다.
+`run --structural`은 구조적 분석 시스템을 직접 실행하고, 기본 `run`은 native
+시스템을 reflection으로 실행한다. 입력 파싱·배치 오류 처리·P4 비교는 공유하며,
+한 번 컴파일한 결과로 모듈과 모든 입력을 인코딩한다.
 
 ---
 
@@ -422,17 +400,10 @@ Maude_run이 이미 대기).
 
 ---
 
-## 4. `Simplify` — 이 프로젝트에서는 identity (`Prem_env` 미재구현)
+## 4. 옛 `Simplify` 설계 참고 (`Prem_env` 미재구현)
 
-**`Simplify.simplify_spec`은 이 프로젝트에서 의도적으로 identity다 — 스펙을 그대로
-반환한다.** `To_ctrs`가 유일한 번역 표면이고, 옛 단순화가 하던 정규화를 generic한
-`of_spec`가 직접 감당하게 하려는 설계 결정이다. 그래서 `Simplify`만 먹이던
-`Prem_env`(union-find 엔진)도 **재구현하지 않는다.**
-
-> **설계 함의:** `of_spec`는 옛 설계가 단순화에 의존하던 형태를 더 이상 기대할 수
-> 없다. 변수 전개·`matches`/필드접근의 head 패턴 fold·value/let inline·subtype→cast·
-> 잉여 전제 제거 — 이 정규화가 필요하면 `of_spec`가 번역 중에 처리하거나, 그것을
-> 전제하지 않는 번역이어야 한다(generic 목표와 부합).
+`Simplify` 항등 모듈은 제거되었다. IL 표현을 처리하는 책임은 `To_ctrs`에
+있고 `Prem_env`는 재도입하지 않는다. 아래 내용은 과거 알고리즘의 참고 기록이다.
 
 아래는 옛 `rewrite` 브랜치 `Simplify`/`Prem_env`가 **무엇을** 했는지의 참고
 (재도입은 안 하지만, `of_spec`가 대응해야 할 정규화의 목록):

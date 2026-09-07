@@ -13,11 +13,11 @@ open Maude_sorts
 
     - {b Sorts.} Each IL type becomes a Maude sort; every symbol gets an
       [op f : S1 .. Sn -> S .] declaration. Signatures are read from the
-      original (un-simplified) spec's [TypD]/[RelD]/[DecD] using the {e same}
-      naming functions {!To_ctrs} used in the rules. The container/generic
-      machinery (lists, options, polymorphic functions) is order-sorted under a
-      single universal supersort [Val] (every sort is [< Val]); this is the
-      pragmatic resolution of the polymorphism the erased CTRS left behind.
+      specialized spec's [TypD]/[RelD]/[DecD] using the {e same} naming
+      functions {!To_ctrs} used in the rules. The container/generic machinery
+      (lists, options, polymorphic functions) is order-sorted under a single
+      universal supersort [Val] (every sort is [< Val]); this is the pragmatic
+      resolution of the polymorphism the erased CTRS left behind.
 
     - {b eq vs rl.} Function/prelude/constructor rules are deterministic
       equations ([eq]/[ceq]). Every SpecTecx relation is input-moded, hence
@@ -36,12 +36,12 @@ open Maude_sorts
       rule.
 
     The module is emitted over Maude's BUILT-IN scalar theories: the system is a
-    {!Pipeline.maude_system_of_spec} result, whose scalar values sit in wrapper
-    constructors over the imported sorts ([nat(3) : NatV], see {!Maude_theory}),
-    and the scalar operators become one-line delegation equations
-    ([delegation_eqs]) instead of structural recursion. The built-in sorts
-    themselves stay OUTSIDE [Val], so their kinds never merge with the spec's
-    (imported operator attributes would clash; see [builtin_sorts]).
+    {!Pipeline.compile} result, whose scalar values sit in wrapper constructors
+    over the imported sorts ([nat(3) : NatV], see {!Maude_theory}), and the
+    scalar operators become one-line delegation equations ([delegation_eqs])
+    instead of structural recursion. The built-in sorts themselves stay OUTSIDE
+    [Val], so their kinds never merge with the spec's (imported operator
+    attributes would clash; see [builtin_sorts]).
 
     Maude-surface notes (verified against Maude 3.5.1): [_] is a mixfix
     placeholder in Maude, so every CTRS id (which is [[A-Za-z0-9_]+]) has [_]
@@ -808,7 +808,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   (* Declared IL types of body-rule variables, keyed by defined symbol, used to
      restore narrow variable sorts (see {!Var_hints.of_spec}). Recomputed
      from the same idempotent simplification [sys] was built from. *)
-  let var_hints = Var_hints.of_spec (Simplify.simplify_spec orig) in
+  let var_hints = Var_hints.of_spec orig in
   let hint = var_hint_fn tenv var_hints in
   predicate_domains ~mode:predicates ~edges ~hint tbl sys.R.rules;
   let rels = rule_relation_syms ~relations_as_rules orig in
@@ -1060,20 +1060,10 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   buf_line b "endm";
   Buffer.contents b
 
-(* The one-call entry point: translate via the EXECUTION pipeline
-   ({!Pipeline.maude_system_of_spec} -- the structural CTRS restated over
-   Maude's built-in theories), then emit the module text. [orig] (the
-   elaborated spec) supplies the sorts/signatures. The analysis (COPS) surface
-   keeps the structural system; the two pipelines diverge intentionally. *)
-let module_of_spec ?(module_name = "SPEC") ?(relations_as_rules = false)
-    ?(predicates = Narrow) (orig : spec) : string =
-  let sys = Pipeline.maude_system_of_spec orig in
-  module_of_system ~module_name ~relations_as_rules ~predicates orig sys
-
 (* The module's reducible symbols (functions/relations/ops, including the
    rule-less delegated operators) in Maude spelling, for {!Maude_run}'s stuck
    check: a normal form still mentioning one of these halted mid-evaluation.
-   Takes the same [sys] the caller emitted the module from ({!Rewrite.maude_system}). *)
+   Takes the same [sys] the caller emitted the module from ({!Rewrite.compile}). *)
 let maude_defined_heads (sys : R.t) : string list =
   List.map MI.id
     (dedup (R.defined_heads sys @ List.map fst (native_delegated sys)))

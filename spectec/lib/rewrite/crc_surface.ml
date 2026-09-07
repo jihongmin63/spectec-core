@@ -194,7 +194,7 @@ let fold_premise_binders ?(aggressive = false) (t : t) : t =
    first scheduled pattern containing it); the same variable's binding
    position legitimately differs from rule to rule, and any later pattern
    occurrence is a plain equality check. Wired into the analysis pipeline
-   ({!Pipeline.ctrs_of_spec}) only: the Native execution path's sole consumer
+   ({!Pipeline.compile}) only: the Native execution path's sole consumer
    is {!To_maude.print_conds}, which re-schedules regardless, so pre-ordering
    there would only churn the emitted module text. *)
 let order_conds (t : t) : t =

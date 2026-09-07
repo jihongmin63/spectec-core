@@ -1,5 +1,5 @@
 (** Conditional term-rewriting system (CTRS) representation produced from an
-    elaborated + simplified IL spec.
+    specialized IL spec.
 
     Only the representation, the term/rule queries and symbol slicing, the
     diagnostic printer, and the shared Maude lexical layer live here; the IL ->

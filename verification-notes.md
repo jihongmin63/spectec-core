@@ -25,7 +25,7 @@
 
 - `term` = `main.exe termination --all --out term.tsv <specs>` — 구조 보존 unravel →
   AProVE(`lib/rewrite/unravel.ml`+`aprove.ml`). 단일: `termination --symbol NAME`,
-  TRS만 보려면 `--emit-trs --symbol NAME`. AProVE 자체 예산은 `--budget S`(기본 300,
+  TRS만 보려면 `--emit --symbol NAME`. AProVE 자체 예산은 `--budget S`(기본 300,
   프로세스는 S+120s에 kill).
 - `CRC`/`ChC` = `main.exe confluence --all --out crc.tsv <specs>`(구 `verify`). 행
   `<sym>\t<church-rosser>\t<coherence>\t<secs>`. MAYBE/TIMEOUT은 `--crc-normalize`로
