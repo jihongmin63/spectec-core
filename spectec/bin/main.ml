@@ -1273,6 +1273,18 @@ let termination_command =
          row-wise against a plain-TRS one. Without this flag the surface is \
          still tried, as the last path of a slice the plain one left unproven \
          and only where the slice computes arithmetic at all"
+  and itrs_lengths =
+    flag "--itrs-lengths" no_arg
+      ~doc:
+        " prove on the integer surface with the LIST layer lifted to lengths \
+         as well: every list-sorted position becomes its length, so a \
+         recursion that shortens a list ($strip_prefix_rec on drop(t, len p)) \
+         has a measure the constraint solver reads. A model one step beyond \
+         --itrs -- two lists of equal length are one term there -- and it \
+         applies only where the lift covers the slice (a list destructured in \
+         a pattern, or an operation with no closed form, is an export error). \
+         Without this flag it is still tried, as the last path of a slice \
+         --itrs left unproven"
   and no_child_split =
     flag "--no-child-split" no_arg
       ~doc:
@@ -1336,7 +1348,9 @@ let termination_command =
        O(slice size) per symbol instead of rebuilding the index once per symbol *)
     let slicer = Rewrite.Rewrite_system.make_slicer system in
     let surface =
-      if itrs then Rewrite.Termination.Integer else Rewrite.Termination.Plain
+      if itrs_lengths then Rewrite.Termination.Integer_lengths
+      else if itrs then Rewrite.Termination.Integer
+      else Rewrite.Termination.Plain
     in
     let roots =
       Cli.Analysis_sweep.roots ~all ~symbols

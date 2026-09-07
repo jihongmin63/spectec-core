@@ -50,9 +50,24 @@
     the symbol the proof is supposed to be about. Named, it gets its integer
     definition back (or, for a b-layer operation, the retargeting {!blayer}
     applies at call sites written out as a rule), and a root that has no integer
-    definition at all is an [Error] rather than a vacuous [YES]. *)
+    definition at all is an [Error] rather than a vacuous [YES].
+
+    [norm] adds the LIST-LENGTH lift on top: every list-sorted position becomes
+    its length, [nil] becomes 0, [cons] becomes one more, and each list
+    operation becomes the closed form its result's length has ([drop(x, k)] is
+    [x - k] where the list reaches that far). It is for the slices whose descent
+    IS a list length -- [$strip_prefix_rec] recurses on [drop(t, len(p))] under
+    [len(p) > 0], a measure the plain TRS cannot see as a subterm and the
+    integer surface cannot see at all -- and it is a MODEL one step beyond the
+    one above: two lists of equal length become one term, so a YES states that
+    the slice terminates provided the list layer behaves as these lengths say.
+    Coverage is checked rather than assumed, and an [Error] means the lift does
+    not apply to this slice (a list destructured in a pattern, an operation with
+    no closed form, a guard that is not pure integer arithmetic), not that the
+    slice is defective -- the caller falls back to the plain integer surface. *)
 val of_system :
   roots:string list ->
+  ?norm:bool ->
   Rewrite_system.t ->
   (string * Unravel.stats, string) result
 

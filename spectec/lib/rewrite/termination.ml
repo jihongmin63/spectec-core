@@ -1,5 +1,5 @@
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
-type path = Whole_trs | Children | Integer_trs
+type path = Whole_trs | Children | Integer_trs | Length_trs
 type step = { path : path; verdict : verdict; secs : float; note : string }
 
 type report = {
@@ -22,6 +22,7 @@ let string_of_path = function
   | Whole_trs -> "whole"
   | Children -> "children"
   | Integer_trs -> "itrs"
+  | Length_trs -> "itrs-lengths"
 
 let string_of_step (s : step) : string =
   Printf.sprintf "%s:%s%s@%.1fs" (string_of_path s.path)
@@ -111,13 +112,17 @@ let trs_of_slice (system : Rewrite_system.t) :
    verdicts are about differently-encoded systems (both over-approximating the
    same CTRS, so a YES on either transfers), and the file extension has to
    follow, since AProVE reads the problem type off it. *)
-type surface = Plain | Integer
+type surface = Plain | Integer | Integer_lengths
 
 let export ~(roots : string list) = function
   | Plain -> trs_of_slice
   | Integer -> fun system -> Itrs.of_system ~roots (proof_surface system)
+  | Integer_lengths ->
+      fun system -> Itrs.of_system ~roots ~norm:true (proof_surface system)
 
-let extension = function Plain -> ".trs" | Integer -> ".itrs"
+let extension = function
+  | Plain -> ".trs"
+  | Integer | Integer_lengths -> ".itrs"
 
 (* How much longer than its own proof budget a capture run may spend PRINTING.
    AProVE's obligation echo reprints the submitted rule set once per
@@ -338,7 +343,7 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
   else
     match export ~roots surface system with
     | Error msg -> failed (Error msg)
-    | Ok (trs, stats) -> (
+    | Ok (trs, stats) ->
         let tree_of (run : Aprove.run) =
           if run.Aprove.proof = "" then None else Some run.Aprove.proof
         in
@@ -374,26 +379,38 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
           else if not (integer_retry && Itrs.has_arithmetic system) then
             report_of ~stats ~tree:(tree_of whole) steps
           else
-            match export ~roots Integer system with
-            | Error msg ->
-                report_of ~stats ~tree:(tree_of whole)
-                  (steps
-                  @ [
-                      {
-                        path = Integer_trs;
-                        verdict = Error msg;
-                        secs = 0.0;
-                        note = "export";
-                      };
-                    ])
-            | Ok (itrs, _) ->
-                let run, secs =
-                  probe ?aprove_bin ~budget ~budget_from
-                    ~ext:(extension Integer) ~trs:itrs ()
-                in
-                let steps = steps @ [ step_of Integer_trs run secs "" ] in
-                report_of ~stats
-                  ~tree:
-                    (if run.Aprove.verdict = Aprove.Yes then tree_of run
-                     else tree_of whole)
-                  steps)
+            (* Two integer surfaces, in order of how much of the slice they
+               re-give: the arithmetic layer first, then the same export with
+               the LIST layer lifted to lengths as well. The second is for the
+               descent the first still cannot see -- a recursion that shortens a
+               list -- and it applies to far fewer slices, so it is asked only
+               where the first has already failed and only where the lift covers
+               the slice at all (an export [Error] there means it does not). *)
+            let rec climb steps tree = function
+              | [] -> report_of ~stats ~tree steps
+              | (path, surface) :: rest -> (
+                  match export ~roots surface system with
+                  | Error msg ->
+                      climb
+                        (steps
+                        @ [
+                            {
+                              path;
+                              verdict = Error msg;
+                              secs = 0.0;
+                              note = "export";
+                            };
+                          ])
+                        tree rest
+                  | Ok (text, _) ->
+                      let run, secs =
+                        probe ?aprove_bin ~budget ~budget_from
+                          ~ext:(extension surface) ~trs:text ()
+                      in
+                      let steps = steps @ [ step_of path run secs "" ] in
+                      if run.Aprove.verdict = Aprove.Yes then
+                        report_of ~stats ~tree:(tree_of run) steps
+                      else climb steps tree rest)
+            in
+            climb steps (tree_of whole)
+              [ (Integer_trs, Integer); (Length_trs, Integer_lengths) ]

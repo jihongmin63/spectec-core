@@ -104,6 +104,7 @@ is ground truth.
 | [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_normalize_upgrade` adds the upgrade-only `--crc-normalize` retry. |
 | [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
 | [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
+| [itrs.ml](spectec/lib/rewrite/itrs.ml) / `.mli` | The integer-constraint export of the same unraveling: the structural arithmetic layer replaced by AProVE's native integers and `:\|:` constraints, and (with `~norm`) the list layer lifted to lengths on top. A MODEL of the slice, not an over-approximation — a YES is about the model. |
 | [qdp.ml](spectec/lib/rewrite/qdp.ml) / `.mli` | One child of AProVE's dependency-graph decomposition, read out of a run's obligation echo and re-posed as a standalone `.qdp` problem (usable-rules pruned + Cε). |
 | [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
 | [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
@@ -190,14 +191,18 @@ become CTRS conditions; the result/output becomes the rhs.
   makes the sweep resumable. `--crc-normalize` retries an inconclusive verdict
   on the normalized (and pruned) system, upgrade-only (`YES (normalized)`; see
   the CRC normalization section).
-- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--itrs] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
+- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit-trs] [--itrs] [--itrs-lengths] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
   — proves per-slice termination by unravel + a direct AProVE run
-  (`Termination.check`; **no MTT** — see below). Up to **three paths**, in
+  (`Termination.check`; **no MTT** — see below). Up to **four paths**, in
   order, stopping at the first YES: the whole slice as one TRS, then that run's
   open dependency-graph children one at a time (`--no-child-split` disables),
-  then the integer surface where the slice computes arithmetic at all
-  (`--no-integer-retry` disables; `--itrs` runs that surface *alone*, which is
-  what the ITRS columns were measured with). Row per symbol:
+  then the integer surface where the slice computes arithmetic at all, then
+  that surface with the LIST layer lifted to lengths as well — for a descent
+  that shortens a list rather than counting an integer down, and an export
+  `ERROR` where the lift does not cover the slice (`--no-integer-retry`
+  disables both integer paths; `--itrs` / `--itrs-lengths` run one of those
+  surfaces *alone*, which is what the ITRS columns were measured with). Row per
+  symbol:
   `<sym>\t<YES|NO|MAYBE|TIMEOUT|DEGENERATE|ERROR>\t<stats>\t<secs>\t<paths>`,
   where `<paths>` is every path taken with its own verdict and seconds
   (`whole:TIMEOUT@300.0s children:YES(all children closed)@41.2s`) — that is

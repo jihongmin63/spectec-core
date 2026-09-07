@@ -444,6 +444,18 @@ let unfolded (t : R.term) : string list =
    the unsound direction. *)
 let constraint_var (n : int) : string = Printf.sprintf "itrsz%d" n
 
+(* A name {!constraint_var} already handed out. Every pass that renames operands
+   has to recognize one and leave it alone: the names are already unique
+   system-wide, and renaming one again would orphan the constraint an earlier
+   pass keyed on it -- [tail] would find no rule carrying its variable, and the
+   guard would silently vanish from the export. *)
+let is_constraint_var (v : string) : bool =
+  has_prefix ~prefix:"itrsz" v
+  && String.length v > 5
+  && String.for_all
+       (function '0' .. '9' -> true | _ -> false)
+       (String.sub v 5 (String.length v - 5))
+
 (* [lift_signs] rewrites one lhs, returning the new lhs, the constraints it
    owes, and the substitution its rhs and conditions must be put through. A
    payload that is not a plain variable is left alone for {!unfolded} to report:
@@ -595,6 +607,7 @@ let lift_guards (next : int ref) (r : R.rule) :
     let renames : (string, string) Hashtbl.t = Hashtbl.create 4 in
     let name = function
       | Olit s -> s
+      | Ovar v when is_constraint_var v -> v
       | Ovar v -> (
           match Hashtbl.find_opt renames v with
           | Some z -> z
@@ -634,6 +647,767 @@ let lift_guards (next : int ref) (r : R.rule) :
         R.conds = List.map (fun (s, p) -> (apply s, apply p)) conds;
       },
       constraints )
+
+(* -------------------------------------------------------------------------- *)
+(* The list-length lift.                                                      *)
+
+(* WHY, and what it is for. The surface above replaces the ARITHMETIC layer, so
+   a recursion counting an integer down becomes visible. A recursion shortening
+   a LIST does not. [$strip_prefix_rec] recurses on
+   [$strip_prefix(t, p) = drop(t, len(p))] under the guards [len(p) > 0] and
+   [$starts_with(t, p)]: it descends by [len(p)] every step, and every part of
+   that measure is spelled in list constructors the integer surface leaves
+   alone. Neither export can prove it -- on the plain TRS the recursive argument
+   is not a subterm of the old one, and on the integer surface it is an opaque
+   list operation -- and both TIMEOUT at budget 1800.
+
+   The lift maps a list to its LENGTH, uniformly: every list-sorted position
+   becomes an integer, [nil] is 0, [cons] is one more, and each list operation
+   becomes the closed form its result's length has. The slice comes out with one
+   sort collapsed, and the descent -- now [t - p] under [p > 0] -- is arithmetic
+   the ITRS solver reads directly.
+
+   WHAT A YES MEANS is what it means on the rest of this surface, one step
+   further: a MODEL, not an over-approximation. Two lists of equal length are
+   now one term, so a rule that told them apart fires here on both -- which ADDS
+   rewrite steps, the safe direction -- and the steps the lift REMOVES belong to
+   the operations it replaces by their closed forms, exactly as the codec
+   replacement does. A YES states that the slice terminates provided the list
+   layer behaves as these lengths say.
+
+   Element computations are the one place that trade is not free: [cons(h, t)]
+   becomes [t + 1] and [h] goes with whatever it would have reduced to.
+   Discarding a CONSTRUCTOR term is harmless (it takes no steps); discarding a
+   CALL would delete a recursion, so that is a coverage failure below rather
+   than a silent drop.
+
+   Coverage is checked, not assumed ({!Unravel}'s discipline): a list operation
+   with no closed form, a list destructured in a PATTERN, a guard that does not
+   render as pure integer arithmetic, and a case split that multiplies out of
+   hand each abandon the lift with a message. The caller then falls back to the
+   plain integer surface, which is what it would have run anyway. *)
+
+exception Norm_fail of string
+
+let norm_fail fmt = Printf.ksprintf (fun s -> raise (Norm_fail s)) fmt
+
+(* The list vocabulary this lift knows. Everything named here is REPLACED, so
+   anything still standing afterwards is a gap: [idx] and [mem] and the
+   [bis_zero]-tag auxiliaries read an ELEMENT out of a list, which its length
+   does not determine, and left in place they would be applied to an integer --
+   a system whose list layer means nothing, proved under this one's name. *)
+let list_vocabulary =
+  [
+    "nil";
+    "cons";
+    "len";
+    "cat";
+    "mem";
+    "idx";
+    "idx_aux";
+    "take";
+    "take_aux";
+    "drop";
+    "drop_aux";
+    "slice";
+    "upd_idx";
+    "upd_idx_aux";
+    "upd_slice";
+    "match_cons";
+    "match_nil";
+  ]
+
+(* Rules the lift drops on top of {!dropped}'s. {!list_heads} already covers the
+   index-recursing operations (the plain surface re-gives them as
+   {!list_prelude}); these three recurse on the LIST itself, which is why that
+   surface keeps them and this one cannot. *)
+let norm_dropped_heads = [ "cat"; "match_cons"; "match_nil" ]
+
+let norm_dropped (r : R.rule) : bool =
+  dropped r
+  ||
+  match R.defined_head r with
+  | Some h -> List.mem h norm_dropped_heads
+  | None -> false
+
+(* -------------------------------------------------------------------------- *)
+(* Which positions hold lists.                                                *)
+
+(* The lift itself is keyed by SYMBOL and needs no sorts to fire. What the sorts
+   buy is the fact the untyped export throws away: a length is NON-NEGATIVE.
+   That is the same information [bis_zero -> leq] puts back for the b-layer, and
+   it is load-bearing for the same reason -- with [t] free to be negative,
+   [t - p] under [p > 0] descends forever and there is no measure to find.
+   Nothing else here needs the inference, so nothing else asks it.
+
+   Slots are unified along the slice's own equations from two seeds: the
+   occurrences of [nil]/[cons], and the list arguments of {!Prelude}'s own
+   operations. A class marked BOTH ways is not an error but an unknown -- the
+   generic equality carries lists at one call site and scalars at another, and
+   under the lift both are integers anyway; it simply gets no nonnegativity,
+   since a constraint over a value that is not an integer holds nowhere and
+   would silently delete the rule. *)
+
+let ret_slot (f : string) : string = "r:" ^ f
+let arg_slot (f : string) (i : int) : string = Printf.sprintf "a:%s:%d" f i
+let var_slot (k : int) (v : string) : string = Printf.sprintf "v:%d:%s" k v
+
+type sorts = {
+  parent : (string, string) Hashtbl.t;
+  mutable marks : (string * bool) list; (* [true] = holds a list *)
+}
+
+let rec find (s : sorts) (x : string) : string =
+  match Hashtbl.find_opt s.parent x with
+  | None ->
+      Hashtbl.replace s.parent x x;
+      x
+  | Some p when p = x -> x
+  | Some p ->
+      let r = find s p in
+      Hashtbl.replace s.parent x r;
+      r
+
+let union (s : sorts) (a : string) (b : string) : unit =
+  let a = find s a and b = find s b in
+  if a <> b then Hashtbl.replace s.parent a b
+
+let mark (s : sorts) (listy : bool) (x : string) : unit =
+  s.marks <- (x, listy) :: s.marks
+
+let is_literal_sym (f : string) : bool = String.length f > 1 && f.[0] = '#'
+
+(* The seeds, {!Prelude}'s list operations argument by argument. The scalar
+   slots are named too, since a class is only known to be lengths when nothing
+   scalar shares it. *)
+let seed_sorts (s : sorts) : unit =
+  let listy = mark s true and scalar = mark s false in
+  List.iter listy
+    [
+      ret_slot "nil";
+      ret_slot "cons";
+      arg_slot "cons" 1;
+      arg_slot "len" 0;
+      ret_slot "cat";
+      arg_slot "cat" 0;
+      arg_slot "cat" 1;
+      ret_slot "take";
+      arg_slot "take" 0;
+      ret_slot "drop";
+      arg_slot "drop" 0;
+      ret_slot "slice";
+      arg_slot "slice" 0;
+      ret_slot "upd_idx";
+      arg_slot "upd_idx" 0;
+      ret_slot "upd_slice";
+      arg_slot "upd_slice" 0;
+      arg_slot "upd_slice" 3;
+      arg_slot "idx" 0;
+      arg_slot "mem" 1;
+      arg_slot "match_cons" 0;
+      arg_slot "match_nil" 0;
+    ];
+  List.iter scalar
+    [
+      ret_slot "len";
+      arg_slot "take" 1;
+      arg_slot "drop" 1;
+      arg_slot "slice" 1;
+      arg_slot "slice" 2;
+      arg_slot "upd_idx" 1;
+      arg_slot "upd_slice" 1;
+      arg_slot "upd_slice" 2;
+      arg_slot "idx" 1;
+      ret_slot "match_cons";
+      ret_slot "match_nil";
+      ret_slot "mem";
+      ret_slot "true";
+      ret_slot "false";
+    ];
+  List.iter
+    (fun h ->
+      scalar (ret_slot h);
+      List.iter (fun i -> scalar (arg_slot h i)) [ 0; 1; 2 ])
+    arith_heads
+
+(* The heads whose argument sort is decided by the CALL SITE rather than by the
+   symbol: structural equality, and the reflection of a stuck head. Unifying
+   their argument slots the way every other symbol's are unified would merge
+   every sort they are ever applied to into one class -- measured on
+   [$strip_suffix_rec], where [isStuckHead] is applied to a list in one rule and
+   to a nat in another and the whole slice came out unknown -- so each
+   occurrence gets a slot of its own. The argument still carries its own sort
+   into that slot; what it no longer does is carry it to the next call site. *)
+let generic_heads = [ "eq"; "eqg"; "isStuckHead" ]
+
+(* One rule's equations. A term at a slot unifies that slot with its head's
+   result slot (or, for a variable, with the variable's own) and recurses into
+   the argument slots; a condition's two sides share a slot of their own. *)
+let walk_sorts (s : sorts) (k : int) : string -> R.term -> unit =
+  let fresh = ref 0 in
+  let rec go slot t =
+    match t with
+    | R.Var v -> union s slot (var_slot k v)
+    | R.App (f, args) ->
+        union s slot (ret_slot f);
+        if is_literal_sym f then mark s false slot;
+        List.iteri
+          (fun i a ->
+            if List.mem f generic_heads then (
+              incr fresh;
+              go (Printf.sprintf "g:%d:%d" k !fresh) a)
+            else go (arg_slot f i) a)
+          args
+  in
+  go
+
+(* The variables each rule holds a length in, by rule index. *)
+let length_vars (rules : R.rule list) : (int, string list) Hashtbl.t =
+  let s = { parent = Hashtbl.create 1024; marks = [] } in
+  seed_sorts s;
+  List.iteri
+    (fun k (r : R.rule) ->
+      let go = walk_sorts s k in
+      let root =
+        match r.R.lhs with
+        | R.App (f, _) -> ret_slot f
+        | R.Var v -> var_slot k v
+      in
+      go root r.R.lhs;
+      go root r.R.rhs;
+      List.iteri
+        (fun j (subject, pattern) ->
+          let c = Printf.sprintf "c:%d:%d" k j in
+          go c subject;
+          go c pattern)
+        r.R.conds)
+    rules;
+  let listy = Hashtbl.create 256 and scalar = Hashtbl.create 256 in
+  List.iter
+    (fun (slot, is_list) ->
+      Hashtbl.replace (if is_list then listy else scalar) (find s slot) ())
+    s.marks;
+  let lengths = Hashtbl.create 256 in
+  List.iteri
+    (fun k (r : R.rule) ->
+      let held =
+        List.filter
+          (fun v ->
+            let c = find s (var_slot k v) in
+            Hashtbl.mem listy c && not (Hashtbl.mem scalar c))
+          (R.dedup_stable (R.vars_of_term r.R.lhs))
+      in
+      Hashtbl.replace lengths k held)
+    rules;
+  lengths
+
+(* -------------------------------------------------------------------------- *)
+(* The dictionary.                                                            *)
+
+(* An integer constraint the lift owes, over the expressions it built. *)
+type atom = R.term * string * R.term
+
+(* One reading of an operation: the length of its result, and the constraint
+   under which {!Prelude} gives it a result at all (out of range it is
+   irreducible there, and totalizing it here would let a proof rely on a step
+   the real system cannot take). Several readings are a CASE SPLIT: the rule
+   containing the call is duplicated, one copy per reading, their constraints
+   disjoint and together exhaustive. *)
+type closed = { value : R.term; guard : atom list }
+
+(* A symbol the slice itself defines by such a form -- see {!discover_macros}. *)
+type macro = { params : string list; readings : closed list }
+
+(* The lift builds arithmetic where the CTRS had list operations, and folds it
+   as it goes. Not cosmetic: an unfolded [0 + p] is one more thing for the
+   constraint solver to carry on every rule the guard rides on, and an
+   all-literal guard folds to a decision -- see {!settled_atoms}. *)
+let lit_of (t : R.term) : int option =
+  match t with
+  | R.App (f, []) when is_literal_sym f ->
+      int_of_string_opt (String.sub f 1 (String.length f - 1))
+  | _ -> None
+
+let arith (op : string) (f : int -> int -> int) (unit_ : int option) a b =
+  match (lit_of a, lit_of b) with
+  | Some x, Some y -> literal (f x y)
+  | Some x, None when unit_ = Some x -> b
+  | None, Some y when unit_ = Some y -> a
+  | _ -> R.App (op, [ a; b ])
+
+let plus = arith "#+" ( + ) (Some 0)
+let minus a b = if lit_of b = Some 0 then a else arith "#-" ( - ) None a b
+let times = arith "#*" ( * ) (Some 1)
+
+(* The closed forms. The list entries are read off {!list_prelude} one for one:
+   [take]'s result is as long as its index and needs the list to reach that far,
+   [drop]'s is what is left, [slice] is [take] after [drop].
+
+   The three nat operations are here for a different reason. A guard has to
+   render as PURE integer arithmetic -- [take(t, sub(len t, len s)) <= len t] is
+   not something a [:|:] can say while [sub] is a defined symbol -- so the
+   arithmetic computing an index must be inlined along with the operation it
+   indexes. [sub] is monus and needs both of its cases to say that;
+   {!integer_prelude} keeps its rules for the callers this does not reach. *)
+let dictionary (f : string) (args : R.term list) : closed list option =
+  let plain value = Some [ { value; guard = [] } ] in
+  match (f, args) with
+  | "nil", [] -> plain (literal 0)
+  | "len", [ x ] -> plain x
+  | "cat", [ x; y ] -> plain (plus x y)
+  | "take", [ x; k ] ->
+      Some [ { value = k; guard = [ (k, ">=", literal 0); (k, "<=", x) ] } ]
+  | "drop", [ x; k ] ->
+      Some
+        [
+          { value = minus x k; guard = [ (k, ">=", literal 0); (k, "<=", x) ] };
+        ]
+  | "slice", [ x; i; n ] ->
+      Some
+        [
+          {
+            value = n;
+            guard =
+              [
+                (i, ">=", literal 0); (n, ">=", literal 0); (plus i n, "<=", x);
+              ];
+          };
+        ]
+  | "upd_idx", [ x; i; _ ] ->
+      Some [ { value = x; guard = [ (i, ">=", literal 0); (i, "<", x) ] } ]
+  | "upd_slice", [ x; i; n; v ] ->
+      Some
+        [
+          {
+            value = plus (minus x n) v;
+            guard =
+              [
+                (i, ">=", literal 0); (n, ">=", literal 0); (plus i n, "<=", x);
+              ];
+          };
+        ]
+  (* A matcher on a list is a comparison on its length, which is the shape
+     {!lift_guards} can turn into a constraint of its own. *)
+  | "match_cons", [ x ] -> plain (R.App ("lt", [ literal 0; x ]))
+  | "match_nil", [ x ] -> plain (R.App ("leq", [ x; literal 0 ]))
+  | "add", [ x; y ] -> plain (plus x y)
+  | "mul", [ x; y ] -> plain (times x y)
+  | "sub", [ x; y ] ->
+      Some
+        [
+          { value = minus x y; guard = [ (x, ">=", y) ] };
+          { value = literal 0; guard = [ (x, "<", y) ] };
+        ]
+  | _ -> None
+
+let lookup (macros : (string * macro) list) (f : string) (args : R.term list) :
+    closed list option =
+  match dictionary f args with
+  | Some _ as found -> found
+  | None -> (
+      match List.assoc_opt f macros with
+      | Some m when List.length m.params = List.length args ->
+          let inst = R.subst (List.combine m.params args) in
+          Some
+            (List.map
+               (fun c ->
+                 {
+                   value = inst c.value;
+                   guard =
+                     List.map (fun (l, rel, r) -> (inst l, rel, inst r)) c.guard;
+                 })
+               m.readings)
+      | _ -> None)
+
+(* An expression a [:|:] constraint can name: variables, folded literals, and
+   the infix operators {!Unravel.print_rules} spells. Anything else -- a defined
+   symbol, a constructor -- has no integer value at constraint time. *)
+let rec pure (t : R.term) : bool =
+  match t with
+  | R.Var _ -> true
+  | R.App (f, []) -> is_literal_sym f
+  | R.App (f, [ a; b ]) -> is_literal_sym f && pure a && pure b
+  | R.App _ -> false
+
+let rec render_expr (t : R.term) : string =
+  match t with
+  | R.Var v -> v
+  | R.App (f, []) when is_literal_sym f -> String.sub f 1 (String.length f - 1)
+  | R.App (f, [ a; b ]) when is_literal_sym f ->
+      Printf.sprintf "(%s %s %s)" (render_expr a)
+        (String.sub f 1 (String.length f - 1))
+        (render_expr b)
+  | _ ->
+      norm_fail "constraint operand is not integer arithmetic: %s"
+        (R.string_of_term t)
+
+(* An atom over literals alone is a decision, not a constraint. Carrying one
+   would be worse than useless: it names no variable, and {!of_system}'s [tail]
+   attaches a constraint to every rule that carries all of ITS variables -- which
+   for none is every rule in the export. A true one is dropped; a false one says
+   the operation is undefined on exactly the instances that rule fires on, so
+   the rule can never fire and goes with it (exact -- it contributes no step to
+   the model either way). *)
+let decided ((l, rel, r) : atom) : bool option =
+  match (lit_of l, lit_of r) with
+  | Some x, Some y ->
+      Some
+        (match rel with
+        | ">=" -> x >= y
+        | ">" -> x > y
+        | "<=" -> x <= y
+        | "<" -> x < y
+        | _ -> x = y)
+  | _ -> None
+
+let settled_atoms (atoms : atom list) : atom list option =
+  let atoms =
+    List.fold_left
+      (fun acc a -> if List.mem a acc then acc else acc @ [ a ])
+      [] atoms
+  in
+  if List.exists (fun a -> decided a = Some false) atoms then None
+  else Some (List.filter (fun a -> decided a <> Some true) atoms)
+
+let render_atom ((l, rel, r) : atom) : string =
+  Printf.sprintf "%s %s %s" (render_expr l) rel (render_expr r)
+
+(* -------------------------------------------------------------------------- *)
+(* The transformation.                                                        *)
+
+(* How many copies of one rule a case split may make. A rule with several
+   independent [sub]s multiplies out, and past this the export is no longer the
+   question anyone asked. *)
+let split_cap = 16
+
+(* How many readings an operation has, without yet knowing its arguments -- the
+   count is a property of the symbol, and asking the dictionary itself is what
+   keeps this from drifting away from it. *)
+let readings_count (macros : (string * macro) list) (f : string) (arity : int) :
+    int =
+  let dummy = List.init arity (fun i -> R.Var (Printf.sprintf "_%d" i)) in
+  match lookup macros f dummy with Some rs -> List.length rs | None -> 1
+
+(* The subterms of one rule whose operation has more than one reading, each
+   listed ONCE however often it occurs. One choice per distinct subterm, not per
+   occurrence, and that is not merely an economy: the occurrences are the same
+   call, so in the source they reduce the same way, and letting them differ
+   would emit copies whose guards contradict each other ([x >= y] here and
+   [x < y] there) -- eight copies of [$ends_with] where two say everything. *)
+let split_sites (macros : (string * macro) list) (terms : R.term list) :
+    (R.term * int) list =
+  let rec go t acc =
+    match t with
+    | R.Var _ -> acc
+    | R.App (f, args) ->
+        let acc = List.fold_left (fun acc a -> go a acc) acc args in
+        let n = readings_count macros f (List.length args) in
+        if n > 1 && not (List.mem_assoc t acc) then acc @ [ (t, n) ] else acc
+  in
+  List.fold_left (fun acc t -> go t acc) [] terms
+
+let assignments (sites : (R.term * int) list) : (R.term * int) list list =
+  let out =
+    List.fold_right
+      (fun (t, n) acc ->
+        List.concat_map
+          (fun i -> List.map (fun rest -> (t, i) :: rest) acc)
+          (List.init n Fun.id))
+      sites [ [] ]
+  in
+  if List.length out > split_cap then
+    norm_fail "a rule case-splits into %d copies" (List.length out)
+  else out
+
+(* A discarded element must not be a computation: dropping [cons(h, t)]'s head
+   drops whatever [h] would have reduced to, and where that is a CALL the lift
+   would be deleting a recursion rather than abstracting a value. *)
+let rec computes (defined : (string, unit) Hashtbl.t) (t : R.term) : bool =
+  match t with
+  | R.Var _ -> false
+  | R.App (f, args) ->
+      Hashtbl.mem defined f || List.exists (computes defined) args
+
+(* One value position under one assignment of readings. *)
+let rec norm_value (defined : (string, unit) Hashtbl.t)
+    (macros : (string * macro) list) (choice : (R.term * int) list) (t : R.term)
+    : R.term * atom list =
+  match t with
+  | R.Var _ -> (t, [])
+  | R.App ("cons", [ h; tl ]) ->
+      if computes defined h then
+        norm_fail "a list element is computed and the lift would drop it: %s"
+          (R.string_of_term h);
+      let tl, owed = norm_value defined macros choice tl in
+      (plus tl (literal 1), owed)
+  | R.App (f, args) -> (
+      let args, owed =
+        List.fold_left
+          (fun (args, owed) a ->
+            let a, owed' = norm_value defined macros choice a in
+            (args @ [ a ], owed @ owed'))
+          ([], []) args
+      in
+      match lookup macros f args with
+      | None -> (R.App (f, args), owed)
+      | Some readings ->
+          let c =
+            List.nth readings
+              (Option.value (List.assoc_opt t choice) ~default:0)
+          in
+          (c.value, owed @ c.guard))
+
+(* A pattern has room for neither half of the lift: an arithmetic expression
+   cannot be matched against, and a constraint cannot be attached to a binding
+   the match performs. [nil] is the one shape that survives, as the literal it
+   denotes. A [cons] pattern is where the PLAIN surface is already at its
+   strongest -- the tail meets the whole list as a strict subterm and
+   size-change closes the cycle unaided -- so there is nothing here for the lift
+   to add, and it says so rather than guessing. *)
+let rec norm_pattern (t : R.term) : R.term =
+  match t with
+  | R.Var _ -> t
+  | R.App ("nil", []) -> literal 0
+  | R.App ("cons", _) ->
+      norm_fail "a list is destructured in a pattern (%s)" (R.string_of_term t)
+  | R.App (f, args) -> R.App (f, List.map norm_pattern args)
+
+(* Two kinds of condition stop being steps once the lift has run, and each one
+   it leaves standing is a chain step on every path through the rule.
+
+   A BINDER of a fresh variable to a closed arithmetic expression: unraveled it
+   becomes [u(t - p, ..)] produced and [u(crcv, ..)] consumed, which always
+   fires. On the source surface it earns its step -- it is the binder
+   {!Crc_surface.rebind_stuck_guards} restores, and the subject there is a CALL
+   that forcing is the whole point of. Once the lift has turned that call into
+   arithmetic there is nothing left to force, since an ITRS evaluates an
+   expression in place rather than by rewriting. Only where the variable is
+   bound HERE: one that also occurs in the left-hand side or in another
+   condition's pattern is a MATCH, and a match decides whether the rule fires.
+
+   A condition whose two sides are the SAME TERM, which is what a matching
+   condition against a computed list becomes: [$starts_with] tests
+   [t[0 : |p|] = p], and under the lift both sides are [|p|]. It held on every
+   instance -- {!R.orient_conds} leaves the pattern side a constructor term, so
+   a subject equal to it is already a normal form and the match cannot fail --
+   and dropping it is what turns [$starts_with] and [$ends_with] from a chain
+   into a single constrained rule, the shape a caller's proof can read a guard
+   out of.
+
+   Both are exact and both shorten every chain, which is the whole of their
+   value: the recursion these slices are about is guarded by a call, and a
+   guard the checker has to reach through three steps is one it does not reach.
+   Measured on [$strip_suffix_rec] (budget 300): with the chain, KILLED; with
+   both drops, YES. *)
+let drop_vacuous_conds (r : R.rule) : R.rule =
+  let matched v =
+    R.count_var v r.R.lhs
+    + List.fold_left (fun n (_, p) -> n + R.count_var v p) 0 r.R.conds
+  in
+  let bound = ref (R.vars_of_term r.R.lhs) in
+  let sub, conds =
+    List.fold_left
+      (fun (sub, conds) (subject, pattern) ->
+        let subject = R.subst sub subject in
+        match pattern with
+        | R.Var v when pure subject && matched v = 1 ->
+            (sub @ [ (v, subject) ], conds)
+        | _
+          when subject = pattern
+               && List.for_all
+                    (fun v -> List.mem v !bound)
+                    (R.vars_of_term pattern) ->
+            (sub, conds)
+        | _ ->
+            bound := !bound @ R.vars_of_term pattern;
+            (sub, conds @ [ (subject, pattern) ]))
+      ([], []) r.R.conds
+  in
+  { r with R.rhs = R.subst sub r.R.rhs; R.conds }
+
+let norm_rule (defined : (string, unit) Hashtbl.t)
+    (macros : (string * macro) list) (lengths : string list) (r : R.rule) :
+    (R.rule * atom list) list =
+  let lhs = norm_pattern r.R.lhs in
+  let nonneg = List.map (fun v -> (R.Var v, ">=", literal 0)) lengths in
+  let values = r.R.rhs :: List.map fst r.R.conds in
+  List.map
+    (fun choice ->
+      let value = norm_value defined macros choice in
+      let rhs, owed = value r.R.rhs in
+      let conds, owed =
+        List.fold_left
+          (fun (conds, owed) (subject, pattern) ->
+            let subject, owed' = value subject in
+            (conds @ [ (subject, norm_pattern pattern) ], owed @ owed'))
+          ([], owed) r.R.conds
+      in
+      (drop_vacuous_conds { r with R.lhs; R.rhs; R.conds }, nonneg @ owed))
+    (assignments (split_sites macros values))
+
+(* A symbol the slice defines by a closed form is a symbol whose CALLS hide what
+   they compute. [$strip_prefix] is [drop(t, len(p))], which the dictionary
+   turns into [t - p]: left as a rule that puts a defined symbol in the
+   recursive argument, where the pair graph reads an edge as reachability rather
+   than as arithmetic -- the wrapper defect {!inline_literal_divisors} was
+   written for, measured again here. On probes carrying this recursion's shape
+   and nothing else (budget 300) one wrapper is YES and two are KILLED, and
+   [$strip_prefix_rec] has two: its own and [$starts_with]'s. Only the
+   conditional one has to stay.
+
+   Inlining is exact in the same way the divisor inline is -- the rule's step is
+   performed once at emission instead of on every instance, and the guard it
+   owed rides to the call site. A ROOT is left alone: the export has to contain
+   the symbol the slice is about. *)
+let discover_macros ~(roots : string list) (macros : (string * macro) list)
+    (normed : (R.rule * atom list) list) : (string * macro) list =
+  let heads =
+    R.dedup_stable (List.filter_map (fun (r, _) -> R.defined_head r) normed)
+  in
+  List.filter_map
+    (fun h ->
+      if List.mem h roots || List.mem_assoc h macros then None
+      else
+        let own =
+          List.filter (fun (r, _) -> R.defined_head r = Some h) normed
+        in
+        let params =
+          match own with
+          | ({ R.lhs = R.App (_, args); _ }, _) :: _ ->
+              List.filter_map (function R.Var v -> Some v | _ -> None) args
+          | _ -> []
+        in
+        let reading ((r : R.rule), owed) =
+          let bound t =
+            List.for_all (fun v -> List.mem v params) (R.vars_of_term t)
+          in
+          if
+            params <> []
+            && List.length (R.dedup_stable params) = List.length params
+            && r.R.conds = [] && (not r.R.owise)
+            && r.R.lhs = R.App (h, List.map (fun v -> R.Var v) params)
+            && pure r.R.rhs && bound r.R.rhs
+            && List.for_all
+                 (fun (l, _, rt) -> pure l && pure rt && bound l && bound rt)
+                 owed
+          then Some { value = r.R.rhs; guard = owed }
+          else None
+        in
+        let readings = List.map reading own in
+        if readings <> [] && List.for_all Option.is_some readings then
+          Some (h, { params; readings = List.filter_map Fun.id readings })
+        else None)
+    heads
+
+(* The lift as a whole: the length variables, then the dictionary and the macros
+   it uncovers to a fixpoint (a macro's body can only turn closed once the
+   macros it calls are inlined, so one pass is not enough), then the rules of
+   every symbol that turned out to be a macro dropped, then the check that no
+   list vocabulary survived anywhere. *)
+let norm_lift ~(roots : string list) (rules : R.rule list) :
+    (R.rule * atom list) list =
+  let lengths = length_vars rules in
+  let defined = Hashtbl.create 256 in
+  List.iter
+    (fun r ->
+      Option.iter (fun h -> Hashtbl.replace defined h ()) (R.defined_head r))
+    rules;
+  let pass macros =
+    List.concat
+      (List.mapi
+         (fun k r ->
+           norm_rule defined macros
+             (Option.value (Hashtbl.find_opt lengths k) ~default:[])
+             r)
+         rules)
+  in
+  let rec settle macros rounds =
+    let normed = pass macros in
+    if rounds = 0 then (macros, normed)
+    else
+      match discover_macros ~roots macros normed with
+      | [] -> (macros, normed)
+      | found -> settle (macros @ found) (rounds - 1)
+  in
+  let macros, normed = settle [] 4 in
+  let normed =
+    List.filter
+      (fun ((r : R.rule), _) ->
+        match R.defined_head r with
+        | Some h -> not (List.mem_assoc h macros)
+        | None -> true)
+      normed
+  in
+  let residue =
+    List.concat_map
+      (fun ((r : R.rule), owed) ->
+        R.heads_of_term r.R.lhs @ R.heads_of_term r.R.rhs
+        @ List.concat_map
+            (fun (s, p) -> R.heads_of_term s @ R.heads_of_term p)
+            r.R.conds
+        @ List.concat_map
+            (fun (l, _, rt) -> R.heads_of_term l @ R.heads_of_term rt)
+            owed)
+      normed
+    |> R.dedup_stable
+    |> List.filter (fun h -> List.mem h list_vocabulary)
+  in
+  if residue <> [] then
+    norm_fail "list operation(s) with no closed form: %s"
+      (String.concat ", " residue);
+  normed
+
+(* The lift, spelled into {!of_system}'s two channels: the rules it returns, and
+   the constraint list every chain step of a rule rides on. Constraint variables
+   are renamed system-wide fresh for the reason {!lift_guards} renames them --
+   [tail] matches a constraint to its rules BY those names, so a name shared
+   with an unrelated rule would attach it there too, restricting that rule
+   instead of this one. *)
+let norm_rules ~(roots : string list) ~(next : int ref)
+    ~(constraints : (string list * string) list ref) (rules : R.rule list) :
+    (R.rule list, string) result =
+  try
+    Ok
+      (List.filter_map
+         (fun ((r : R.rule), atoms) ->
+           match settled_atoms atoms with
+           | None -> None
+           | Some [] -> Some r
+           | Some atoms ->
+               let vars =
+                 R.dedup_stable
+                   (List.concat_map
+                      (fun (l, _, rt) -> R.vars_of_term l @ R.vars_of_term rt)
+                      atoms)
+               in
+               let sub =
+                 List.map
+                   (fun v ->
+                     incr next;
+                     (v, R.Var (constraint_var !next)))
+                   vars
+               in
+               let apply = R.subst sub in
+               let atoms =
+                 List.map (fun (l, rel, rt) -> (apply l, rel, apply rt)) atoms
+               in
+               constraints :=
+                 !constraints
+                 @ List.map
+                     (fun ((l, _, rt) as a) ->
+                       ( R.dedup_stable (R.vars_of_term l @ R.vars_of_term rt),
+                         render_atom a ))
+                     atoms;
+               Some
+                 {
+                   r with
+                   R.lhs = apply r.R.lhs;
+                   R.rhs = apply r.R.rhs;
+                   R.conds =
+                     List.map (fun (s, p) -> (apply s, apply p)) r.R.conds;
+                 })
+         (norm_lift ~roots rules))
+  with Norm_fail msg -> Error ("list-length lift: " ^ msg)
 
 (* -------------------------------------------------------------------------- *)
 (* The hand-written integer prelude.                                          *)
@@ -741,7 +1515,14 @@ let integer_prelude =
     "  leq_int(x, y) -> false :|: x > y";
     "  lt_int(x, y) -> true :|: x < y";
     "  lt_int(x, y) -> false :|: x >= y";
-    (* Lists over integer indices. Out-of-bounds stays irreducible. *)
+  ]
+
+(* Lists over integer indices, still built from [nil]/[cons]. Out-of-bounds
+   stays irreducible. Kept apart from the arithmetic above because the
+   list-length lift below replaces the whole list layer with closed forms over
+   lengths, and then none of these symbols exists any more. *)
+let list_prelude =
+  [
     "  len(nil) -> 0";
     "  len(cons(x, xs)) -> len(xs) + 1";
     "  idx(cons(x, xs), i) -> x :|: i = 0";
@@ -902,9 +1683,13 @@ let has_arithmetic (t : R.t) : bool =
         @ List.concat_map (fun (s, p) -> names s @ names p) r.R.conds))
     t.R.rules
 
-let of_system ~(roots : string list) (t : R.t) :
+let of_system ~(roots : string list) ?(norm = false) (t : R.t) :
     (string * Unravel.stats, string) result =
-  let kept = List.filter (fun r -> not (dropped r)) t.R.rules in
+  let kept =
+    List.filter
+      (fun r -> not ((if norm then norm_dropped else dropped) r))
+      t.R.rules
+  in
   (* Sign dispatch first: it rewrites the lhs and substitutes into the rest, so
      folding must see the result, not the constructors it removes. *)
   let next = ref 0 in
@@ -939,50 +1724,60 @@ let of_system ~(roots : string list) (t : R.t) :
         })
       lifted
   in
-  (* Comparisons come back as constraints only now: folding is what turns a
+  (* The list layer comes down to lengths before the comparisons are lifted, so
+     that a guard the lift turns into [leq(p, 0)] is one {!lift_guards} can name
+     ([len(p)] is a compound operand and would stay a chain step). *)
+  match
+    if norm then norm_rules ~roots ~next ~constraints folded else Ok folded
+  with
+  | Error msg -> Error msg
+  | Ok normed -> (
+      (* Comparisons come back as constraints only now: folding is what turns a
      closed magnitude into the integer literal an operand can name. *)
-  let guarded =
-    List.map
-      (fun (r : R.rule) ->
-        let r, cs = lift_guards next r in
-        constraints := !constraints @ cs;
-        r)
-      folded
-  in
-  let leftover =
-    List.concat_map
-      (fun (r : R.rule) ->
-        unfolded r.R.lhs @ unfolded r.R.rhs
-        @ List.concat_map (fun (s, p) -> unfolded s @ unfolded p) r.R.conds)
-      guarded
-  in
-  match R.dedup_stable leftover with
-  | _ :: _ as bad ->
-      Error
-        (Printf.sprintf
-           "open scalar magnitude(s) the integer encoding cannot express: %s"
-           (String.concat ", " (List.filteri (fun i _ -> i < 5) bad)))
-  | [] -> (
-      let system = { t with R.rules = guarded } in
-      match Unravel.unconditional_rules system with
-      | Error msg -> Error msg
-      | Ok { Unravel.unconditional = rules; steps; dropped_owise; _ } -> (
-          match Unravel.print_rules rules with
+      let guarded =
+        List.map
+          (fun (r : R.rule) ->
+            let r, cs = lift_guards next r in
+            constraints := !constraints @ cs;
+            r)
+          normed
+      in
+      let leftover =
+        List.concat_map
+          (fun (r : R.rule) ->
+            unfolded r.R.lhs @ unfolded r.R.rhs
+            @ List.concat_map (fun (s, p) -> unfolded s @ unfolded p) r.R.conds)
+          guarded
+      in
+      match R.dedup_stable leftover with
+      | _ :: _ as bad ->
+          Error
+            (Printf.sprintf
+               "open scalar magnitude(s) the integer encoding cannot express: \
+                %s"
+               (String.concat ", " (List.filteri (fun i _ -> i < 5) bad)))
+      | [] -> (
+          let system = { t with R.rules = guarded } in
+          match Unravel.unconditional_rules system with
           | Error msg -> Error msg
-          | Ok (printed, variables) ->
-              let codecs = codec_calls t in
-              let candidates =
-                integer_prelude
-                @ List.concat_map
-                    (fun h ->
-                      if has_prefix ~prefix:"$bitstr_to_int" h then
-                        decode_rules (Unravel.tpdb_sym h)
-                      else encode_rules (Unravel.tpdb_sym h))
-                    codecs
-                @ codec_helpers
-              in
-              let used = symbols_used rules in
-              (* A slice whose ROOT is itself a replaced head keeps none of its
+          | Ok { Unravel.unconditional = rules; steps; dropped_owise; _ } -> (
+              match Unravel.print_rules rules with
+              | Error msg -> Error msg
+              | Ok (printed, variables) ->
+                  let codecs = codec_calls t in
+                  let candidates =
+                    integer_prelude
+                    @ (if norm then [] else list_prelude)
+                    @ List.concat_map
+                        (fun h ->
+                          if has_prefix ~prefix:"$bitstr_to_int" h then
+                            decode_rules (Unravel.tpdb_sym h)
+                          else encode_rules (Unravel.tpdb_sym h))
+                        codecs
+                    @ codec_helpers
+                  in
+                  let used = symbols_used rules in
+                  (* A slice whose ROOT is itself a replaced head keeps none of its
                  own rules, so nothing left in [rules] names it and the
                  reachability filter below would prune the very replacement
                  written to stand in for it -- exporting a system that no longer
@@ -991,29 +1786,29 @@ let of_system ~(roots : string list) (t : R.t) :
                  replacement; it is also what lets the [undefined] check below
                  see a root whose rules vanished without one, instead of
                  answering a question about the empty remainder. *)
-              List.iter
-                (fun r ->
-                  Hashtbl.replace used r ();
-                  Hashtbl.replace used (Unravel.tpdb_sym r) ())
-                roots;
-              let candidates =
-                candidates @ List.filter_map (blayer_bridge t) roots
-              in
-              (* Can a scalar reach [eq] at all? Only if folding left an
+                  List.iter
+                    (fun r ->
+                      Hashtbl.replace used r ();
+                      Hashtbl.replace used (Unravel.tpdb_sym r) ())
+                    roots;
+                  let candidates =
+                    candidates @ List.filter_map (blayer_bridge t) roots
+                  in
+                  (* Can a scalar reach [eq] at all? Only if folding left an
                  integer literal or an arithmetic head behind. *)
-              let has_integers =
-                Hashtbl.fold
-                  (fun f () acc ->
-                    acc
-                    || (String.length f > 1 && f.[0] = '#')
-                    || List.mem f arith_heads)
-                  used false
-              in
-              let candidates =
-                if has_integers then integer_eq @ candidates else candidates
-              in
-              let extra = reachable_prelude used candidates in
-              (* A replaced head that survived into the rules but got no
+                  let has_integers =
+                    Hashtbl.fold
+                      (fun f () acc ->
+                        acc
+                        || (String.length f > 1 && f.[0] = '#')
+                        || List.mem f arith_heads)
+                      used false
+                  in
+                  let candidates =
+                    if has_integers then integer_eq @ candidates else candidates
+                  in
+                  let extra = reachable_prelude used candidates in
+                  (* A replaced head that survived into the rules but got no
                  definition back is the worst outcome available here: AProVE
                  reads it as an uninterpreted constructor, which is IRREDUCIBLE,
                  which removes rewrite steps -- the unsound direction, where a
@@ -1021,69 +1816,69 @@ let of_system ~(roots : string list) (t : R.t) :
                  dropped but something still CALLS into it (the P4 bitwise
                  builtins call [bsub]/[bdiv] directly), so it is checked rather
                  than trusted. *)
-              let defined = List.map rule_head extra in
-              let undefined =
-                Hashtbl.fold
-                  (fun f () acc ->
-                    (* [defined] holds TPDB spellings (the codec rules are named
+                  let defined = List.map rule_head extra in
+                  let undefined =
+                    Hashtbl.fold
+                      (fun f () acc ->
+                        (* [defined] holds TPDB spellings (the codec rules are named
                        after the scrubbed symbol), [used] holds CTRS ones. *)
-                    if
-                      replaced_head f
-                      && (not (List.mem (Unravel.tpdb_sym f) defined))
-                      && not (List.mem f (List.map fst blayer))
-                    then f :: acc
-                    else acc)
-                  used []
-                |> List.sort_uniq compare
-              in
-              if undefined <> [] then
-                Error
-                  (Printf.sprintf
-                     "replaced head(s) left with no integer definition: %s"
-                     (String.concat ", " undefined))
-              else
-                let vars =
-                  R.dedup_stable
-                    (List.sort compare
-                       (variables @ prelude_vars
-                       @ List.concat_map fst !constraints
-                       @ if codecs = [] then [] else codec_vars))
-                in
-                (* A lifted sign constraint rides on every chain step that still
+                        if
+                          replaced_head f
+                          && (not (List.mem (Unravel.tpdb_sym f) defined))
+                          && not (List.mem f (List.map fst blayer))
+                        then f :: acc
+                        else acc)
+                      used []
+                    |> List.sort_uniq compare
+                  in
+                  if undefined <> [] then
+                    Error
+                      (Printf.sprintf
+                         "replaced head(s) left with no integer definition: %s"
+                         (String.concat ", " undefined))
+                  else
+                    let vars =
+                      R.dedup_stable
+                        (List.sort compare
+                           (variables @ prelude_vars
+                           @ List.concat_map fst !constraints
+                           @ if codecs = [] then [] else codec_vars))
+                    in
+                    (* A lifted sign constraint rides on every chain step that still
                  carries its variable, not just the entry rule: the [k_i]
                  keep-constructors pass the original arguments along, so the
                  variable -- and the case split it stands for -- is still there
                  several steps down. Repeating it is exact, not a narrowing:
                  it is the same condition the constructor pattern imposed. *)
-                let tail lhs_term =
-                  let carried = R.vars_of_term lhs_term in
-                  match
-                    List.filter
-                      (fun (vs, _) ->
-                        List.for_all (fun v -> List.mem v carried) vs)
-                      !constraints
-                  with
-                  | [] -> ""
-                  | cs -> " :|: " ^ String.concat " && " (List.map snd cs)
-                in
-                let b = Buffer.create 8192 in
-                Buffer.add_string b "(GOAL TERMINATION)\n(STARTTERM FULL)\n";
-                Buffer.add_string b
-                  (Printf.sprintf "(VAR %s)\n" (String.concat " " vars));
-                Buffer.add_string b "(RULES\n";
-                List.iter2
-                  (fun (lhs, rhs) (lhs_term, _) ->
+                    let tail lhs_term =
+                      let carried = R.vars_of_term lhs_term in
+                      match
+                        List.filter
+                          (fun (vs, _) ->
+                            List.for_all (fun v -> List.mem v carried) vs)
+                          !constraints
+                      with
+                      | [] -> ""
+                      | cs -> " :|: " ^ String.concat " && " (List.map snd cs)
+                    in
+                    let b = Buffer.create 8192 in
+                    Buffer.add_string b "(GOAL TERMINATION)\n(STARTTERM FULL)\n";
                     Buffer.add_string b
-                      ("  " ^ lhs ^ " -> " ^ rhs ^ tail lhs_term ^ "\n"))
-                  printed rules;
-                List.iter (fun s -> Buffer.add_string b (s ^ "\n")) extra;
-                Buffer.add_string b ")\n";
-                Ok
-                  ( Buffer.contents b,
-                    {
-                      Unravel.eqs = List.length t.R.rules;
-                      rules = List.length rules + List.length extra;
-                      chain_steps = steps;
-                      vars = List.length vars;
-                      owise = dropped_owise;
-                    } )))
+                      (Printf.sprintf "(VAR %s)\n" (String.concat " " vars));
+                    Buffer.add_string b "(RULES\n";
+                    List.iter2
+                      (fun (lhs, rhs) (lhs_term, _) ->
+                        Buffer.add_string b
+                          ("  " ^ lhs ^ " -> " ^ rhs ^ tail lhs_term ^ "\n"))
+                      printed rules;
+                    List.iter (fun s -> Buffer.add_string b (s ^ "\n")) extra;
+                    Buffer.add_string b ")\n";
+                    Ok
+                      ( Buffer.contents b,
+                        {
+                          Unravel.eqs = List.length t.R.rules;
+                          rules = List.length rules + List.length extra;
+                          chain_steps = steps;
+                          vars = List.length vars;
+                          owise = dropped_owise;
+                        } ))))

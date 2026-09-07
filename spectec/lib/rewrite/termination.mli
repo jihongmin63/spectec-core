@@ -10,14 +10,14 @@
     emission at all. Because the TRS over-approximates the sorted CTRS, [Yes]
     transfers to the original slice; every other verdict is only about the TRS.
 
-    A check takes up to three paths, in order, and stops at the first [Yes]
+    A check takes up to four paths, in order, and stops at the first [Yes]
     ({!path}). They are not settings of one run, and none of their unproven
     verdicts says anything about the others. Nor do their [Yes]es weigh the
     same: the two plain-TRS paths over-approximate the slice, so their [Yes] is
-    the slice's, while [Integer_trs] proves a MODEL of it (see {!surface}) and
-    its [Yes] is a statement about that model. A row tells the two apart by the
-    path named in {!report.steps}, not by the verdict, which is spelled [YES]
-    either way. *)
+    the slice's, while [Integer_trs] and [Length_trs] prove a MODEL of it (see
+    {!surface}) and their [Yes] is a statement about that model. A row tells the
+    two apart by the path named in {!report.steps}, not by the verdict, which is
+    spelled [YES] either way. *)
 
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
 
@@ -37,8 +37,15 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
     - [Integer_trs] -- the whole slice on the integer surface ({!Itrs}), tried
       only where the slice actually computes arithmetic. It is what reaches the
       residue the other two cannot: a descent that lives inside the structural
-      binary-digit layer is a linear fact here and a black box there. *)
-type path = Whole_trs | Children | Integer_trs
+      binary-digit layer is a linear fact here and a black box there.
+    - [Length_trs] -- the same surface with the LIST layer lifted to lengths as
+      well ({!Itrs.of_system}'s [norm]), for the descent that shortens a list
+      rather than counting an integer down. It covers far fewer slices than the
+      one before it -- a slice that destructures a list in a pattern, or calls a
+      list operation with no closed form, is reported as an export [Error] and
+      not proved -- so it is asked last and only where the integer surface has
+      already failed. *)
+type path = Whole_trs | Children | Integer_trs | Length_trs
 
 (** What one path came back with. Kept per path rather than collapsed, because a
     failed split's own numbers ("48/75 closed, node 911 TIMEOUT") are the
@@ -129,11 +136,19 @@ val trs_of_slice : Rewrite_system.t -> (string * Unravel.stats, string) result
     [$int_to_bitstr]) is a step weaker again: there the substitute is not the
     same algorithm but a closed formula in place of a correction loop.
 
+    [Integer_lengths] is that surface with one more layer replaced: lists come
+    down to their LENGTHS, so [drop(t, len(p))] is [t - p] and a recursion that
+    shortens a list has a measure the constraint solver reads. It is a model in
+    the same sense and one step further along it -- two lists of equal length
+    are one term there -- and it applies only where the lift covers the slice,
+    reporting an [Error] rather than a weaker system where it does not.
+
     Neither surface's MAYBE says anything about the other either, so a column
     measured on one must not be compared row-wise against a column measured on
     the other. In a row, an [Integer] answer is told apart by the [itrs:] entry
-    in the paths column, not by the verdict, which is spelled the same. *)
-type surface = Plain | Integer
+    in the paths column (and a length-lifted one by [itrs-lengths:]), not by the
+    verdict, which is spelled the same. *)
+type surface = Plain | Integer | Integer_lengths
 
 (** The export a surface uses, and the temp-file extension it must be handed to
     AProVE under (which is how AProVE selects the problem type -- ITRS text in a
