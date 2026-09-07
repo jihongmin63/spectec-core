@@ -475,18 +475,31 @@ let rules_of_builtin ~scalars ~eq ~mem ~suffix (orig : spec) (id : id) :
       (* Two's-complement DECODE: normalize a raw (unsigned) [n] into
          [-2^(w-1) .. 2^(w-1) - 1] by adding/subtracting [2^w] once.
          [numerics.ml]'s [bitstr_to_int'] recurses instead of assuming one
-         correction step always suffices, so this does too. *)
+         correction step always suffices, so this does too.
+
+         The recursion is guarded on [w > 0]: at [w = 0] the target interval
+         is empty and the correction oscillates 0 -> -1 -> 0 forever (a
+         reachable divergence -- `const bit<0> B = A + A;` hangs the
+         typechecker). bit<0> has exactly one value, so [w <= 0] returns 0,
+         mirroring [numerics.ml]. The guard is spelled arithmetically
+         ([0 < w]), not as an equality, so the generic structural [eq] table
+         stays out of the dependency closure. *)
       let w = T.var_t "w" and n = T.var_t "n" in
       let pow2w = T.var_t "pow2w" and half = T.var_t "half" in
       let neg_half = T.var_t "neg_half" in
       let common =
         [
+          (T.lt_int_t (T.int_lit ~scalars 0) w, T.bool_t ~scalars true);
           (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w);
           (T.div_int_t pow2w (T.int_lit ~scalars 2), half);
           (T.negate_int_t half, neg_half);
         ]
       in
       [
+        T.rule_cond
+          (T.app_t sym [ w; n ])
+          (T.int_lit ~scalars 0)
+          [ (T.leq_int_t w (T.int_lit ~scalars 0), T.bool_t ~scalars true) ];
         T.rule_cond
           (T.app_t sym [ w; n ])
           (T.app_t sym [ w; T.sub_int_t n pow2w ])

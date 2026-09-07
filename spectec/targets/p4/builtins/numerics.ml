@@ -49,11 +49,16 @@ let pow2 ~at (width : Bigint.t) : Value.t result =
 (* dec $bitstr_to_int(int, int) : int *)
 
 let rec bitstr_to_int' (w : Bigint.t) (n : Bigint.t) : Bigint.t =
-  let two = Bigint.(one + one) in
-  let w' = pow2' w in
-  if Bigint.(n >= w' / two) then bitstr_to_int' w Bigint.(n - w')
-  else if Bigint.(n < -(w' / two)) then bitstr_to_int' w Bigint.(n + w')
-  else n
+  (* bit<0> has exactly one value, 0: at w = 0 the target interval
+     [-2^(w-1), 2^(w-1)) is empty, so the correction below oscillates
+     0 -> -1 -> 0 and `const bit<0> B = A + A;` diverges the typechecker. *)
+  if Bigint.(w <= zero) then Bigint.zero
+  else
+    let two = Bigint.(one + one) in
+    let w' = pow2' w in
+    if Bigint.(n >= w' / two) then bitstr_to_int' w Bigint.(n - w')
+    else if Bigint.(n < -(w' / two)) then bitstr_to_int' w Bigint.(n + w')
+    else n
 
 let bitstr_to_int ~at (width : Bigint.t) (bitstr : Bigint.t) : Value.t result =
   at |> ignore;
