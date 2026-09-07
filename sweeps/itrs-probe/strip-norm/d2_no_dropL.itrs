@@ -1,0 +1,9 @@
+(VAR t p v b)
+(RULES
+  rec(t, p) -> u4(t - p, t, p)
+  u4(v, t, p) -> u5(sw(t, p), t, p, v) :|: p > 0
+  u5(true, t, p, v) -> rec(t - p, p)
+  sw(t, p) -> true :|: p <= t
+  sw(t, p) -> false
+  rec(t, p) -> t
+)

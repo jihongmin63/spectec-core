@@ -1,0 +1,195 @@
+commit f555a78b1258fa117a4b8c7a00002442823b6eff
+Author: Jihong Min <jihongmin63@gmail.com>
+Date:   Thu Aug 13 05:50:24 2026 +0000
+
+    fix(rewrite): compute two's-complement decode/encode directly, not by looping
+    
+    `$bitstr_to_int`/`$int_to_bitstr` walked to their result by adding or
+    subtracting `2^w` in a loop. That loop makes every slice reaching it
+    unprovable for two independent reasons, each measured one-variable on the real
+    `$bin_ge` slice: its two correction branches share one head, so their
+    dependency pairs share an SCC that admits no linear ranking function (`n` falls
+    in one branch and rises in the other, and they cannot actually alternate --
+    after `-2^w` the value is at least `-2^(w-1)`, after `+2^w` it is below
+    `2^(w-1)` -- but that exclusivity is invisible to the checker); and `Unravel`
+    gives each conditional clause its own chain, so k clauses leave k rules sharing
+    one lhs, which costs the verdict by itself. Neither lever alone closes the
+    slice at budget 300; a 5-rule acyclic probe flips KILLED -> YES 4s when only
+    the shared head is split.
+    
+    Both go away by naming the value instead of walking to it: the result is the
+    representative of `n` modulo `2^w`, so one `mod_int` and one correction suffice
+    for every `n` -- including the ones the loop needed several passes for (`w = 8,
+    n = 600` takes two steps there and one here). Every helper dispatches on a
+    computed boolean tag, the idiom `shr` and `Prelude`'s `div_aux` already use, so
+    no symbol here has two entry rules.
+    
+    `w <= 0` still answers 0, and the guard is load-bearing in a new way: the
+    closed form alone would answer -1 at `w = 0` (`2^0 = 1`, remainder 0,
+    `half = 0`, and `0 >= 0` takes `0 - 1`), turning a divergence into a silent
+    wrong value. `To_maude`'s native delegation for this builtin has exactly that
+    unguarded shape; it is dead code today because the structural rules are
+    declared first, and reviving it needs this boundary fixed too.
+    
+    Measured (budget 20, serial, one AProVE process per symbol): 13 of the 26 small
+    decode-carrying symbols flip TIMEOUT -> YES at 4.3-5.5s, 10/10 previously-YES
+    symbols hold, and the 10 large decode-carrying slices sampled stay TIMEOUT
+    (761-14,551 rules -- scale, not this poison). Value equivalence against the
+    loop checked exhaustively over w = 0..12 with |n| up to 3*2^w+5 (49,276 pairs,
+    0 mismatches) plus w = 32/64 spot checks; impty golden byte-identical; the
+    interp-vs-Maude result oracle matches on 12/12 spot programs. The execution
+    surface changes too (this builtin is not in `delegated_in_native`, so its
+    structural rules reach the Maude module): the full-corpus differential and the
+    650-symbol termination sweep are running as of this commit.
+    
+    Probe files, patched slices and the measurement TSVs are under
+    `sweeps/itrs-probe/`.
+    
+    Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+
+diff --git a/spectec/lib/rewrite/translate/builtin.ml b/spectec/lib/rewrite/translate/builtin.ml
+index 86fc853b..0880720e 100644
+--- a/spectec/lib/rewrite/translate/builtin.ml
++++ b/spectec/lib/rewrite/translate/builtin.ml
+@@ -472,68 +472,90 @@ let rules_of_builtin ~scalars ~eq ~mem ~suffix (orig : spec) (id : id) :
+         T.rule (T.app_t sym [ v; T.int_neg_t o; m ]) v;
+       ]
+   | "bitstr_to_int", _, _ ->
+-      (* Two's-complement DECODE: normalize a raw (unsigned) [n] into
+-         [-2^(w-1) .. 2^(w-1) - 1] by adding/subtracting [2^w] once.
+-         [numerics.ml]'s [bitstr_to_int'] recurses instead of assuming one
+-         correction step always suffices, so this does too. *)
++      (* Two's-complement DECODE: the representative of [n] modulo [2^w] that
++         lies in [-2^(w-1) .. 2^(w-1) - 1].
++
++         [numerics.ml]'s [bitstr_to_int'] walks there by adding or subtracting
++         [2^w] in a loop; this names the same value directly. The two agree on
++         every [n], the ones needing several corrections included ([w = 8,
++         n = 600] takes two steps there and one here), because reducing modulo
++         [2^w] and then correcting once cannot land anywhere else.
++
++         The loop is dropped because it is what makes every slice that reaches
++         this builtin unprovable: its two correction branches share one head,
++         so their dependency pairs share one SCC, and that SCC admits no linear
++         ranking function ([n] falls in one branch and rises in the other).
++         They cannot actually alternate -- after [-2^w] the value is at least
++         [-2^(w-1)], after [+2^w] it is below [2^(w-1)], so each branch excludes
++         the other's guard -- but that exclusivity is invisible to a termination
++         checker, which sees only the shared SCC.
++
++         [mod_int] truncates toward zero, so its remainder carries the
++         DIVIDEND's sign; [wrap] adds [2^w] back to a negative one to reach
++         [0 .. 2^w - 1] before [high] applies the single correction.
++
++         [w <= 0] answers 0 first (bit<0> has exactly one value). That guard is
++         load-bearing in a new way here: the closed form on its own would answer
++         -1 at [w = 0] ([2^0 = 1], remainder 0, [half = 0], and [0 >= 0] takes
++         [0 - 1]) -- a silent wrong value where the loop merely diverged.
++         ([To_maude]'s native delegation for this builtin has exactly that
++         unguarded shape.) It stays spelled arithmetically, never as an
++         equality, so the generic structural [eq] table stays out of the
++         dependency closure.
++
++         Each step dispatches on a computed boolean TAG instead of on side
++         conditions sharing one lhs (the idiom [shr] and {!Rewrite.Prelude}'s
++         [div_aux] use). Besides the critical pair that avoids, it keeps every
++         symbol here single-entry: {!Rewrite.Unravel} gives each conditional
++         clause its own chain, so k clauses sharing an lhs leave k rules the
++         termination search must weigh at once -- measured to cost the verdict
++         by itself, even with no recursion anywhere in reach. *)
+       let w = T.var_t "w" and n = T.var_t "n" in
+-      let pow2w = T.var_t "pow2w" and half = T.var_t "half" in
+-      let neg_half = T.var_t "neg_half" in
+-      let common =
+-        [
+-          (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w);
+-          (T.div_int_t pow2w (T.int_lit ~scalars 2), half);
+-          (T.negate_int_t half, neg_half);
+-        ]
+-      in
++      let r = T.var_t "r" and r_pos = T.var_t "r_pos" and p = T.var_t "p" in
++      let width = helper "width" and wrap = helper "wrap" in
++      let high = helper "high" in
++      let zero = T.int_lit ~scalars 0 and two = T.int_lit ~scalars 2 in
++      let yes = T.bool_t ~scalars true and no = T.bool_t ~scalars false in
+       [
+-        T.rule_cond
++        T.rule
+           (T.app_t sym [ w; n ])
+-          (T.app_t sym [ w; T.sub_int_t n pow2w ])
+-          (common @ [ (T.leq_int_t half n, T.bool_t ~scalars true) ]);
++          (T.app_t width [ T.leq_int_t w zero; w; n ]);
++        T.rule (T.app_t width [ yes; w; n ]) zero;
+         T.rule_cond
+-          (T.app_t sym [ w; n ])
+-          (T.app_t sym [ w; T.add_int_t n pow2w ])
+-          (common
+-          @ [
+-              (T.leq_int_t half n, T.bool_t ~scalars false);
+-              (T.lt_int_t n neg_half, T.bool_t ~scalars true);
+-            ]);
++          (T.app_t width [ no; w; n ])
++          (T.app_t wrap [ T.leq_int_t zero r; r; p ])
++          [ (T.pow_int_t two w, p); (T.mod_int_t n p, r) ];
++        T.rule
++          (T.app_t wrap [ yes; r; p ])
++          (T.app_t high [ T.leq_int_t (T.div_int_t p two) r; r; p ]);
+         T.rule_cond
+-          (T.app_t sym [ w; n ])
+-          n
+-          (common
+-          @ [
+-              (T.leq_int_t half n, T.bool_t ~scalars false);
+-              (T.lt_int_t n neg_half, T.bool_t ~scalars false);
+-            ]);
++          (T.app_t wrap [ no; r; p ])
++          (T.app_t high [ T.leq_int_t (T.div_int_t p two) r_pos; r_pos; p ])
++          [ (T.add_int_t r p, r_pos) ];
++        T.rule (T.app_t high [ yes; r; p ]) (T.sub_int_t r p);
++        T.rule (T.app_t high [ no; r; p ]) r;
+       ]
+   | "int_to_bitstr", _, _ ->
+-      (* Two's-complement ENCODE: wrap [n] modulo [2^w] into [0 .. 2^w - 1]. *)
++      (* Two's-complement ENCODE: [n] modulo [2^w], as a non-negative
++         [0 .. 2^w - 1]. Same reasoning as DECODE above -- [numerics.ml]'s
++         [int_to_bitstr'] loops [+2^w] up from a negative [n] where this reduces
++         once, and [mod_int]'s truncated remainder needs one [+2^w] to become
++         the non-negative representative. [w = 0] needs no guard of its own
++         here: [2^0 = 1] and every [n] is 0 modulo 1, which is bit<0>'s only
++         value. *)
+       let w = T.var_t "w" and n = T.var_t "n" in
+-      let pow2w = T.var_t "pow2w" in
+-      let common = [ (T.pow_int_t (T.int_lit ~scalars 2) w, pow2w) ] in
++      let r = T.var_t "r" and p = T.var_t "p" in
++      let wrap = helper "wrap" in
++      let zero = T.int_lit ~scalars 0 and two = T.int_lit ~scalars 2 in
+       [
+         T.rule_cond
+           (T.app_t sym [ w; n ])
+-          (T.mod_int_t n pow2w)
+-          (common @ [ (T.leq_int_t pow2w n, T.bool_t ~scalars true) ]);
+-        T.rule_cond
+-          (T.app_t sym [ w; n ])
+-          (T.app_t sym [ w; T.add_int_t n pow2w ])
+-          (common
+-          @ [
+-              (T.leq_int_t pow2w n, T.bool_t ~scalars false);
+-              (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars true);
+-            ]);
+-        T.rule_cond
+-          (T.app_t sym [ w; n ])
+-          n
+-          (common
+-          @ [
+-              (T.leq_int_t pow2w n, T.bool_t ~scalars false);
+-              (T.lt_int_t n (T.int_lit ~scalars 0), T.bool_t ~scalars false);
+-            ]);
++          (T.app_t wrap [ T.leq_int_t zero r; r; p ])
++          [ (T.pow_int_t two w, p); (T.mod_int_t n p, r) ];
++        T.rule (T.app_t wrap [ T.bool_t ~scalars true; r; p ]) r;
++        T.rule
++          (T.app_t wrap [ T.bool_t ~scalars false; r; p ])
++          (T.add_int_t r p);
+       ]
+   | "bneg", _, _ ->
+       (* Arbitrary-precision two's-complement NOT is the arithmetic identity

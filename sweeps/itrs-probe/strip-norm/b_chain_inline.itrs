@@ -1,0 +1,7 @@
+(VAR t p v)
+(RULES
+  rec(t, p) -> u4(t - p, t, p) :|: p >= 0 && p <= t
+  u4(v, t, p) -> u5(t, p, v) :|: p > 0
+  u5(t, p, v) -> u6(t, p, v) :|: p <= t
+  u6(t, p, v) -> rec(t - p, p)
+)

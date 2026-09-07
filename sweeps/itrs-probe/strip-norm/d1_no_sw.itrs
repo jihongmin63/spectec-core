@@ -1,0 +1,8 @@
+(VAR t p v)
+(RULES
+  rec(t, p) -> u4(dropL(t, p), t, p)
+  u4(v, t, p) -> u5(t, p, v) :|: p > 0 && p <= t
+  u5(t, p, v) -> rec(dropL(t, p), p)
+  dropL(t, p) -> t - p :|: p >= 0 && p <= t
+  rec(t, p) -> t
+)

@@ -1,0 +1,4 @@
+(VAR t p)
+(RULES
+  rec(t, p) -> rec(t - p, p) :|: p > 0 && p <= t
+)

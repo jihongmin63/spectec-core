@@ -1,0 +1,145 @@
+$add_action_tbl	YES	eqs=5 rules=5 u=0 vars=13 owise=0	0.5	whole:YES@0.5s
+$add_key_tbl	YES	eqs=5 rules=5 u=0 vars=12 owise=0	0.5	whole:YES@0.5s
+$annotationList_of_parameterIR	YES	eqs=1 rules=1 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$assignop_as_binop	YES	eqs=13 rules=13 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$bin_band	YES	eqs=203 rules=249 u=46 vars=30 owise=0	1.2	whole:TIMEOUT@304.1s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] TIMEOUT)@602.8s itrs:YES@1.2s
+$bin_bor	YES	eqs=203 rules=249 u=46 vars=30 owise=0	1.2	whole:TIMEOUT@300.7s children:TIMEOUT(0/5 closed, node 45 [d_bor_nat_cross] TIMEOUT)@603.2s itrs:YES@1.2s
+$bin_bxor	YES	eqs=200 rules=240 u=40 vars=26 owise=0	1.0	whole:TIMEOUT@303.7s children:TIMEOUT(0/4 closed, node 45 [d_bxor_nat] TIMEOUT)@609.5s itrs:YES@1.0s
+$bin_concat	YES	eqs=201 rules=253 u=52 vars=39 owise=0	0.8	whole:TIMEOUT@301.5s children:TIMEOUT(0/3 closed, node 50 [pow_int,pow_int_aux] TIMEOUT)@614.7s itrs:YES@0.8s
+$bin_div	YES	eqs=113 rules=113 u=0 vars=8 owise=0	0.7	whole:YES@0.7s
+$bin_ge	YES	eqs=184 rules=208 u=24 vars=18 owise=0	0.6	whole:TIMEOUT@303.2s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@609.1s itrs:YES@0.6s
+$bin_gt	YES	eqs=185 rules=209 u=24 vars=18 owise=0	0.6	whole:TIMEOUT@302.0s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@604.4s itrs:YES@0.6s
+$bin_le	YES	eqs=184 rules=208 u=24 vars=18 owise=0	0.6	whole:TIMEOUT@303.8s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@607.4s itrs:YES@0.6s
+$bin_lt	YES	eqs=185 rules=209 u=24 vars=18 owise=0	0.6	whole:TIMEOUT@304.8s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@608.9s itrs:YES@0.6s
+$bin_minus	YES	eqs=194 rules=230 u=36 vars=23 owise=0	0.6	whole:TIMEOUT@302.0s children:TIMEOUT(0/3 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@605.4s itrs:YES@0.6s
+$bin_mod	YES	eqs=109 rules=109 u=0 vars=8 owise=0	0.7	whole:YES@0.7s
+$bin_mul	YES	eqs=194 rules=230 u=36 vars=23 owise=0	0.6	whole:TIMEOUT@301.0s children:TIMEOUT(0/3 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@607.0s itrs:YES@0.6s
+$bin_plus	YES	eqs=194 rules=230 u=36 vars=23 owise=0	0.6	whole:TIMEOUT@301.1s children:TIMEOUT(0/3 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@604.0s itrs:YES@0.6s
+$bin_satminus	YES	eqs=202 rules=252 u=50 vars=34 owise=0	0.6	whole:TIMEOUT@301.0s children:TIMEOUT(0/4 closed, node 45 [bpow_nat,bpow_nat_aux] TIMEOUT)@608.3s itrs:YES@0.6s
+$bin_satplus	YES	eqs=202 rules=253 u=51 vars=34 owise=0	0.6	whole:TIMEOUT@305.2s children:TIMEOUT(0/4 closed, node 45 [bpow_nat,bpow_nat_aux] TIMEOUT)@606.7s itrs:YES@0.6s
+$bin_shl	YES	eqs=202 rules=249 u=47 vars=30 owise=0	1.1	whole:TIMEOUT@301.9s children:TIMEOUT(0/3 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@605.8s itrs:YES@1.1s
+$bin_shr	YES	eqs=216 rules=292 u=76 vars=49 owise=0	80.1	whole:TIMEOUT@304.0s children:TIMEOUT(0/6 closed, node 45 [bpow_nat,bpow_nat_aux] TIMEOUT)@607.0s itrs:YES@80.1s
+$bitacc_offset_op	YES	eqs=286 rules=678 u=392 vars=316 owise=0	38.1	whole:TIMEOUT@304.5s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] TIMEOUT)@603.9s itrs:YES@38.1s
+$bitacc_offset_replace_op	YES	eqs=395 rules=533 u=138 vars=75 owise=0	1.1	whole:TIMEOUT@302.2s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@607.8s itrs:YES@1.1s
+$bitacc_range_op	YES	eqs=284 rules=770 u=486 vars=315 owise=0	38.7	whole:TIMEOUT@302.1s children:TIMEOUT(0/5 closed, node 45 [d_band_nat_cross] TIMEOUT)@604.4s itrs:YES@38.7s
+$bitacc_range_replace_op	YES	eqs=392 rules=513 u=121 vars=83 owise=0	0.9	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@604.5s itrs:YES@0.9s
+$callableId_IR	YES	eqs=4 rules=6 u=2 vars=11 owise=0	0.5	whole:YES@0.5s
+$callableId_of_externConstructorPrototypeIR	YES	eqs=5 rules=7 u=2 vars=12 owise=0	0.5	whole:YES@0.5s
+$callableId_of_externMethodPrototypeIR	YES	eqs=6 rules=8 u=2 vars=14 owise=0	0.5	whole:YES@0.5s
+$callable_builtinMethod	YES	eqs=3 rules=3 u=0 vars=1 owise=0	0.5	whole:YES@0.5s
+$codom_map	YES	eqs=5 rules=7 u=2 vars=6 owise=0	0.5	whole:YES@0.5s
+$concat_text	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$constructorTypeDef_of_externConstructorPrototypeIR	YES	eqs=3 rules=4 u=1 vars=10 owise=0	0.5	whole:YES@0.5s
+$constructor_of_externConstructorPrototypeIR	YES	eqs=3 rules=4 u=1 vars=10 owise=0	0.5	whole:YES@0.5s
+$ctk_of_typedExpressionIR	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.4	whole:YES@0.4s
+$empty_callableDefEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_callableTypeDefEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_constraint	YES	eqs=3 rules=3 u=0 vars=3 owise=0	0.5	whole:YES@0.5s
+$empty_constructorDefEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_constructorTypeDefEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.5	whole:YES@0.5s
+$empty_frame	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_instContext	YES	eqs=13 rules=13 u=0 vars=0 owise=0	0.5	whole:YES@0.5s
+$empty_set	YES	eqs=1 rules=1 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_stateEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_store	YES	eqs=2 rules=3 u=1 vars=1 owise=0	0.4	whole:YES@0.4s
+$empty_tableContext	YES	eqs=1 rules=1 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_theta	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_typeDefEnv	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_typeFrame	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$empty_typingContext	YES	eqs=9 rules=9 u=0 vars=0 owise=0	0.5	whole:YES@0.5s
+$ends_with	YES	eqs=88 rules=92 u=4 vars=11 owise=0	0.7	whole:YES@0.7s
+$enter_i	YES	eqs=7 rules=7 u=0 vars=6 owise=0	0.5	whole:YES@0.5s
+$enter_path_i	YES	eqs=5 rules=5 u=0 vars=10 owise=0	0.5	whole:YES@0.5s
+$enter_t	YES	eqs=7 rules=7 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$exit_i	YES	eqs=7 rules=10 u=3 vars=11 owise=0	0.5	whole:YES@0.5s
+$exit_t	YES	eqs=7 rules=10 u=3 vars=10 owise=0	0.5	whole:YES@0.5s
+$flatten_blockElementStatementList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_constOpt	YES	eqs=2 rules=2 u=0 vars=0 owise=0	0.4	whole:YES@0.4s
+$flatten_controlLocalDeclarationList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_externConstructorOrMethodPrototypeList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$flatten_nameList	YES	eqs=13 rules=13 u=0 vars=7 owise=0	0.5	whole:YES@0.5s
+$flatten_objectDeclarationList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_objectInitializerOptIR	YES	eqs=2 rules=2 u=0 vars=1 owise=0	0.4	whole:YES@0.4s
+$flatten_p4program	YES	eqs=5 rules=5 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_parserLocalDeclarationList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$flatten_parserStatementList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_prefixedNameIR	YES	eqs=4 rules=4 u=0 vars=4 owise=0	0.5	whole:YES@0.5s
+$flatten_selectCaseList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$flatten_switchCaseList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$flatten_tableActionList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_tableEntryList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_tableKeyList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_tablePropertyList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$flatten_typeFieldList	YES	eqs=4 rules=4 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$flatten_typeParameterList	YES	eqs=13 rules=13 u=0 vars=7 owise=0	0.5	whole:YES@0.5s
+$flatten_typeParameterListOpt	YES	eqs=15 rules=15 u=0 vars=7 owise=0	0.5	whole:YES@0.5s
+$id_of_parameterIR	YES	eqs=1 rules=1 u=0 vars=5 owise=0	0.5	whole:YES@0.5s
+$inherit_i	YES	eqs=13 rules=13 u=0 vars=6 owise=0	0.5	whole:YES@0.5s
+$instantiable_extern	YES	eqs=3 rules=3 u=0 vars=2 owise=0	0.4	whole:YES@0.4s
+$int_of_integerValue	YES	eqs=185 rules=205 u=20 vars=17 owise=0	0.6	whole:TIMEOUT@303.1s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@605.3s itrs:YES@0.6s
+$invalidate_header	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.5	whole:YES@0.5s
+$invalidate_headerUnion	YES	eqs=87 rules=91 u=4 vars=22 owise=0	1.0	whole:YES@1.0s
+$invalidate_value	YES	eqs=87 rules=91 u=4 vars=22 owise=0	1.0	whole:YES@1.0s	=$invalidate_headerUnion
+$isValid_header	YES	eqs=80 rules=81 u=1 vars=11 owise=0	0.5	whole:YES@0.5s
+$is_concrete_extern_object_prime_prime	YES	eqs=4 rules=7 u=3 vars=11 owise=0	0.5	whole:YES@0.5s
+$is_default_parameterIR	YES	eqs=4 rules=5 u=1 vars=11 owise=0	0.5	whole:YES@0.5s
+$is_lpm_key	YES	eqs=4 rules=5 u=1 vars=5 owise=0	0.5	whole:YES@0.5s
+$is_lpm_key_prime	YES	eqs=3 rules=4 u=1 vars=2 owise=0	0.5	whole:YES@0.5s
+$is_tableActionsProperty	YES	eqs=6 rules=9 u=3 vars=7 owise=0	0.5	whole:YES@0.5s
+$is_tableDefaultActionProperty	YES	eqs=16 rules=20 u=4 vars=13 owise=0	0.6	whole:YES@0.6s
+$is_tableKeysProperty	YES	eqs=6 rules=9 u=3 vars=7 owise=0	0.5	whole:YES@0.5s
+$join_ctk	YES	eqs=9 rules=9 u=0 vars=0 owise=0	0.5	whole:YES@0.5s
+$join_flow	YES	eqs=4 rules=4 u=0 vars=0 owise=0	0.5	whole:YES@0.5s
+$join_tableEntryState	YES	eqs=3 rules=3 u=0 vars=1 owise=0	0.5	whole:YES@0.5s
+$join_text	YES	eqs=13 rules=17 u=4 vars=10 owise=0	0.5	whole:YES@0.5s
+$lvalue_as_expression	YES	eqs=22 rules=27 u=5 vars=13 owise=0	0.5	whole:YES@0.5s
+$name	YES	eqs=10 rules=10 u=0 vars=1 owise=0	0.6	whole:YES@0.6s
+$name_annotationToken	YES	eqs=209 rules=213 u=4 vars=11 owise=0	0.7	whole:TIMEOUT@302.1s children:TIMEOUT(0/1 closed, node 30 [d_int_to_text_nat] TIMEOUT)@603.7s itrs:YES@0.7s
+$name_annotation_opt	YES	eqs=256 rules=268 u=12 vars=21 owise=0	0.9	whole:TIMEOUT@307.5s children:TIMEOUT(0/1 closed, node 30 [d_int_to_text_nat] TIMEOUT)@604.1s itrs:YES@0.9s
+$nat_of_integerValue	YES	eqs=188 rules=212 u=24 vars=20 owise=0	0.6	whole:TIMEOUT@302.0s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@608.5s itrs:YES@0.6s
+$objectId_ends_with	YES	eqs=11 rules=15 u=4 vars=10 owise=0	0.5	whole:YES@0.5s
+$optional_annotation_of_parameterIR_prime_prime	YES	eqs=20 rules=24 u=4 vars=7 owise=0	0.6	whole:YES@0.6s
+$parameterListIR_of_actionDef	YES	eqs=1 rules=1 u=0 vars=4 owise=0	0.5	whole:YES@0.5s
+$parameterListIR_of_actionTypeDefIR	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_constructorTypeDefIR	YES	eqs=1 rules=1 u=0 vars=4 owise=0	0.5	whole:YES@0.5s
+$parameterListIR_of_controlApplyMethodDef	YES	eqs=1 rules=1 u=0 vars=4 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_controlApplyMethodTypeIR	YES	eqs=1 rules=1 u=0 vars=1 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_definedFunctionDef	YES	eqs=1 rules=1 u=0 vars=4 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_definedFunctionTypeDefIR	YES	eqs=1 rules=1 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_externFunctionDef	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.5	whole:YES@0.5s
+$parameterListIR_of_externFunctionTypeDefIR	YES	eqs=1 rules=1 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_externMethodDef	YES	eqs=1 rules=1 u=0 vars=4 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_externMethodTypeDefIR	YES	eqs=2 rules=2 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_parserApplyMethodDef	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_parserApplyMethodTypeIR	YES	eqs=1 rules=1 u=0 vars=1 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_tableApplyMethodDef	YES	eqs=1 rules=1 u=0 vars=1 owise=0	0.4	whole:YES@0.4s
+$parameterListIR_of_tableApplyMethodTypeDefIR	YES	eqs=1 rules=1 u=0 vars=1 owise=0	0.5	whole:YES@0.5s
+$prefixedNonTypeName	YES	eqs=19 rules=19 u=0 vars=3 owise=0	0.6	whole:YES@0.6s
+$prefixedTypeName	YES	eqs=12 rules=12 u=0 vars=3 owise=0	0.6	whole:YES@0.6s
+$requires_priority	YES	eqs=8 rules=9 u=1 vars=6 owise=0	0.5	whole:YES@0.5s
+$requires_priority_prime	YES	eqs=7 rules=8 u=1 vars=3 owise=0	0.5	whole:YES@0.5s
+$resolve_constraint	YES	eqs=9 rules=12 u=3 vars=11 owise=0	0.5	whole:YES@0.5s
+$set_priorities_of_tableEntryListIR	YES	eqs=227 rules=302 u=75 vars=73 owise=0	23.6	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 69 [pow_int,pow_int_aux] TIMEOUT)@606.2s itrs:YES@23.6s
+$set_priorities_of_tableEntryListIR_prime	YES	eqs=201 rules=241 u=40 vars=49 owise=0	22.9	whole:TIMEOUT@302.0s children:TIMEOUT(0/2 closed, node 45 [pow_int,pow_int_aux] TIMEOUT)@605.5s itrs:YES@22.9s
+$set_priority_of_tableEntryIR	YES	eqs=1 rules=1 u=0 vars=6 owise=0	0.4	whole:YES@0.4s
+$starts_with	YES	eqs=50 rules=53 u=3 vars=10 owise=0	0.5	whole:YES@0.5s
+$strip_prefix_rec	TIMEOUT	eqs=55 rules=62 u=7 vars=11 owise=0	302.0	whole:TIMEOUT@302.0s children:TIMEOUT(0/1 closed, node 31 [d_strip_prefix_rec] TIMEOUT)@603.2s itrs:TIMEOUT@302.9s
+$strip_suffix_rec	TIMEOUT	eqs=91 rules=99 u=8 vars=13 owise=0	301.4	whole:TIMEOUT@301.4s children:TIMEOUT(0/1 closed, node 36 [d_strip_suffix_rec] TIMEOUT)@603.0s itrs:TIMEOUT@300.6s
+$tableCustomName	YES	eqs=6 rules=6 u=0 vars=1 owise=0	0.5	whole:YES@0.5s
+$tableEntryPriorityOptIR_of_tableEntryIR	YES	eqs=1 rules=1 u=0 vars=5 owise=0	0.4	whole:YES@0.4s
+$type_of_externMethodPrototypeIR	YES	eqs=2 rules=2 u=0 vars=6 owise=0	0.5	whole:YES@0.5s
+$type_of_typedExpressionIR	YES	eqs=1 rules=1 u=0 vars=3 owise=0	0.5	whole:YES@0.5s
+$type_of_typedLvalueIR	YES	eqs=1 rules=1 u=0 vars=2 owise=0	0.4	whole:YES@0.4s
+$typedLvalueIR_as_typedExpressionIR	YES	eqs=8 rules=20 u=12 vars=15 owise=0	0.6	whole:YES@0.6s
+$un_bnot	YES	eqs=139 rules=142 u=3 vars=12 owise=0	4.1	whole:YES@4.1s
+$un_lnot	YES	eqs=3 rules=3 u=0 vars=1 owise=0	0.4	whole:YES@0.4s
+$un_minus	YES	eqs=198 rules=228 u=30 vars=18 owise=0	0.6	whole:TIMEOUT@304.6s children:TIMEOUT(0/4 closed, node 45 [bpow_nat,bpow_nat_aux] TIMEOUT)@609.1s itrs:YES@0.6s
+$un_op	YES	eqs=210 rules=245 u=35 vars=24 owise=0	0.6	whole:TIMEOUT@303.6s children:TIMEOUT(0/4 closed, node 45 [bpow_nat,bpow_nat_aux] TIMEOUT)@609.6s itrs:YES@0.6s
+$un_plus	YES	eqs=11 rules=13 u=2 vars=4 owise=0	0.5	whole:YES@0.5s
+$width_of_integerTypeIR	YES	eqs=10 rules=13 u=3 vars=2 owise=0	0.5	whole:YES@0.5s
+$write_bits_from_value	YES	eqs=103 rules=115 u=12 vars=34 owise=0	0.6	whole:YES@0.6s
+$write_value_field_from_bits_prime	YES	eqs=271 rules=312 u=41 vars=56 owise=0	25.3	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 66 [pow_int,pow_int_aux] TIMEOUT)@603.4s itrs:YES@25.3s
+$write_value_fields_from_bits_prime	YES	eqs=271 rules=312 u=41 vars=56 owise=0	25.3	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 66 [pow_int,pow_int_aux] TIMEOUT)@603.4s itrs:YES@25.3s	=$write_value_field_from_bits_prime
+$write_value_from_bits	YES	eqs=274 rules=317 u=43 vars=57 owise=0	25.6	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 66 [pow_int,pow_int_aux] TIMEOUT)@605.9s itrs:YES@25.6s
+$write_value_from_bits_prime	YES	eqs=271 rules=312 u=41 vars=56 owise=0	25.3	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 66 [pow_int,pow_int_aux] TIMEOUT)@603.4s itrs:YES@25.3s	=$write_value_field_from_bits_prime
+$write_values_from_bits_prime	YES	eqs=271 rules=312 u=41 vars=56 owise=0	25.3	whole:TIMEOUT@300.9s children:TIMEOUT(0/2 closed, node 66 [pow_int,pow_int_aux] TIMEOUT)@603.4s itrs:YES@25.3s	=$write_value_field_from_bits_prime
