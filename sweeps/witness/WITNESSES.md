@@ -111,6 +111,23 @@ suffix 판도 동일(`ends_with`의 u_1 체인이 leq(0,|t|)=true, slice(t,|t|,0
 `|prefix| > 0` 가드(또는 호출부 불변식 문서화)가 필요하다. 대형 clean 61엔 이
 루프가 없다(`sweeps/strip_membership.tsv`).
 
+**부록 (2026-09-04) — 현행 표면에서 기계 확인 + 도달성.** 위 순환을
+오늘의 방출 TRS로 재현하는 시뮬레이터가 [simulate_strip.py](simulate_strip.py):
+
+```
+main.exe termination --emit-trs --symbol '$strip_prefix_rec' <specs> > strip_prefix_rec.trs
+python3 simulate_strip.py strip_prefix_rec.trs prefix   # suffix 판도 동일
+```
+
+`t = "x"`, 패턴 `nil`에서 한 펼침 만에 상태 복귀(가드 →* true, 스트립 항등;
+prefix 25스텝 / suffix 57스텝, 전부 슬라이스 자신의 규칙으로 정규화). 이건
+과근사 아티팩트가 아니다 — `$starts_with(t, "")`는 정의상 true이고 인터프리터의
+builtin(`texts.ml`, `String.starts_with ~prefix:""` = true)도 같아
+`$strip_prefix_rec(t, "")`는 **인터프리터에서도 발산**한다. 다만 도달성은 없다:
+두 `_rec` 헬퍼는 **스펙 전체에 호출부가 0**이고(0.0-stdlib의 정의뿐), 비-rec
+builtin `$strip_prefix/suffix`의 호출 4곳은 전부 리터럴 비빈 패턴(`"."`,
+`"\""`, `")"`, `"action_list("`)이다. 루프는 실재하되 죽은 코드 안에 갇혀 있다.
+
 ## ⑸ w=0 루프의 끝-대-끝 도달성 — **타입체커를 발산시키는 2줄 P4 프로그램** (2026-08-12)
 
 ⑶의 남은 물음("실제 프로그램이 w=0에 도달하는가")의 답은 **예**다.
