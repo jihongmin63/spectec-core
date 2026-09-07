@@ -6,6 +6,31 @@ let unwrap = function
 
 let check message condition = if not condition then failwith message
 
+(* Start terms can contain values absent from every rule. Their constructors
+   must still be declared, including the digits used by a character's code. *)
+let check_input_constructors label module_text =
+  let lines = String.split_on_char '\n' module_text in
+  List.iter
+    (fun declaration ->
+      check
+        (label ^ ": missing input constructor " ^ declaration)
+        (List.mem ("  op " ^ declaration ^ " [ctor] .") lines))
+    [
+      "chr : NatV -> Val";
+      "bzero : -> NatV";
+      "bone : -> NatV";
+      "bd0 : NatV -> NatV";
+      "bd1 : NatV -> NatV";
+      "int-pos : NatV -> IntV";
+      "int-neg : NatV -> IntV";
+      "true : -> BoolV";
+      "false : -> BoolV";
+      "nil : -> List";
+      "cons : Val List -> List";
+      "none : -> Opt";
+      "some : Val -> Opt";
+    ]
+
 let () =
   let spec =
     Spectec.parse_spec_files [ "../../specs/impty/base/spec.spectec" ]
@@ -35,4 +60,10 @@ let () =
   let repeated = Rewrite.compile ~target:Rewrite.Execution native.spec in
   check "reusing a prepared spec must preserve its identity and rules"
     (repeated.spec == native.spec && repeated.system = native.system);
+  check_input_constructors "impty structural execution"
+    (Rewrite.To_mfe.module_of_system ~full_maude:false analysis.spec
+       analysis.system);
+  check_input_constructors "structural execution without prelude rules"
+    (Rewrite.To_mfe.module_of_system ~full_maude:false analysis.spec
+       (R.of_rules []));
   print_endline "test_pipeline: all tests passed"

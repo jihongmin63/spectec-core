@@ -113,6 +113,10 @@ val symbol_arities : scalar_theory -> R.rule list -> (string * int) list
     (a start term must still be formable). *)
 val ctor_arities : sigs -> spec -> (string * int) list
 
+(** Fixed-arity built-in constructors, including those absent from the rules but
+    needed to encode input values (such as structural text characters). *)
+val builtin_ctor_arities : scalar_theory -> (string * int) list
+
 (** The [List]-precise overload of [cat]/[len], declared alongside the
     [Text]-wide prelude signature so an application over a plain list is still
     well-sorted. *)

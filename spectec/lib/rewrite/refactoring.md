@@ -66,7 +66,7 @@ AProVE/MFE/CETA 측정 및 P4 전수 실행 오라클은 실행하지 않았다.
   현재 `$lookup_id_type`으로 갱신했으며, 해당 TRS와 진단은 수정 전 바이너리에서도
   동일함을 확인한 뒤 해당 스냅샷만 갱신했다.
 
-**기존 제약:** 식별자 문자열을 포함한 impty의 구조적 실행에서 Maude의
+**리팩토링 당시 제약:** 식별자 문자열을 포함한 impty의 구조적 실행에서 Maude의
 `bad token chr` 오류가 수정 전·후 모두 발생한다. 오류 출력은 임시 파일명을
 제외하면 동일하다. 이번 리팩토링은 이 인코딩 결함을 수정하지 않았으며 구조적
 8개 프로그램의 성공이나 P4 전수 오라클 통과를 주장하지 않는다.
@@ -81,3 +81,26 @@ cd /root/spectec-rewrite-refactor/spectec
 TZ=Asia/Seoul nice -n 19 ionice -c 3 opam exec --switch=spectecx -- \
   dune build -j 1 bin/main.exe @fmt @test/rewrite/runtest @test/cli/runtest
 ```
+
+## 후속 수정 — 구조적 입력의 `chr` 선언 누락 (2026-09-07, KST)
+
+`run --structural`의 입력 문자열은 `cons(chr(문자 코드), ...)`로 인코딩되지만,
+`To_mfe`는 규칙에 등장한 심볼과 IL 생성자만 선언했다. impty처럼 규칙 자체에
+문자가 없으면 `chr`가 빠져 Maude가 시작항을 읽지 못했다.
+
+직접 실행 모듈(`full_maude=false`)은 이제 `Maude_sorts`의 기존 생성자 목록과
+시그니처에서 고정 arity의 기본 생성자 선언을 보충한다. 규칙이나 입력 인코딩은
+바꾸지 않는다. impty 모듈에는 `chr`, `bdivmod` 및 `Bdivmod` sort 선언이 추가된다.
+분석용 Full Maude와 native 모듈의 선언 방식은 유지한다.
+
+- 누락된 `chr` 선언으로 실패하던 회귀 테스트가 통과한다. 규칙이 없는 시스템에서도
+  문자·이진 숫자·정수·불리언·리스트·옵션 생성자 선언을 확인한다.
+- 빌드, `@fmt`, rewrite 및 CLI 테스트가 통과한다.
+- 실제 Maude의 impty base 구조적 배치 8개가 모두 `result: true`, 종료 코드 0이다.
+  native 배치 8개의 결과도 수정 전과 같다.
+- impty base/closure의 analysis/native/pruned/SCC 내보내기와 P4/P4-old의
+  analysis/native 내보내기 **12개가 stdout/stderr/종료 코드까지 수정 전과 같다**.
+  P4 전수 실행 오라클이나 AProVE/MFE/CETA 측정은 재실행하지 않았다.
+
+후속 수정의 검증 근거는 `/tmp/rewrite-chr-fix-validation/`의 `checks.log`,
+`results.json`, 각 실행·비교 출력이다. 위 리팩토링 당시의 실패 기록은 보존한다.

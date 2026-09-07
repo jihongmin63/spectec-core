@@ -41,6 +41,15 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
 
 이번 리팩토링의 변경 범위와 검증: [refactoring.md](refactoring.md).
 
+### 2026-09-07 — 구조적 실행의 `bad token chr` 수정
+
+규칙에는 없고 입력 문자열에만 있는 `chr`가 실행 모듈에서 선언되지 않았다.
+`To_mfe`의 직접 실행 모드에 기본 생성자 선언을 보충했다. impty base 구조적 배치
+8개 모두 `true`, native 배치 8개 결과 유지, 분석/native 내보내기 12개 대조 일치.
+선언 누락 회귀 테스트와 빌드·포맷·rewrite/CLI 테스트 통과. 분석용 선언과 규칙은
+그대로이며 새 측정은 수행하지 않았다. 상세 근거는 [refactoring.md](refactoring.md)의
+후속 수정 항목에 기록했다.
+
 ## M1 — 분석 동작 (CTRS 생성 + confluence)
 
 ### 2026-09-01 — 【research note】 finite variant property는 이 파이프라인에 적용 대상이 아니다 — 그러나 그 전제가 이진 nat 인코딩의 **자유 생성자 가정**을 드러낸다

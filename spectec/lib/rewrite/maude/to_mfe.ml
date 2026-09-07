@@ -226,11 +226,16 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
     crcu_ids;
   (* Symbols to declare ops for: those used in the rules, plus all IL
      constructors and struct accessors (so a start term can be formed even when
-     no rule mentions the case). Structural scalar constructors already occur in
-     the prelude rules, so [symbol_arities] covers them. *)
+     no rule mentions the case). Direct execution also needs the built-in value
+     constructors: e.g. [chr] can occur in input text without appearing in any
+     rule. Keep analysis signatures unchanged, since adding constructors changes
+     the domain of the checkers' obligations. *)
   let used = MS.symbol_arities Structural sys.R.rules in
   let ctor_arities = MS.ctor_arities tbl orig in
-  let ops = MS.dedup (used @ ctor_arities) in
+  let input_ctors =
+    if full_maude then [] else MS.builtin_ctor_arities Structural
+  in
+  let ops = MS.dedup (used @ ctor_arities @ input_ctors) in
   (* Execution mode ([full_maude = false]) additionally needs
      [{!To_maude.stuck_head_sym} : Val -> Bool] declared: {!To_maude.print_rule}
      (used below in that mode) guards a bare-variable matching condition with

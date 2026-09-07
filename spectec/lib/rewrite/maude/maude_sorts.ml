@@ -979,6 +979,16 @@ let scalar_ctor_syms : scalar_theory -> string list = function
         "bdivmod";
       ]
 
+(* Fixed-arity built-in constructors can occur only in a start term, so their
+   declarations cannot depend on which symbols happen to occur in the rules.
+   Tuples have spec-dependent arities and are not part of [prelude_sigs]. *)
+let builtin_ctor_arities (scalars : scalar_theory) : (string * int) list =
+  let constructors = scalar_ctor_syms scalars @ shared_ctor_syms in
+  List.filter_map
+    (fun (sym, (args, _)) ->
+      if List.mem sym constructors then Some (sym, List.length args) else None)
+    (prelude_sigs scalars)
+
 (* Is [sym] a constructor of the module emitted for [scalars] and [orig]? *)
 let is_ctor (scalars : scalar_theory) (orig : spec) : string -> bool =
   let tbl = Hashtbl.create 512 in

@@ -11,17 +11,18 @@
     [full_maude] (default [true]) wraps the module in Full Maude's
     [(mod ... endm)] parens, needed for the MFE loops to accept it; [false]
     emits a plain stock-Maude module for the direct (non-reflective) execution
-    path instead. [functional] (with [full_maude]) emits a FUNCTIONAL module
-    ([(fmod ... endfm)]) prefixed with the Full-Maude
-    [(set include BOOL/ BOOL-OPS off .)] commands -- the shape the old MFE
-    2.7.1's SCC accepts. [prune_signature] (analysis modes only) restricts the
-    declared signature to what the rules use: the ops actually applied, the
-    sorts they and the rule variable annotations name, and every sort on a
-    subsort path between two kept sorts (dropping a path's interior would leave
-    a slice ill-sorted; the [< Val] edges are excluded from that closure, or it
-    would re-expand to the whole lattice). Pruning never touches the rules, so a
-    checker's verdict is preserved; without it every slice carries the whole
-    ~460-sort P4 signature.
+    path instead, including fixed-arity built-in constructors even when they
+    occur only in input values, not in the rules. [functional] (with
+    [full_maude]) emits a FUNCTIONAL module ([(fmod ... endfm)]) prefixed with
+    the Full-Maude [(set include BOOL/ BOOL-OPS off .)] commands -- the shape
+    the old MFE 2.7.1's SCC accepts. [prune_signature] (analysis modes only)
+    restricts the declared signature to what the rules use: the ops actually
+    applied, the sorts they and the rule variable annotations name, and every
+    sort on a subsort path between two kept sorts (dropping a path's interior
+    would leave a slice ill-sorted; the [< Val] edges are excluded from that
+    closure, or it would re-expand to the whole lattice). Pruning never touches
+    the rules, so a checker's verdict is preserved; without it every slice
+    carries the whole ~460-sort P4 signature.
 
     [sig_rules] are the rules the signature is recovered from (default: [sys]'s
     own) -- pass the whole system when [sys] is a slice, as {!Mfe.check} does.
