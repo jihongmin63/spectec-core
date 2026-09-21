@@ -65,6 +65,13 @@ val check :
     the original, since the unravel does not preserve confluence). *)
 val upgrade : original:verdict -> normalized:verdict -> verdict
 
+(** The normalization ladder's distinct, non-identity systems in
+    first-occurrence order. Structural equality is sufficient because every
+    returned system is checked with the same fixed [sig_rules] and pruned
+    signature context. Exposed for checker-free regression tests. *)
+val normalized_candidates :
+  Rewrite_system.t -> (Crc_surface.strategy * Rewrite_system.t) list
+
 (** [check] followed by an upgrade-only retry: when a component verdict is
     inconclusive ([Maybe]/[Timeout]), the system is re-checked with
     {!Crc_surface.crc_normalize} applied AND its signature pruned

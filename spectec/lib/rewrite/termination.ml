@@ -1,11 +1,27 @@
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
 type path = Whole_trs | Children | Integer_trs | Length_trs
-type step = { path : path; verdict : verdict; secs : float; note : string }
+
+type rung = {
+  budget : int;
+  verdict : verdict;
+  secs : float;
+  total_secs : float;
+}
+
+type step = {
+  path : path;
+  verdict : verdict;
+  secs : float;
+  total_secs : float;
+  rungs : rung list;
+  note : string;
+}
 
 type report = {
   verdict : verdict;
   stats : Unravel.stats option;
   secs : float option;
+  total_secs : float option;
   proof : string option;
   steps : step list;
 }
@@ -25,10 +41,38 @@ let string_of_path = function
   | Length_trs -> "itrs-lengths"
 
 let string_of_step (s : step) : string =
-  Printf.sprintf "%s:%s%s@%.1fs" (string_of_path s.path)
-    (string_of_verdict s.verdict)
-    (if s.note = "" then "" else "(" ^ s.note ^ ")")
-    s.secs
+  let base =
+    Printf.sprintf "%s:%s%s@%.1fs" (string_of_path s.path)
+      (string_of_verdict s.verdict)
+      (if s.note = "" then "" else "(" ^ s.note ^ ")")
+      s.secs
+  in
+  let rounded_tenth x = Float.round (x *. 10.0) in
+  match s.rungs with
+  | [] -> base
+  | [ _ ] when rounded_tenth s.total_secs = rounded_tenth s.secs -> base
+  | rungs ->
+      let rung (r : rung) =
+        Printf.sprintf "%d:%s@%.1fs" r.budget
+          (string_of_verdict r.verdict)
+          r.secs
+      in
+      Printf.sprintf "%s(total=%.1fs; rungs=%s)" base s.total_secs
+        (String.concat "," (List.map rung rungs))
+
+let step_of_rungs path (rungs : rung list) note : step =
+  match List.rev rungs with
+  | [] -> invalid_arg "Termination.step_of_rungs: empty ladder"
+  | final :: _ ->
+      {
+        path;
+        verdict = final.verdict;
+        secs = final.secs;
+        total_secs =
+          List.fold_left (fun n (r : rung) -> n +. r.total_secs) 0.0 rungs;
+        rungs;
+        note;
+      }
 
 let of_aprove : Aprove.verdict -> verdict = function
   | Aprove.Yes -> Yes
@@ -136,23 +180,37 @@ let echo_slack = 900
    timing THAT rung alone -- the ones below it were cut off before AProVE had
    said anything worth keeping. A missing binary is an Error at every rung, so
    it skips straight to the one run whose message the caller reports. *)
-let probe ?aprove_bin ~budget ~budget_from ~ext ~trs () : Aprove.run * float =
-  let run b =
-    Subproc.timed (fun () -> Aprove.check ?aprove_bin ~budget:b ~ext ~trs ())
+let probe ?aprove_bin ?final_capture ~budget ~budget_from ~ext ~trs () :
+    Aprove.run * float * rung list =
+  let run ?capture b =
+    let result = Aprove.check ?aprove_bin ?capture ~budget:b ~ext ~trs () in
+    let rung =
+      {
+        budget = b;
+        verdict = of_aprove result.verdict;
+        secs = result.proof_secs;
+        total_secs = result.total_secs;
+      }
+    in
+    (result, result.proof_secs, rung)
   in
   let ladder =
     if Sys.file_exists (Aprove.resolve_bin aprove_bin) then
       budget_ladder ~from:budget_from ~cap:budget ()
     else [ budget ]
   in
-  let rec climb = function
+  let rec climb attempted = function
     | [] -> assert false
-    | [ last ] -> run last
+    | [ last ] ->
+        let result, secs, rung = run ?capture:final_capture last in
+        (result, secs, List.rev (rung :: attempted))
     | b :: rest ->
-        let r, secs = run b in
-        if decisive r.Aprove.verdict then (r, secs) else climb rest
+        let result, secs, rung = run b in
+        let attempted = rung :: attempted in
+        if decisive result.Aprove.verdict then (result, secs, List.rev attempted)
+        else climb attempted rest
   in
-  climb ladder
+  climb [] ladder
 
 (* ------------------------------------------------------------------------- *)
 (* The child split.
@@ -172,29 +230,28 @@ let probe ?aprove_bin ~budget ~budget_from ~ext ~trs () : Aprove.run * float =
    is the proof the whole run was assembling. *)
 
 type split_outcome = Closed | Unclosed of string | Unavailable of string
+type children_error = Missing_echo of string | Child_unavailable of string
+
+let string_of_children_error = function
+  | Missing_echo msg | Child_unavailable msg -> msg
 
 (* The children of one whole-system run, in tree order, with the export they are
    to be re-posed against. Separated from the running because two callers want
    the same children for different reasons: {!split} stops at the first that
    does not close (a checker has its answer there), while {!child_report} runs
    every one of them (a measurement wants the distribution). *)
-let children ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
-    (Unravel.export * Qdp.problem list, string) result =
+let children ~(system : Rewrite_system.t) (run : Aprove.run) :
+    (Unravel.export * Qdp.problem list, children_error) result =
   (* The child carries OUR rules, not the ones the echo printed back: the same
      export the whole run was given, which is a superset of whatever the run had
      reduced them to by the time it reached this child, and a superset only adds
      chains. Re-derived here rather than threaded in, because it costs
      milliseconds against a run that costs the budget. *)
   match Unravel.export_of_system (proof_surface system) with
-  | Error msg -> Error msg
+  | Error msg -> Error (Child_unavailable msg)
   | Ok (export, _) -> (
-      let run =
-        Aprove.check ?aprove_bin ~budget ~ext:".trs"
-          ~capture:{ Aprove.keep = Qdp.capture_filter (); echo_slack }
-          ~trs ()
-      in
       match Qdp.open_leaves run.Aprove.proof with
-      | [] -> Error "no open child in the proof tree"
+      | [] -> Error (Child_unavailable "no open child in the proof tree")
       | leaves ->
           let echoed = Qdp.problems run.Aprove.captured in
           let problem node =
@@ -211,16 +268,39 @@ let children ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
                diagnosable: re-running [runme] by hand on the same export shows
                whether that node's obligation was printed at all. *)
             Error
-              (Printf.sprintf
-                 "node(s) %s not in the echo (%d open, %d obligations)"
-                 (String.concat "," (List.map string_of_int missing))
-                 (List.length leaves) (List.length echoed))
+              (Missing_echo
+                 (Printf.sprintf
+                    "node(s) %s not in the echo (%d open, %d obligations)"
+                    (String.concat "," (List.map string_of_int missing))
+                    (List.length leaves) (List.length echoed)))
           else Ok (export, List.filter_map problem leaves))
 
-let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~trs () :
-    split_outcome =
-  match children ?aprove_bin ~budget ~system ~trs () with
-  | Error msg -> Unavailable msg
+let capture_whole ?aprove_bin ~budget ~(trs : string) () : Aprove.run =
+  Aprove.check ?aprove_bin ~budget ~ext:".trs"
+    ~capture:
+      {
+        Aprove.keep = Qdp.capture_filter ();
+        done_when = Qdp.capture_complete;
+        echo_slack;
+      }
+    ~trs ()
+
+let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~(trs : string)
+    ~(whole : Aprove.run) () : split_outcome =
+  let children =
+    match children ~system whole with
+    | Ok children -> Ok children
+    | Error (Missing_echo _) ->
+        (* Some AProVE runs reach EOF without echoing every obligation named by
+           their own proof tree. The final-rung capture is then unusable: a
+           split over only the obligations that arrived would prove a strict
+           subset. Preserve the historical behavior with one dedicated retry;
+           complete same-run captures still avoid it. *)
+        capture_whole ?aprove_bin ~budget ~trs () |> children ~system
+    | Error error -> Error error
+  in
+  match children with
+  | Error error -> Unavailable (string_of_children_error error)
   | Ok (export, problems) ->
       let total = List.length problems in
       let rec close closed = function
@@ -266,8 +346,9 @@ let child_report ?aprove_bin ?(budget = 300) ?child_budget
   match export ~roots:[] Plain system with
   | Error msg -> Error msg
   | Ok (trs, _) -> (
-      match children ?aprove_bin ~budget ~system ~trs () with
-      | Error msg -> Error msg
+      let whole = capture_whole ?aprove_bin ~budget ~trs () in
+      match children ~system whole with
+      | Error error -> Error (string_of_children_error error)
       | Ok (export, problems) ->
           let attempt ~ext ~rules text =
             let run, secs =
@@ -310,8 +391,8 @@ let child_report ?aprove_bin ?(budget = 300) ?child_budget
 
 (* ------------------------------------------------------------------------- *)
 
-let step_of path (run : Aprove.run) secs note =
-  { path; verdict = of_aprove run.Aprove.verdict; secs; note }
+let direct_step path verdict secs note =
+  { path; verdict; secs; total_secs = secs; rungs = []; note }
 
 (* The verdict of a check that took several paths: a [Yes] from ANY of them is
    the slice's, since each path proves the same slice through a different
@@ -329,6 +410,12 @@ let report_of ~stats ~(tree : string option) (steps : step list) : report =
     verdict = (match chosen with Some s -> s.verdict | None -> Degenerate);
     stats = Some stats;
     secs = Option.map (fun (s : step) -> s.secs) chosen;
+    total_secs =
+      (match steps with
+      | [] -> None
+      | _ ->
+          Some
+            (List.fold_left (fun n (s : step) -> n +. s.total_secs) 0.0 steps));
     proof = tree;
     steps;
   }
@@ -337,7 +424,14 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
     ?(split_children = true) ?(integer_retry = true) ?(surface = Plain)
     ~(roots : string list) (system : Rewrite_system.t) : report =
   let failed verdict =
-    { verdict; stats = None; secs = None; proof = None; steps = [] }
+    {
+      verdict;
+      stats = None;
+      secs = None;
+      total_secs = None;
+      proof = None;
+      steps = [];
+    }
   in
   if system.Rewrite_system.rules = [] then failed Degenerate
   else
@@ -347,11 +441,21 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
         let tree_of (run : Aprove.run) =
           if run.Aprove.proof = "" then None else Some run.Aprove.proof
         in
-        let whole, secs =
-          probe ?aprove_bin ~budget ~budget_from ~ext:(extension surface) ~trs
-            ()
+        let final_capture =
+          if surface = Plain && split_children then
+            Some
+              {
+                Aprove.keep = Qdp.capture_filter ();
+                done_when = Qdp.capture_complete;
+                echo_slack;
+              }
+          else None
         in
-        let steps = [ step_of Whole_trs whole secs "" ] in
+        let whole, _, whole_rungs =
+          probe ?aprove_bin ?final_capture ~budget ~budget_from
+            ~ext:(extension surface) ~trs ()
+        in
+        let steps = [ step_of_rungs Whole_trs whole_rungs "" ] in
         (* The two fallback paths are about the plain surface's failure: the
            split reads the run that just happened, and the integer surface is
            the answer to arithmetic the plain one could not see. A check asked
@@ -364,7 +468,7 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
             else
               let outcome, secs =
                 Subproc.timed (fun () ->
-                    split ?aprove_bin ~budget ~system ~trs ())
+                    split ?aprove_bin ~budget ~system ~trs ~whole ())
               in
               let verdict, note =
                 match outcome with
@@ -372,7 +476,7 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
                 | Unclosed note | Unavailable note ->
                     (of_aprove whole.Aprove.verdict, note)
               in
-              steps @ [ { path = Children; verdict; secs; note } ]
+              steps @ [ direct_step Children verdict secs note ]
           in
           if List.exists (fun (s : step) -> s.verdict = Yes) steps then
             report_of ~stats ~tree:(tree_of whole) steps
@@ -392,22 +496,14 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
                   match export ~roots surface system with
                   | Error msg ->
                       climb
-                        (steps
-                        @ [
-                            {
-                              path;
-                              verdict = Error msg;
-                              secs = 0.0;
-                              note = "export";
-                            };
-                          ])
+                        (steps @ [ direct_step path (Error msg) 0.0 "export" ])
                         tree rest
                   | Ok (text, _) ->
-                      let run, secs =
+                      let run, _, rungs =
                         probe ?aprove_bin ~budget ~budget_from
                           ~ext:(extension surface) ~trs:text ()
                       in
-                      let steps = steps @ [ step_of path run secs "" ] in
+                      let steps = steps @ [ step_of_rungs path rungs "" ] in
                       if run.Aprove.verdict = Aprove.Yes then
                         report_of ~stats ~tree:(tree_of run) steps
                       else climb steps tree rest)

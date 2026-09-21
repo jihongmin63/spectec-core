@@ -30,9 +30,10 @@
     the whole rule set once per dependency-graph child: gigabytes, of which the
     dependency pairs are a few thousand lines). It is called EXACTLY ONCE PER
     LINE, in output order, so a stateful filter may use it to track which
-    section of a tool's output it is in; the trailing partial line a deadline
-    kill leaves behind is dropped. Without it every byte is accumulated
-    verbatim. *)
+    section of a tool's output it is in. A final line that ends at real EOF is
+    offered once even without a newline; the trailing partial line a deadline or
+    early-predicate kill leaves behind is dropped. Without [keep] every byte is
+    accumulated verbatim. *)
 val run :
   ?env:string array ->
   ?keep:(string -> bool) ->

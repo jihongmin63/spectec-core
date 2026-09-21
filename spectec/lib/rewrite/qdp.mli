@@ -39,6 +39,13 @@ type problem = {
     (it tracks which section it is inside), so one filter serves one run. *)
 val capture_filter : unit -> string -> bool
 
+(** [capture_complete output] becomes true once the proof tree is complete and
+    every open leaf named by it has a complete obligation in the filtered echo.
+    An obligation completes at its final chain sentence; AProVE omits the dashed
+    separator after the final one. A decisive tree with no open leaf completes
+    at the tree separator, so it does not pay echo time. *)
+val capture_complete : string -> bool
+
 (** The nodes a proof tree leaves OPEN: those with no sub-proof under them and
     no verdict of their own. Empty when the tree contains an [OR] node, whose
     branches are alternatives rather than conjuncts -- closing all the leaves of
@@ -47,11 +54,13 @@ val capture_filter : unit -> string -> bool
     instead of guessed. *)
 val open_leaves : string -> int list
 
-(** The obligations of a captured run, parsed out of the echo behind the tree. A
-    node whose echo carries no dependency pairs (the root [QTRS], an [ITRS]
-    problem, an echo the deadline cut short) is not a QDP child and is skipped
-    -- {!Termination} checks that every open leaf came back before it trusts a
-    split. *)
+(** The complete obligations of a captured run, parsed out of the echo behind
+    the tree. Completion is the final chain sentence, not a following separator:
+    AProVE omits that separator on the final obligation. A trailing obligation
+    cut off before the sentence is discarded. A node whose echo carries no
+    dependency pairs (the root [QTRS], an [ITRS] problem, an echo the deadline
+    cut short) is not a QDP child and is skipped -- {!Termination} checks that
+    every open leaf came back before it trusts a split. *)
 val problems : string -> problem list
 
 (** The symbols a child's dependency pairs recurse through -- the child's NAME,

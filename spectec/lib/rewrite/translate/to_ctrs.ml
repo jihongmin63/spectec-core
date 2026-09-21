@@ -1290,7 +1290,12 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
   | IterPr (inner, (iter, vars)) ->
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fv_terms = List.map var_t (iter_captured inner vars bound_ids) in
-      let inner_stepped = rename_step_prem (bound_ids @ binding_ids) inner in
+      (* Only the spines that DRIVE this iteration are stepped.  Its outputs
+         are bound by [inner]'s patterns, so their names must agree with the
+         element the collecting helper returns.  Stepping a binding here leaves
+         a structured inner binder at its original name but makes [elem] below
+         ask for a synthetic [b__hd] that no condition binds. *)
+      let inner_stepped = rename_step_prem bound_ids inner in
       let conds = conds_of_prem ~scalars orig (fresh_binder ()) inner_stepped in
       let spines = spines_of_ids ctx bound_ids in
       let base_args, step_args, rec_args =
@@ -1317,20 +1322,25 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
         let comps = iter_collect_components ~scalars orig inner binding_ids in
         let sym = iter_collect_sym inner iter spines comps in
         let body, _ = collect_tuple_body vars comps in
-        let tuple_pat = tuple_t (List.map (fun v -> var_t (step_hd v)) comps) in
-        (* [tuple_pat] equals [elem_pat_of_binder] on the use site's registry
-           entry, so a fused consumer's spine pattern, the projection helpers'
-           element pattern, and the multi-component collect element below all
-           agree by one construction. The projection definitions MUST be
-           emitted here: the synthetic tuple body never exists in the IL, so
-           [visit_exp]/[iter_proj_defs] cannot find it. *)
+        (* The collector receives [comps] as names bound by [inner] and stores
+           them directly.  A projection later consumes that stored collection,
+           so its tuple pattern binds the collection's own head variables.
+           [elem_pat_of_binder] applies the same renaming to the registry's
+           bare [body] for fused consumers. *)
+        let tuple_elem = tuple_t (List.map var_t comps) in
+        let tuple_spine_pat =
+          tuple_t (List.map (fun v -> var_t (step_hd v)) comps)
+        in
+        (* The projection definitions MUST be emitted here: the synthetic tuple
+           body never exists in the IL, so [visit_exp]/[iter_proj_defs] cannot
+           find it. *)
         let proj_defs =
           if List.length comps <= 1 then []
           else
             List.map
               (fun v ->
                 let psym = iter_proj_sym body iter v in
-                (psym, spine_projection_rules psym [] iter tuple_pat v))
+                (psym, spine_projection_rules psym [] iter tuple_spine_pat v))
               comps
         in
         let rules =
@@ -1339,7 +1349,7 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
              result as the element -- one (possibly gensym-threaded) call per
              element, which projection/fusion must never duplicate. A multi-
              output call's result normalizes to [output_term]'s tuple in
-             [comps] order, matching [tuple_pat]. *)
+             [comps] order, matching [tuple_elem]. *)
           | Some (call, _) -> (
               let elem = R.subst (elem_renaming bound_ids) call in
               match iter with
@@ -1358,7 +1368,7 @@ let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
              conditions once and collecting the component (or their tuple). *)
           | None -> (
               let elem =
-                match comps with [ b ] -> var_t (step_hd b) | _ -> tuple_pat
+                match comps with [ b ] -> var_t b | _ -> tuple_elem
               in
               match iter with
               | List ->

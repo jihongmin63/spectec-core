@@ -17,7 +17,7 @@ module Qdp = Qdp
 module Termination = Termination
 module Scc = Scc
 
-type target = Pipeline.target = Analysis | Execution
+type target = Pipeline.target = Analysis | Termination_analysis | Execution
 
 type compilation = Pipeline.compilation = {
   spec : Lang.Il.spec;

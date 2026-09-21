@@ -47,10 +47,33 @@ type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
       already failed. *)
 type path = Whole_trs | Children | Integer_trs | Length_trs
 
+(** One budget-ladder attempt. [secs] is that subprocess's wall clock, not the
+    nominal [budget]. *)
+type rung = {
+  budget : int;
+  verdict : verdict;
+  secs : float;
+      (** Time until the proof tree was available, preserving the historical
+          path timing. *)
+  total_secs : float;
+      (** Full rung wall clock, including obligation capture when requested. *)
+}
+
 (** What one path came back with. Kept per path rather than collapsed, because a
     failed split's own numbers ("48/75 closed, node 911 TIMEOUT") are the
     diagnostic the verdict alone does not carry. *)
-type step = { path : path; verdict : verdict; secs : float; note : string }
+type step = {
+  path : path;
+  verdict : verdict;
+  secs : float;
+      (** The final or answering rung, preserving the historical TSV meaning. *)
+  total_secs : float;
+      (** Every rung and direct subprocess spent on this path. *)
+  rungs : rung list;
+      (** Ordered ladder attempts; empty for non-ladder paths such as a child
+          split or an export error. *)
+  note : string;
+}
 
 type report = {
   verdict : verdict;
@@ -64,6 +87,9 @@ type report = {
           answering rung alone (the rungs below it are excluded, so this is what
           the verdict cost rather than what finding it cost), for a split every
           child run it made. [None] when no AProVE run happened. *)
+  total_secs : float option;
+      (** Sum of [step.total_secs] over every attempted path. This is the AProVE
+          search wall omitted by the historical answering-path [secs]. *)
   proof : string option;
       (** {!Aprove.proof_tree} of the WHOLE-SYSTEM run -- the outline of the
           steps it took, which is what says how far an unproven symbol got, and
@@ -79,8 +105,15 @@ type report = {
 val string_of_verdict : verdict -> string
 val string_of_path : path -> string
 
-(** One step as a row cell: [children:YES(all children closed)@412.0s]. *)
+(** One step as a row cell: [children:YES(all children closed)@412.0s]. A ladder
+    path appends its total and attempts when it climbed multiple rungs or when
+    obligation capture made a single rung's total visibly exceed its proof-tree
+    time, without changing the five-column TSV shape. *)
 val string_of_step : step -> string
+
+(** Build one ladder step from its ordered, non-empty attempts. Exposed so the
+    accounting and stable row spelling can be tested without running AProVE. *)
+val step_of_rungs : path -> rung list -> string -> step
 
 (** The budgets {!check} tries, ascending, ending at [cap]. The ladder lets a
     symbol AProVE would search to a large deadline stop at a small budget that
@@ -206,9 +239,10 @@ val child_report :
     the slice unproven -- and [integer_retry] only where the slice computes
     arithmetic at all ({!Itrs.has_arithmetic}), since without it the integer
     surface re-proves the same system under another name. Both cost real time on
-    a symbol that stays unproven: the split pays one more whole-system run (to
-    capture the decomposition) plus one run per open child, and the integer
-    retry another ladder.
+    a symbol that stays unproven: the final whole-system rung streams the open
+    obligations after its proof tree, then the split pays one run per open
+    child; the integer retry pays another ladder. [step.secs] stops at the proof
+    tree as before, while [step.total_secs] includes that capture tail.
 
     [surface] (default [Plain]) pins the check to ONE surface and takes the
     fallbacks away with it -- [~surface:Integer] is the integer-only column, not

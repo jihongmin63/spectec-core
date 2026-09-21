@@ -41,6 +41,44 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
 
 이번 리팩토링의 변경 범위와 검증: [refactoring.md](refactoring.md).
 
+### 2026-09-21 — 중첩 반복 출력 바인더 수정 원본 이식
+
+`extern-meta-confluence` 작업 트리에서 발견한 문법 독립적인
+`To_ctrs.iterpr_defs` 수정을 `new-rewrite`에 이식했다. 반복 입력만 `__hd`로
+바꾸고, collector는 내부 조건이 실제 바인딩한 출력 이름을 사용한다. 다중 출력
+저장 tuple과 projection의 stepped pattern을 분리해 기존 projection/fusion을
+보존했다. extern/rulegroup 문법 변경은 포함하지 않는다.
+
+`termination-nested-iter.t`의 중첩 `val*?*` 사례는 수정 전
+`unbound rhs variable`로 실패했고 수정 후 통과했다. 다중 출력 export,
+rewrite/CLI 테스트, 빌드, 변경 파일 포맷, impty CTRS golden도 통과했다.
+전체 `dune runtest`에는 rewrite에 의존하지 않는 P4 golden 4건
+(`elab`, `struct`, `roundtrip/el`, `roundtrip/il`)의 기존 기대값 차이가 남아 있다.
+기대값을 갱신하지 않았으며 커밋도 하지 않았다.
+
+Timeout은 별도 과제다. 기존 AL `Assign_exp`의 실제 wall은 1,425초지만
+경로 시간 합은 1,203.5초다. budget 사다리의 하위 시도 시간이 집계에서 빠지고,
+`children`에는 QDP 수집을 위한 whole 재실행도 포함된다.
+단계별 범용 단축 전략과 판정 범위는
+[분석 계획](../../../docs/superpowers/plans/2026-09-21-generic-verification-timeouts.md)에
+정리했다. 기존 메타 명세는 `meta2@da36ac3c`이고, 요청의 `squaring` 대상은
+확인되지 않아 동일하다고 단정하지 않는다. 이전 53개 export 성공과 CRC/termination
+측정은 당시 참조 트리의 기록이며 이번 원본 트리 전수 재측정 결과가 아니다.
+
+후속 구현에서 budget rung별 proof/전체 시간을 보존하고, 최종 plain rung의 QDP
+echo를 child split에 재사용했다. AProVE 마지막 obligation에 separator와 newline이
+없다는 실제 출력 형식도 파서와 스트리밍 필터에 반영했다. 모든 열린 leaf가 없으면
+전용 capture를 한 번 재시도하므로 일부 child만으로 YES를 만들지 않는다. 5초 직렬
+비교에서 P4 `$repeat__value`는 19→13초, meta2 AL `Assign_exp`는 18→13초였고
+동일한 열린 QDP를 검사했다. `$upcast`는 root QTRS가 열린 형태라 11→12초로 개선이
+없었다. 모두 TIMEOUT(미증명)이다.
+
+CRC normalize ladder는 구조적으로 같은 non-identity 입력을 한 번만 검사한다. 반사 전
+Structural `Termination_analysis` target도 추가했지만 CLI 기본값에는 채택하지 않았다.
+`Assign_exp` raw 표면은 방정식이 568→462로 줄어도 chain이 96→151로 늘며
+23.1→31.2초로 느려졌다. 세부 근거와 산출물은 위 [분석 계획] 및
+`_test/timeout-optimization-20260921`에 있다.
+
 ### 2026-09-07 — 구조적 실행의 `bad token chr` 수정
 
 규칙에는 없고 입력 문자열에만 있는 `chr`가 실행 모듈에서 선언되지 않았다.

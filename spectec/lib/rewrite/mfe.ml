@@ -283,6 +283,20 @@ let upgrade ~(original : verdict) ~(normalized : verdict) : verdict =
   | (Maybe | Timeout), Yes -> Yes
   | _ -> original
 
+let normalized_candidates (system : Rewrite_system.t) :
+    (Crc_surface.strategy * Rewrite_system.t) list =
+  let rec collect seen acc = function
+    | [] -> List.rev acc
+    | strategy :: rest ->
+        let normalized = Crc_surface.crc_normalize ~strategy system in
+        if
+          normalized = system
+          || List.exists (fun prior -> prior = normalized) seen
+        then collect seen acc rest
+        else collect (normalized :: seen) ((strategy, normalized) :: acc) rest
+  in
+  collect [] [] (Crc_surface.normalize_ladder system)
+
 let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
     (orig : Lang.Il.spec) (system : Rewrite_system.t) : upgrade_result =
   (* Pin the signature to the ORIGINAL system's rules, so the normalized re-run
@@ -320,41 +334,38 @@ let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
     in
     let rec climb acc = function
       | [] -> acc
-      | strategy :: rest ->
+      | (_, normalized_sys) :: rest ->
           if acc.crc.verdict = Yes && acc.chc.verdict = Yes then acc
           else
-            let normalized_sys = Crc_surface.crc_normalize ~strategy system in
-            if normalized_sys = system then climb acc rest
-            else
-              let n =
-                check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true
-                  ~sig_rules orig normalized_sys
-              in
-              let step =
-                {
-                  crc = component acc.crc.verdict n.church_rosser;
-                  chc = component acc.chc.verdict n.coherence;
-                }
-              in
-              (* [via_normalize] must survive a rung that changes nothing. *)
-              climb
-                {
-                  crc =
-                    {
-                      step.crc with
-                      via_normalize =
-                        step.crc.via_normalize || acc.crc.via_normalize;
-                    };
-                  chc =
-                    {
-                      step.chc with
-                      via_normalize =
-                        step.chc.via_normalize || acc.chc.via_normalize;
-                    };
-                }
-                rest
+            let n =
+              check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true
+                ~sig_rules orig normalized_sys
+            in
+            let step =
+              {
+                crc = component acc.crc.verdict n.church_rosser;
+                chc = component acc.chc.verdict n.coherence;
+              }
+            in
+            (* [via_normalize] must survive a rung that changes nothing. *)
+            climb
+              {
+                crc =
+                  {
+                    step.crc with
+                    via_normalize =
+                      step.crc.via_normalize || acc.crc.via_normalize;
+                  };
+                chc =
+                  {
+                    step.chc with
+                    via_normalize =
+                      step.chc.via_normalize || acc.chc.via_normalize;
+                  };
+              }
+              rest
     in
-    climb exact (Crc_surface.normalize_ladder system)
+    climb exact (normalized_candidates system)
 
 (* -------------------------------------------------------------------------- *)
 (* Batched checking: one MFE session (single ~100s load) for many slices. *)

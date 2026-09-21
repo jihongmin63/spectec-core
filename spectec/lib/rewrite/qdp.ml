@@ -204,7 +204,11 @@ let problems (captured : string) : problem list =
   in
   let rec go lines cur sec acc =
     match lines with
-    | [] -> List.rev (finish cur acc)
+    | [] ->
+        (* A complete QDP was finalized at its chain sentence below. Anything
+           still in [cur] is a deadline-truncated obligation; treating it as a
+           problem could let a split prove a narrower child than AProVE emitted. *)
+        List.rev acc
     | line :: rest -> (
         let t = String.trim line in
         if t = separator then go rest None Skip (finish cur acc)
@@ -219,9 +223,19 @@ let problems (captured : string) : problem list =
               else if t = rules_marker || t = q_empty then go rest cur Skip acc
               else if t = q_marker then go rest cur Q acc
               else if String.starts_with ~prefix:chains_marker t then
-                go rest
-                  (Some (node, pairs, q, Subproc.contains t "minimal"))
-                  Skip acc
+                (* This is the semantic end of a QDP obligation. AProVE prints
+                   a dashed separator after every obligation except the last,
+                   which ends directly at EOF; waiting for the separator drops
+                   exactly that final child. *)
+                let problem =
+                  {
+                    node;
+                    pairs = List.rev pairs;
+                    q = List.rev q;
+                    minimal = Subproc.contains t "minimal";
+                  }
+                in
+                go rest None Skip (problem :: acc)
               else
                 match sec with
                 | Pairs when Subproc.contains t "->" ->
@@ -231,6 +245,16 @@ let problems (captured : string) : problem list =
                 | _ -> go rest cur sec acc))
   in
   go (String.split_on_char '\n' captured) None Skip []
+
+let capture_complete (captured : string) : bool =
+  if not (Aprove.proof_printed captured) then false
+  else
+    let leaves = Aprove.proof_tree captured |> open_leaves in
+    match leaves with
+    | [] -> true
+    | _ ->
+        let completed = problems captured |> List.map (fun p -> p.node) in
+        List.for_all (fun node -> List.mem node completed) leaves
 
 (* -------------------------------------------------------------------------- *)
 (* Naming a child. *)

@@ -452,6 +452,12 @@ let () =
   check "crc_normalize/unravel-alone-cannot-reach-the-guard"
     (rules_of (Crc.crc_normalize ~strategy:Crc.Inline_and_unravel bare)
     = inlined);
+  (* The first two ladder strategies produce this same system. The checker must
+     see it once, in first-occurrence order, while the distinct rebind arm stays
+     available as the next retry. *)
+  check "mfe/normalization-candidates-deduplicate-equal-systems"
+    (List.map fst (Mfe.normalized_candidates bare)
+    = [ Crc.Inline_and_unravel; Crc.Rebind_and_unravel ]);
   (* The inline copies [d_f(a)] to both uses, and keeps the partiality guard the
      dropped binder was carrying. *)
   check "crc_normalize/inline-copies-per-use"
@@ -797,6 +803,39 @@ let () =
          l <> [] && List.nth l (List.length l - 1) = cap)
        [ (1, 5); (80, 80); (320, 1800); (1280, 1280); (1280, 300) ])
 
+(* A ladder path reports two different times: [secs] is the answering/final
+   rung retained by the historical TSV column, while [total_secs] is the real
+   wall spent finding it. Every rung stays visible so the difference is
+   attributable rather than becoming an unexplained gap in a sweep log. *)
+let () =
+  let rungs : Termination.rung list =
+    [
+      { budget = 5; verdict = Timeout; secs = 5.25; total_secs = 5.25 };
+      { budget = 20; verdict = Timeout; secs = 20.5; total_secs = 20.5 };
+      { budget = 80; verdict = Yes; secs = 40.0; total_secs = 40.0 };
+    ]
+  in
+  let step = Termination.step_of_rungs Termination.Integer_trs rungs "" in
+  check "ladder-step/keeps-final-rung-time" (step.secs = 40.0);
+  check "ladder-step/sums-real-search-time" (step.total_secs = 65.75);
+  check "ladder-step/keeps-every-rung" (step.rungs = rungs);
+  check_str "ladder-step/prints-attributable-total"
+    (Termination.string_of_step step)
+    "itrs:YES@40.0s(total=65.8s; \
+     rungs=5:TIMEOUT@5.2s,20:TIMEOUT@20.5s,80:YES@40.0s)"
+
+let () =
+  (* A single final rung can still spend additional wall time streaming the
+     dependency-pair obligations needed by the child split. Keep the historical
+     proof-tree time before [total=], but make that capture tail visible. *)
+  let rung : Termination.rung =
+    { budget = 5; verdict = Timeout; secs = 5.0; total_secs = 6.25 }
+  in
+  let step = Termination.step_of_rungs Termination.Whole_trs [ rung ] "" in
+  check_str "ladder-step/prints-single-rung-capture-tail"
+    (Termination.string_of_step step)
+    "whole:TIMEOUT@5.0s(total=6.2s; rungs=5:TIMEOUT@5.0s)"
+
 (* Termination.decisive: which rung verdict ends the climb. Only an answer
    about the TRS does. An Error must NOT: AProVE at a budget too small to
    finish prints no verdict line at all, which Aprove.check reports as an
@@ -867,6 +906,15 @@ let filtered (run : string) : string =
   let keep = Qdp.capture_filter () in
   String.split_on_char '\n' run |> List.filter keep |> String.concat "\n"
 
+let cut_before (needle : string) (text : string) : string =
+  let n = String.length text and m = String.length needle in
+  let rec find i =
+    if i + m > n then failwith ("needle not found: " ^ needle)
+    else if String.sub text i m = needle then String.sub text 0 i
+    else find (i + 1)
+  in
+  find 0
+
 let () =
   (* The filter drops the R body and nothing else. That body is the submitted
      system echoed back once per child -- gigabytes on a large slice -- and it
@@ -883,6 +931,46 @@ let () =
      survive the first child's rule body. *)
   check "qdp/filter-recovers-after-a-rule-body"
     (Subproc.contains kept "(8)\nObligation:")
+
+let () =
+  let kept = filtered aprove_split_run in
+  let before_open_child = cut_before "(8)\nObligation:" kept in
+  check "qdp/capture-waits-for-every-open-child"
+    (not (Qdp.capture_complete before_open_child));
+  check "qdp/capture-completes-with-every-open-child"
+    (Qdp.capture_complete kept);
+  check "qdp/capture-decisive-tree-needs-no-obligations"
+    (Qdp.capture_complete
+       "YES\n\
+        proof of /tmp/x.trs\n\
+        # AProVE Commit ID: x\n\
+        (0) YES\n\
+        ----------------------------------------\n");
+  let partial =
+    "(8)\n\
+     Obligation:\n\
+     The TRS P consists of the following rules:\n\
+     D_G(x0) -> D_G(x0)\n"
+  in
+  check "qdp/incomplete-obligation-is-not-a-problem" (Qdp.problems partial = [])
+
+let () =
+  (* AProVE terminates the final obligation with the chain sentence and EOF;
+     unlike earlier obligations, it has no following dashed separator. That
+     sentence is the format's semantic end marker, so the final open child must
+     still be available to the split. *)
+  let kept = filtered aprove_split_run in
+  let suffix = "----------------------------------------\n" in
+  check "qdp/fixture-has-final-separator" (String.ends_with ~suffix kept);
+  let without_final_separator =
+    String.sub kept 0 (String.length kept - String.length suffix)
+  in
+  check "qdp/final-obligation-completes-at-chain-sentence"
+    (List.exists
+       (fun (p : Qdp.problem) -> p.node = 8)
+       (Qdp.problems without_final_separator));
+  check "qdp/capture-completes-before-final-eof"
+    (Qdp.capture_complete without_final_separator)
 
 let () =
   (* A chain of problem and processor is printed at ONE indentation, so "open"
@@ -1009,6 +1097,155 @@ let () =
   | Ok _ -> check "qdp/unknown-identifier-refused" false
   | Error msg ->
       check "qdp/unknown-identifier-refused" (Subproc.contains msg "mystery")
+
+let () =
+  (* The final whole-system rung already streams the proof tree. When child
+     splitting is enabled, keep that process alive just long enough to capture
+     its open obligation; starting a second whole-system run doubles the hard
+     part before the child itself is even tried. *)
+  let counter = Filename.temp_file "spectec_aprove_count" ".txt" in
+  let fake = Filename.temp_file "spectec_aprove_fake" ".sh" in
+  let cleanup () =
+    List.iter
+      (fun path -> try Sys.remove path with Sys_error _ -> ())
+      [ counter; fake ]
+  in
+  Fun.protect ~finally:cleanup (fun () ->
+      let oc = open_out counter in
+      output_string oc "0\n";
+      close_out oc;
+      let script =
+        Printf.sprintf
+          {|#!/bin/sh
+n=$(cat %s)
+n=$((n + 1))
+printf '%%s\n' "$n" > %s
+case "$1" in
+  *.qdp) printf 'YES\n' ;;
+  *) cat <<'OUT'
+KILLED
+proof of /tmp/fake.trs
+# AProVE Commit ID: fake
+(0) QTRS
+(1) DependencyPairsProof [EQUIVALENT, 0 ms]
+(2) QDP
+(3) DependencyGraphProof [EQUIVALENT, 0 ms]
+(4) AND
+    (8) QDP
+
+----------------------------------------
+
+(8)
+Obligation:
+Q DP problem:
+The TRS P consists of the following rules:
+  D_F(cons(x0, x1)) -> D_F(x1)
+The TRS R consists of the following rules:
+  d_f(cons(x0, x1)) -> d_f(x1)
+Q is empty.
+OUT
+    printf 'We have to consider all minimal (P,Q,R)-chains.'
+  ;;
+esac
+|}
+          (Filename.quote counter) (Filename.quote counter)
+      in
+      let oc = open_out fake in
+      output_string oc script;
+      close_out oc;
+      Unix.chmod fake 0o755;
+      let sys =
+        system
+          [
+            rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
+          ]
+      in
+      let report =
+        Termination.check ~aprove_bin:fake ~budget:1 ~budget_from:1
+          ~integer_retry:false ~roots:[ "$f" ] sys
+      in
+      let ic = open_in counter in
+      let invocations = int_of_string (input_line ic) in
+      close_in ic;
+      check "termination/split-reuses-final-whole-run"
+        (report.verdict = Termination.Yes && invocations = 2))
+
+let () =
+  (* AProVE can reach EOF before echoing an obligation for every open leaf.
+     Reusing that incomplete run would silently skip the child split. Retry the
+     whole export once in capture mode, then pose the recovered child. *)
+  let counter = Filename.temp_file "spectec_aprove_count" ".txt" in
+  let fake = Filename.temp_file "spectec_aprove_fake" ".sh" in
+  let cleanup () =
+    List.iter
+      (fun path -> try Sys.remove path with Sys_error _ -> ())
+      [ counter; fake ]
+  in
+  Fun.protect ~finally:cleanup (fun () ->
+      let oc = open_out counter in
+      output_string oc "0\n";
+      close_out oc;
+      let script =
+        Printf.sprintf
+          {|#!/bin/sh
+n=$(cat %s)
+n=$((n + 1))
+printf '%%s\n' "$n" > %s
+case "$1" in
+  *.qdp) printf 'YES\n' ;;
+  *)
+    cat <<'TREE'
+KILLED
+proof of /tmp/fake.trs
+# AProVE Commit ID: fake
+(0) QTRS
+(1) DependencyPairsProof [EQUIVALENT, 0 ms]
+(2) QDP
+(3) DependencyGraphProof [EQUIVALENT, 0 ms]
+(4) AND
+    (8) QDP
+
+----------------------------------------
+TREE
+    if [ "$n" -ge 2 ]; then
+      cat <<'OBLIGATION'
+
+(8)
+Obligation:
+Q DP problem:
+The TRS P consists of the following rules:
+  D_F(cons(x0, x1)) -> D_F(x1)
+The TRS R consists of the following rules:
+  d_f(cons(x0, x1)) -> d_f(x1)
+Q is empty.
+We have to consider all minimal (P,Q,R)-chains.
+----------------------------------------
+OBLIGATION
+    fi
+  ;;
+esac
+|}
+          (Filename.quote counter) (Filename.quote counter)
+      in
+      let oc = open_out fake in
+      output_string oc script;
+      close_out oc;
+      Unix.chmod fake 0o755;
+      let sys =
+        system
+          [
+            rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
+          ]
+      in
+      let report =
+        Termination.check ~aprove_bin:fake ~budget:1 ~budget_from:1
+          ~integer_retry:false ~roots:[ "$f" ] sys
+      in
+      let ic = open_in counter in
+      let invocations = int_of_string (input_line ic) in
+      close_in ic;
+      check "termination/split-recaptures-incomplete-final-run"
+        (report.verdict = Termination.Yes && invocations = 3))
 
 (* ------------------------------------------------------------------------- *)
 (* Answering a child by proving a SYSTEM instead of re-posing the child.

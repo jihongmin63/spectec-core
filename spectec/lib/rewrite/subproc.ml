@@ -80,19 +80,30 @@ let kill_tree (pid : int) : unit =
    what decides a line's fate); a partial trailing line is held back until its
    newline arrives, and dropped if the deadline kills the child first. *)
 let line_splitter (keep : string -> bool) (buf : Buffer.t) :
-    bytes -> int -> unit =
+    (bytes -> int -> unit) * (unit -> unit) =
   let pending = Buffer.create 4096 in
-  fun chunk n ->
+  let emit line =
+    if keep line then (
+      Buffer.add_string buf line;
+      Buffer.add_char buf '\n')
+  in
+  let absorb chunk n =
     for i = 0 to n - 1 do
       let c = Bytes.get chunk i in
       if c = '\n' then (
         let line = Buffer.contents pending in
         Buffer.clear pending;
-        if keep line then (
-          Buffer.add_string buf line;
-          Buffer.add_char buf '\n'))
+        emit line)
       else Buffer.add_char pending c
     done
+  in
+  let flush () =
+    if Buffer.length pending > 0 then (
+      let line = Buffer.contents pending in
+      Buffer.clear pending;
+      emit line)
+  in
+  (absorb, flush)
 
 let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
     ~(timeout : int) () : string * bool =
@@ -117,9 +128,10 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
       Unix.close w_out;
       let buf = Buffer.create 65536 in
       let chunk = Bytes.create 8192 in
-      let absorb =
+      let absorb, flush =
         match keep with
-        | None -> fun chunk n -> Buffer.add_subbytes buf chunk 0 n
+        | None ->
+            ((fun chunk n -> Buffer.add_subbytes buf chunk 0 n), fun () -> ())
         | Some keep -> line_splitter keep buf
       in
       (* Materialize the buffer only for a caller that actually reads it: the
@@ -132,6 +144,7 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
         | Some done_when -> fun () -> done_when (Buffer.contents buf)
       in
       let timed_out = ref false in
+      let reached_eof = ref false in
       let deadline =
         if timeout > 0 then Unix.gettimeofday () +. float_of_int timeout
         else infinity
@@ -145,12 +158,17 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
           | [], _, _ -> if not (poll ()) then loop ()
           | _ ->
               let n = Unix.read r_out chunk 0 (Bytes.length chunk) in
-              if n = 0 then () (* child closed stdout: run finished *)
+              if n = 0 then
+                reached_eof := true (* child closed stdout: run finished *)
               else (
                 absorb chunk n;
                 if not (poll ()) then loop ())
       in
       loop ();
+      (* A tool may end its final meaningful line directly at EOF. Retain that
+         line only when the child really closed stdout; on a deadline or an
+         early [done_when] kill, [pending] may be a truncated line. *)
+      if !reached_eof then flush ();
       Unix.close r_out;
       kill_tree pid;
       ignore (Unix.waitpid [] pid);

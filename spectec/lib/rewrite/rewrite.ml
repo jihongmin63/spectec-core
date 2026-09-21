@@ -21,7 +21,7 @@ module Monomorphize = Monomorphize
 module Gensym = Gensym
 module Builtin = Builtin
 
-type target = Pipeline.target = Analysis | Execution
+type target = Pipeline.target = Analysis | Termination_analysis | Execution
 
 type compilation = Pipeline.compilation = {
   spec : Lang.Il.spec;

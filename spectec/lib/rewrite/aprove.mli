@@ -14,6 +14,9 @@ type run = {
   captured : string;
       (** The lines a [capture] run's filter kept, in output order; empty for an
           ordinary run, which never reads past the proof tree. *)
+  proof_secs : float;  (** Wall clock until the proof tree became available. *)
+  total_secs : float;
+      (** Full subprocess wall clock, including requested obligation capture. *)
 }
 
 val string_of_verdict : verdict -> string
@@ -50,17 +53,24 @@ val proof_tree : string -> string
     this predicate does. Read a sweep's per-symbol seconds accordingly. *)
 val proof_printed : string -> bool
 
-(** What a run that reads past the proof tree keeps, and how much longer it is
-    allowed to take. The obligation echo behind the tree reprints the whole rule
-    set once per dependency-graph child -- gigabytes on a large slice, still
-    arriving minutes after the verdict -- so a caller after the obligations must
-    say both which lines are worth holding ([keep], called once per output line
-    in order, so it may be a stateful section filter) and how much time past
-    AProVE's own deadline the printing may take ([echo_slack] seconds). A run
-    whose echo is cut short by that deadline keeps what it read: the caller sees
-    a partial capture, not an error, and is the one that can tell whether what
-    it needed arrived. *)
-type capture = { keep : string -> bool; echo_slack : int }
+(** What a run that reads past the proof tree keeps, when that capture is
+    complete, and how much longer it is allowed to take. The obligation echo
+    behind the tree reprints the whole rule set once per dependency-graph child
+    -- gigabytes on a large slice, still arriving minutes after the verdict --
+    so a caller after the obligations must say which lines are worth holding
+    ([keep], called once per output line in order, so it may be a stateful
+    section filter), how to recognize that every needed line arrived
+    ([done_when]), and how much time past AProVE's own deadline the printing may
+    take ([echo_slack] seconds). A run whose echo is cut short by that deadline
+    keeps what it read: the caller sees a partial capture, not an error, and is
+    the one that can tell whether what it needed arrived. *)
+type capture = {
+  keep : string -> bool;
+  done_when : string -> bool;
+      (** Stop once the filtered stream contains every obligation the caller
+          needs. Decisive proofs should settle at the proof-tree separator. *)
+  echo_slack : int;
+}
 
 (** [check ?aprove_bin ?budget ~trs ()] writes [trs] to a temp file and runs
     [runme <file> <budget>]. [budget] (default 300) is AProVE's own proof budget
@@ -76,11 +86,10 @@ type capture = { keep : string -> bool; echo_slack : int }
     integer-constraint system. Content alone does not select it: ITRS text in a
     [.trs] file is a parse error.
 
-    [capture] turns the run into one that reads to the END of the output rather
-    than stopping at the tree, filling {!run.captured} with the lines its filter
-    kept. That is how the obligations behind the tree are reached, and it costs
-    the echo's own minutes -- so pass it only when those lines are the point of
-    the run ({!Qdp}). *)
+    [capture] keeps reading after the tree until [capture.done_when] holds,
+    filling {!run.captured} with the lines its filter kept. That is how the
+    obligations behind the tree are reached without waiting for irrelevant
+    trailing output. Pass it only when those lines are needed ({!Qdp}). *)
 val check :
   ?aprove_bin:string ->
   ?budget:int ->

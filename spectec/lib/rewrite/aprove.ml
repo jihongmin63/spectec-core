@@ -1,5 +1,12 @@
 type verdict = Yes | No | Maybe | Timeout | Error of string
-type run = { verdict : verdict; proof : string; captured : string }
+
+type run = {
+  verdict : verdict;
+  proof : string;
+  captured : string;
+  proof_secs : float;
+  total_secs : float;
+}
 
 let string_of_verdict = function
   | Yes -> "YES"
@@ -150,7 +157,11 @@ let proof_printed (output : string) : bool =
    buffer holds is the fraction that was asked for rather than the whole echo.
    And the deadline has to cover the echo as well as the proof, since AProVE's
    own budget stops the SEARCH, not the printing. *)
-type capture = { keep : string -> bool; echo_slack : int }
+type capture = {
+  keep : string -> bool;
+  done_when : string -> bool;
+  echo_slack : int;
+}
 
 (* AProVE picks the problem type from the FILE EXTENSION, not the content: an
    ITRS handed over as [.trs] is parsed as a plain TPDB TRS and fails on the
@@ -169,6 +180,8 @@ let check ?aprove_bin ?(budget = 300) ?(ext = ".trs") ?capture ~(trs : string)
             spectec/tools/mfe/README.md)");
       proof = "";
       captured = "";
+      proof_secs = 0.0;
+      total_secs = 0.0;
     }
   else
     let trs_file = Filename.temp_file "spectec_aprove" ext in
@@ -185,14 +198,23 @@ let check ?aprove_bin ?(budget = 300) ?(ext = ".trs") ?capture ~(trs : string)
         let timeout =
           budget + 120 + match capture with None -> 0 | Some c -> c.echo_slack
         in
+        let started = Unix.gettimeofday () in
+        let proof_secs = ref None in
+        let done_when output =
+          if Option.is_none !proof_secs && proof_printed output then
+            proof_secs := Some (Unix.gettimeofday () -. started);
+          match capture with
+          | None -> proof_printed output
+          | Some c -> c.done_when output
+        in
         let output, timed_out =
           Subproc.run
             ?keep:(Option.map (fun c -> c.keep) capture)
-            ?done_when:
-              (match capture with None -> Some proof_printed | Some _ -> None)
+            ~done_when
             ~cmd:[ Subproc.absolute bin; trs_file; string_of_int budget ]
             ~feed:"" ~timeout ()
         in
+        let total_secs = Unix.gettimeofday () -. started in
         let verdict =
           match verdict_line output with
           | Some v -> v
@@ -204,4 +226,6 @@ let check ?aprove_bin ?(budget = 300) ?(ext = ".trs") ?capture ~(trs : string)
           verdict;
           proof = proof_tree output;
           captured = (if Option.is_none capture then "" else output);
+          proof_secs = Option.value !proof_secs ~default:total_secs;
+          total_secs;
         })

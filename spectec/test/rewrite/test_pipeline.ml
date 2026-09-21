@@ -38,8 +38,9 @@ let () =
   in
   let native = Rewrite.compile ~target:Rewrite.Execution spec in
   let analysis = Rewrite.compile ~target:Rewrite.Analysis spec in
+  let termination = Rewrite.compile ~target:Rewrite.Termination_analysis spec in
   check "compilations must share their specialized spec"
-    (native.spec == analysis.spec);
+    (native.spec == analysis.spec && analysis.spec == termination.spec);
   let roots = Rewrite.def_symbols spec in
   check "lookup must be specialized before choosing slice roots"
     (List.mem "$lookup_id_type" roots && not (List.mem "$lookup" roots));
@@ -52,9 +53,19 @@ let () =
         (Rewrite.To_ctrs.def_symbols compiled.spec = roots);
       check "condition orientation must survive compilation"
         (R.orient_conds compiled.system = compiled.system))
-    [ native; analysis ];
+    [ native; analysis; termination ];
   check "analysis must retain the structural arithmetic rules"
     (List.mem "badd" (R.defined_heads analysis.system));
+  check "termination must retain the structural arithmetic rules"
+    (List.mem "badd" (R.defined_heads termination.system));
+  check "termination keeps owise for sound over-approximation at unraveling"
+    (List.exists (fun (r : R.rule) -> r.owise) termination.system.rules);
+  check "MFE analysis reflects every impty owise rule"
+    (not (List.exists (fun (r : R.rule) -> r.owise) analysis.system.rules));
+  check "termination skips the CRC-only reflection surface"
+    (termination.system <> analysis.system);
+  check "termination surface exports with every rhs variable bound"
+    (Result.is_ok (Rewrite.Termination.trs_of_slice termination.system));
   check "execution must delegate native arithmetic"
     (not (List.mem "badd" (R.defined_heads native.system)));
   let repeated = Rewrite.compile ~target:Rewrite.Execution native.spec in
