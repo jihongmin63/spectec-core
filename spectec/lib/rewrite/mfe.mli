@@ -15,12 +15,6 @@
 type verdict = Yes | No | Maybe | Timeout | Error of string
 type result = { church_rosser : verdict; coherence : verdict }
 
-(** A component verdict of {!check_normalize_upgrade}: [via_normalize] marks a
-    verdict that only the normalized re-run established. *)
-type checked = { verdict : verdict; via_normalize : bool }
-
-type upgrade_result = { crc : checked; chc : checked }
-
 val string_of_verdict : verdict -> string
 
 (** [batch_checks_done raw]: in a batched session where [raw] accumulates only
@@ -71,23 +65,6 @@ val upgrade : original:verdict -> normalized:verdict -> verdict
     signature context. Exposed for checker-free regression tests. *)
 val normalized_candidates :
   Rewrite_system.t -> (Crc_surface.strategy * Rewrite_system.t) list
-
-(** [check] followed by an upgrade-only retry: when a component verdict is
-    inconclusive ([Maybe]/[Timeout]), the system is re-checked with
-    {!Crc_surface.crc_normalize} applied AND its signature pruned
-    ([~prune_signature:true], verdict-preserving), and each component is
-    {!upgrade}d independently. A system the normalization leaves unchanged is
-    not re-run. The base check stays unpruned, matching the plain {!check}
-    baseline; the [sig_rules] default recovers the signature from the ORIGINAL
-    system's rules, matching the [rewrite --ctrs --crc-normalize] dump. *)
-val check_normalize_upgrade :
-  ?timeout:int ->
-  ?maude_bin:string ->
-  ?mfe_dir:string ->
-  ?sig_rules:Rewrite_system.rule list ->
-  Lang.Il.spec ->
-  Rewrite_system.t ->
-  upgrade_result
 
 (** [check_batch ... slices] checks many [(label, slice)] pairs in ONE MFE
     session, paying the ~100s Full Maude load once instead of once per symbol.

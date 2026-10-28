@@ -2,16 +2,12 @@
    to a temp file and run a local Maude binary on it, parsing the result. Mirrors
    the {!Aprove} bridge (a local process via [Unix.open_process_in], no Python),
    but Maude does not decide a yes/no verdict -- it *runs* the rewriting system,
-   so the result is a normal form ([reduce]) or the set of reachable solutions
-   ([search]). See maude_run.mli for the public contract. *)
-
-type mode = Reduce | Rewrite | Search of int option
+   so the result is the normal form of equation reduction. See maude_run.mli
+   for the public contract. *)
 
 type result =
   | Reduced of string
   | Stuck of { term : string; symbols : string list }
-  | Solutions of string list
-  | NoSolution
   | Timeout
   | Error of string
 
@@ -20,18 +16,12 @@ let string_of_result = function
   | Stuck { term; symbols } ->
       Printf.sprintf "FAIL (stuck): %s\n  unreduced: %s" term
         (String.concat ", " symbols)
-  | Solutions [] -> "no solutions"
-  | Solutions ts ->
-      String.concat "\n"
-        (List.mapi (fun i t -> Printf.sprintf "solution %d: %s" (i + 1) t) ts)
-  | NoSolution -> "no solution"
   | Timeout -> "TIMEOUT"
   | Error msg -> "ERROR: " ^ msg
 
 let is_failure = function
   | Reduced _ -> false
-  | Solutions (_ :: _) -> false
-  | Stuck _ | Solutions [] | NoSolution | Timeout | Error _ -> true
+  | Stuck _ | Timeout | Error _ -> true
 
 (* The operator/constant names in a ground Maude term: split on the term
    punctuation [( ) ,] and whitespace, keeping the maximal id runs in between.
@@ -97,8 +87,8 @@ let resolve_bin = function
    spec's object syntax, so the rest of this file (output format, stuck check)
    is identical to an object-level [reduce]. *)
 
-(* The Val-kinded default [downTerm] returns when a meta-term denotes no term of
-   that kind; also marks a missing Nth search solution. *)
+(* The Val-kinded default [downTerm] returns when a meta-term denotes no term
+   of that kind. *)
 let down_err = "$downerr"
 
 (* The emitted spec module's name (matches {!To_maude.module_of_system}'s default)
@@ -107,11 +97,6 @@ let down_err = "$downerr"
    invocation and reused by every program in a batch. *)
 let spec_module = "SPEC"
 let spec_meta = "$specmod"
-
-(* Cap on solutions enumerated for an unbounded [search]: [metaSearch] yields one
-   solution per index, so an unbounded search is approximated by indices
-   [0 .. cap-1]. Search is a debugging affordance (no automation depends on it). *)
-let search_cap = 100
 
 (* The reflection wrapper module, written after the emitted SPEC module: it
    imports SPEC (so [downTerm] rebuilds object terms in the spec's vocabulary and
@@ -133,45 +118,14 @@ let meta_wrapper_module =
       "";
     ]
 
-(* The [reduce] command(s) for [mode] on the META-TERM [start]: reflect [start]
-   in the spec module, then [downTerm] the result back to object syntax.
-   [Reduce]/[Rewrite] are deterministic (one command); [Search] enumerates
-   solution indices ([metaSearch] returns the Nth normal form). *)
-let meta_commands (mode : mode) (start : string) : string list =
-  let down body =
-    Printf.sprintf "reduce downTerm(getTerm(%s), %s) ." body down_err
-  in
-  match mode with
-  | Reduce -> [ down (Printf.sprintf "metaReduce(%s, %s)" spec_meta start) ]
-  | Rewrite ->
-      [ down (Printf.sprintf "metaRewrite(%s, %s, unbounded)" spec_meta start) ]
-  | Search bound ->
-      let cap = Option.value bound ~default:search_cap in
-      List.init cap (fun k ->
-          down
-            (Printf.sprintf "metaSearch(%s, %s, 'R:Val, nil, '!, unbounded, %d)"
-               spec_meta start k))
+(* Native starts reduce through the reflected module; structural starts
+   reduce directly through the stock Maude module. *)
+let meta_command (start : string) : string =
+  Printf.sprintf "reduce downTerm(getTerm(metaReduce(%s, %s)), %s) ." spec_meta
+    start down_err
 
-(* The plain object-syntax command(s) for [mode] on the already-encoded object
-   term [start] (e.g. ["Program-ok(<structural term>)"]), for a direct (non-
-   reflective) [reduce]/[rewrite] -- used by the {!Structural} start-term path
-   ({!To_maude.encode_value} with [~scalars:Structural]), which has no built-in
-   wrapper for [metaReduce] to reflect specially, so it is parsed through the
-   module's real (order-sorted) signature instead of the META-TERM grammar.
-   [parse_output] below reads its output identically to the meta path's: either
-   way the top-level command is a Maude [reduce]/[rewrite], which always prints
-   [result <Sort>: <term>]. [Search] is not supported here (object-syntax search
-   patterns are unimplemented; unlike the meta path, which enumerates by
-   index) -- this direct path only ever backs the reduce-only structural
-   differential oracle. *)
-let direct_commands (mode : mode) (start : string) : string list =
-  match mode with
-  | Reduce -> [ Printf.sprintf "reduce %s ." start ]
-  | Rewrite -> [ Printf.sprintf "rewrite %s ." start ]
-  | Search _ ->
-      failwith
-        "Maude_run: direct (structural) Search mode is not supported -- only \
-         Reduce/Rewrite"
+let direct_command (start : string) : string =
+  Printf.sprintf "reduce %s ." start
 
 (* Position of [sub] in [s], if present. *)
 let index_sub (s : string) (sub : string) : int option =
@@ -195,48 +149,21 @@ let gather_term (first : string) (rest : string list) : string =
   |> List.filter (fun s -> s <> "")
   |> String.concat " "
 
-(* Parse Maude's stdout. Every command is a [downTerm(...)] reduce, so each
-   prints [result <Sort>: <term>] in the spec's object syntax (the meta wrapping
-   is invisible here). [Reduce]/[Rewrite] emit one such line; [Search] emits one
-   per enumerated solution index, the spent ones downing to the [down_err]
-   default. *)
-let parse_output (mode : mode) (defined_heads : string list) (output : string) :
-    result =
-  let lines = String.split_on_char '\n' output in
-  match mode with
-  | Reduce | Rewrite ->
-      let rec find = function
-        | [] -> Error ("could not parse maude output:\n" ^ output)
-        | l :: rest when String.starts_with ~prefix:"result " l -> (
-            match String.index_opt l ':' with
-            | Some i ->
-                classify_normal_form defined_heads
-                  (gather_term
-                     (String.sub l (i + 1) (String.length l - i - 1))
-                     rest)
-            | None -> find rest)
-        | _ :: rest -> find rest
-      in
-      find lines
-  | Search _ ->
-      (* One [downTerm] result line per enumerated solution index; an index past
-         the last solution downs to the [down_err] default, which we drop. *)
-      let rec gather acc = function
-        | [] -> List.rev acc
-        | l :: rest when String.starts_with ~prefix:"result " l -> (
-            match String.index_opt l ':' with
-            | Some i ->
-                let term =
-                  gather_term
-                    (String.sub l (i + 1) (String.length l - i - 1))
-                    rest
-                in
-                gather (term :: acc) rest
-            | None -> gather acc rest)
-        | _ :: rest -> gather acc rest
-      in
-      let sols = List.filter (fun t -> t <> down_err) (gather [] lines) in
-      if sols = [] then NoSolution else Solutions sols
+(* Parse the first object-syntax normal form printed by reduction. *)
+let parse_output (defined_heads : string list) (output : string) : result =
+  let rec find = function
+    | [] -> Error ("could not parse maude output:\n" ^ output)
+    | l :: rest when String.starts_with ~prefix:"result " l -> (
+        match String.index_opt l ':' with
+        | Some i ->
+            classify_normal_form defined_heads
+              (gather_term
+                 (String.sub l (i + 1) (String.length l - i - 1))
+                 rest)
+        | None -> find rest)
+    | _ :: rest -> find rest
+  in
+  find (String.split_on_char '\n' output)
 
 let run_process (bin : string) (timeout : int) (file : string) =
   (* stderr folded in: Maude reports a start term it cannot parse only as a
@@ -270,8 +197,8 @@ let result_of_failed_status bin output = function
   | Unix.WEXITED 127 ->
       Error
         (Printf.sprintf
-           "maude not found (tried %S); pass --maude-bin or set \
-            SPECTEC_MAUDE_BIN (see tools/maude/README.md)"
+           "maude not found (tried %S); set SPECTEC_MAUDE_BIN (see \
+            tools/maude/README.md)"
            bin)
   | Unix.WEXITED n ->
       Error (Printf.sprintf "maude exited with status %d:\n%s" n output)
@@ -297,14 +224,14 @@ let with_maude_run ?(wrapper = meta_wrapper_module) bin timeout module_text
       let ic, output = run_process bin timeout file in
       k (Unix.close_process_in ic) output)
 
-let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
-    ~(module_text : string) ~(start : string) () : result =
+let run ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(module_text : string)
+    ~(start : string) () : result =
   let bin = resolve_bin maude_bin in
   with_maude_run bin timeout module_text
-    (List.map (fun c -> c ^ "\n") (meta_commands mode start) @ [ "\n" ])
+    [ meta_command start ^ "\n"; "\n" ]
     (fun status output ->
       match status with
-      | Unix.WEXITED 0 -> parse_output mode defined_heads output
+      | Unix.WEXITED 0 -> parse_output defined_heads output
       | status -> result_of_failed_status bin output status)
 
 (* A ground term Maude reduces to itself, emitted between batched commands to
@@ -345,7 +272,7 @@ let split_batch_segments (output : string) : string list =
    those markers and each segment parsed as in {!run}. Returns one result per
    start, in order. A process-level failure (timeout/crash) maps every start to
    that same failure -- it cannot be attributed to one program. *)
-let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
+let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = [])
     ~(module_text : string) ~(starts : string list) () : result list =
   match starts with
   | [] -> []
@@ -354,8 +281,11 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
       let commands =
         List.concat_map
           (fun start ->
-            List.map (fun c -> c ^ "\n") (meta_commands mode start)
-            @ [ "\n"; Printf.sprintf "reduce \"%s\" .\n" batch_sep ])
+            [
+              meta_command start ^ "\n";
+              "\n";
+              Printf.sprintf "reduce \"%s\" .\n" batch_sep;
+            ])
           starts
       in
       with_maude_run bin timeout module_text commands (fun status output ->
@@ -367,7 +297,7 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
               List.mapi
                 (fun i start ->
                   match List.nth_opt segments i with
-                  | Some seg -> parse_output mode defined_heads seg
+                  | Some seg -> parse_output defined_heads seg
                   | None ->
                       Error
                         (Printf.sprintf
@@ -383,8 +313,7 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
                  actually crashed; the amortized fast path above is untouched. *)
               List.map
                 (fun start ->
-                  run ?maude_bin ~timeout ~defined_heads ~mode ~module_text
-                    ~start ())
+                  run ?maude_bin ~timeout ~defined_heads ~module_text ~start ())
                 starts)
 
 (* -------------------------------------------------------------------------- *)
@@ -394,19 +323,18 @@ let run_batch ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
    ({!Maude_sorts.print_term}), not a META-TERM. Otherwise mirrors [run]/
    [run_batch] exactly (same process/output plumbing, same [result]). *)
 
-let run_direct ?maude_bin ?(timeout = 30) ?(defined_heads = []) ~(mode : mode)
+let run_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
     ~(module_text : string) ~(start : string) () : result =
   let bin = resolve_bin maude_bin in
   with_maude_run ~wrapper:"" bin timeout module_text
-    (List.map (fun c -> c ^ "\n") (direct_commands mode start) @ [ "\n" ])
+    [ direct_command start ^ "\n"; "\n" ]
     (fun status output ->
       match status with
-      | Unix.WEXITED 0 -> parse_output mode defined_heads output
+      | Unix.WEXITED 0 -> parse_output defined_heads output
       | status -> result_of_failed_status bin output status)
 
 let run_batch_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
-    ~(mode : mode) ~(module_text : string) ~(starts : string list) () :
-    result list =
+    ~(module_text : string) ~(starts : string list) () : result list =
   match starts with
   | [] -> []
   | _ ->
@@ -414,7 +342,7 @@ let run_batch_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
       let commands =
         List.concat_map
           (fun start ->
-            List.map (fun c -> c ^ "\n") (direct_commands mode start)
+            [ direct_command start ^ "\n" ]
             (* Bare identifier, not a quoted Maude [String] literal like
                [run_batch]'s separator: [module_text] here is {!To_mfe}'s
                structural module, which declares [batch_sep] itself as a
@@ -431,7 +359,7 @@ let run_batch_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
               List.mapi
                 (fun i start ->
                   match List.nth_opt segments i with
-                  | Some seg -> parse_output mode defined_heads seg
+                  | Some seg -> parse_output defined_heads seg
                   | None ->
                       Error
                         (Printf.sprintf
@@ -440,6 +368,6 @@ let run_batch_direct ?maude_bin ?(timeout = 30) ?(defined_heads = [])
           | _status ->
               List.map
                 (fun start ->
-                  run_direct ?maude_bin ~timeout ~defined_heads ~mode
-                    ~module_text ~start ())
+                  run_direct ?maude_bin ~timeout ~defined_heads ~module_text
+                    ~start ())
                 starts)

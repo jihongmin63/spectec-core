@@ -26,7 +26,7 @@ val order_conds : Rewrite_system.t -> Rewrite_system.t
     separate rung of {!normalize_ladder}). Unraveling REFLECTS but does not
     preserve confluence, so the result is used UPGRADE-ONLY: a YES on the
     unraveled module proves the original confluent; a MAYBE falls back to the
-    original verdict (see {!Mfe.check_normalize_upgrade}). *)
+    original verdict (see {!Mfe.upgrade}). *)
 val crc_unravel : ?bare_binders:bool -> Rewrite_system.t -> Rewrite_system.t
 
 (** Every [(defining head, variable)] breaking weak left-linearity: a variable
@@ -62,7 +62,7 @@ val select_strategy : Rewrite_system.t -> strategy
 
 val string_of_strategy : strategy -> string
 
-(** The [--crc-normalize] transform: {!select_strategy}'s choice, then
+(** The confluence normalization transform: {!select_strategy}'s choice, then
     {!order_conds}. Opt-in; never part of the shared {!Pipeline.compile}
     surface, and never seen by execution/termination/ChC. [?strategy] overrides
     the selection (to measure one arm). *)

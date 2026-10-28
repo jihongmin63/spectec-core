@@ -3,9 +3,8 @@
 
     Only the representation, the term/rule queries and symbol slicing, the
     diagnostic printer, and the shared Maude lexical layer live here; the IL ->
-    CTRS translation is in {!To_ctrs}, the checker-facing pass families are
-    {!Crc_surface} (analysis normalization) and {!Scc_surface}
-    (over-approximation), and the order-sorted Maude module surfaces are
+    CTRS translation is in {!To_ctrs}, the checker-facing pass is {!Crc_surface}
+    (analysis normalization), and the order-sorted Maude module surfaces are
     {!To_maude} (execution) and {!To_mfe} (analysis, for the Maude Formal
     Environment). *)
 

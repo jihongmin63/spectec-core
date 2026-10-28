@@ -1,7 +1,6 @@
 (* Unit tests for the pure analysis-tool plumbing: the unraveling
    ({!Rewrite.Unravel}), the upgrade-only verdict transfer
-   ({!Rewrite.Mfe.upgrade}), the SCC output classification ({!Rewrite.Scc}), and
-   the AProVE stop condition ({!Rewrite.Aprove.proof_printed}). Running the
+   ({!Rewrite.Mfe.upgrade}), the AProVE stop condition ({!Rewrite.Aprove.proof_printed}). Running the
    tools themselves is left to the CLI cram tests and the calibration runs. *)
 
 module R = Rewrite.Rewrite_system
@@ -10,7 +9,6 @@ module U = Rewrite.Unravel
 module Mfe = Rewrite.Mfe
 module Aprove = Rewrite.Aprove
 module Subproc = Rewrite.Subproc
-module Scc = Rewrite.Scc
 module Itrs = Rewrite.Itrs
 module Qdp = Rewrite.Qdp
 module Termination = Rewrite.Termination
@@ -527,93 +525,6 @@ let () =
   check "upgrade/error-stays" (up (Mfe.Error "e") Mfe.Yes = Mfe.Error "e")
 
 (* ------------------------------------------------------------------------- *)
-(* Scc: output classification, calibrated phrases. *)
-
-let mod_text =
-  "(set include BOOL off .)\n\
-   (set include BOOL-OPS off .)\n\
-   (fmod SPEC is\n\
-  \  sorts NatV Val .\n\
-  \  op badd-carry : NatV NatV -> NatV [ctor] .\n\
-  \  op wide : Val -> Val .\n\
-  \  op over-list : List -> BoolV .\n\
-   endfm)\n"
-
-let () =
-  let classify = Scc.classify ~module_text:mod_text in
-  check "scc/no-ceta"
-    (classify
-       "Warning: The sufficient completeness checker is not fully available. \
-        Please use the trust command to assume that module SPEC IS \
-        SUFFICIENTLY COMPLETE."
-    = Scc.No_ceta);
-  check "scc/complete"
-    (classify
-       "Sufficient completeness check for SPEC\n\
-        Completeness counter-examples: none were found\n\
-        Freeness counter-examples: none were found\n\
-        Analysis: it is complete and it is sound"
-    = Scc.Complete);
-  (match
-     classify
-       "Sufficient completeness check for SPEC\n\
-        Completeness counter-examples: badd-carry(bzero,bzero) with sort NatV \
-        Freeness counter-examples: none were found\n\
-        Analysis: it is complete and it is sound"
-   with
-  | Scc.Counterexample { witness; sort; domain } ->
-      check_str "scc/counterexample witness" witness "badd-carry(bzero,bzero) ";
-      check_str "scc/counterexample sort" sort "NatV";
-      check "scc/counterexample domain" (domain = Scc.Narrow)
-  | _ -> check "scc/counterexample" false);
-  (match
-     classify
-       "Completeness counter-examples: wide(bone) with sort Val Freeness \
-        counter-examples: none were found"
-   with
-  | Scc.Counterexample { domain; _ } ->
-      check "scc/domain val-wide" (domain = Scc.Val_wide)
-  | _ -> check "scc/domain val-wide" false);
-  (match
-     classify
-       "Completeness counter-examples: over-list(nil) with sort BoolV Freeness \
-        counter-examples: none were found"
-   with
-  | Scc.Counterexample { domain; _ } ->
-      check "scc/domain elem-erased" (domain = Scc.Elem_erased)
-  | _ -> check "scc/domain elem-erased" false);
-  (match classify "Warning: no parse for SPEC-term ." with
-  | Scc.Error _ -> check "scc/no-parse" true
-  | _ -> check "scc/no-parse" false);
-  check "scc/timeout" (classify "half an output and then silence" = Scc.Timeout)
-
-let () =
-  check "scc/analysis"
-    (Scc.analysis_of_output
-       "blah\nAnalysis: it is complete and\nit is sound\nrest"
-    = Some "complete+sound");
-  check "scc/analysis-none" (Scc.analysis_of_output "no such line" = None)
-
-let () =
-  (* unconditional: a conditional rule is over-approximated (Approx); a plain
-     system passes through untouched (Exact). *)
-  let cond_sys =
-    system
-      [
-        rule
-          ~conds:[ (app "$g" [ v "x" ], app "true" []) ]
-          (app "$f" [ v "x" ])
-          (v "x");
-      ]
-  in
-  let uncond, fid = Scc.unconditional cond_sys in
-  check "scc/unconditional approx" (fid = Scc.Approx);
-  check "scc/unconditional conds dropped"
-    (List.for_all (fun (r : R.rule) -> r.conds = []) uncond.R.rules);
-  let plain_sys = system [ rule (app "$f" [ v "x" ]) (v "x") ] in
-  let same, fid = Scc.unconditional plain_sys in
-  check "scc/unconditional exact" (fid = Scc.Exact && same = plain_sys)
-
 (* Mfe.batch_checks_done: in a batched session, a symbols read buffer holds
    only that symbols output; its block is complete once the coherence check
    output is followed by the next MFE prompt. *)
@@ -780,29 +691,6 @@ let () =
               (true, 0) l))
        [ 5; 20; 100; 300; 1800 ])
 
-(* [from] raises the first rung, for a region already measured to sit above it.
-   The default has to stay exactly the old ladder, or every recorded second
-   silently changes meaning. *)
-let () =
-  check "ladder/from-default-is-the-old-ladder"
-    (Termination.budget_ladder ~from:5 ~cap:1800 ()
-    = Termination.budget_ladder ~cap:1800 ());
-  (* the point of the option: one run, no climb through budgets already known
-     to be too small *)
-  check "ladder/from-equal-to-cap-is-a-single-run"
-    (Termination.budget_ladder ~from:1280 ~cap:1280 () = [ 1280 ]);
-  check "ladder/from-skips-lower-rungs"
-    (Termination.budget_ladder ~from:320 ~cap:1800 () = [ 320; 1280; 1800 ]);
-  (* still ends at the cap, and never overshoots it *)
-  check "ladder/from-above-cap-collapses-to-cap"
-    (Termination.budget_ladder ~from:1280 ~cap:300 () = [ 300 ]);
-  check "ladder/from-last-rung-is-cap"
-    (List.for_all
-       (fun (from, cap) ->
-         let l = Termination.budget_ladder ~from ~cap () in
-         l <> [] && List.nth l (List.length l - 1) = cap)
-       [ (1, 5); (80, 80); (320, 1800); (1280, 1280); (1280, 300) ])
-
 (* A ladder path reports two different times: [secs] is the answering/final
    rung retained by the historical TSV column, while [total_secs] is the real
    wall spent finding it. Every rung stays visible so the difference is
@@ -815,13 +703,13 @@ let () =
       { budget = 80; verdict = Yes; secs = 40.0; total_secs = 40.0 };
     ]
   in
-  let step = Termination.step_of_rungs Termination.Integer_trs rungs "" in
+  let step = Termination.step_of_rungs Termination.Whole_trs rungs "" in
   check "ladder-step/keeps-final-rung-time" (step.secs = 40.0);
   check "ladder-step/sums-real-search-time" (step.total_secs = 65.75);
   check "ladder-step/keeps-every-rung" (step.rungs = rungs);
   check_str "ladder-step/prints-attributable-total"
     (Termination.string_of_step step)
-    "itrs:YES@40.0s(total=65.8s; \
+    "whole:YES@40.0s(total=65.8s; \
      rungs=5:TIMEOUT@5.2s,20:TIMEOUT@20.5s,80:YES@40.0s)"
 
 let () =
@@ -1160,10 +1048,7 @@ esac
             rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
           ]
       in
-      let report =
-        Termination.check ~aprove_bin:fake ~budget:1 ~budget_from:1
-          ~integer_retry:false ~roots:[ "$f" ] sys
-      in
+      let report = Termination.check ~aprove_bin:fake ~budget:1 sys in
       let ic = open_in counter in
       let invocations = int_of_string (input_line ic) in
       close_in ic;
@@ -1237,10 +1122,7 @@ esac
             rule (app "$f" [ app "cons" [ v "h"; v "t" ] ]) (app "$f" [ v "t" ]);
           ]
       in
-      let report =
-        Termination.check ~aprove_bin:fake ~budget:1 ~budget_from:1
-          ~integer_retry:false ~roots:[ "$f" ] sys
-      in
+      let report = Termination.check ~aprove_bin:fake ~budget:1 sys in
       let ic = open_in counter in
       let invocations = int_of_string (input_line ic) in
       close_in ic;

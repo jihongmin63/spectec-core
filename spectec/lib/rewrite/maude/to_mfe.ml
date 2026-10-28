@@ -54,7 +54,7 @@ let print_rule vs (r : R.rule) : string =
   | [] -> head ^ attr ^ " ."
   | cs -> head ^ " if " ^ string_of_conds vs cs ^ attr ^ " ."
 
-(* [--prune-signature]: keep only the ops the rules apply, the sorts those ops
+(* Signature pruning: keep only the ops the rules apply, the sorts those ops
    and the rules' variable annotations name, and every sort on a subsort path
    between two kept sorts. The interior of a path must survive (a rule may
    pass a term to a distant position via a two-step chain; pruning the middle
@@ -110,13 +110,9 @@ let prune_signature_view ~sg ~(used : (string * int) list) ~typed_rules
    .]) instead, for {!Maude_run.run_direct}/[run_batch_direct]'s direct
    (non-reflective) execution path, which runs a bare [maude] binary with
    nothing loaded -- Full Maude's parenthesized form is not valid input there.
-   [functional]/[prune_signature] are documented in to_mfe.mli ({!Scc}'s
-   shape and the slice-signature prune). *)
+   Signature pruning is documented in to_mfe.mli. *)
 let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
-    ?(functional = false) ?(prune_signature = false) ?(predicates = MS.Narrow)
-    ?sig_rules (orig : spec) (sys : R.t) : string =
-  if functional && not full_maude then
-    invalid_arg "To_mfe.module_of_system: functional requires full_maude";
+    ?(prune_signature = false) ?sig_rules (orig : spec) (sys : R.t) : string =
   if prune_signature && not full_maude then
     invalid_arg "To_mfe.module_of_system: prune_signature requires full_maude";
   (* [sys] is built from the defunctionalized spec ({!Pipeline}), so signature
@@ -133,9 +129,9 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
   let edges = MS.inference_edges inj_subsorts in
   let var_hints = Var_hints.of_spec orig in
   let hint = MS.var_hint_fn tenv var_hints in
-  MS.predicate_domains ~mode:predicates ~edges ~hint tbl sig_rules;
+  MS.predicate_domains ~edges ~hint tbl sig_rules;
   let sg0 sym arity = MS.signature tbl sym arity in
-  (* [--crc-normalize] introduces the chain operators [crcu<id>]/[crck<id>] that
+  (* CRC normalization introduces the chain operators [crcu<id>]/[crck<id>] that
      {!Crc_surface.crc_unravel} builds. They are not IL symbols, so [tbl] has
      no signature and [sg0] defaults them to all-[Val] -- which widens every
      chain-step pattern variable to [Val] and costs the CRC spurious overlaps.
@@ -297,20 +293,10 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
       defined_heads
   in
   let b = Buffer.create 4096 in
-  (* The module declares its own [true]/[false]/[and]/[not]; turn the implicit
-     [BOOL] import off so they don't clash ("Ambiguous parsing"). The
-     functional shape is fed to the OLD Full Maude loop, which takes the
-     include switches as parenthesized commands ([BOOL-OPS] too -- its BOOL
-     split differs from 3.5's). *)
-  if functional then (
-    buf_line b "(set include BOOL off .)";
-    buf_line b "(set include BOOL-OPS off .)")
-  else (
-    buf_line b "set include BOOL off .";
-    buf_line b "");
-  buf_line b
-    ((if functional then "(fmod " else if full_maude then "(mod " else "mod ")
-    ^ module_name ^ " is");
+  (* The module declares its own booleans and operators. *)
+  buf_line b "set include BOOL off .";
+  buf_line b "";
+  buf_line b ((if full_maude then "(mod " else "mod ") ^ module_name ^ " is");
   let non_val = List.filter (fun s -> s <> MS.val_sort) sorts in
   buf_line b ("  sorts " ^ String.concat " " non_val ^ " " ^ MS.val_sort ^ " .");
   if non_val <> [] then
@@ -403,7 +389,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
            for the [Native] execution module, reused as-is -- see that
            function's doc comment for why analysis mode's plain [l = r] cannot
            be [reduce]d directly. *)
-        To_maude.print_rule ~scalars:Structural vs [] defined_heads false r
+        To_maude.print_rule ~scalars:Structural vs defined_heads r
     in
     buf_line b ("  " ^ line)
   in
@@ -440,8 +426,7 @@ let module_of_system ?(module_name = "SPEC") ?(full_maude = true)
      trailing [.] -- one was mistaken for a dangling empty top-level sentence,
      "syntax error" right after any module, verified empirically); Full Maude's
      parenthesized form closes with [)], also no [.]. *)
-  buf_line b
-    (if functional then "endfm)" else if full_maude then "endm)" else "endm");
+  buf_line b (if full_maude then "endm)" else "endm");
   Buffer.contents b
 
 (* -------------------------------------------------------------------------- *)

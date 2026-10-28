@@ -42,13 +42,6 @@ let usage_error message =
 
 let require condition message = if not condition then usage_error message
 
-let predicates_of_flag wide =
-  if wide then Rewrite.Maude_sorts.Wide else Rewrite.Maude_sorts.Narrow
-
-let maude_bin_flag =
-  Core.Command.Param.(
-    flag "--maude-bin" (optional string) ~doc:"PATH path to the maude binary")
-
 let symbols_flag =
   Core.Command.Param.(
     flag "--symbol" (listed string)
@@ -62,18 +55,6 @@ let all_flag =
 let out_flag =
   Core.Command.Param.(
     flag "--out" (optional string)
-      ~doc:"TSV append rows here and skip recorded symbols when resuming")
-
-let wide_predicates_flag =
-  Core.Command.Param.(
-    flag "--wide-predicate-domains" no_arg
       ~doc:
-        " declare predicates over Val instead of recovering their domains from \
-         use")
-
-let relations_as_rules_flag =
-  Core.Command.Param.(
-    flag "--relations-as-rules" no_arg
-      ~doc:
-        " emit relations as Maude rules (rl/crl); use with --search or \
-         --rewrite")
+        "TSV append rows and skip recorded symbols; use a new file for new \
+         policies")

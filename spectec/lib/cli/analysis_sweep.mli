@@ -1,6 +1,6 @@
 (** The per-symbol sweep plumbing the analysis subcommands ([confluence],
-    [termination], [scc]) share: the usage guards, the slice-root selection, and
-    the resumable [--out] TSV protocol. Domain-agnostic: the caller supplies the
+    [termination]) share: the usage guards, the slice-root selection, and the
+    resumable [--out] TSV protocol. Domain-agnostic: the caller supplies the
     slice-size measure and each row's contents. *)
 
 (** Exit 2 with a usage line unless exactly one of [--all] / [--symbol] was

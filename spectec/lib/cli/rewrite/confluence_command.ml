@@ -1,16 +1,15 @@
 open Common
 
 (* Per-symbol confluence (Church-Rosser) and coherence of the analysis CTRS via
-   the Maude Formal Environment ({!Rewrite.Mfe.check}, one Maude invocation for
+   the Maude Formal Environment ({!Rewrite.Mfe.check_batch}, one batched Maude session for
    both, the module being purely equational since every SpecTecx relation is
-   input-moded). Structured like {!termination_command}/{!scc_command}: a
+   input-moded). Structured like {!termination_command}: a
    [--symbol] list or an [--all] sweep of the sliceable symbols, one TSV row per
    slice, resumable through [--out]. Whole-system CRC explodes on critical
    pairs, so there is no whole-system mode -- and with each definition's rules
    under their own head, [--all] over the slices is as sound as it. The listing
    of sliceable symbols moved to [rewrite --list-symbols]. *)
-let check ~filenames ~all ~symbols ~timeout ~maude_bin ~mfe_dir ~crc_normalize
-    ~out =
+let check ~filenames ~all ~symbols ~timeout ~out =
   let* { Rewrite.spec = spec_tr; system } =
     load ~target:Rewrite.Analysis filenames
   in
@@ -85,13 +84,10 @@ let check ~filenames ~all ~symbols ~timeout ~maude_bin ~mfe_dir ~crc_normalize
          symbol's base result and base time. *)
       let held = Hashtbl.create 16 in
       let _ =
-        Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
-          ~prune_signature:true ~sig_rules
+        Rewrite.Mfe.check_batch ~timeout ~prune_signature:true ~sig_rules
           ~on_result:(fun label (r : Rewrite.Mfe.result) secs ->
-            if
-              crc_normalize
-              && (inconclusive r.church_rosser || inconclusive r.coherence)
-            then Hashtbl.replace held label (r, secs)
+            if inconclusive r.church_rosser || inconclusive r.coherence then
+              Hashtbl.replace held label (r, secs)
             else emit_base label r secs)
           spec_tr slices
       in
@@ -124,8 +120,7 @@ let check ~filenames ~all ~symbols ~timeout ~maude_bin ~mfe_dir ~crc_normalize
         in
         if norm_slices <> [] then
           ignore
-            (Rewrite.Mfe.check_batch ~timeout ?maude_bin ?mfe_dir
-               ~prune_signature:true ~sig_rules
+            (Rewrite.Mfe.check_batch ~timeout ~prune_signature:true ~sig_rules
                ~on_result:(fun label (n : Rewrite.Mfe.result) n_secs ->
                  let (b : Rewrite.Mfe.result), b_secs =
                    Hashtbl.find held label
@@ -150,24 +145,23 @@ let check ~filenames ~all ~symbols ~timeout ~maude_bin ~mfe_dir ~crc_normalize
                  else Hashtbl.replace held label (b, b_secs +. n_secs))
                spec_tr norm_slices)
       in
-      if crc_normalize then (
-        (* Run every rung any held symbol has: a rung that is a no-op for one
+      (* Run every rung any held symbol has: a rung that is a no-op for one
            slice can still be the one that settles another. *)
-        let rungs =
-          List.fold_left
-            (fun n (sym, slice) ->
-              if Hashtbl.mem held sym then
-                max n (List.length (Rewrite.Crc_surface.normalize_ladder slice))
-              else n)
-            0 slices
-        in
-        for depth = 0 to rungs - 1 do
-          if Hashtbl.length held > 0 then rung depth
-        done;
-        (* nothing left to try: report what the base check found *)
-        Hashtbl.iter
-          (fun label ((b : Rewrite.Mfe.result), secs) -> emit_base label b secs)
-          held));
+      let rungs =
+        List.fold_left
+          (fun n (sym, slice) ->
+            if Hashtbl.mem held sym then
+              max n (List.length (Rewrite.Crc_surface.normalize_ladder slice))
+            else n)
+          0 slices
+      in
+      for depth = 0 to rungs - 1 do
+        if Hashtbl.length held > 0 then rung depth
+      done;
+      (* nothing left to try: report what the base check found *)
+      Hashtbl.iter
+        (fun label ((b : Rewrite.Mfe.result), secs) -> emit_base label b secs)
+        held);
   Ok !failed
 
 let command =
@@ -186,22 +180,8 @@ let command =
     flag "--timeout"
       (optional_with_default 60 int)
       ~doc:"S kill Maude after S seconds per symbol (default 60, 0 disables)"
-  and maude_bin = maude_bin_flag
-  and mfe_dir =
-    flag "--mfe-dir" (optional string)
-      ~doc:"DIR directory holding the MFE (Full Maude + CRC/ChC loader)"
-  and crc_normalize =
-    flag "--crc-normalize" no_arg
-      ~doc:
-        " retry an inconclusive verdict (MAYBE/TIMEOUT) on the crc-normalized \
-         system and upgrade it to YES only when the retry proves it \
-         (upgrade-only, never a downgrade); an upgraded verdict prints as 'YES \
-         (normalized:unravel)' or 'YES (normalized:inline)', naming which \
-         normalization the slice's weak left-linearity allowed"
   and out = out_flag in
   fun () ->
     Cli.Analysis_sweep.require_roots ~cmd:"confluence" ~all ~symbols;
     Cli.Error_handling.guard ~color ~on_ok:(fun failed -> if failed then exit 1)
-    @@ fun () ->
-    check ~filenames ~all ~symbols ~timeout ~maude_bin ~mfe_dir ~crc_normalize
-      ~out
+    @@ fun () -> check ~filenames ~all ~symbols ~timeout ~out

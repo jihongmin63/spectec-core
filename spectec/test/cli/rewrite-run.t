@@ -1,41 +1,22 @@
-The unified runner validates mode combinations before loading a spec:
+The runner accepts only raw native starts and P4 input. Removed modes and
+exports are rejected by the command parser.
 
-  $ spectec run --structural --search --emit
-  --structural supports program inputs and equation reduction only
+  $ SPEC=../../specs/impty/base/spec.spectec
+  $ spectec run --structural --start 'true' $SPEC
+  --structural requires --p4 input and excludes --start
   [2]
-
-  $ spectec run --search --rewrite --emit
-  --search and --rewrite are mutually exclusive
+  $ spectec run --start 'true' --check-p4 $SPEC
+  --check-p4 requires --p4
   [2]
-
-  $ spectec run --bound 2 --emit
-  --bound requires --search
+  $ spectec rewrite --symbol '$lookup_id_type' $SPEC
+  --symbol requires --ctrs
   [2]
-
-  $ spectec rewrite --sizes
-  --sizes requires --list-symbols
-  [2]
-
-  $ spectec rewrite --ctrs --unconditional --crc-normalize
-  --unconditional and --crc-normalize are mutually exclusive
-  [2]
-
-The emit spelling is shared with SCC and does not invoke AProVE:
-
   $ spectec termination --emit --all
   --emit takes exactly one --symbol
   [2]
 
-The rewrite and run commands emit the same native module:
-
-  $ SPEC=../../specs/impty/base/spec.spectec
-  $ spectec rewrite $SPEC > native.mod
-  $ spectec run --emit $SPEC > run.mod
-  $ diff native.mod run.mod
-
-A stand-in for Maude checks batch assembly and result attribution without
-requiring an external Maude installation. It logs the actual input file and
-answers once for each runnable start term.
+A Maude stand-in validates the environment-variable binary and attribution of
+one bad P4 source beside a runnable raw start.
 
   $ cat > maude-stub <<'SH'
   > #!/bin/sh
@@ -44,42 +25,32 @@ answers once for each runnable start term.
   > sed -n '/^reduce .*SPECTEC-BATCH-SEP/ { s/.*/result Bool: true/p; s/.*/result String: "$$SPECTEC-BATCH-SEP$$"/p; }' "$2"
   > SH
   $ chmod +x maude-stub
-  $ cat > good.imp <<'IMP'
-  > skip
-  > IMP
-  $ cp good.imp also-good.imp
-  $ printf '@\n' > bad.imp
-
-  $ spectec run --imp good.imp --imp bad.imp --imp also-good.imp --maude-bin ./maude-stub $SPEC 2>/dev/null | sed -n '/^===/p; /^result:/p'
-  === good.imp ===
+  $ export SPECTEC_MAUDE_BIN="$PWD/maude-stub"
+  $ cat > good.p4 <<'P4'
+  > action a() { ; }
+  > P4
+  $ printf '@\n' > bad.p4
+  $ spectec run --p4 good.p4 --p4 bad.p4 --start "'true.Bool" $SPEC 2>/dev/null | sed -n '/^===/p; /^result:/p; /^ERROR:/p'
+  === good.p4 ===
   result: true
-  === bad.imp ===
-  === also-good.imp ===
+  === bad.p4 ===
+  ERROR: error: syntax error
+  === --start ===
   result: true
   $ wc -l < invocations | tr -d ' '
   1
   $ grep -c 'metaReduce' maude-input
   2
-
-Structural execution shares input resolution and attribution, using direct
-reduction and its existing default task (Check_prog):
-
-  $ spectec run --structural --imp good.imp --imp bad.imp --imp also-good.imp --maude-bin ./maude-stub $SPEC 2>/dev/null | sed -n '/^===/p; /^result:/p'
-  === good.imp ===
+  $ spectec run --structural --p4 good.p4 --p4 bad.p4 $SPEC 2>/dev/null | sed -n '/^===/p; /^result:/p; /^ERROR:/p'
+  === good.p4 ===
   result: true
-  === bad.imp ===
-  === also-good.imp ===
-  result: true
-  $ wc -l < invocations | tr -d ' '
-  2
-  $ grep -c '^reduce Check-prog' maude-input
-  2
-
-A batch with a bad source still exits non-zero; a single result stays unlabelled:
-
-  $ spectec run --imp good.imp --imp bad.imp --maude-bin ./maude-stub $SPEC >/dev/null 2>/dev/null
+  === bad.p4 ===
+  ERROR: error: syntax error
+  $ grep -c '^reduce Program-ok' maude-input
+  1
+  $ spectec run --p4 bad.p4 --start "'true.Bool" $SPEC >/dev/null 2>/dev/null
   [1]
-  $ spectec run --imp good.imp --maude-bin ./maude-stub $SPEC
+  $ spectec run --start "'true.Bool" $SPEC
   result: true
 
 Equal slices reuse the first row and record its source. Resuming skips recorded

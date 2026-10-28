@@ -1,5 +1,10 @@
 # `rewrite` — IL spec → conditional term rewriting system (CTRS)
 
+> **Current CLI (2026-10-28):** `rewrite`, `run`, `confluence`, and `termination`
+> are the four rewrite commands. See the CLI entry points below and
+> [the approved contract](docs/superpowers/specs/2026-10-28-rewrite-cli-minimal.md).
+> Dated measurements later in this file record the interfaces used at that time.
+
 > **의사소통은 한글을 선호합니다.** 설명·요약·질문은 한글로 (코드, 식별자, 인용한
 > 에러 메시지는 원문 그대로).
 
@@ -14,7 +19,7 @@ This is the `spectec.rewrite` library (`spectec/lib/rewrite/dune`, branch
 `new-rewrite`). It translates an elaborated SpecTec IL spec into a **conditional
 term rewriting system (CTRS)**, then feeds that system to two backends: the
 **Maude Formal Environment (MFE)** for confluence/coherence analysis, and a
-**Maude execution module** that actually runs P4/impty programs.
+**Maude execution module** that reduces P4 and raw META-TERM inputs.
 
 **Current status:** the full pipeline is implemented and running end-to-end —
 no `failwith` stubs remain anywhere in the library (verified by grep). Both
@@ -60,12 +65,11 @@ and verification details.
 |------|------|
 | [rewrite.ml](spectec/lib/rewrite/rewrite.ml) / `.mli` | Facade: shared `compile ~target` returning `{ spec; system }`, submodules, and `def_symbols`. |
 | [pipeline.ml](spectec/lib/rewrite/pipeline.ml) / `.mli` | Shared `compile ~target`, specialization, and analysis-only finishing passes. |
-| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), the condition orientation invariant (`orient_conds`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are `crc_surface.ml`/`scc_surface.ml`), no Maude module emission (`maude/`). |
+| [rewrite_system.ml](spectec/lib/rewrite/rewrite_system.ml) / `.mli` | Data model (`term`, `cond`, `rule` with `owise:bool`, `t = {vars; rules}`), diagnostic printer, the CTRS-safe id scrub (`sanitize`), shared term vocabulary (`vars_of_term`/`subst`/`of_rules`), the condition orientation invariant (`orient_conds`), `slice`/`reachable_heads`. No Maude spelling (that's `maude/maude_ident.ml`), no checker passes (those are in `crc_surface.ml`), no Maude module emission (`maude/`). |
 | [crc_surface.ml](spectec/lib/rewrite/crc_surface.ml) / `.mli` | Analysis (CRC) normalization passes lifted out of the data model: `fold_premise_binders`, `order_conds`, `crc_unravel`, `crc_normalize`. |
-| [scc_surface.ml](spectec/lib/rewrite/scc_surface.ml) / `.mli` | SCC over-approximation passes: `drop_conds`, `linearize_lhs`. |
 | [translate/ctrs_term.ml](spectec/lib/rewrite/translate/ctrs_term.ml) | Symbol-naming vocabulary (`variant_sym`/`func_sym`/`rel_sym`/…) including the derived-predicate spellings (`match_`/`subty_`/`holds_` prefixes, `eqg`), smart term/rule builders, `scalar_theory = Structural \| Native` and the mode-aware scalar leaf builders. The one place raw `R.App`/`R.Var` gets built. |
 | [translate/prelude.ml](spectec/lib/rewrite/translate/prelude.ml) / `.mli` | Fixed rule set giving `Ctrs_term`'s symbols their semantics (bool/nat/int/list/option ops). `Native` drops `native_replaced_heads` (delegated by `To_maude` instead). |
-| [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`. Every SpecTecx relation is input-moded (`hint(input …)`), hence functional — relations translate like functions and emit as equations (`--relations-as-rules` is the only rl/crl path, a `--search` debugging override). The invariant is enforced at elaboration (`fetch_rel_input_dirs`: a hint-less relation defaults to all-input with a warning), so the translator needs no guard of its own. |
+| [translate/to_ctrs.ml](spectec/lib/rewrite/translate/to_ctrs.ml) / `.mli` | **Translation heart**: `of_spec`, `term_of_exp`/`pattern_of_exp`, iteration compiler (`$itermap`/`$unzip`/`$iterall`/`$itercollect`), subtype predicate, `conds_of_prem`, `rules_of_def`, `def_symbols`. Every SpecTecx relation is input-moded (`hint(input …)`), hence functional — relations translate like functions and emit as equations. The invariant is enforced at elaboration (`fetch_rel_input_dirs`: a hint-less relation defaults to all-input with a warning), so the translator needs no guard of its own. |
 | [translate/var_hints.ml](spectec/lib/rewrite/translate/var_hints.ml) / `.mli` | Per-symbol variable→IL-type map (from `VarE` notes), used only by `To_maude` to restore narrow declared types. |
 | [translate/spec_index.ml](spectec/lib/rewrite/translate/spec_index.ml) / `.mli` | One constructor/field/relation-signature index built per spec (physical-equality memo), so `Reflect`, `Of_maude`, `Maude_sorts` and `To_maude` derive their views from it instead of each re-walking the whole spec. |
 | [translate/exp_map.ml](spectec/lib/rewrite/translate/exp_map.ml) / `.mli` | Shallow one-level IL traversal helpers (`map_subexps`/`subexps`/`exps_of_prem`), used by `Defunctionalize`. |
@@ -76,19 +80,18 @@ and verification details.
 | [translate/reflect.ml](spectec/lib/rewrite/translate/reflect.ml) / `.mli` | Analysis-only: `owise` (explicit sibling-disjointness guards + judgment reflection) and `hoist_matchers` (respell opaque `match_K` guards so `fold_premise_binders` can fold discriminators into head patterns). |
 | [maude/maude_ident.ml](spectec/lib/rewrite/maude/maude_ident.ml) / `.mli` | The Maude lexical layer shared by both Maude surfaces: `id` (operator id — `_`→`-`) and `var` (variable name), so operator/variable spellings agree. Was `maude_id`/`maude_var` in `rewrite_system.ml`. |
 | [maude/maude_theory.ml](spectec/lib/rewrite/maude/maude_theory.ml) / `.mli` | Native scalar vocabulary: wrapper symbol spelling (`nat`/`int`/`bool`/`txt`) + literal builders, shared by `Ctrs_term`, `To_maude`, `Of_maude`. No fold pass (leaf builders emit these directly at translation time). |
-| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) / `.mli` | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. The `match_`/`subty_`/`holds_` predicates are declared nowhere, so `predicate_domains` recovers each domain as the **join of every subject the rules pass it** (`--wide-predicate-domains` restores the old blanket `Val`); pass `~sig_rules` with the whole system when emitting a slice, or the domains collapse to their seed. |
+| [maude/maude_sorts.ml](spectec/lib/rewrite/maude/maude_sorts.ml) / `.mli` | Shared order-sorted signature recovery (sorts from the original IL spec, subsort order, per-rule variable sorts, term printing) used by both `To_mfe` and `To_maude`. The `match_`/`subty_`/`holds_` predicates are declared nowhere, so `predicate_domains` recovers each domain as the **join of every subject the rules pass it** ; pass `~sig_rules` with the whole system when emitting a slice, or the domains collapse to their seed. |
 | [maude/to_mfe.ml](spectec/lib/rewrite/maude/to_mfe.ml) | Analysis Maude surface: emits the structural CTRS as an order-sorted Full-Maude `(mod … endm)`. Consumed by `rewrite --ctrs` and `Mfe.check`. |
 | [maude/to_maude.ml](spectec/lib/rewrite/maude/to_maude.ml) / `.mli` | Execution backend: executable order-sorted Maude module (op decls, eq/rl, built-in delegations, `owise` totalization) plus the META-TERM start-term encoder (`print_meta_term`/`meta_term_of_value`) that `metaReduce` runs. |
 | [maude/of_maude.ml](spectec/lib/rewrite/maude/of_maude.ml) / `.mli` | Reverse of the start-term encoder: parses a Maude normal form back into an IL `value`; `canonicalize` normalizes gensym names and sorts map entries so both sides of the result-VALUE oracle compare equal. |
-| [maude/maude_run.ml](spectec/lib/rewrite/maude/maude_run.ml) / `.mli` | Runs an emitted module on a META-TERM start term via a local `maude` binary (`metaReduce`/`metaRewrite`/`metaSearch`); `run_batch` runs many starts in one Maude invocation (module internalized once). |
-| [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_normalize_upgrade` adds the upgrade-only `--crc-normalize` retry. |
+| [maude/maude_run.ml](spectec/lib/rewrite/maude/maude_run.ml) / `.mli` | Runs an emitted module on a META-TERM start term via a local `maude` binary (`metaReduce`); `run_batch` runs many starts in one Maude invocation (module internalized once). |
+| [mfe.ml](spectec/lib/rewrite/mfe.ml) / `.mli` | Confluence + coherence gate: `Mfe.check` loads the MFE, runs CRC + ChC in one invocation, returns `{church_rosser; coherence}` verdicts; `check_batch` supports the CLI's automatic upgrade-only normalization ladder. |
 | [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
 | [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
 | [itrs.ml](spectec/lib/rewrite/itrs.ml) / `.mli` | The integer-constraint export of the same unraveling: the structural arithmetic layer replaced by AProVE's native integers and `:\|:` constraints, and (with `~norm`) the list layer lifted to lengths on top. A MODEL of the slice, not an over-approximation — a YES is about the model. |
 | [qdp.ml](spectec/lib/rewrite/qdp.ml) / `.mli` | One child of AProVE's dependency-graph decomposition, read out of a run's obligation echo and re-posed as a standalone `.qdp` problem (usable-rules pruned + Cε). |
 | [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
 | [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
-| [scc.ml](spectec/lib/rewrite/scc.ml) / `.mli` | Sufficient completeness via CETA Maude 2.7 + old MFE 2.7.1: unconditional over-approximation, pruned functional module, verdict/fidelity/witness-domain classification (the `scc` subcommand). |
 
 Deleted from the old `rewrite` branch and **not reimplemented** (by design, not
 oversight): `prem_env.ml` (only fed the old `Simplify`) and `cocoweb.ml`/
@@ -150,66 +153,32 @@ become CTRS conditions; the result/output becomes the rhs.
 
 ## CLI entry points ([bin/main.ml](spectec/bin/main.ml))
 
-- **`rewrite [--ctrs] [--symbol NAME] [--slice-dir DIR] [--unconditional] [--crc-normalize] [--prune-signature] [--list-symbols] [--sizes] [--relations-as-rules] FILES…`**
-  — default emits the executable Maude module (`To_maude.module_of_system`).
-  `--ctrs` dumps the analysis CTRS instead (`To_mfe.module_of_system`, what
-  `confluence` sends the MFE); `--symbol` slices to one dependency closure and
-  `--slice-dir` dumps every slice in one translation. `--unconditional` (SCC)
-  and `--crc-normalize` (CRC) are the verdict-shaping transforms documented
-  below; `--prune-signature` keeps only the signature the rules use (rules
-  untouched, so verdicts are preserved). `--list-symbols` lists the sliceable
-  symbols (the names the `--symbol`/`--all` checkers take) and `--sizes` ranks
-  them by slice rule count — the cheap tractability proxy. (To inspect the
-  elaborated IL itself, use the `elab` command — there is no IL simplification pass, so
-  there is no separate "simplified" dump.)
-- **`confluence [--symbol NAME]… | --all [--crc-normalize] [--timeout S] [--maude-bin P] [--mfe-dir D] [--out TSV] FILES…`**
-  — per-slice MFE CRC+ChC (`Mfe.check`), one TSV row per symbol
-  `<sym>\t<church-rosser>\t<coherence>`; exit non-zero if any row is not
-  `YES`/`YES`. Whole-system CRC explodes on critical pairs, so (like
-  `termination`/`scc`) there is no whole-system mode — `--symbol` or `--all`
-  (which sweeps `def_symbols` smallest slice first) is required, and `--out`
-  makes the sweep resumable. `--crc-normalize` retries an inconclusive verdict
-  on the normalized (and pruned) system, upgrade-only (`YES (normalized)`; see
-  the CRC normalization section).
-- **`termination [--symbol NAME]… | --all [--budget S] [--aprove-bin P] [--emit] [--itrs] [--itrs-lengths] [--no-child-split] [--no-integer-retry] [--out TSV] FILES…`**
-  — proves per-slice termination by unravel + a direct AProVE run
-  (`Termination.check`; **no MTT** — see below). Up to **four paths**, in
-  order, stopping at the first YES: the whole slice as one TRS, then that run's
-  open dependency-graph children one at a time (`--no-child-split` disables),
-  then the integer surface where the slice computes arithmetic at all, then
-  that surface with the LIST layer lifted to lengths as well — for a descent
-  that shortens a list rather than counting an integer down, and an export
-  `ERROR` where the lift does not cover the slice (`--no-integer-retry`
-  disables both integer paths; `--itrs` / `--itrs-lengths` run one of those
-  surfaces *alone*, which is what the ITRS columns were measured with). Row per
-  symbol:
-  `<sym>\t<YES|NO|MAYBE|TIMEOUT|DEGENERATE|ERROR>\t<stats>\t<secs>\t<paths>`,
-  where `<paths>` is every path taken with its own verdict and seconds
-  (`whole:TIMEOUT@300.0s children:YES(all children closed)@41.2s`) — that is
-  where a failed split's own numbers survive a row the plain run's verdict
-  won. `--all` sweeps `def_symbols` smallest slice first; `--out` makes the
-  sweep resumable (recorded symbols are skipped). `--emit` prints the TPDB
-  TRS instead of running AProVE.
-- **`scc [--symbol NAME]… | --all [--timeout S] [--ceta-maude-bin P] [--mfe271-dir D] [--emit] [--out TSV] FILES…`**
-  — per-slice sufficient completeness via CETA Maude 2.7 + the old MFE 2.7.1
-  (`Scc.check`); the row format is the retired `run-scc.sh`'s
-  (`<sym>\t<verdict>\t<fidelity[/analysis:…][/dom:…]>\t[witness]`), including
-  the exact/approx fidelity and the witness-domain triage. `--all` sweeps every
-  defined head (the derived `subty_`/`match_`/`holds_` predicates included);
-  `--emit` prints the pruned functional module the checker sees.
-- **`run [--structural] [--start TERM | --imp FILE… | --p4 FILE… -i DIR] [--emit] [--search|--rewrite] [--relations-as-rules] [--bound N] [--check-p4] [--maude-bin P] [--timeout S] FILES…`**
-  — emits the execution module and runs a start term through a local Maude via
-  reflection (`Maude_run`). `--imp`/`--p4` build the start term from a source
-  program (repeatable — batches through one Maude invocation, amortizing
-  module internalization); `--emit` just prints the module. `--check-p4` also
-  typechecks each `--p4` program with the interpreter and diffs the RESULT
-  value against Maude's (`Of_maude`) — the Phase D oracle. `--timeout` defaults
-  to 0 (no limit); see "Performance notes" for why a fixed default cannot work.
+- `rewrite [--ctrs] [--symbol NAME] [--list-symbols] FILES…` emits the
+  native execution module by default. `--ctrs` emits the analysis module with
+  signature pruning; `--symbol` requires `--ctrs` and slices one dependency
+  closure. The full system's rules still supply predicate domains.
+  `--list-symbols` prints `symbol<TAB>rule-count`, ordered by ascending rule
+  count and then name.
+- `run [--start TERM] [--p4 FILE]… [-i DIR]… [--structural] [--check-p4]
+  [--timeout S] FILES…` performs equation reduction. Raw META-TERM and P4
+  inputs can be batched together. `--structural` directly reduces P4 input
+  and excludes raw `--start`. `--check-p4` requires P4 input and compares its
+  result with the interpreter. The timeout defaults to 0 (unbounded).
+- `confluence [--symbol NAME]… | --all [--timeout S] [--out TSV] FILES…`
+  checks each analysis slice in the MFE. An inconclusive original check is
+  retried through the WLL normalization ladder; only sound YES upgrades are
+  reported. The timeout defaults to 60 seconds per check.
+- `termination [--symbol NAME]… | --all [--budget S] [--out TSV] [--emit]
+  [--proof-dir DIR] FILES…` exports each analysis slice as a plain TRS and
+  proves it with AProVE. An unproven whole run retries its open dependency
+  graph children. The budget defaults to 300 seconds. `--emit` requires exactly
+  one symbol and prints that plain TRS; `--proof-dir` saves proof trees.
+  `Itrs` remains a standalone model exporter and does not supply a CLI proof.
 
-The `--all`/`--out` sweep machinery (root selection, resume, row formatting)
-shared by `confluence`/`termination`/`scc` lives in
-[lib/cli/analysis_sweep.ml](spectec/lib/cli/analysis_sweep.ml), not `bin/main.ml`
-— `bin/` keeps only the command wiring.
+`--out` appends rows and skips symbols already present. Start a new TSV when
+changing the check policy or source specification. The binary locations are
+set with `SPECTEC_MAUDE_BIN`, `SPECTEC_MFE_DIR`, and `SPECTEC_APROVE_BIN`.
+The sweep machinery is in [analysis_sweep.ml](spectec/lib/cli/analysis_sweep.ml).
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
@@ -389,15 +358,15 @@ does not prune at all.
 > theorising. Repointing `mfe.config` at a wrapper took five minutes and
 > collapsed the whole wrong story.**
 
-### CRC normalization (`--crc-normalize`) — remove determinacy critical pairs
+### Automatic CRC normalization — remove determinacy critical pairs
 
 The CRC re-encodes a matching condition `$f(A) = t` as a joinability obligation
 and, not knowing `$f` is a function, raises a **determinacy critical pair** it
 cannot close (`#v# = v`). That single cause accounts for the five `$write_value*`
-MAYBEs and several large-slice TIMEOUTs. `--crc-normalize` rewrites those binders
-away before the checker runs. Analysis-surface only — execution, termination, and
-ChC never see it, and a run without the flag (or one that produces no chain
-operator) is byte-identical; opt-in because it is a verdict-shaping transform.
+MAYBEs and several large-slice TIMEOUTs. `confluence` checks the original slice
+first, then retries an inconclusive result with normalized slices. Only the
+confluence checks see these retries; `rewrite --ctrs`, execution, and termination
+keep their original surfaces.
 
 Three levers, of different strength — this is the crux:
 
@@ -411,12 +380,13 @@ Three levers, of different strength — this is the crux:
   (Marchiori 1996; Nishida–Sakai–Sakabe LMCS 2012): a YES on the unraveled module
   proves the original confluent (soundness holds for these left-linear structural
   rules), a MAYBE is inconclusive. So use it **upgrade-only** — run the plain CRC
-  first, normalize only its MAYBE/TIMEOUT symbols, promote a normalized YES, and
-  *never* downgrade an original YES. `confluence --crc-normalize`
-  (`Mfe.check_normalize_upgrade`) automates exactly this per slice, printing an
-  upgraded verdict as `YES (normalized)`. (Termination transfers cleanly under
-  unraveling — that is the MTT-replacement path above — but confluence only
-  reflects, hence the asymmetry.)
+  first, normalize only inconclusive slices, promote a normalized YES over
+  MAYBE/TIMEOUT, and *never* downgrade an original YES. `confluence` does this
+  automatically per slice, printing an upgraded verdict as
+  `YES (normalized:<strategy>)`. It also retries ERROR slices, though the
+  existing `Mfe.upgrade` rule does not promote ERROR to YES. (Termination
+  transfers cleanly under unraveling — that is the MTT-replacement path above —
+  but confluence only reflects, hence the asymmetry.)
 - **real-sort** (`To_mfe`, `crc_sigs`) — `crcu`/`crck` are not IL symbols, so
   `Maude_sorts.signature` defaults them to all-`Val`. That is *sound* (widening a
   sort only adds overlaps, never a false YES) but widens the chain-step pattern
@@ -495,7 +465,7 @@ as `-- if $(n_var > 0)`. The same family as the `$bitstr_to_int` /
 This section used to call that overlap *the* root cause of the five
 `write_value*` CRC MAYBEs; measuring the fixed spec refutes that. The base CRC
 on `$write_value_from_bits_prime` is still `MAYBE` (118.8 s) and only
-`--crc-normalize` lifts it to YES, exactly as before the fix — so the operative
+the normalized retry lifts it to YES, exactly as before the fix — so the operative
 cause of those MAYBEs is the determinacy critical pairs of the tuple binders
 (see the CRC-normalization section), and the `n_var = 0` overlap was a real
 order-dependence defect sitting on top of them, not their source.
@@ -629,7 +599,7 @@ real costs:
    run via `metaReduce`) replace parsing the start term through the giant
    object-level grammar with a small fixed meta-syntax — eliminates the
    per-program parse cost (was the dominant cost, ~7s/program on P4 modules).
-2. **Batched invocations** (`Maude_run.run_batch`, CLI: repeat `--imp`/`--p4`)
+2. **Batched invocations** (`Maude_run.run_batch`, CLI: repeat `--p4`)
    amortize module load + first-metaReduce internalization across every program
    in one Maude invocation.
 
@@ -640,14 +610,15 @@ before the 5,425 subty-complement equations landed and are long stale):
 
 | phase | cost |
 |---|---|
-| IL → Maude translation (`run --emit`) | ~10s |
+| IL → Maude translation (then `run --emit`, now `rewrite`) | ~10s |
 | Maude module internalization (fixed, once per invocation) | **~80s** |
 | per program after that | ~6.5s |
 
 **Those rows are stale as of 2026-08-05** and are kept only as the last figures
 actually measured. The equality rework (`5dd8f11d` type-indexed `eq`, `1585e814`
 case-index discrimination, and the monomorphization that followed) took the
-execution module from ~78k lines to **~29k**, and `run --emit` from ~10s to ~1s;
+execution module from ~78k lines to **~29k**, and the then-current
+`run --emit` (now `rewrite`) from ~10s to ~1s;
 internalization and per-program cost scale with module size and have not been
 re-measured (this environment has no `spectec/tools/maude`).
 

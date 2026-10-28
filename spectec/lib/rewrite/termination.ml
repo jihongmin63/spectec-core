@@ -1,5 +1,5 @@
 type verdict = Yes | No | Maybe | Timeout | Degenerate | Error of string
-type path = Whole_trs | Children | Integer_trs | Length_trs
+type path = Whole_trs | Children
 
 type rung = {
   budget : int;
@@ -34,11 +34,7 @@ let string_of_verdict = function
   | Degenerate -> "DEGENERATE"
   | Error msg -> "ERROR: " ^ msg
 
-let string_of_path = function
-  | Whole_trs -> "whole"
-  | Children -> "children"
-  | Integer_trs -> "itrs"
-  | Length_trs -> "itrs-lengths"
+let string_of_path = function Whole_trs -> "whole" | Children -> "children"
 
 let string_of_step (s : step) : string =
   let base =
@@ -93,18 +89,9 @@ let of_aprove : Aprove.verdict -> verdict = function
    at [cap] so a search that runs out of rungs makes exactly the run a single
    [cap] call would have made.
 
-   [from] raises the first rung for a region already measured to sit far above
-   it. Climbing from 5 burns 5+20+80+320 = 425s before the 1280 rung even
-   starts, which is pure waste over a stretch of slices that all answer near
-   330s -- there [~from:1280] spends only the answering run. It is a
-   measurement trade, not a free speedup: the ladder exists to record the
-   SMALLEST budget that still answers, and AProVE announces at its own deadline
-   for every symbol that does not finish early, so a rung raised above a
-   symbol's real cost reports that rung instead of the cost. Raise it only
-   where the region's difficulty is already known, and do not compare the
-   seconds it produces against default-ladder rows. *)
-let budget_ladder ?(from = 5) ~(cap : int) () : int list =
-  let first = max 1 from in
+   The public termination command always starts at 5. *)
+let budget_ladder ~(cap : int) () : int list =
+  let first = 5 in
   let rec go b acc =
     if b >= cap then List.rev (cap :: acc) else go (b * 4) (b :: acc)
   in
@@ -140,33 +127,13 @@ let decisive : Aprove.verdict -> bool = function
    {!Crc_surface.rebind_stuck_guards} undoes that one step, restoring
    [$g(A) = <fresh>] -- the binder the fold removed. A restoration, not an
    approximation: the condition count is unchanged, so the helper count is too;
-   what changes is that the consumer can fire. Both surfaces need it for the
-   same reason (the integer surface used to skip it, which made its YES verdicts
-   claims about the same silently-shortened system). *)
+   what changes is that the consumer can fire. *)
 let proof_surface (system : Rewrite_system.t) : Rewrite_system.t =
   Crc_surface.rebind_stuck_guards system
 
 let trs_of_slice (system : Rewrite_system.t) :
     (string * Unravel.stats, string) result =
   Unravel.trs_of_system (proof_surface system)
-
-(* Which export the proof runs on. [Plain] is the TPDB TRS above; [Integer] is
-   {!Itrs}, the same unraveling with the arithmetic layer handed to AProVE's
-   native integers. They are separate SURFACES, not settings of one: their
-   verdicts are about differently-encoded systems (both over-approximating the
-   same CTRS, so a YES on either transfers), and the file extension has to
-   follow, since AProVE reads the problem type off it. *)
-type surface = Plain | Integer | Integer_lengths
-
-let export ~(roots : string list) = function
-  | Plain -> trs_of_slice
-  | Integer -> fun system -> Itrs.of_system ~roots (proof_surface system)
-  | Integer_lengths ->
-      fun system -> Itrs.of_system ~roots ~norm:true (proof_surface system)
-
-let extension = function
-  | Plain -> ".trs"
-  | Integer | Integer_lengths -> ".itrs"
 
 (* How much longer than its own proof budget a capture run may spend PRINTING.
    AProVE's obligation echo reprints the submitted rule set once per
@@ -180,10 +147,12 @@ let echo_slack = 900
    timing THAT rung alone -- the ones below it were cut off before AProVE had
    said anything worth keeping. A missing binary is an Error at every rung, so
    it skips straight to the one run whose message the caller reports. *)
-let probe ?aprove_bin ?final_capture ~budget ~budget_from ~ext ~trs () :
+let probe ?aprove_bin ?final_capture ~budget ~trs () :
     Aprove.run * float * rung list =
   let run ?capture b =
-    let result = Aprove.check ?aprove_bin ?capture ~budget:b ~ext ~trs () in
+    let result =
+      Aprove.check ?aprove_bin ?capture ~budget:b ~ext:".trs" ~trs ()
+    in
     let rung =
       {
         budget = b;
@@ -196,7 +165,7 @@ let probe ?aprove_bin ?final_capture ~budget ~budget_from ~ext ~trs () :
   in
   let ladder =
     if Sys.file_exists (Aprove.resolve_bin aprove_bin) then
-      budget_ladder ~from:budget_from ~cap:budget ()
+      budget_ladder ~cap:budget ()
     else [ budget ]
   in
   let rec climb attempted = function
@@ -327,79 +296,14 @@ let split ?aprove_bin ~budget ~(system : Rewrite_system.t) ~(trs : string)
       in
       close 0 problems
 
-(* One row per open child, every one of them run: what {!split} answers with a
-   verdict, measured instead. The distribution is the thing a residue is read
-   from -- which children close, which recursion the ones that do not are around
-   ([heads]), and what each cost -- and the early exit that makes {!split} a
-   cheap checker is exactly what hides it.
-
-   The budget is the child's own ([child_budget]), so a row says what the child
-   costs when nothing else is competing for the deadline -- which is the
-   comparison {!split} is built on. *)
-type attempt = { verdict : verdict; secs : float; rules : int; proof : string }
-type child = { node : int; heads : string list; pairs : int; qdp : attempt }
-
-let child_report ?aprove_bin ?(budget = 300) ?child_budget
-    ?(on_child = fun (_ : child) -> ()) (system : Rewrite_system.t) :
-    (child list, string) result =
-  let child_budget = Option.value child_budget ~default:budget in
-  match export ~roots:[] Plain system with
-  | Error msg -> Error msg
-  | Ok (trs, _) -> (
-      let whole = capture_whole ?aprove_bin ~budget ~trs () in
-      match children ~system whole with
-      | Error error -> Error (string_of_children_error error)
-      | Ok (export, problems) ->
-          let attempt ~ext ~rules text =
-            let run, secs =
-              Subproc.timed (fun () ->
-                  Aprove.check ?aprove_bin ~budget:child_budget ~ext ~trs:text
-                    ())
-            in
-            {
-              verdict = of_aprove run.Aprove.verdict;
-              secs;
-              rules;
-              proof = run.Aprove.proof;
-            }
-          in
-          Ok
-            (List.map
-               (fun (p : Qdp.problem) ->
-                 let qdp =
-                   match Qdp.standalone ~export p with
-                   | Error msg ->
-                       {
-                         verdict = Error msg;
-                         secs = 0.0;
-                         rules = 0;
-                         proof = "";
-                       }
-                   | Ok (text, rules) -> attempt ~ext:".qdp" ~rules text
-                 in
-                 let row =
-                   {
-                     node = p.Qdp.node;
-                     heads = Qdp.pair_heads ~export p;
-                     pairs = List.length p.Qdp.pairs;
-                     qdp;
-                   }
-                 in
-                 on_child row;
-                 row)
-               problems))
-
 (* ------------------------------------------------------------------------- *)
 
 let direct_step path verdict secs note =
   { path; verdict; secs; total_secs = secs; rungs = []; note }
 
-(* The verdict of a check that took several paths: a [Yes] from ANY of them is
-   the slice's, since each path proves the same slice through a different
-   over-approximation. Failing that, the whole-system run's own verdict stands
-   -- it is the one the column has always carried, and neither of the other
-   paths refutes anything (an unclosed child says the split did not finish, not
-   that the slice loops). [secs] and the proof tree follow the same choice. *)
+(* A YES from the plain whole TRS or a complete sound child split proves
+   the slice. Otherwise the whole-run verdict stands; an unclosed child only
+   says the split did not finish. The time and tree follow the chosen path. *)
 let report_of ~stats ~(tree : string option) (steps : step list) : report =
   let chosen =
     match List.find_opt (fun (s : step) -> s.verdict = Yes) steps with
@@ -420,9 +324,7 @@ let report_of ~stats ~(tree : string option) (steps : step list) : report =
     steps;
   }
 
-let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
-    ?(split_children = true) ?(integer_retry = true) ?(surface = Plain)
-    ~(roots : string list) (system : Rewrite_system.t) : report =
+let check ?aprove_bin ?(budget = 300) (system : Rewrite_system.t) : report =
   let failed verdict =
     {
       verdict;
@@ -435,78 +337,35 @@ let check ?aprove_bin ?(budget = 300) ?(budget_from = 5)
   in
   if system.Rewrite_system.rules = [] then failed Degenerate
   else
-    match export ~roots surface system with
+    match trs_of_slice system with
     | Error msg -> failed (Error msg)
     | Ok (trs, stats) ->
         let tree_of (run : Aprove.run) =
           if run.Aprove.proof = "" then None else Some run.Aprove.proof
         in
         let final_capture =
-          if surface = Plain && split_children then
-            Some
-              {
-                Aprove.keep = Qdp.capture_filter ();
-                done_when = Qdp.capture_complete;
-                echo_slack;
-              }
-          else None
+          {
+            Aprove.keep = Qdp.capture_filter ();
+            done_when = Qdp.capture_complete;
+            echo_slack;
+          }
         in
         let whole, _, whole_rungs =
-          probe ?aprove_bin ?final_capture ~budget ~budget_from
-            ~ext:(extension surface) ~trs ()
+          probe ?aprove_bin ~final_capture ~budget ~trs ()
         in
         let steps = [ step_of_rungs Whole_trs whole_rungs "" ] in
-        (* The two fallback paths are about the plain surface's failure: the
-           split reads the run that just happened, and the integer surface is
-           the answer to arithmetic the plain one could not see. A check asked
-           for one surface alone gets exactly that surface. *)
-        if decisive whole.Aprove.verdict || surface <> Plain then
+        if decisive whole.Aprove.verdict then
           report_of ~stats ~tree:(tree_of whole) steps
         else
-          let steps =
-            if not split_children then steps
-            else
-              let outcome, secs =
-                Subproc.timed (fun () ->
-                    split ?aprove_bin ~budget ~system ~trs ~whole ())
-              in
-              let verdict, note =
-                match outcome with
-                | Closed -> (Yes, "all children closed")
-                | Unclosed note | Unavailable note ->
-                    (of_aprove whole.Aprove.verdict, note)
-              in
-              steps @ [ direct_step Children verdict secs note ]
+          let outcome, secs =
+            Subproc.timed (fun () ->
+                split ?aprove_bin ~budget ~system ~trs ~whole ())
           in
-          if List.exists (fun (s : step) -> s.verdict = Yes) steps then
-            report_of ~stats ~tree:(tree_of whole) steps
-          else if not (integer_retry && Itrs.has_arithmetic system) then
-            report_of ~stats ~tree:(tree_of whole) steps
-          else
-            (* Two integer surfaces, in order of how much of the slice they
-               re-give: the arithmetic layer first, then the same export with
-               the LIST layer lifted to lengths as well. The second is for the
-               descent the first still cannot see -- a recursion that shortens a
-               list -- and it applies to far fewer slices, so it is asked only
-               where the first has already failed and only where the lift covers
-               the slice at all (an export [Error] there means it does not). *)
-            let rec climb steps tree = function
-              | [] -> report_of ~stats ~tree steps
-              | (path, surface) :: rest -> (
-                  match export ~roots surface system with
-                  | Error msg ->
-                      climb
-                        (steps @ [ direct_step path (Error msg) 0.0 "export" ])
-                        tree rest
-                  | Ok (text, _) ->
-                      let run, _, rungs =
-                        probe ?aprove_bin ~budget ~budget_from
-                          ~ext:(extension surface) ~trs:text ()
-                      in
-                      let steps = steps @ [ step_of_rungs path rungs "" ] in
-                      if run.Aprove.verdict = Aprove.Yes then
-                        report_of ~stats ~tree:(tree_of run) steps
-                      else climb steps tree rest)
-            in
-            climb steps (tree_of whole)
-              [ (Integer_trs, Integer); (Length_trs, Integer_lengths) ]
+          let verdict, note =
+            match outcome with
+            | Closed -> (Yes, "all children closed")
+            | Unclosed note | Unavailable note ->
+                (of_aprove whole.Aprove.verdict, note)
+          in
+          report_of ~stats ~tree:(tree_of whole)
+            (steps @ [ direct_step Children verdict secs note ])

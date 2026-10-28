@@ -63,10 +63,6 @@ val infer_var_sorts :
   R.rule ->
   (string, string) Hashtbl.t
 
-(** Whether the predicates keep the blunt [Val] domain ([Wide], kept to bisect a
-    regression) or the recovered join ([Narrow]). *)
-type predicate_mode = Narrow | Wide
-
 (** The subsort edges as inference reads them: the spec injections plus the
     char-list/text bridge. *)
 val inference_edges : (string * string) list -> (string * string) list
@@ -85,7 +81,6 @@ val var_hint_fn :
     [rules] must be the WHOLE system -- a slice would drop call sites and shrink
     the domain to its seed. *)
 val predicate_domains :
-  mode:predicate_mode ->
   edges:(string * string) list ->
   hint:(R.rule -> string -> string option) ->
   sigs ->

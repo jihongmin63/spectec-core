@@ -5,7 +5,6 @@
   spectec
   spectec.rewrite
   spectec.cli
-  spectec.targets.impty
   spectec.targets.p4
   core
   core_unix)

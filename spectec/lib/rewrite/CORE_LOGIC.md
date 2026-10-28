@@ -2,8 +2,11 @@
 
 현재 번역·분석·실행 경로는 구현되어 있다. 이 문서의 알고리즘 설명에는 옛
 `rewrite` 브랜치의 설계 메모도 포함되어 있으며, 날짜가 붙은 측정은 해당 시점의
-증거로 읽는다. 현재 작업 목록은 [todo.md](todo.md), 이번 API/CLI 변경과 검증은
-[refactoring.md](refactoring.md)를 참고한다.
+증거로 읽는다. 현재 작업 목록은 [todo.md](todo.md), 현재 rewrite CLI 계약은
+[2026-10-28 설계](../../../docs/superpowers/specs/2026-10-28-rewrite-cli-minimal.md)를 참고한다.
+SCC 전용 모듈은 제거됐고 `termination`은 plain TRS와 sound child split만
+사용한다. `Itrs`는 독립 모델 exporter이며 종료성 YES 경로에 들어가지 않는다.
+날짜가 붙은 후속 측정 서술은 당시의 명령과 결과를 기록한다.
 
 ## 1. 아키텍처 — 하나의 컴파일 진입점
 
@@ -73,9 +76,8 @@ CRC(등식 confluence)/ChC가 소비(§6.5).
 confluence/termination 검사용). `reachable_heads`/`refs_of_rule`/`defined_head`가
 도달성 분석의 기본 연산.
 
-검사기-향 패스 패밀리는 별도 모듈이다: 분석(CRC) 정규화는 `crc_surface.ml`
-(`fold_premise_binders`/`order_conds`/`crc_unravel`/`crc_normalize`), SCC 과근사는
-`scc_surface.ml`(`drop_conds`/`linearize_lhs`). `rewrite_system.ml`에는 데이터
+검사기-향 분석(CRC) 정규화는 `crc_surface.ml`에 있다
+(`fold_premise_binders`/`order_conds`/`crc_unravel`/`crc_normalize`). `rewrite_system.ml`에는 데이터
 모델·공유 term 어휘(`vars_of_term`/`subst`/`of_rules`)·슬라이싱·진단 프린터·CTRS-safe
 id 스크럽(`sanitize`)만 남는다 — Maude 철자(`_`→`-`)는 `maude/maude_ident.ml`
 (`id`/`var`, 구 `maude_id`/`maude_var`)로 분리됐다.
@@ -509,7 +511,7 @@ SpecTecx 관계가 입력-모드(함수적)라서, 비입력-모드 관계를 `r
 `{ church_rosser; coherence }`를 돌려준다:
 - **CRC** — 등식 fragment의 Church-Rosser. "`reduce`가 well-defined인가" = 등식이 결정적.
 - **ChC** — `rl`이 등식에 coherent한가. 표면에 `rl`이 없으니 현재는 자명하게 통과하는
-  형식적 검사다(실행 모듈을 `--relations-as-rules`로 낼 때만 `rl`이 생긴다).
+  형식적 검사다. 현재 실행 모듈에도 `rl`은 없다.
 둘은 직교한 well-formedness 조건이고 Maude가 *실행 중엔 검사 안 하고 가정만* 한다 — 그래서
 오프라인 게이트로 따로 검증한다. MFE는 repo 미체크인(다운로드·경로 해소·미설치 시 깨끗한
 `Error`): [tools/mfe/README.md](../../tools/mfe/README.md).

@@ -1,4 +1,4 @@
-type target = Analysis | Termination_analysis | Execution
+type target = Analysis | Execution
 type compilation = { spec : Lang.Il.spec; system : Rewrite_system.t }
 
 (* Specialization renames definitions. Keep its result physically shared so
@@ -33,7 +33,7 @@ let compile ~target spec =
   let spec = prepare spec in
   let scalars =
     match target with
-    | Analysis | Termination_analysis -> To_ctrs.Structural
+    | Analysis -> To_ctrs.Structural
     | Execution -> To_ctrs.Native
   in
   let system =
@@ -45,7 +45,7 @@ let compile ~target spec =
   let system =
     match target with
     | Analysis -> analysis_surface spec system
-    | Termination_analysis | Execution -> system
+    | Execution -> system
   in
   { spec; system }
 

@@ -1,10 +1,17 @@
 # `rewrite` 재구현 TODO (new-rewrite)
 
+> **현재 표면 (2026-10-28):** rewrite 관련 명령은 `rewrite`, `run`,
+> `confluence`, `termination` 네 개다. SCC 명령/전용 코드는 제거됐다.
+> `run`은 raw `--start`와 P4만 받고, 종료성은 plain TRS 및 sound child split만
+> 증명한다. `Itrs`는 모델 API로 남는다. 현재 옵션과 재측정 규약은
+> [승인 설계](../../../docs/superpowers/specs/2026-10-28-rewrite-cli-minimal.md)를 따른다.
+> 아래 날짜별 실험 항목은 당시 인터페이스와 측정 사실로 보존한다.
+
 **골격은 전부 채워졌습니다 — `failwith` 스텁은 하나도 남아 있지 않습니다**(코드
 전수 grep 확인). 번역(`To_ctrs.of_spec`/`var_type_hints`), 지원 패스
 (`Defunctionalize`/`Gensym`/`Builtin`/`Exp_map`), Maude 백엔드
 (`To_maude`/`Maude_run`/`Of_maude`), confluence 게이트(`Mfe`)가 모두 구현·컴파일되고
-동작합니다. **M2(실행)·M3(오라클)도 완료** — `run --imp/--p4/--check-p4` 실행 배선과
+동작합니다. **M2(실행)·M3(오라클)도 완료** — 당시 `run --imp/--p4/--check-p4` 실행 배선과
 same-spec differential(전체 corpus; completeness 0 / soundness 1(알려진 issue1944) /
 Phase D 결과-VALUE 1227/1227 MATCH)까지 끝났습니다. **분석 confluence의 subty-가드
 MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_guards`), owise
@@ -33,7 +40,7 @@ MAYBE도 해소** — B′ 7심볼 전부 YES(2026-07-07, `Reflect.expand_subty_
   공유하고, 분석 목표에만 `Reflect`/`Crc_surface`를 적용한다.
 - 항등 모듈 `Simplify`와 `To_ctrs.of_spec`의 중복 명세 인자를 제거했다.
   `Prem_env` 단순화는 도입하지 않는다.
-- CLI: `lib/cli/rewrite/`에서 `rewrite`, `run`, `confluence`, `termination`, `scc`를
+- CLI: `lib/cli/rewrite/`에서 `rewrite`, `run`, `confluence`, `termination`을
   구현한다. `bin/main.ml`은 이 명령들을 등록한다.
 - 실행 경로는 `run`으로 통합했다. 구조적 오라클은 `run --structural`이고,
   내보내기 플래그는 `termination --emit`이다. 과거 명령 이름은 별칭으로 남기지 않는다.

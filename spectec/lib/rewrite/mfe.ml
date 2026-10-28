@@ -31,8 +31,6 @@
 
 type verdict = Yes | No | Maybe | Timeout | Error of string
 type result = { church_rosser : verdict; coherence : verdict }
-type checked = { verdict : verdict; via_normalize : bool }
-type upgrade_result = { crc : checked; chc : checked }
 
 let string_of_verdict = function
   | Yes -> "YES"
@@ -104,7 +102,7 @@ let resolve_mfe_dir = function
           | Some dir -> Ok dir
           | None ->
               Error
-                "MFE not found; pass --mfe-dir or set SPECTEC_MFE_DIR (see \
+                "MFE not found; set SPECTEC_MFE_DIR (see \
                  spectec/tools/mfe/README.md)"))
 
 (* The Maude library directory to export as [MAUDE_LIB]: the binary's own
@@ -296,76 +294,6 @@ let normalized_candidates (system : Rewrite_system.t) :
         else collect (normalized :: seen) ((strategy, normalized) :: acc) rest
   in
   collect [] [] (Crc_surface.normalize_ladder system)
-
-let check_normalize_upgrade ?timeout ?maude_bin ?mfe_dir ?sig_rules
-    (orig : Lang.Il.spec) (system : Rewrite_system.t) : upgrade_result =
-  (* Pin the signature to the ORIGINAL system's rules, so the normalized re-run
-     declares the same domains (matching [rewrite --ctrs --crc-normalize],
-     whose signature also comes from the un-normalized system). *)
-  let sig_rules =
-    match sig_rules with Some r -> r | None -> system.Rewrite_system.rules
-  in
-  let base = check ?timeout ?maude_bin ?mfe_dir ~sig_rules orig system in
-  let exact =
-    {
-      crc = { verdict = base.church_rosser; via_normalize = false };
-      chc = { verdict = base.coherence; via_normalize = false };
-    }
-  in
-  let inconclusive = function Maybe | Timeout -> true | _ -> false in
-  if not (inconclusive base.church_rosser || inconclusive base.coherence) then
-    exact
-  else
-    (* Climb {!Crc_surface.normalize_ladder} until a rung settles both
-       components. Each rung's upgrade stands on its own, so a later attempt can
-       only add verdicts. A rung the normalization leaves unchanged is skipped:
-       re-running the checker on the identical module could only re-roll a
-       Timeout.
-
-       Every retry's signature is pruned (verdict-preserving -- the rules are
-       untouched). The manual protocol this automates always pruned the
-       normalized module, and without it a normalized system whose original
-       TIMEOUT was signature-blowup keeps timing out over the whole ~460-sort P4
-       signature instead of closing. The base check stays unpruned, matching the
-       plain [verify] baseline. *)
-    let component original normalized =
-      let v = upgrade ~original ~normalized in
-      { verdict = v; via_normalize = v <> original }
-    in
-    let rec climb acc = function
-      | [] -> acc
-      | (_, normalized_sys) :: rest ->
-          if acc.crc.verdict = Yes && acc.chc.verdict = Yes then acc
-          else
-            let n =
-              check ?timeout ?maude_bin ?mfe_dir ~prune_signature:true
-                ~sig_rules orig normalized_sys
-            in
-            let step =
-              {
-                crc = component acc.crc.verdict n.church_rosser;
-                chc = component acc.chc.verdict n.coherence;
-              }
-            in
-            (* [via_normalize] must survive a rung that changes nothing. *)
-            climb
-              {
-                crc =
-                  {
-                    step.crc with
-                    via_normalize =
-                      step.crc.via_normalize || acc.crc.via_normalize;
-                  };
-                chc =
-                  {
-                    step.chc with
-                    via_normalize =
-                      step.chc.via_normalize || acc.chc.via_normalize;
-                  };
-              }
-              rest
-    in
-    climb exact (normalized_candidates system)
 
 (* -------------------------------------------------------------------------- *)
 (* Batched checking: one MFE session (single ~100s load) for many slices. *)

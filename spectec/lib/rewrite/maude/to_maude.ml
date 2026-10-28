@@ -19,21 +19,13 @@ open Maude_sorts
       universal supersort [Val] (every sort is [< Val]); this is the pragmatic
       resolution of the polymorphism the erased CTRS left behind.
 
-    - {b eq vs rl.} Function/prelude/constructor rules are deterministic
-      equations ([eq]/[ceq]). Every SpecTecx relation is input-moded, hence
-      functional, so relations also become equations -- this lets {!Maude_run}
-      [reduce] them deterministically instead of forcing a [search] over a free
-      output variable (see {!rule_relation_syms}). [relations_as_rules] forces
-      every relation back to a rule ([rl]/[crl]), explored with
-      [search]/[rewrite].
+    - {b Equations.} Functions, constructors, prelude operations, and
+      input-moded relations are emitted as [eq]/[ceq], so reduction remains
+      deterministic.
 
-    - {b Condition kinds.} A CTRS join condition [(left, right)] is, by the
-      translation's invariant, [left] = a value to evaluate and [right] = a
-      pattern/binder. It becomes a Maude equality condition [left = right] when
-      [right] binds nothing new, a matching condition [right := left] when
-      [right] binds fresh variables and [left] is equation-reducible, or a
-      rewrite condition [left => right] when [left] is a relation kept as a
-      rule.
+    - {b Condition kinds.} A CTRS condition becomes a Maude equality test when
+      it binds nothing, or a matching condition when it binds fresh variables.
+      The latter keeps the native evaluator's binding order.
 
     The module is emitted over Maude's BUILT-IN scalar theories: the system is a
     {!Pipeline.compile} result, whose scalar values sit in wrapper constructors
@@ -59,10 +51,6 @@ open Maude_sorts
 (* -------------------------------------------------------------------------- *)
 (* Condition classification. *)
 
-let is_relation rels = function
-  | R.App (f, _) -> List.mem f rels
-  | R.Var _ -> false
-
 (* A bool literal in [scalars]' theory: [Native]'s wrapped [bool(true)]/
    [bool(false)] ({!To_ctrs.of_spec}), or [Structural]'s bare [true]/[false]
    ({!Ctrs_term.bool_t}). *)
@@ -76,26 +64,17 @@ let is_bool_lit ~(scalars : T.scalar_theory) = function
 (* The name of the head-of-term value predicate (see [stuck_head_defs]). *)
 let stuck_head_sym = "isStuckHead"
 
-(* The Maude form a CTRS condition takes. One classifier decides both how the
-   condition prints ([print_cond]) and which side must already be bound for it
-   to run ([print_conds]'s scheduler), so the two can never disagree.
-   - [`Rewrite]: the left head is a relation, which reduces only via rules
-     ([rl]/[crl]), so the condition must be a rewrite condition [l => r] (an
-     equality [=] only reduces with equations and would never fire).
-   - [`Check]: the right side is a bool literal -- a pure test, binding nothing.
-   - [`Match]: a matching condition, binding whichever side is fresh. *)
-let cond_form ~(scalars : T.scalar_theory) rels ((l, r) : R.cond) :
-    [ `Rewrite | `Check | `Match ] =
-  if is_relation rels l then `Rewrite
-  else if is_bool_lit ~scalars r then `Check
-  else `Match
+(* A boolean result is a pure check; other conditions can bind a value. *)
+let cond_form ~(scalars : T.scalar_theory) ((_, r) : R.cond) :
+    [ `Check | `Match ] =
+  if is_bool_lit ~scalars r then `Check else `Match
 
 (* Render one condition, threading the set of already-bound variables (Maude
    evaluates conditions left to right). Returns the condition text and the
    variables it binds. [defined] is the set of symbols that reduce away
    (functions/relations/prelude ops), used to guard bare-variable matches. *)
-let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
-    ((l, r) : R.cond) : string * string list =
+let print_cond ~(scalars : T.scalar_theory) vs defined bound ((l, r) : R.cond) :
+    string * string list =
   let fresh_of t =
     List.filter (fun v -> not (List.mem v bound)) (R.vars_of_term t)
   in
@@ -114,8 +93,7 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
         (base ^ " /\\ " ^ stuck_head_sym ^ "(" ^ pat_s ^ ") = false", vars)
     | _ -> (base, vars)
   in
-  match cond_form ~scalars rels (l, r) with
-  | `Rewrite -> (pl ^ " => " ^ pr, fresh_of r)
+  match cond_form ~scalars (l, r) with
   | `Check -> (pl ^ " = " ^ pr, [])
   | `Match ->
       let fr = fresh_of r in
@@ -127,8 +105,7 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
            side is fresh so the variable gets bound rather than emitted as an
            unsatisfiable [=]. *)
         let fl = fresh_of l in
-        if fl <> [] && not (is_relation rels r) then
-          matching ~pat:l ~subj:r ~pat_s:pl ~subj_s:pr fl
+        if fl <> [] then matching ~pat:l ~subj:r ~pat_s:pl ~subj_s:pr fl
         else (pl ^ " = " ^ pr, [])
 
 (* Maude evaluates conditions left to right and a variable must be bound before
@@ -136,9 +113,8 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
    can sit after a test that uses it), so emit conditions by readiness, taking the
    earliest source position among the ready ones -- an already-valid order is thus
    reproduced verbatim. A condition is ready when the side its [cond_form] does
-   NOT bind is fully bound: a rewrite [l => r] or a check [l = r] needs [l]
-   bound; a matching binds whichever side is fresh, so it needs the other side
-   bound. A genuine cycle leaves nothing ready; emit the rest in source order
+   NOT bind is fully bound: a check [l = r] needs [l] bound; a match
+   binds whichever side is fresh and needs the other side bound. A genuine cycle leaves nothing ready; emit the rest in source order
    rather than loop.
 
    The analysis pipeline now pre-orders conditions upstream
@@ -146,18 +122,18 @@ let print_cond ~(scalars : T.scalar_theory) vs rels defined bound
    pipeline, which does not -- and the [cond_form]-aware readiness here is
    this printer's own rendering concern either way, so the local scheduler
    stays. *)
-let print_conds ~(scalars : T.scalar_theory) vs rels defined
-    (lhs_vars : string list) (conds : R.cond list) : string =
+let print_conds ~(scalars : T.scalar_theory) vs defined (lhs_vars : string list)
+    (conds : R.cond list) : string =
   let bnd bound t =
     List.for_all (fun v -> List.mem v bound) (R.vars_of_term t)
   in
   let ready bound ((l, r) : R.cond) =
-    match cond_form ~scalars rels (l, r) with
-    | `Rewrite | `Check -> bnd bound l
+    match cond_form ~scalars (l, r) with
+    | `Check -> bnd bound l
     | `Match -> bnd bound l || bnd bound r
   in
   let emit (bound, acc) c =
-    let text, newvars = print_cond ~scalars vs rels defined bound c in
+    let text, newvars = print_cond ~scalars vs defined bound c in
     (newvars @ bound, text :: acc)
   in
   let take_ready bound conds =
@@ -184,37 +160,18 @@ let print_conds ~(scalars : T.scalar_theory) vs rels defined
 (* -------------------------------------------------------------------------- *)
 (* Rule printing. *)
 
-let print_rule ~(scalars : T.scalar_theory) vs rels defined (is_rel : bool)
-    (r : R.rule) : string =
+let print_rule ~(scalars : T.scalar_theory) vs defined (r : R.rule) : string =
   let lhs = print_term scalars vs r.R.lhs
   and rhs = print_term scalars vs r.R.rhs in
-  let arrow = if is_rel then " => " else " = " in
-  let kw =
-    if is_rel then if r.R.conds = [] then "rl" else "crl"
-    else if r.R.conds = [] then "eq"
-    else "ceq"
-  in
-  (* An [otherwise] clause maps to Maude's [owise] equation attribute. Maude
-     rules ([rl]/[crl]) cannot carry it, so a relation [otherwise] is dropped
-     (the historical behaviour) with a warning rather than emitting invalid
-     syntax. *)
-  let attr =
-    if not r.R.owise then ""
-    else if is_rel then (
-      Printf.eprintf
-        "warning: dropping `otherwise' on relation rule for %s (Maude rules \
-         cannot express owise)\n"
-        (match r.R.lhs with R.App (h, _) -> MI.id h | R.Var _ -> "?");
-      "")
-    else " [owise]"
-  in
-  let head = kw ^ " " ^ lhs ^ arrow ^ rhs in
+  let kw = if r.R.conds = [] then "eq" else "ceq" in
+  let attr = if r.R.owise then " [owise]" else "" in
+  let head = kw ^ " " ^ lhs ^ " = " ^ rhs in
   match r.R.conds with
   | [] -> head ^ attr ^ " ."
   | _ ->
       let lhs_vars = R.vars_of_term r.R.lhs in
       head ^ " if "
-      ^ print_conds ~scalars vs rels defined lhs_vars r.R.conds
+      ^ print_conds ~scalars vs defined lhs_vars r.R.conds
       ^ attr ^ " ."
 
 (* -------------------------------------------------------------------------- *)
@@ -223,24 +180,6 @@ let print_rule ~(scalars : T.scalar_theory) vs rels defined (is_rel : bool)
 let buf_line b s =
   Buffer.add_string b s;
   Buffer.add_char b '\n'
-
-(* The relations to keep as Maude rules ([rl]/[crl]); the rest become equations.
-   Every SpecTecx relation is input-moded (declares `hint(input ...)`), hence
-   functional: relations are emitted as equations, which lets [reduce] evaluate
-   them deterministically instead of forcing Maude to [search] over a free
-   output variable. [relations_as_rules] forces every relation back to a rule --
-   a debugging affordance, paired with [--search] to explore the rewrite
-   space. *)
-let rule_relation_syms ~(relations_as_rules : bool) (orig : spec) : string list
-    =
-  if not relations_as_rules then []
-  else
-    List.filter_map
-      (fun def ->
-        match def.it with
-        | RelD { relid = id; _ } -> Some (T.rel_sym id)
-        | _ -> None)
-      orig
 
 (* Equations defining [isStuckHead : Val -> Bool], which is [true] exactly on a
    term whose head is a defined symbol (a stuck, not-yet-reduced application) and
@@ -796,8 +735,8 @@ let native_delegated (sys : R.t) : (string * int) list =
    other (or with ours). *)
 let builtin_sorts = [ "Bool"; "Nat"; "NzNat"; "Int"; "NzInt"; "String" ]
 
-let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
-    ?(predicates = Narrow) (orig : spec) (sys : R.t) : string =
+let module_of_system ?(module_name = "SPEC") (orig : spec) (sys : R.t) : string
+    =
   (* [sys] was built from the defunctionalized spec ({!Pipeline}), so signature
      recovery and variable hints must read the same form -- the specialized
      copies' declarations live only there (memoized, the same physical spec). *)
@@ -810,8 +749,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
      from the same idempotent simplification [sys] was built from. *)
   let var_hints = Var_hints.of_spec orig in
   let hint = var_hint_fn tenv var_hints in
-  predicate_domains ~mode:predicates ~edges ~hint tbl sys.R.rules;
-  let rels = rule_relation_syms ~relations_as_rules orig in
+  predicate_domains ~edges ~hint tbl sys.R.rules;
   let sg sym arity = signature tbl sym arity in
   (* Symbols to declare ops for: those used in the rules, the delegated
      operators (rule-less, see [native_delegated]), the wrapper constructors
@@ -902,25 +840,12 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
         ("  op " ^ MI.id sym ^ " : " ^ dom ^ "-> " ^ res ^ ctor_attr sym ^ " ."))
     (List.sort compare op_sigs);
   buf_line b "";
-  (* rules: equations first (functions/prelude/constructors), then relation
-     rules, preserving spec order within each. *)
-  let eqs, rls =
-    List.partition
-      (fun r ->
-        match R.defined_head r with
-        | Some h -> not (List.mem h rels)
-        | None -> true)
-      sys.R.rules
-  in
-  let emit r =
-    let head = R.defined_head r in
-    let is_rel = match head with Some h -> List.mem h rels | None -> false in
-    let vs = infer_var_sorts edges sg (hint r) r in
-    buf_line b ("  " ^ print_rule ~scalars:Native vs rels defined_heads is_rel r)
-  in
-  List.iter emit eqs;
-  if rls <> [] then buf_line b "";
-  List.iter emit rls;
+  (* Every translated rule is an equation, including input-moded relations. *)
+  List.iter
+    (fun r ->
+      let vs = infer_var_sorts edges sg (hint r) r in
+      buf_line b ("  " ^ print_rule ~scalars:Native vs defined_heads r))
+    sys.R.rules;
   (* The built-in theory: delegation equations for the surviving scalar/list
      operators, the scalar [eq] equations, and the text [cat] overload. *)
   buf_line b "";
@@ -990,7 +915,7 @@ let module_of_system ?(module_name = "SPEC") ?(relations_as_rules = false)
   if negated_rels <> [] then buf_line b "";
   List.iter
     (fun sym ->
-      if (not (List.mem sym judgment_syms)) || List.mem sym rels then
+      if not (List.mem sym judgment_syms) then
         Printf.eprintf
           "warning: negated relation %s is not an equation-mode judgment; its \
            negated premises stay unsatisfiable\n"

@@ -2,11 +2,11 @@
     specialized IL spec: the data model, term/rule queries, symbol slicing, the
     diagnostic printer, and the shared Maude lexical layer.
 
-    The IL -> CTRS translation is in {!To_ctrs}; the checker-facing pass
-    families are {!Crc_surface} (analysis normalization) and {!Scc_surface}
-    (over-approximation); the order-sorted Maude module surfaces are {!To_maude}
-    (execution) and {!To_mfe} (analysis). All types are concrete: passes and
-    backends pattern-match terms and build rules directly. *)
+    The IL -> CTRS translation is in {!To_ctrs}; the checker-facing pass is
+    {!Crc_surface} (analysis normalization); the order-sorted Maude module
+    surfaces are {!To_maude} (execution) and {!To_mfe} (analysis). All types are
+    concrete: passes and backends pattern-match terms and build rules directly.
+*)
 
 (** A CTRS term: either a variable, or a function symbol applied to zero or more
     argument terms. A nullary application prints as a bare [id]. *)

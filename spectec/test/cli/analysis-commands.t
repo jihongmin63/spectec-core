@@ -1,6 +1,6 @@
 Analysis subcommands over the impty base spec: the termination TRS emitter,
-the SCC module emitter, and the signature prune. Everything here is
-translation-only (no Maude/AProVE), so the snapshots are stable.
+the removed SCC command, default signature pruning, and symbol counts.
+External Maude and AProVE are not required; the proof case uses a local stub.
 
   $ SPEC=../../specs/impty/base/spec.spectec
 
@@ -52,100 +52,41 @@ A symbol with no rules is DEGENERATE, not an error (no stats to report):
   reflect: no complement split for $lookup_id_value (conditional owise)
   reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
 
-Usage errors exit 2:
+Usage errors still require explicit roots; SCC is no longer a command:
 
   $ spectec termination $SPEC
   termination needs --symbol NAME (repeatable) or --all
   [2]
 
-  $ spectec scc $SPEC
-  scc needs --symbol NAME (repeatable) or --all
-  [2]
-
-confluence has the same per-symbol structure; it needs --symbol or --all too
-(neither, or both, is a usage error):
-
   $ spectec confluence $SPEC
   confluence needs --symbol NAME (repeatable) or --all
   [2]
 
-  $ spectec confluence --all --symbol '$lookup_id_type' $SPEC
-  confluence needs --symbol NAME (repeatable) or --all
-  [2]
+  $ spectec --help | grep '^    scc '
+  [1]
 
-scc --emit prints the exact checker input: an old-Full-Maude FUNCTIONAL module
-with the BOOL includes off and the signature pruned:
+Analysis emission now prunes the signature by default, while retaining the
+whole-system predicate domain evidence for a slice:
 
-  $ spectec scc --emit --symbol '$lookup_id_type' $SPEC | head -3
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  unconditional: dropped conditions from 2 rule(s) (2 rhs replaced by lhs)
-  unconditional: linearized 1 non-left-linear lhs
-  (set include BOOL off .)
-  (set include BOOL-OPS off .)
-  (fmod SPEC is
-
-An unknown symbol's slice is DEGENERATE for scc too (fidelity still reported):
-
-  $ spectec scc --symbol '$no-such-symbol' $SPEC
-  $no-such-symbol	DEGENERATE	exact
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-
---prune-signature drops the op declarations the slice's rules never use; the
-rule lines themselves are untouched:
-
-  $ spectec rewrite --ctrs --symbol '$lookup_id_type' $SPEC | grep -c '^  op '
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  35
-  $ spectec rewrite --ctrs --symbol '$lookup_id_type' --prune-signature $SPEC | grep -c '^  op '
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
+  $ spectec rewrite --ctrs --symbol '$lookup_id_type' $SPEC 2>/dev/null | grep -c '^  op '
   20
-  $ spectec rewrite --ctrs --symbol '$lookup_id_type' $SPEC | grep -E '^  c?eq ' > full.eqs
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  $ spectec rewrite --ctrs --symbol '$lookup_id_type' --prune-signature $SPEC | grep -E '^  c?eq ' > pruned.eqs
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
-  $ diff full.eqs pruned.eqs
 
-rewrite --list-symbols lists the sliceable symbols (the names --symbol/--all
-take); --sizes adds each slice's rule count, smallest first -- the cheap
-tractability proxy that used to live on verify (stderr elided for a stable
-snapshot):
+The size-ranked listing has one symbol and rule count per line:
 
-  $ spectec rewrite --list-symbols $SPEC
-  $lookup_id_type
-  $lookup_id_value
-  Check_expr
-  Check_command
-  Check_prog
-  Eval_expr
-  Eval_command
-  Eval_prog
-  Run_prog
+  $ spectec rewrite --list-symbols $SPEC 2>/dev/null | head -3
+  $lookup_id_type	19
+  $lookup_id_value	19
+  Check_expr	30
 
-  $ spectec rewrite --list-symbols --sizes $SPEC 2>/dev/null
-  19	$lookup_id_type
-  19	$lookup_id_value
-  30	Check_expr
-  36	Check_command
-  37	Check_prog
-  132	Eval_expr
-  140	Eval_command
-  141	Eval_prog
-  163	Run_prog
+An AProVE stand-in confirms that the plain proof path writes a tree through
+--proof-dir without running the external prover:
+
+  $ cat > aprove-stub <<'SH'
+  > #!/bin/sh
+  > printf 'YES\nproof of fake.trs\n(0) QTRS\n(1) YES\n----------------------------------------\n'
+  > SH
+  $ chmod +x aprove-stub
+  $ export SPECTEC_APROVE_BIN="$PWD/aprove-stub"
+  $ spectec termination --symbol '$lookup_id_type' --budget 1 --proof-dir proofs $SPEC >/dev/null 2>/dev/null
+  $ grep -F '(0) QTRS' proofs/_lookup_id_type.proof
+  (0) QTRS

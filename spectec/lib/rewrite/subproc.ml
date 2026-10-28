@@ -1,5 +1,5 @@
 (* Deadline subprocess runner shared by the analysis-tool bridges ({!Mfe},
-   {!Scc}, {!Aprove}). Extracted verbatim from {!Mfe}'s calibrated MFE runner;
+   {!Aprove}). Extracted verbatim from {!Mfe}'s calibrated MFE runner;
    see subproc.mli for the discipline it encodes. *)
 
 let timed (f : unit -> 'a) : 'a * float =

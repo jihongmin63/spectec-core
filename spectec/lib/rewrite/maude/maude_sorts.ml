@@ -646,10 +646,6 @@ let infer_var_sorts edges (sg : string -> int -> string list * string)
 
 module SSet = Set.Make (String)
 
-(* Whether the predicates keep the blunt [Val] domain (commit 1874d212) or the
-   recovered join. [Wide] exists to bisect a regression back to this pass. *)
-type predicate_mode = Narrow | Wide
-
 (* The subsort edges as INFERENCE reads them: the injections recovered from the
    spec, plus the char-list/text bridge (the emitters declare [List < Text]
    whenever a [Text] position exists, and nothing is ever expected at [Text]
@@ -756,7 +752,7 @@ let lub (sup : (string, SSet.t) Hashtbl.t) (below : (string, int) Hashtbl.t)
    [rules] must be the WHOLE system: computing this on a slice would drop the
    call sites and shrink the domain to its seed, so a sliced module would
    declare a different (unsoundly narrow) signature than the one that runs. *)
-let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
+let predicate_domains ~(edges : (string * string) list)
     ~(hint : R.rule -> string -> string option) (tbl : sigs)
     (rules : R.rule list) : unit =
   let arity : (string, int) Hashtbl.t = Hashtbl.create 64 in
@@ -771,97 +767,86 @@ let predicate_domains ~(mode : predicate_mode) ~(edges : (string * string) list)
     r.R.lhs :: r.R.rhs :: List.concat_map (fun (a, b) -> [ a; b ]) r.R.conds
   in
   List.iter (fun r -> List.iter scan (terms_of r)) rules;
-  match mode with
-  | Wide ->
-      Hashtbl.iter
-        (fun f n ->
-          Hashtbl.replace tbl f
-            ( List.init n (fun _ -> val_sort),
-              Option.value (derived_range f) ~default:"BoolV" ))
-        arity
-  | Narrow ->
-      let sorts =
-        dedup
-          (val_sort
-          :: (Hashtbl.fold (fun _ (args, res) acc -> (res :: args) @ acc) tbl []
-             @ List.concat_map (fun (a, b) -> [ a; b ]) edges))
+  let sorts =
+    dedup
+      (val_sort
+      :: (Hashtbl.fold (fun _ (args, res) acc -> (res :: args) @ acc) tbl []
+         @ List.concat_map (fun (a, b) -> [ a; b ]) edges))
+  in
+  let sup = supersort_closure edges sorts in
+  let below = subsort_counts sup in
+  let sg s n = signature tbl s n in
+  (* per symbol, per argument index: every sort seen in that position *)
+  let seen : (string, SSet.t array) Hashtbl.t = Hashtbl.create 64 in
+  Hashtbl.iter
+    (fun f n ->
+      let seed =
+        match Hashtbl.find_opt tbl f with
+        | Some (args, _) when List.length args = n -> args
+        | _ -> []
       in
-      let sup = supersort_closure edges sorts in
-      let below = subsort_counts sup in
-      let sg s n = signature tbl s n in
-      (* per symbol, per argument index: every sort seen in that position *)
-      let seen : (string, SSet.t array) Hashtbl.t = Hashtbl.create 64 in
-      Hashtbl.iter
-        (fun f n ->
-          let seed =
-            match Hashtbl.find_opt tbl f with
-            | Some (args, _) when List.length args = n -> args
-            | _ -> []
-          in
-          let a = Array.make n SSet.empty in
-          List.iteri (fun i s -> a.(i) <- SSet.singleton s) seed;
-          Hashtbl.replace seen f a)
-        arity;
-      let publish () =
-        Hashtbl.iter
-          (fun f a ->
-            let dom =
-              Array.to_list
-                (Array.map (fun s -> lub sup below (SSet.elements s)) a)
-            in
-            Hashtbl.replace tbl f
-              (dom, Option.value (derived_range f) ~default:"BoolV"))
-          seen
-      in
-      publish ();
-      (* only the rules that mention a predicate can observe anything *)
-      let observing =
-        List.filter
-          (fun r ->
-            let hit = ref false in
-            let rec go t =
-              match t with
-              | R.Var _ -> ()
-              | R.App (f, args) ->
-                  if is_predicate f then hit := true;
-                  List.iter go args
-            in
-            List.iter go (terms_of r);
-            !hit)
-          rules
-      in
-      let changed = ref true in
-      while !changed do
-        changed := false;
-        List.iter
-          (fun (r : R.rule) ->
-            let vs = infer_var_sorts edges sg (hint r) r in
-            let sort_of t =
-              match t with
-              | R.Var v ->
-                  Option.value (Hashtbl.find_opt vs v) ~default:val_sort
-              | R.App _ -> result_sort sg t
-            in
-            let rec observe t =
-              match t with
-              | R.Var _ -> ()
-              | R.App (f, args) ->
-                  (match Hashtbl.find_opt seen f with
-                  | Some a when Array.length a = List.length args ->
-                      List.iteri
-                        (fun i x ->
-                          let s = sort_of x in
-                          if not (SSet.mem s a.(i)) then (
-                            a.(i) <- SSet.add s a.(i);
-                            changed := true))
-                        args
-                  | _ -> ());
-                  List.iter observe args
-            in
-            List.iter observe (terms_of r))
-          observing;
-        if !changed then publish ()
-      done
+      let a = Array.make n SSet.empty in
+      List.iteri (fun i s -> a.(i) <- SSet.singleton s) seed;
+      Hashtbl.replace seen f a)
+    arity;
+  let publish () =
+    Hashtbl.iter
+      (fun f a ->
+        let dom =
+          Array.to_list (Array.map (fun s -> lub sup below (SSet.elements s)) a)
+        in
+        Hashtbl.replace tbl f
+          (dom, Option.value (derived_range f) ~default:"BoolV"))
+      seen
+  in
+  publish ();
+  (* only the rules that mention a predicate can observe anything *)
+  let observing =
+    List.filter
+      (fun r ->
+        let hit = ref false in
+        let rec go t =
+          match t with
+          | R.Var _ -> ()
+          | R.App (f, args) ->
+              if is_predicate f then hit := true;
+              List.iter go args
+        in
+        List.iter go (terms_of r);
+        !hit)
+      rules
+  in
+  let changed = ref true in
+  while !changed do
+    changed := false;
+    List.iter
+      (fun (r : R.rule) ->
+        let vs = infer_var_sorts edges sg (hint r) r in
+        let sort_of t =
+          match t with
+          | R.Var v -> Option.value (Hashtbl.find_opt vs v) ~default:val_sort
+          | R.App _ -> result_sort sg t
+        in
+        let rec observe t =
+          match t with
+          | R.Var _ -> ()
+          | R.App (f, args) ->
+              (match Hashtbl.find_opt seen f with
+              | Some a when Array.length a = List.length args ->
+                  List.iteri
+                    (fun i x ->
+                      let s = sort_of x in
+                      if not (SSet.mem s a.(i)) then (
+                        a.(i) <- SSet.add s a.(i);
+                        changed := true))
+                    args
+              | _ -> ());
+              List.iter observe args
+        in
+        List.iter observe (terms_of r))
+      observing;
+    if !changed then publish ()
+  done
 
 (* -------------------------------------------------------------------------- *)
 (* Term printing with on-the-fly variable sorts. *)

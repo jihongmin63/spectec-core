@@ -1,5 +1,5 @@
 (* The per-symbol sweep plumbing the analysis subcommands ([confluence],
-   [termination], [scc]) share: the usage guards, the slice-root selection,
+   [termination]) share: the usage guards, the slice-root selection,
    and the resumable [--out] TSV protocol. Domain-agnostic -- the caller
    supplies the slice-size measure and each row's contents -- so the module
    stays plain CLI machinery with no dependency on the rewrite library. *)

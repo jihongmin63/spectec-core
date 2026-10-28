@@ -177,7 +177,6 @@ let command =
       ("rewrite", Rewrite_cli.Rewrite_command.command);
       ("confluence", Rewrite_cli.Confluence_command.command);
       ("termination", Rewrite_cli.Termination_command.command);
-      ("scc", Rewrite_cli.Scc_command.command);
       ("run", Rewrite_cli.Run_command.command);
       (P4.name, P4.command);
       (Impty.name, Impty.command);

@@ -42,8 +42,7 @@ The MFE is not checked into this repo (it carries its own license and is sizable
 3. Place its files in a directory whose **entry file is `src/mfe.maude`** and
    which loads the CRC and ChC tools, then point the bridge at it by either:
    - placing it at `spectec/tools/mfe/` (the default lookup path), or
-   - setting `SPECTEC_MFE_DIR=/path/to/mfe`, or
-   - passing `--mfe-dir /path/to/mfe` to `confluence`.
+   - setting `SPECTEC_MFE_DIR=/path/to/mfe`.
 
 If no MFE is found the bridge reports a clean `ERROR: MFE not found …` rather than
 crashing.
@@ -62,21 +61,14 @@ crashing.
 
 ## Termination — `main.exe termination` (unravel + AProVE)
 
-`main.exe termination --symbol <sym> FILES…` proves per-slice termination
-in-binary: `lib/rewrite/unravel.ml` unravels the analysis slice
-into a plain TPDB TRS (`--emit` shows it) and
-`lib/rewrite/aprove.ml` hands it straight to AProVE. A slice that stays
-unproven then takes two more paths through the same binary — each open child of
-AProVE's own dependency-graph decomposition re-posed as a standalone `.qdp`
-problem (`lib/rewrite/qdp.ml`, `--no-child-split` turns it off), and the
-integer surface where the slice computes arithmetic (`lib/rewrite/itrs.ml`,
-`--no-integer-retry` off, `--itrs` alone). Only two gitignored pieces are needed
-(under `spectec/tools/`):
+`main.exe termination --symbol <sym> FILES…` proves a plain TPDB TRS
+(`--emit` shows it) with AProVE. If the whole run is unproven, it retries open
+dependency-graph children as standalone `.qdp` problems. `Itrs` is a separate
+model exporter and is not used for a CLI termination verdict. The binary is
+resolved from `SPECTEC_APROVE_BIN`, then `spectec/tools/aprove/runme`.
 
 1. **`tools/aprove/aprove.jar`** — WST backend (`aprove-developers/aprove-releases`);
    `tools/aprove/runme` runs `java -jar aprove.jar -u cli -t $2 -p plain -m wst $1`.
-   Resolution: `--aprove-bin`, then `SPECTEC_APROVE_BIN`, then
-   `spectec/tools/aprove/runme`.
 2. **`tools/z3/z3`** — the SMT backend AProVE actually uses (its default
    `SmtSolver = "z3"`; official download page lists Z3 ≥ 4.4.0, no license gate:
    `Z3Prover/z3` release asset `z3-*-x64-glibc-*.zip`). `runme` puts it on PATH.
@@ -99,11 +91,11 @@ encoding plus its hardcoded 120 s inner AProVE budget is exactly what produced
 the historical MAYBEs; the direct path closes them (153/153 YES). The full
 causal analysis lives in CLAUDE.md ("Do not route termination through MTT").
 `tools/maude271-hooks/maude` is still worth keeping on disk: it is the
-CETA-less binary the SCC plumbing smoke-test points at (below).
+CETA-less binary used by the historical SCC smoke test below.
 
-## SCC (Sufficient Completeness Checker) — the CETA-linked Maude 2.7 stack
+## Historical SCC setup (removed from the current CLI)
 
-`main.exe scc --symbol <sym> FILES…` checks one analysis-CTRS slice for
+Before 2026-10-28, `main.exe scc --symbol <sym> FILES…` checked one analysis-CTRS slice for
 **sufficient completeness**: does every ground term reduce to a constructor
 term, or does some defined symbol get stuck for want of a matching rule? That
 is the static form of the completeness gap `check_diff_p4.sh` hunts
@@ -201,15 +193,12 @@ against MFE-master + Maude 3.5.1.
 
 ## Signature pruning
 
-`To_mfe` emits the whole ~460-sort / ~750-op P4 signature for **every** slice
-(only the rules are sliced), and the SCC's tree-automaton construction is
-superlinear in the signature. `rewrite --ctrs --prune-signature` (in-binary,
-the semantic equivalent of the retired `prune_slice_signature.py full`) keeps
-only the sorts/ops the rules actually use — a few dozen, bakery scale — plus
-every sort on a subsort path between two kept sorts; `scc` applies it
-automatically. It operates only on the emitted analysis module, never a rule,
-the spec source, or the executable system. The termination path does not prune
-at all: the unraveling drops sorts and never reads the signature.
+`rewrite --ctrs` now prunes the analysis signature by default. It keeps the
+sorts and operators used by the rules, including subsort-path interiors, while
+recovering predicate domains from the whole system's rules even for a slice.
+It changes declarations only. The termination export drops sorts and does not
+need this pruning. The former SCC-specific signature discussion below is
+historical.
 
 (History: a *modular* A/B termination decomposition — abstract the arithmetic
 library as free constructors, prove the spec layer and the library separately —

@@ -176,7 +176,7 @@ let check ?aprove_bin ?(budget = 300) ?(ext = ".trs") ?capture ~(trs : string)
       verdict =
         Error
           (bin
-         ^ " not found; pass --aprove-bin or set SPECTEC_APROVE_BIN (see \
+         ^ " not found; set SPECTEC_APROVE_BIN (see \
             spectec/tools/mfe/README.md)");
       proof = "";
       captured = "";

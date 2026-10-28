@@ -1,6 +1,5 @@
 module Rewrite_system = Rewrite_system
 module Crc_surface = Crc_surface
-module Scc_surface = Scc_surface
 module To_ctrs = To_ctrs
 module Maude_ident = Maude_ident
 module To_maude = To_maude
@@ -15,9 +14,8 @@ module Itrs = Itrs
 module Aprove = Aprove
 module Qdp = Qdp
 module Termination = Termination
-module Scc = Scc
 
-type target = Pipeline.target = Analysis | Termination_analysis | Execution
+type target = Pipeline.target = Analysis | Execution
 
 type compilation = Pipeline.compilation = {
   spec : Lang.Il.spec;

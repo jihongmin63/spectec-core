@@ -17,30 +17,25 @@
 
 ---
 
-## 재현 커맨드 (2026-07-22 in-binary 통합, tip `57a99547` 이후)
+## 현재 재현 커맨드 (2026-10-28)
 
-표의 축들은 스크립트·스크래치패드 없이 바이너리 서브커맨드로 전수 재현한다. 세 분석
-검사기는 동일한 스윕 표면을 갖는다 — `--symbol NAME`(반복) 또는 `--all`(작은 슬라이스
-먼저), `--out sweep.tsv`(이미 기록된 심볼 skip → 재개 가능):
+`confluence`와 `termination`은 `--symbol NAME`(반복) 또는 `--all`로 슬라이스를
+선택하고, `--out TSV`에 행을 추가한다. 기존 TSV의 심볼은 건너뛰므로 검사 정책이나
+명세가 바뀌면 **새 결과 파일**을 사용한다.
 
-- `term` = `main.exe termination --all --out term.tsv <specs>` — 구조 보존 unravel →
-  AProVE(`lib/rewrite/unravel.ml`+`aprove.ml`). 단일: `termination --symbol NAME`,
-  TRS만 보려면 `--emit --symbol NAME`. AProVE 자체 예산은 `--budget S`(기본 300,
-  프로세스는 S+120s에 kill).
-- `CRC`/`ChC` = `main.exe confluence --all --out crc.tsv <specs>`(구 `verify`). 행
-  `<sym>\t<church-rosser>\t<coherence>\t<secs>`. MAYBE/TIMEOUT은 `--crc-normalize`로
-  upgrade-only 재검(정규화+prune, YES면 `YES (normalized)`, 하향 없음). `--timeout S`.
-- 충분완전성(SCC) = `main.exe scc --all --out scc.tsv <specs>` — CETA Maude 2.7 필요.
-- 슬라이스 목록/크기 = `main.exe rewrite --list-symbols [--sizes] <specs>`,
-  분석 모듈 덤프 = `rewrite --ctrs --symbol NAME [--prune-signature]`.
+- 종료성: `main.exe termination --all --out term.tsv <specs>`; 기본 예산은
+  300초이며 plain TRS와 sound child split만 증명한다. 한 심볼의 TRS는
+  `termination --emit --symbol NAME <specs>`로 본다.
+- CRC/ChC: `main.exe confluence --all --out crc.tsv <specs>`; 원래 시스템의
+  미증명 행은 WLL 기반 정규화를 자동 재검하고 sound YES만 승격한다.
+- 슬라이스 크기: `main.exe rewrite --list-symbols <specs>`는
+  `symbol<TAB>rule-count`를 크기순으로 낸다. 분석 모듈은
+  `rewrite --ctrs --symbol NAME <specs>`로 본다(시그니처 자동 pruning).
+- 실행 오라클: `check_diff_p4.sh`와 `check_diff_structural_p4.sh`는 계속
+  `run --p4`와 `run --structural --p4`를 사용한다.
 
-`confluence`/`termination`은 각 행 4번째 컬럼에 그 심볼의 벽시계 초(`Subproc.timed`)를
-찍는다 — CRC는 정규화가 필요했던 행이면 base+normalize 합, term은 slice+unravel+AProVE.
-
-구 셸/파이썬 드라이버(`run-termination.sh`/`run-scc.sh`/`run-scc-sweep.sh`/
-`prune_slice_signature.py`/`prune_modular.py`/`prune_root.py`)는 전부 위 커맨드로
-대체·**삭제 완료**(2026-07-22, git history에서 부활 가능). differential 드라이버
-`check_diff_p4.sh`/`check_diff_structural_p4.sh`는 서브커맨드 대체물이 없어 유지.
+Maude/MFE/AProVE 위치는 `SPECTEC_MAUDE_BIN`, `SPECTEC_MFE_DIR`,
+`SPECTEC_APROVE_BIN`으로 지정한다. 아래 날짜별 측정 명령은 당시 기록이다.
 
 ---
 

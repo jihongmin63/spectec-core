@@ -4,25 +4,16 @@ open Common
 type source_kind = Program | P4 of string
 type input = Application of string * Lang.Il.value list | Raw of string
 
-let sources ~imp ~p4 ~includes ~task ~start =
+let sources ~p4 ~includes ~start =
   List.map
     (fun filename ->
       ( filename,
-        Program,
+        P4 filename,
         fun () ->
           Result.map
-            (fun (rel, value) -> Application (rel, [ value ]))
-            (Targets_impty.Impty.parse_for_run ~task filename) ))
-    imp
-  @ List.map
-      (fun filename ->
-        ( filename,
-          P4 filename,
-          fun () ->
-            Result.map
-              (fun value -> Application ("Program_ok", [ value ]))
-              (Targets_p4.P4.parse_for_run ~includes filename) ))
-      p4
+            (fun value -> Application ("Program_ok", [ value ]))
+            (Targets_p4.P4.parse_for_run ~includes filename) ))
+    p4
   @
   match start with
   | Some term -> [ ("--start", Program, fun () -> Ok (Raw term)) ]
@@ -120,49 +111,41 @@ let render ~compare ~check_p4 outcomes =
   in
   (text, List.exists (fun (_, _, failed) -> failed) rendered)
 
-let run ~filenames ~structural ~start ~imp ~p4 ~includes ~task ~emit ~mode
-    ~relations_as_rules ~wide_predicates ~maude_bin ~timeout ~check_p4 =
+let run ~filenames ~structural ~start ~p4 ~includes ~timeout ~check_p4 =
   let* spec_il = load_spec filenames in
   let target = if structural then Rewrite.Analysis else Rewrite.Execution in
   let compiled = Rewrite.compile ~target spec_il in
   let { Rewrite.spec; system } = compiled in
-  let predicates = predicates_of_flag wide_predicates in
   let module_text =
     if structural then
-      Rewrite.To_mfe.module_of_system ~full_maude:false ~predicates spec system
-    else
-      Rewrite.To_maude.module_of_system ~relations_as_rules ~predicates spec
-        system
+      Rewrite.To_mfe.module_of_system ~full_maude:false spec system
+    else Rewrite.To_maude.module_of_system spec system
   in
-  if emit then Ok (module_text, false)
-  else
-    let resolved =
-      sources ~imp ~p4 ~includes ~task ~start
-      |> List.map (resolve (encode ~structural compiled))
-    in
-    let starts =
-      List.filter_map
-        (fun (_, _, outcome) ->
-          match outcome with Ok term -> Some term | Error _ -> None)
-        resolved
-    in
-    let defined_heads =
-      if structural then
-        List.map Rewrite.Maude_ident.id
-          (Rewrite.Rewrite_system.defined_heads system)
-      else Rewrite.To_maude.maude_defined_heads system
-    in
-    let run_batch =
-      if structural then Rewrite.Maude_run.run_batch_direct
-      else Rewrite.Maude_run.run_batch
-    in
-    let results =
-      run_batch ?maude_bin ~timeout ~defined_heads ~mode ~module_text ~starts ()
-    in
-    Ok
-      (render
-         ~compare:(compare_p4 ~includes ~spec_il compiled)
-         ~check_p4 (stitch resolved results))
+  let resolved =
+    sources ~p4 ~includes ~start
+    |> List.map (resolve (encode ~structural compiled))
+  in
+  let starts =
+    List.filter_map
+      (fun (_, _, outcome) ->
+        match outcome with Ok term -> Some term | Error _ -> None)
+      resolved
+  in
+  let defined_heads =
+    if structural then
+      List.map Rewrite.Maude_ident.id
+        (Rewrite.Rewrite_system.defined_heads system)
+    else Rewrite.To_maude.maude_defined_heads system
+  in
+  let run_batch =
+    if structural then Rewrite.Maude_run.run_batch_direct
+    else Rewrite.Maude_run.run_batch
+  in
+  let results = run_batch ~timeout ~defined_heads ~module_text ~starts () in
+  Ok
+    (render
+       ~compare:(compare_p4 ~includes ~spec_il compiled)
+       ~check_p4 (stitch resolved results))
 
 let command =
   Core.Command.basic ~summary:"run a translated spec in Maude"
@@ -173,70 +156,31 @@ let command =
   and color = Cli.Cli_args.Output.color_flag
   and structural =
     flag "--structural" no_arg
-      ~doc:
-        " directly reduce the structural analysis module (interpreter oracle)"
+      ~doc:" directly reduce P4 input with the structural analysis module"
   and start =
     flag "--start" (optional string)
-      ~doc:"TERM native Maude META-TERM to run; may accompany program inputs"
-  and imp =
-    flag "--imp" (listed string)
-      ~doc:"FILE parse and run an impty program (repeatable; batched)"
+      ~doc:"TERM native Maude META-TERM to reduce; may accompany P4 inputs"
   and p4 =
     flag "--p4" (listed string)
-      ~doc:
-        "FILE parse and typecheck a P4 program via Program_ok (repeatable; \
-         batched)"
+      ~doc:"FILE parse and typecheck a P4 program (repeatable; batched)"
   and includes =
     flag "-i" (listed string) ~doc:"DIR P4 include path (with --p4)"
-  and task =
-    flag "--task" (optional string)
-      ~doc:
-        "WHICH impty relation: run | eval | check (default run; structural: \
-         check)"
-  and emit = flag "--emit" no_arg ~doc:" print the Maude module and exit"
-  and search =
-    flag "--search" no_arg ~doc:" explore rules and equations with search"
-  and rewrite = flag "--rewrite" no_arg ~doc:" apply rules along one path"
-  and relations_as_rules = relations_as_rules_flag
-  and wide_predicates = wide_predicates_flag
-  and bound =
-    flag "--bound" (optional int) ~doc:"N cap search solutions (with --search)"
-  and maude_bin = maude_bin_flag
   and timeout =
     flag "--timeout"
       (optional_with_default 0 int)
       ~doc:"S Maude time limit in seconds (default 0: no limit)"
   and check_p4 =
     flag "--check-p4" no_arg
-      ~doc:
-        " compare each --p4 typing result with the interpreter (MATCH/MISMATCH)"
+      ~doc:" compare each P4 result with the interpreter (MATCH/MISMATCH)"
   in
   fun () ->
+    require (start <> None || p4 <> []) "run needs --start TERM or --p4 FILE";
     require
-      (emit || start <> None || imp <> [] || p4 <> [])
-      "run needs --start TERM, --imp FILE, or --p4 FILE (or --emit to just \
-       print the module)";
-    require
-      (not (search && rewrite))
-      "--search and --rewrite are mutually exclusive";
-    require
-      ((not structural)
-      || start = None && (not search) && (not rewrite) && not relations_as_rules
-      )
-      "--structural supports program inputs and equation reduction only";
-    require (bound = None || search) "--bound requires --search";
+      ((not structural) || (start = None && p4 <> []))
+      "--structural requires --p4 input and excludes --start";
     require ((not check_p4) || p4 <> []) "--check-p4 requires --p4";
-    let task =
-      Option.value task ~default:(if structural then "check" else "run")
-    in
-    let mode =
-      if search then Rewrite.Maude_run.Search bound
-      else if rewrite then Rewrite.Maude_run.Rewrite
-      else Rewrite.Maude_run.Reduce
-    in
     Cli.Error_handling.guard ~color ~on_ok:(fun (out, failed) ->
         Format.printf "%s\n" out;
         if failed then exit 1)
     @@ fun () ->
-    run ~filenames ~structural ~start ~imp ~p4 ~includes ~task ~emit ~mode
-      ~relations_as_rules ~wide_predicates ~maude_bin ~timeout ~check_p4
+    run ~filenames ~structural ~start ~p4 ~includes ~timeout ~check_p4

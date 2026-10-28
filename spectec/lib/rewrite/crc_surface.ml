@@ -1,6 +1,6 @@
 (** Analysis-surface normalization passes for the Church-Rosser checker: fold
     premise-bound variables back into rules, restore binding order, and the
-    opt-in [--crc-normalize] chain (aggressive inline + [crcu]/[crck]
+    automatic confluence normalization chain (aggressive inline + [crcu]/[crck]
     unraveling). All passes are CRC-facing and analysis-only; the execution
     surface ({!To_maude}) sees none of them. *)
 
