@@ -43,6 +43,17 @@ let verdict_of_token token =
   | "TIMEOUT" -> Ok Timeout
   | other -> Error (Printf.sprintf "invalid global verdict %S" other)
 
+let first_line output =
+  match String.split_on_char '\n' output with
+  | first :: _ -> verdict_of_token first
+  | [] -> Error "empty solver output"
+
+let after_first_line output =
+  match String.index_opt output '\n' with
+  | None -> ""
+  | Some index ->
+      String.sub output (index + 1) (String.length output - index - 1)
+
 let resolve (name : string) : string option =
   let paths =
     if String.contains name '/' then [ name ]

@@ -3,7 +3,7 @@
     same unraveling as TPDB. Set SPECTEC_NATT_BIN to the executable; NaTT's
     default SMT backend expects z3 on PATH. Both binaries are fingerprinted for
     resume validation. Variable and function identifiers use disjoint XML
-    namespaces, and inconsistent function arities are rejected before execution.
+    namespaces; overloaded functions are distinguished by name and arity.
 
     Install in the project switch with
     [opam install --switch=spectecx ./spectec/tools/natt/natt.opam]. The

@@ -53,3 +53,8 @@ spectec/.hook-check
 
 # Optional locally built NaTT executable.
 spectec/tools/natt/bin/
+spectec/tools/muterm/bin/
+spectec/tools/nti/bin/
+spectec/tools/mint/bin/
+spectec/tools/nattpp/bin/
+spectec/tools/termination/.cache/

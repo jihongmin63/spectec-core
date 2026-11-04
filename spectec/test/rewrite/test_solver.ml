@@ -66,9 +66,32 @@ let () =
 let () =
   let open Rewrite_system in
   let problem : Solver.problem =
-    { rules = [ (App ("f", []), App ("f", [ Var "x" ])) ]; tpdb = "" }
+    { rules = [ (App ("f", [ Var "x" ]), App ("f", [])) ]; tpdb = "" }
   in
-  expect "inconsistent arity is rejected"
-    (Result.is_error (Natt.adapter.encode problem))
+  List.iter
+    (fun name ->
+      match Termination_tools.find name with
+      | Error message -> failwith message
+      | Ok adapter ->
+          expect
+            (name ^ " preserves overloaded symbols")
+            (Result.is_ok (adapter.encode problem)))
+    [ "natt"; "mint"; "nattpp" ]
+
+let () =
+  List.iter
+    (fun name ->
+      let adapter =
+        match Termination_tools.find name with
+        | Ok adapter -> adapter
+        | Error message -> failwith message
+      in
+      expect
+        (name ^ " reads only the global verdict")
+        (adapter.parse "MAYBE\nYES\n" = Ok Solver.Maybe);
+      expect
+        (name ^ " rejects diagnostics before the verdict")
+        (Result.is_error (adapter.parse "parse error\nYES\n")))
+    [ "muterm"; "nti"; "mint"; "nattpp" ]
 
 let () = print_endline "test_solver: all tests passed"

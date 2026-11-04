@@ -1,0 +1,49 @@
+{
+  "original_competition": {
+    "image": "termcomp/nti:2026_full_run",
+    "jar_sha256": "94b608b13f249a79884504375358a7e24edc930d657b1266079cfbec4aa4342c"
+  },
+  "registered_fixed": {
+    "image": "etiennepayet/nti:termcomp26_fixed",
+    "jar_sha256": "c43587fd7a65e4a3ebd66d3df397fd2656e71908e1e5a58bbc02742c2f2bc460"
+  },
+  "installed": {
+    "source": "https://github.com/etiennepayet/nti/tree/88a47f9db976fc7c1ad1921057f0a68d68748137",
+    "jar_sha256": "739428d43272a17ece6aabee3e3cf2fc57684733251f61a0657846c2b9448de6"
+  },
+  "cases": {
+    "TRS_Standard__AProVE_06__identity.ari": "83a3f10c557e7b5178c7df44c4c991ad14440ae776ce0ba89e208119c83db913",
+    "TRS_Standard__Hydras__worm_wrong.ari": "c703c824089274049874f2511fada14634960260d87bccd90ac0f5b8c247fd70",
+    "TRS_Standard__AProVE_07__otto05.ari": "e8a111fe6be6706f2cd00be77a8d97d5a4bc36f05689b87adae163ef15c72c6b",
+    "TRS_Standard__Hydras__worm_fixed.ari": "2a8ea7417a2dd07ce4e877bd3b2a40145c13752900d4287c82ef74215fe458d9",
+    "TRS_Standard__Secret_07_TRS__aprove02.ari": "b4529c83b0c11169635d246ac3177e801cbcb7af8a64e90278e360c303df98cc",
+    "TRS_Standard__AG01__#3.6a.ari": "0699b5dfa9981856144def1d010820d1075e11b7767e6a7d9d6bd83e025dab2a",
+    "TRS_Standard__Beerendonk_07__10.ari": "1c82da8294510b774eae4ce34425da770ea04ea4f79753e31c20bfe90ae1c0bc",
+    "TRS_Standard__AProVE_07__thiemann11.ari": "ac6ad5f8a95d7c2bf382bc7547ca0314a239675e207440c93a8e876e492624ab",
+    "TRS_Standard__GTSSK07__cade10.ari": "b715336d1e275a6564ef5a19766cb88dad4ccfd92e5ccaf4e613673853d54c3b",
+    "TRS_Standard__Beerendonk_07__3.ari": "1b61e8fb5558ca07a357257af80e4caffc74f5951b048631d3c107877de2ed11",
+    "TRS_Standard__Hydras__worm_fixed2.ari": "65452d4599043e5595fd8657daa89c4cd8556bd8f7a385dd1e6c55e64579f87f",
+    "TRS_Standard__Beerendonk_07__6.ari": "7b3af8b1e17fe78a021a1a22176dabf78f13e8284759a95d11806bf7684aa646",
+    "TRS_Standard__Beerendonk_07__17.ari": "29ac4e1cae43acf95f2b7f731cec3c96647185646d753cd8beeff4b5c8626440",
+    "TRS_Standard__AProVE_06__factorial1.ari": "2cf0b3edd244a7e7d20a2d01af3bd97fda7899b5b2a674015204508a10ab2205"
+  },
+  "official_results": "https://termcomp.github.io/Y2026/TRS_Standard.html",
+  "input_repository": "https://github.com/TermCOMP/TPDB-ARI",
+  "selection": "All 14 NTI NO answers marked incompatible with known YES in the official 2026 TRS Standard table.",
+  "command": [
+    "java",
+    "-Xmx2g",
+    "-jar",
+    "JAR",
+    "INPUT.ari",
+    "-v"
+  ],
+  "timeout_seconds": 10,
+  "limits": "No incorrect NO observed for the fixed or current version within this deadline does not establish solver soundness.",
+  "raw_outputs": "spectec/tools/termination/.cache/nti-recheck",
+  "raw_output_suffixes": {
+    "full-run": "termcomp/nti:2026_full_run",
+    "competition": "etiennepayet/nti:termcomp26_fixed",
+    "2026.09": "installed source commit"
+  }
+}

@@ -136,7 +136,9 @@ let command =
   and tools =
     flag "--tool" (listed string)
       ~doc:
-        "NAME termination prover: aprove or natt (repeatable; default aprove)"
+        ("NAME termination prover: "
+        ^ String.concat ", " Rewrite.Termination_tools.names
+        ^ " (repeatable; default aprove)")
   and timeout =
     flag "--timeout"
       (optional_with_default 300 int)

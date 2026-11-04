@@ -1,4 +1,14 @@
-let adapters : Solver.adapter list = [ Aprove.adapter; Natt.adapter ]
+let adapters : Solver.adapter list =
+  [
+    Aprove.adapter;
+    Natt.adapter;
+    Muterm.adapter;
+    Nti.adapter;
+    Mint.adapter;
+    Nattpp.adapter;
+  ]
+
+let names = List.map (fun (adapter : Solver.adapter) -> adapter.name) adapters
 
 let find name : (Solver.adapter, string) result =
   match
@@ -10,7 +20,4 @@ let find name : (Solver.adapter, string) result =
   | None ->
       Error
         (Printf.sprintf "unknown termination tool %S; available: %s" name
-           (String.concat ", "
-              (List.map
-                 (fun (adapter : Solver.adapter) -> adapter.name)
-                 adapters)))
+           (String.concat ", " names))

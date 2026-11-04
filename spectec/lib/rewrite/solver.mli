@@ -34,6 +34,8 @@ type run = {
 
 val string_of_verdict : verdict -> string
 val verdict_of_token : string -> (verdict, string) result
+val first_line : string -> (verdict, string) result
+val after_first_line : string -> string
 
 (** Resolve the executable and fingerprint its contents, declared dependencies,
     and environment. This is deliberately conservative: changing the environment
