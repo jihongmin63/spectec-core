@@ -1,8 +1,9 @@
 # `rewrite` — IL spec → conditional term rewriting system (CTRS)
 
-> **Current CLI (2026-10-28):** `rewrite`, `run`, `confluence`, and `termination`
-> are the four rewrite commands. See the CLI entry points below and
-> [the approved contract](docs/superpowers/specs/2026-10-28-rewrite-cli-minimal.md).
+> **Current CLI (2026-11-04):** `rewrite`, `run`, `confluence`, and `termination`
+> are the four rewrite commands. The current termination contract is documented
+> in [termination.mli](spectec/lib/rewrite/termination.mli) and
+> [solver.mli](spectec/lib/rewrite/solver.mli); the October CLI design is historical.
 > Dated measurements later in this file record the interfaces used at that time.
 
 > **의사소통은 한글을 선호합니다.** 설명·요약·질문은 한글로 (코드, 식별자, 인용한
@@ -89,9 +90,9 @@ and verification details.
 | [subproc.ml](spectec/lib/rewrite/subproc.ml) / `.mli` | Deadline subprocess runner the tool bridges share: temp-file stdin, `ulimit -s unlimited`, kill on done-predicate or deadline, partial output kept. |
 | [unravel.ml](spectec/lib/rewrite/unravel.ml) / `.mli` | Unraveling of a slice into a plain TPDB TRS — the MTT replacement (see the termination section). |
 | [itrs.ml](spectec/lib/rewrite/itrs.ml) / `.mli` | The integer-constraint export of the same unraveling: the structural arithmetic layer replaced by AProVE's native integers and `:\|:` constraints, and (with `~norm`) the list layer lifted to lengths on top. A MODEL of the slice, not an over-approximation — a YES is about the model. |
-| [qdp.ml](spectec/lib/rewrite/qdp.ml) / `.mli` | One child of AProVE's dependency-graph decomposition, read out of a run's obligation echo and re-posed as a standalone `.qdp` problem (usable-rules pruned + Cε). |
-| [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli` | Local AProVE bridge (`tools/aprove/runme`, WST mode): YES/NO/MAYBE/TIMEOUT verdicts. |
-| [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice termination: slice → `Unravel` → `Aprove` (the `termination` subcommand). |
+| [solver.ml](spectec/lib/rewrite/solver.ml) / `.mli` | Typed single-execution tool contract, common deadline runner, and tool identity. Adapters are registered in `termination_tools.ml`. |
+| [aprove.ml](spectec/lib/rewrite/aprove.ml) / `.mli`, [natt.ml](spectec/lib/rewrite/natt.ml) / `.mli` | Tool-specific input, invocation, and global-verdict parsing. |
+| [termination.ml](spectec/lib/rewrite/termination.ml) / `.mli` | Per-slice proof surface and plain TRS preparation, shared by every termination tool. |
 
 Deleted from the old `rewrite` branch and **not reimplemented** (by design, not
 oversight): `prem_env.ml` (only fed the old `Simplify`) and `cocoweb.ml`/
@@ -168,17 +169,17 @@ become CTRS conditions; the result/output becomes the rhs.
   checks each analysis slice in the MFE. An inconclusive original check is
   retried through the WLL normalization ladder; only sound YES upgrades are
   reported. The timeout defaults to 60 seconds per check.
-- `termination [--symbol NAME]… | --all [--budget S] [--out TSV] [--emit]
-  [--proof-dir DIR] FILES…` exports each analysis slice as a plain TRS and
-  proves it with AProVE. An unproven whole run retries its open dependency
-  graph children. The budget defaults to 300 seconds. `--emit` requires exactly
-  one symbol and prints that plain TRS; `--proof-dir` saves proof trees.
-  `Itrs` remains a standalone model exporter and does not supply a CLI proof.
+- `termination [--tool NAME]… [--symbol NAME]… | --all [--timeout S]
+  [--out TSV] [--emit] [--proof-dir DIR] FILES…` checks each selected tool once
+  per slice. See `spectec/lib/cli/rewrite/termination_command.ml` for the current
+  options and `termination_results.mli` for the versioned result/resume contract.
+  `--emit` prints the unchanged TPDB problem without invoking a tool.
 
-`--out` appends rows and skips symbols already present. Start a new TSV when
-changing the check policy or source specification. The binary locations are
-set with `SPECTEC_MAUDE_BIN`, `SPECTEC_MFE_DIR`, and `SPECTEC_APROVE_BIN`.
-The sweep machinery is in [analysis_sweep.ml](spectec/lib/cli/analysis_sweep.ml).
+Confluence retains the existing append/resume TSV. Termination uses a separate,
+configuration-checked TSV format; old termination TSVs cannot be resumed.
+Binary locations are `SPECTEC_MAUDE_BIN`, `SPECTEC_MFE_DIR`,
+`SPECTEC_APROVE_BIN`, and `SPECTEC_NATT_BIN`. NaTT installation is documented
+in `spectec/lib/rewrite/natt.mli`.
 
 ## MFE (Maude Formal Environment) — confluence + coherence gate
 
@@ -214,7 +215,11 @@ duplicated here, since it shifts as reflection coverage grows.
 `tools/aprove/runme`). The old external Maude 2.7.1 + MTT stack
 (`run-termination.sh`) is retired — the section below is why.
 
-### Do not route termination through MTT — unravel and call AProVE directly
+### Historical termination rationale and AProVE experiments
+
+The following measurements describe the earlier AProVE-only implementation.
+The current generic runner has no budget ladder or automatic child split.
+The unraveling soundness argument remains applicable.
 
 **MTT's transformation, not AProVE and not the translation, was the cause of the
 long-standing termination MAYBEs.** Unravel the slice yourself and hand the

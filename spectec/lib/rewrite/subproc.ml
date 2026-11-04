@@ -105,8 +105,16 @@ let line_splitter (keep : string -> bool) (buf : Buffer.t) :
   in
   (absorb, flush)
 
-let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
-    ~(timeout : int) () : string * bool =
+type result = {
+  output : string;
+  stderr : string;
+  timed_out : bool;
+  stopped : bool;
+  status : Unix.process_status;
+}
+
+let run_process ~env ~keep ~done_when ~stderr_fd ~(cmd : string list)
+    ~(feed : string) ~(timeout : int) () : result =
   let env = match env with Some e -> e | None -> Unix.environment () in
   (* Feed stdin from a temp file (not a pipe), so a feed larger than the pipe
      buffer cannot deadlock against the unread stdout. *)
@@ -122,7 +130,8 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
       let pid =
         Unix.create_process_env "/bin/sh"
           (Array.of_list ([ "/bin/sh"; "-c"; launcher; "sh" ] @ cmd))
-          env fd_in w_out w_out
+          env fd_in w_out
+          (Option.value stderr_fd ~default:w_out)
       in
       Unix.close fd_in;
       Unix.close w_out;
@@ -144,6 +153,12 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
         | Some done_when -> fun () -> done_when (Buffer.contents buf)
       in
       let timed_out = ref false in
+      let stopped = ref false in
+      let stop () =
+        let answer = poll () in
+        if answer then stopped := true;
+        answer
+      in
       let reached_eof = ref false in
       let deadline =
         if timeout > 0 then Unix.gettimeofday () +. float_of_int timeout
@@ -155,14 +170,14 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
         else
           match Unix.select [ r_out ] [] [] (Float.min remaining 0.25) with
           | exception Unix.Unix_error (Unix.EINTR, _, _) -> loop ()
-          | [], _, _ -> if not (poll ()) then loop ()
+          | [], _, _ -> if not (stop ()) then loop ()
           | _ ->
               let n = Unix.read r_out chunk 0 (Bytes.length chunk) in
               if n = 0 then
                 reached_eof := true (* child closed stdout: run finished *)
               else (
                 absorb chunk n;
-                if not (poll ()) then loop ())
+                if not (stop ()) then loop ())
       in
       loop ();
       (* A tool may end its final meaningful line directly at EOF. Retain that
@@ -170,9 +185,56 @@ let run ?env ?keep ?done_when ~(cmd : string list) ~(feed : string)
          early [done_when] kill, [pending] may be a truncated line. *)
       if !reached_eof then flush ();
       Unix.close r_out;
+      let rec finish () =
+        match Unix.waitpid [ Unix.WNOHANG ] pid with
+        | 0, _ ->
+            if !stopped || !timed_out then (
+              kill_tree pid;
+              snd (Unix.waitpid [] pid))
+            else if Unix.gettimeofday () >= deadline then (
+              timed_out := true;
+              finish ())
+            else (
+              Unix.sleepf 0.01;
+              finish ())
+        | _, status -> status
+      in
+      let status = finish () in
       kill_tree pid;
-      ignore (Unix.waitpid [] pid);
-      (Buffer.contents buf, !timed_out))
+      {
+        output = Buffer.contents buf;
+        stderr = "";
+        timed_out = !timed_out;
+        stopped = !stopped;
+        status;
+      })
+
+let run ?env ?keep ?done_when ~cmd ~feed ~timeout () : string * bool =
+  let result =
+    run_process ~env ~keep ~done_when ~stderr_fd:None ~cmd ~feed ~timeout ()
+  in
+  (result.output, result.timed_out)
+
+let run_detailed ~env ~keep ~done_when ~cmd ~feed ~timeout () : result =
+  let path = Filename.temp_file "spectec_stderr" ".log" in
+  Fun.protect
+    ~finally:(fun () -> Sys.remove path)
+    (fun () ->
+      let fd = Unix.openfile path [ Unix.O_WRONLY; Unix.O_TRUNC ] 0o600 in
+      let result =
+        Fun.protect
+          ~finally:(fun () -> Unix.close fd)
+          (fun () ->
+            run_process ~env ~keep ~done_when ~stderr_fd:(Some fd) ~cmd ~feed
+              ~timeout ())
+      in
+      let ic = open_in_bin path in
+      let stderr =
+        Fun.protect
+          ~finally:(fun () -> close_in ic)
+          (fun () -> really_input_string ic (in_channel_length ic))
+      in
+      { result with stderr })
 
 (* -------------------------------------------------------------------------- *)
 (* Persistent session: keep one child alive across many send/read cycles, for

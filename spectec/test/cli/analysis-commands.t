@@ -45,12 +45,8 @@ slice as a TPDB TRS (stats go to stderr):
 
 A symbol with no rules is DEGENERATE, not an error (no stats to report):
 
-  $ spectec termination --symbol '$no-such-symbol' $SPEC
-  $no-such-symbol	DEGENERATE	-	-	-
-  reflect: subty expansion: 6 clause(s) -> 6 clone(s) (4 dead, 0 vacuous guard(s) dropped)
-  reflect: no complement split for $lookup_id_type (conditional owise)
-  reflect: no complement split for $lookup_id_value (conditional owise)
-  reflect: 2 owise rule(s) reflected, 0 complement-enumerated, 0 kept
+  $ SPECTEC_APROVE_BIN=/bin/false spectec termination --symbol '$no-such-symbol' $SPEC 2>/dev/null | cut -f1-3
+  $no-such-symbol	aprove	DEGENERATE
 
 Usage errors still require explicit roots; SCC is no longer a command:
 
@@ -87,6 +83,6 @@ An AProVE stand-in confirms that the plain proof path writes a tree through
   > SH
   $ chmod +x aprove-stub
   $ export SPECTEC_APROVE_BIN="$PWD/aprove-stub"
-  $ spectec termination --symbol '$lookup_id_type' --budget 1 --proof-dir proofs $SPEC >/dev/null 2>/dev/null
-  $ grep -F '(0) QTRS' proofs/_lookup_id_type.proof
+  $ spectec termination --symbol '$lookup_id_type' --timeout 1 --proof-dir proofs $SPEC >/dev/null 2>/dev/null
+  $ grep -F '(0) QTRS' proofs/aprove/*.proof
   (0) QTRS

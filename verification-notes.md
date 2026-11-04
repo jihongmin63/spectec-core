@@ -17,25 +17,19 @@
 
 ---
 
-## 현재 재현 커맨드 (2026-10-28)
+## 현재 재현 커맨드 (2026-11-04)
 
-`confluence`와 `termination`은 `--symbol NAME`(반복) 또는 `--all`로 슬라이스를
-선택하고, `--out TSV`에 행을 추가한다. 기존 TSV의 심볼은 건너뛰므로 검사 정책이나
-명세가 바뀌면 **새 결과 파일**을 사용한다.
+- 종료성: `main.exe termination --tool aprove --tool natt --all --timeout 300 --out term.tsv <specs>`.
+  각 심볼과 도구를 한 번씩 실행한다. NaTT에는 PATH의 Z3가 필요하다.
+- TRS 출력: `main.exe termination --emit --symbol NAME <specs>`.
+- CRC/ChC: `main.exe confluence --all --out crc.tsv <specs>`.
+- 슬라이스 크기: `main.exe rewrite --list-symbols <specs>`.
+- 실행 오라클: `check_diff_p4.sh`와 `check_diff_structural_p4.sh`.
 
-- 종료성: `main.exe termination --all --out term.tsv <specs>`; 기본 예산은
-  300초이며 plain TRS와 sound child split만 증명한다. 한 심볼의 TRS는
-  `termination --emit --symbol NAME <specs>`로 본다.
-- CRC/ChC: `main.exe confluence --all --out crc.tsv <specs>`; 원래 시스템의
-  미증명 행은 WLL 기반 정규화를 자동 재검하고 sound YES만 승격한다.
-- 슬라이스 크기: `main.exe rewrite --list-symbols <specs>`는
-  `symbol<TAB>rule-count`를 크기순으로 낸다. 분석 모듈은
-  `rewrite --ctrs --symbol NAME <specs>`로 본다(시그니처 자동 pruning).
-- 실행 오라클: `check_diff_p4.sh`와 `check_diff_structural_p4.sh`는 계속
-  `run --p4`와 `run --structural --p4`를 사용한다.
-
-Maude/MFE/AProVE 위치는 `SPECTEC_MAUDE_BIN`, `SPECTEC_MFE_DIR`,
-`SPECTEC_APROVE_BIN`으로 지정한다. 아래 날짜별 측정 명령은 당시 기록이다.
+현재 종료성 API와 결과 파일 계약은 각각
+[spectec/lib/rewrite/termination.mli](spectec/lib/rewrite/termination.mli),
+[spectec/lib/cli/rewrite/termination_results.mli](spectec/lib/cli/rewrite/termination_results.mli)에 있다.
+이전 종료성 TSV와 아래 날짜별 예산 사다리·child split 측정은 과거 구현의 기록이다.
 
 ---
 

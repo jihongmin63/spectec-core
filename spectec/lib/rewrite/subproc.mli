@@ -101,3 +101,25 @@ val deadline_in : int -> float
 
 (** SIGKILL the child's process group and reap it. *)
 val session_kill : session -> unit
+
+(** Detailed single execution. Stdout and stderr are separate, and [status]
+    retains the real exit or signal. [stopped] means [done_when] requested
+    termination; [timed_out] means the deadline did. No grace period is added.
+    All configuration is explicit. *)
+type result = {
+  output : string;
+  stderr : string;
+  timed_out : bool;
+  stopped : bool;
+  status : Unix.process_status;
+}
+
+val run_detailed :
+  env:string array option ->
+  keep:(string -> bool) option ->
+  done_when:(string -> bool) option ->
+  cmd:string list ->
+  feed:string ->
+  timeout:int ->
+  unit ->
+  result

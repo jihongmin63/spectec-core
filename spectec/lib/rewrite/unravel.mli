@@ -1,5 +1,5 @@
-(** Unraveling of a (sliced) analysis CTRS into a plain TPDB TRS, for a direct
-    AProVE termination proof.
+(** Unraveling of a (sliced) analysis CTRS into a plain TPDB TRS, for external
+    termination provers.
 
     Why unravel at all: MTT, the tool this replaces, does NOT -- it rewrites a
     matching condition [s = t] into an equality TEST [equal(s,t) -> tt], which
@@ -81,14 +81,14 @@ val tpdb_sym : string -> string
 
 (** One unraveled system as its exporters need it: the printed rules one by one,
     the identifiers the [(VAR ...)] header declares, and where each defined
-    symbol came from. A caller that emits a SUBSET of the rules ({!Qdp},
-    {!Termination}'s slice re-ask) must select from [printed] rather than
-    re-print its subset. Two reasons, either one sufficient: the collision table
-    is resolved over the whole rule list, so a subset printed on its own may
-    spell a symbol differently; and the [u_<n>] helpers are numbered by a
-    counter over the whole rule list, so unraveling a subset separately numbers
-    them differently again. Selecting keeps one spelling for one system, which
-    is what lets a caller compare its subset against what AProVE printed back.
+    symbol came from. A caller that emits a subset of the rules must select from
+    [printed] rather than re-print its subset. Two reasons, either one
+    sufficient: the collision table is resolved over the whole rule list, so a
+    subset printed on its own may spell a symbol differently; and the [u_<n>]
+    helpers are numbered by a counter over the whole rule list, so unraveling a
+    subset separately numbers them differently again. Selecting keeps one
+    spelling for one system, which is what lets a caller compare its subset
+    against what AProVE printed back.
 
     [origins] is {!unraveled.defines} in the TPDB spelling of its key: the
     symbol a printed rule's left-hand side is rooted by, paired with the CTRS

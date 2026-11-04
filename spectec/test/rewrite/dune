@@ -8,3 +8,18 @@
  (modules test_pipeline)
  (libraries spectec spectec.rewrite)
  (deps ../../specs/impty/base/spec.spectec))
+
+(test
+ (name test_solver)
+ (modules test_solver)
+ (libraries spectec.rewrite))
+
+(executable
+ (name solver_integration)
+ (modules solver_integration)
+ (libraries spectec.rewrite))
+
+(test
+ (name test_termination_results)
+ (modules test_termination_results)
+ (libraries spectec.rewrite spectec.rewrite_cli unix))

@@ -53,14 +53,15 @@ one bad P4 source beside a runnable raw start.
   $ spectec run --start "'true.Bool" $SPEC
   result: true
 
-Equal slices reuse the first row and record its source. Resuming skips recorded
-symbols and can reuse their result for another symbol in the same sweep:
+Termination resumes each symbol/tool row, including empty slices. The header
+binds the file to this specification and tool configuration.
 
+  $ export SPECTEC_APROVE_BIN=/bin/false
+  $ spectec termination --symbol '$missing-a' --symbol '$missing-b' --out rows.tsv $SPEC 2>/dev/null | cut -f1-3
+  $missing-a	aprove	DEGENERATE
+  $missing-b	aprove	DEGENERATE
   $ spectec termination --symbol '$missing-a' --symbol '$missing-b' --out rows.tsv $SPEC 2>/dev/null
-  $missing-a	DEGENERATE	-	-	-
-  $missing-b	DEGENERATE	-	-	-	=$missing-a
-  $ spectec termination --symbol '$missing-a' --symbol '$missing-b' --out rows.tsv $SPEC 2>/dev/null
-  $ spectec termination --symbol '$missing-a' --symbol '$missing-c' --out rows.tsv $SPEC 2>/dev/null
-  $missing-c	DEGENERATE	-	-	-	=$missing-a
+  $ spectec termination --symbol '$missing-a' --symbol '$missing-c' --out rows.tsv $SPEC 2>/dev/null | cut -f1-3
+  $missing-c	aprove	DEGENERATE
   $ wc -l < rows.tsv | tr -d ' '
-  3
+  4

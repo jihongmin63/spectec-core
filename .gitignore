@@ -50,3 +50,6 @@ spectec/.hook-check
 # Personal research notes (not part of the spec/docs; see todo.md/CORE_LOGIC.md
 # for the tracked design docs).
 /RESEARCH_NOTES.md
+
+# Optional locally built NaTT executable.
+spectec/tools/natt/bin/
