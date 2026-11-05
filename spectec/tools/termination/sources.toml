@@ -1,0 +1,28 @@
+# Publisher artifacts used by the optional local termination tools.
+# OCI layers are extracted selectively; no Docker daemon or global install.
+[muterm]
+repository = "raulgut/muterm-image"
+tag = "term-comp2025"
+layer = "bfc0b2653de19370f1f600f0bf3b298260f1ef92c77e33e7e0c8fb8ddfec3411"
+prefix = "app/"
+files = ["muterm", "barcelogicNIA", "callyices.sh", "callyicesDen.sh", "interpformat", "invocanlsol.sh", "invocayicesIPOL.sh", "invocayicesIPOLDC.sh", "mace4", "nlsol", "timelimit", "transYicesOut", "transYicesOutDen", "yices"]
+
+[mint]
+repository = "tspn/mint-termcomp"
+tag = "2026"
+layer = "cfc6c6d6aa1f967ce7e67032266bb283d65a8a46cf5c6ce8716b01c6f80e6209"
+prefix = "usr/local/bin/"
+files = ["mint"]
+
+[nattpp]
+repository = "akihisayamada/nattpp"
+tag = "termcomp2026.3"
+layer = "909b2073e22ee4287ff5971936db0d00e05ff9815f9f7a4bcf9bf94fab778771"
+prefix = "nattpp/"
+files = ["natt++"]
+
+[nti]
+url = "https://codeload.github.com/etiennepayet/nti/tar.gz/88a47f9db976fc7c1ad1921057f0a68d68748137"
+sha256 = "53cb5b63a848531bb59a7803ceefb0c260505e768f677f898b64644bc85f5dfc"
+directory = "nti-88a47f9db976fc7c1ad1921057f0a68d68748137"
+version = "2026.09"

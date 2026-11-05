@@ -1,0 +1,26 @@
+opam-version: "2.0"
+name: "natt"
+version: "2.3"
+synopsis: "Optional NaTT termination prover used by spectec"
+maintainer: "https://akihisayamada.github.io/"
+authors: "Akihisa Yamada"
+homepage: "https://www.trs.cm.is.nagoya-u.ac.jp/NaTT/"
+depends: [
+  "ocaml" {>= "4.13"}
+  "ocamlfind" {build}
+  "ocamlgraph" {= "2.2.0"}
+  "re" {>= "1.10.4"}
+  "xml-light" {= "2.5"}
+]
+
+build: [
+  ["tar" "xzf" "source.tar.gz"]
+  ["mv" "NaTT/MyXML.ml" "NaTT/myXML.ml"]
+  ["mkdir" "-p" "NaTT/bin"]
+  [make "-C" "NaTT"]
+]
+install: [["cp" "NaTT/bin/NaTT.exe" "%{bin}%/NaTT.exe"]]
+extra-source "source.tar.gz" {
+  src: "https://www.trs.cm.is.nagoya-u.ac.jp/NaTT/downloads/NaTT.2.3.tar.gz"
+  checksum: "sha256=e49cc60f3fce10a25a6fb1ecc0e59d41a08f09b73707b4f8ff42460533cd4907"
+}

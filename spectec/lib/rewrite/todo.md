@@ -1,10 +1,10 @@
 # `rewrite` 재구현 TODO (new-rewrite)
 
-> **현재 표면 (2026-10-28):** rewrite 관련 명령은 `rewrite`, `run`,
+> **현재 표면 (2026-11-04):** rewrite 관련 명령은 `rewrite`, `run`,
 > `confluence`, `termination` 네 개다. SCC 명령/전용 코드는 제거됐다.
-> `run`은 raw `--start`와 P4만 받고, 종료성은 plain TRS 및 sound child split만
-> 증명한다. `Itrs`는 모델 API로 남는다. 현재 옵션과 재측정 규약은
-> [승인 설계](../../../docs/superpowers/specs/2026-10-28-rewrite-cli-minimal.md)를 따른다.
+> `run`은 raw `--start`와 P4만 받는다. 종료성은 공통 실행기와 도구별 어댑터를
+> 사용하며 예산 사다리와 자동 child split은 없다. `Itrs`는 모델 API로 남는다.
+> 현재 종료성 계약은 [termination.mli](termination.mli), [solver.mli](solver.mli)에 있다.
 > 아래 날짜별 실험 항목은 당시 인터페이스와 측정 사실로 보존한다.
 
 **골격은 전부 채워졌습니다 — `failwith` 스텁은 하나도 남아 있지 않습니다**(코드

@@ -282,9 +282,8 @@ let print_rules (rules : (R.term * R.term) list) :
 
 (* The pieces of one export a consumer of the TRS TEXT cannot recover from it:
    the printed rules one by one, and the identifiers the [(VAR ...)] header
-   declares. {!Qdp} needs both to re-pose one dependency-graph child against a
-   SUBSET of these rules -- and must take that subset from here rather than
-   re-printing it, since the collision table is resolved over the whole list. *)
+   declares. A subset must be selected from this export rather than reprinted,
+   since the collision table is resolved over the whole rule list. *)
 type export = {
   printed : (string * string) list;
   vars : string list;
@@ -313,7 +312,7 @@ let export_of_system (t : R.t) : (export * stats, string) result =
 
 (* The TPDB document: a [(VAR ...)] header over [vars] and a [(RULES ...)] block
    over [printed]. Split from {!export_of_system} so a caller that emits a
-   SUBSET of the same rules ({!Qdp}) spells the header the same way. *)
+   subset of the same rules spells the header the same way. *)
 let tpdb_document ~(vars : string list) (printed : (string * string) list) :
     string =
   let b = Buffer.create 4096 in
