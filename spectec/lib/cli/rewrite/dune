@@ -5,7 +5,7 @@
   spectec
   spectec.rewrite
   spectec.cli
-  spectec.targets.p4
+  spectec-target-p4.target
   core
   core_unix)
  (preprocess

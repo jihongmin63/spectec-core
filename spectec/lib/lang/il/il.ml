@@ -1,10 +1,13 @@
 include Types
+module Opaque = Opaque
 module Mixfix = Mixfix
 module Mode = Mode
 module Print = Print
 module Eq = Eq
 module Print_debug = Print_debug
 module Free = Free
+module Fresh = Fresh
+module Var = Var
 
 module Value = struct
   include Value

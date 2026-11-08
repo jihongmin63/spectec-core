@@ -5,7 +5,7 @@
     differently-spelled view (e.g. {!Of_maude}'s Maude-identifier keys) derives
     it from these tables instead of re-walking the spec. *)
 
-open Common.Source
+open Common.Annotated
 open Lang.Il
 module T = Ctrs_term
 

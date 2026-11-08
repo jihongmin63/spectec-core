@@ -55,6 +55,8 @@ module M : Instrumentation_api.Handler.S = struct
         (fun v -> Format.fprintf !fmt "%s%s\n%!" prefix (summarize_value v))
         values
 
+  let handle_value = None
+
   let handle : Instrumentation_api.Event.t -> unit = function
     | Test_start _ -> ()
     | Test_end _ -> State.reset ()
@@ -103,7 +105,7 @@ let make cfg =
 
 module Spec : Instrumentation_spec.Spec.S = struct
   let name = "trace"
-  let mode = `Both
+  let modes = [ `IL; `SL ]
 
   let params =
     [
@@ -132,7 +134,7 @@ module Spec : Instrumentation_spec.Spec.S = struct
         Some
           {
             Instrumentation_config.Handler_config.name;
-            mode;
+            modes;
             handler = make { level = parse_level s; output };
             output;
           }

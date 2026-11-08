@@ -1,4 +1,5 @@
-open Common.Source
+open Common.Annotated
+open Lang.Il.Expression
 open Lang.Il
 module R = Rewrite_system
 module T = Ctrs_term
@@ -58,6 +59,7 @@ and subst_phrase (th : theta) (t : typ) : typ =
 let subst_deftyp (th : theta) (dt : deftyp') : deftyp' =
   let phrase f p = { p with it = f p.it } in
   match dt with
+  | OpaqueT -> OpaqueT
   | PlainT u -> PlainT (subst_phrase th u)
   | StructT fields ->
       StructT (List.map (fun (a, t) -> (a, subst_phrase th t)) fields)
@@ -81,6 +83,13 @@ let subst_var (th : theta) (v : var) : var =
 
 let subst_iterexp (th : theta) ((i, vs) : iterexp) : iterexp =
   (i, List.map (subst_var th) vs)
+
+let subst_iterinstr (th : theta) (ii : iterinstr) : iterinstr =
+  {
+    ii with
+    vars_input = List.map (subst_var th) ii.vars_input;
+    vars_output = List.map (subst_var th) ii.vars_output;
+  }
 
 (* -------------------------------------------------------------------------- *)
 (* The specialized name. Bounded and scrubbed the same way the helper symbols
@@ -125,7 +134,7 @@ let rec rw_exp (c : ctx) (e : exp) : exp =
     | UpdE (e1, p, e2) -> UpdE (rw_exp c e1, rw_path c p, rw_exp c e2)
     | it -> Exp_map.map_subexps (rw_exp c) it
   in
-  { e with it; note = subst_typ c.th e.note }
+  { e with it; note = { e.note with typ = subst_typ c.th e.note.typ } }
 
 and rw_arg (c : ctx) (a : arg) : arg =
   match a.it with ExpA e -> { a with it = ExpA (rw_exp c e) } | DefA _ -> a
@@ -150,7 +159,7 @@ let rec rw_prem (c : ctx) (p : prem) : prem =
     | IfPr { cond; role } -> IfPr { cond = rw_exp c cond; role }
     | ElsePr -> ElsePr
     | LetPr (a, b) -> LetPr (rw_exp c a, rw_exp c b)
-    | IterPr (p1, ie) -> IterPr (rw_prem c p1, subst_iterexp c.th ie)
+    | IterPr (p1, ii) -> IterPr (rw_prem c p1, subst_iterinstr c.th ii)
     | DebugPr e -> DebugPr (rw_exp c e)
   in
   { p with it }

@@ -30,7 +30,9 @@ module SS = Set.Make (String)
 let gensym_ids = [ "fresh_typeId" (* p4 *); "fresh_tid" (* p4-old *) ]
 
 let root_syms : string list =
-  List.map (fun name -> T.func_sym Common.Source.(name $ no_region)) gensym_ids
+  List.map
+    (fun name -> T.func_sym Common.Annotated.(name $ Common.Location.Unknown))
+    gensym_ids
 
 let rec mentions (syms : SS.t) : R.term -> bool = function
   | R.Var _ -> false

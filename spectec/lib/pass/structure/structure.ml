@@ -1,48 +1,63 @@
-open Common.Source
+open Common.Annotated
+module Location = Common.Location
 open Common.Domain
 open Lang
+open Lang.Il.Expression
 open Lang.Il
 module RTEnv = Envs.RTEnv
 module TDEnv = Envs.Il.TDEnv
 
 (* Structuring premises *)
 
-let rec internalize_iter ?(iterexps : iterexp list = []) (prem : prem) :
-    prem * iterexp list =
+let rec internalize_iter ?(iterinstrs : iterinstr list = []) (prem : prem) :
+    prem * iterinstr list =
   match prem.it with
-  | IterPr (prem, iterexp) ->
-      internalize_iter ~iterexps:(iterexp :: iterexps) prem
-  | _ -> (prem, iterexps)
+  | IterPr (prem, iterinstr) ->
+      internalize_iter ~iterinstrs:(iterinstr :: iterinstrs) prem
+  | _ -> (prem, iterinstrs)
+
+let condition_iterexps (iterinstrs : iterinstr list) : iterexp list =
+  List.map
+    (fun (iterinstr : iterinstr) ->
+      assert (iterinstr.vars_output = []);
+      iterexp_of_iterinstr iterinstr)
+    iterinstrs
 
 let rec struct_prems (prems : prem list) (instr_ret : Ol.Ast.instr) :
     Ol.Ast.instr =
   let prems_internalized = List.map internalize_iter prems in
   struct_prems' prems_internalized instr_ret
 
-and struct_prems' (prems_internalized : (prem * iterexp list) list)
+and struct_prems' (prems_internalized : (prem * iterinstr list) list)
     (instr_ret : Ol.Ast.instr) : Ol.Ast.instr =
   match prems_internalized with
   | [] -> instr_ret
   | [ ({ it = ElsePr; at; _ }, []) ] -> Ol.Ast.OtherwiseI instr_ret $ at
-  | (prem_h, iterexps_h) :: prems_internalized_t -> (
+  | (prem_h, iterinstrs_h) :: prems_internalized_t -> (
       let at = prem_h.at in
       match prem_h.it with
       | RelPr { relid = id; notexp } ->
           let instr_t = struct_prems' prems_internalized_t instr_ret in
           let call = Ol.Ast.{ relid = id; notexp } in
-          Ol.Ast.RelI { call; iterexps = iterexps_h; block = [ instr_t ] } $ at
+          Ol.Ast.RelI { call; iterinstrs = iterinstrs_h; block = [ instr_t ] }
+          $ at
       | IfPr { cond; _ } ->
           let instr_t = struct_prems' prems_internalized_t instr_ret in
-          Ol.Ast.IfI (cond, iterexps_h, [ instr_t ]) $ at
+          Ol.Ast.IfI (cond, condition_iterexps iterinstrs_h, [ instr_t ]) $ at
       | RelAssertPr { call = { relid = id; notexp }; expect } ->
           let instr_t = struct_prems' prems_internalized_t instr_ret in
           let call = Ol.Ast.{ relid = id; notexp } in
           Ol.Ast.RelAssertI
-            { call; expect; iterexps = iterexps_h; block = [ instr_t ] }
+            {
+              call;
+              expect;
+              iterexps = condition_iterexps iterinstrs_h;
+              block = [ instr_t ];
+            }
           $ at
       | LetPr (exp_l, exp_r) ->
           let instr_t = struct_prems' prems_internalized_t instr_ret in
-          Ol.Ast.LetI (exp_l, exp_r, iterexps_h, [ instr_t ]) $ at
+          Ol.Ast.LetI (exp_l, exp_r, iterinstrs_h, [ instr_t ]) $ at
       | DebugPr exp ->
           let instr_t = struct_prems' prems_internalized_t instr_ret in
           Ol.Ast.DebugI (exp, instr_t) $ at
@@ -75,12 +90,12 @@ let partition_else_paths (paths : (prem list * 'a) list) :
 let struct_rule_path ((prems, exps_output) : prem list * exp list) :
     Ol.Ast.instr list =
   let at =
-    (* if exps_output is empty, use last prem's region *)
+    (* if exps_output is empty, use last prem's location *)
     if exps_output = [] then
       match List.rev prems with
       | prem_last :: _ -> prem_last.at
-      | [] -> no_region
-    else exps_output |> List.map at |> over_region
+      | [] -> Location.Unknown
+    else exps_output |> List.map at |> Location.cover
   in
   let instr_ret = Ol.Ast.ResultI exps_output $ at in
   let prems =
@@ -105,20 +120,34 @@ let struct_clause_path ((prems, exp_output) : prem list * exp) :
 
 (* Structuring definitions *)
 
+let args_input_of_params (params : param list) : arg list =
+  List.fold_left
+    (fun (args_input, frees) param ->
+      let arg_input, frees =
+        match param.it with
+        | ExpP typ ->
+            let exp_input, frees = Il.Fresh.fresh_exp_from_typ frees typ in
+            (ExpA exp_input $ param.at, frees)
+        | DefP { defid = id_def; _ } -> (DefA id_def $ param.at, frees)
+      in
+      (args_input @ [ arg_input ], frees))
+    ([], IdSet.empty) params
+  |> fst
+
 let rec struct_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (def : def) : Sl.def =
   let at = def.at in
   match def.it with
   | TypD { synid = id; tparams; deftyp } -> Sl.TypD (id, tparams, deftyp) $ at
   | RelD { relid = id; reltyp; rules } ->
       struct_rel_def rtenv tdenv at id reltyp rules
-  | BuiltinDecD { defid = id; tparams; params; _ } ->
-      struct_builtin_dec_def at id tparams params
-  | DecD { defid = id; tparams; clauses; _ } ->
-      struct_dec_def rtenv tdenv at id tparams clauses
+  | BuiltinDecD { defid = id; tparams; params; typ; _ } ->
+      struct_builtin_dec_def at id tparams params typ
+  | DecD { defid = id; tparams; params; clauses; _ } ->
+      struct_dec_def rtenv tdenv at id tparams params clauses
 
 (* Structuring relation definitions *)
 
-and struct_rel_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : region)
+and struct_rel_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : Location.t)
     (id_rel : id) (reltyp : reltyp) (rules : rule list) : Sl.def =
   let exps_input, paths = Antiunify.antiunify_rules reltyp.it rules in
   let block_paths, else_path_opt = partition_else_paths paths in
@@ -141,7 +170,7 @@ and struct_rel_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : region)
         let _, exps =
           List.fold_left
             (fun (frees, exps) typ ->
-              let exp, frees = Elaborate.Fresh.fresh_exp_from_typ frees typ in
+              let exp, frees = Il.Fresh.fresh_exp_from_typ frees typ in
               (frees, exps @ [ exp ]))
             (IdSet.empty, []) in_typs
         in
@@ -155,33 +184,20 @@ and struct_rel_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : region)
 
 (* Structuring builtin declaration definitions *)
 
-and struct_builtin_dec_def (at : region) (id_dec : id) (tparams : tparam list)
-    (params : param list) : Sl.def =
-  let args_input, _ =
-    List.fold_left
-      (fun (args_input, frees) param ->
-        let arg_input, frees =
-          match param.it with
-          | ExpP typ ->
-              let exp_input, frees =
-                Elaborate.Fresh.fresh_exp_from_typ frees typ
-              in
-              let arg_input = ExpA exp_input $ param.at in
-              (arg_input, frees)
-          | DefP { defid = id_def; _ } ->
-              let arg_input = DefA id_def $ param.at in
-              (arg_input, frees)
-        in
-        (args_input @ [ arg_input ], frees))
-      ([], IdSet.empty) params
-  in
-  Sl.BuiltinDecD (id_dec, tparams, args_input) $ at
+and struct_builtin_dec_def (at : Location.t) (id_dec : id)
+    (tparams : tparam list) (params : param list) (typ : typ) : Sl.def =
+  Sl.BuiltinDecD (id_dec, tparams, args_input_of_params params, typ) $ at
 
 (* Structuring declaration definitions *)
 
-and struct_dec_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : region)
-    (id_dec : id) (tparams : tparam list) (clauses : clause list) : Sl.def =
-  let args_input, paths = Antiunify.antiunify_clauses clauses in
+and struct_dec_def (rtenv : RTEnv.t) (tdenv : TDEnv.t) (at : Location.t)
+    (id_dec : id) (tparams : tparam list) (params : param list)
+    (clauses : clause list) : Sl.def =
+  let args_input, paths =
+    match clauses with
+    | [] -> (args_input_of_params params, [])
+    | _ -> Antiunify.antiunify_clauses clauses
+  in
   let block_paths, else_path_opt = partition_else_paths paths in
   let block =
     List.concat_map struct_clause_path block_paths

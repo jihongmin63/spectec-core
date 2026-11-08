@@ -2,7 +2,7 @@
     which ones execute. [Summary] reports only uncovered branches; [Full] emits
     every relation and function with coverage annotations. *)
 
-open Common.Source
+open Common.Annotated
 module Il = Lang.Il
 module Sl = Lang.Sl
 open Util
@@ -76,6 +76,8 @@ module M : Instrumentation_api.Handler.S = struct
                 State.all_clauses := (id.it, 0) :: !State.all_clauses
             | _ -> ())
           sl_spec
+
+  let handle_value = None
 
   let handle : Instrumentation_api.Event.t -> unit = function
     | Rule_exit { id; rule_id; at = _; success } ->
@@ -289,7 +291,7 @@ let make_with_data cfg =
 
 module Spec : Instrumentation_spec.Spec.S = struct
   let name = "branch-coverage"
-  let mode = `Both
+  let modes = [ `IL; `SL ]
 
   let params =
     [
@@ -316,7 +318,7 @@ module Spec : Instrumentation_spec.Spec.S = struct
         Some
           {
             Instrumentation_config.Handler_config.name;
-            mode;
+            modes;
             handler = make cfg;
             output;
           }

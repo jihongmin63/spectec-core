@@ -30,7 +30,7 @@ let unparse_roundtrip filenames =
   else
     Error
       (Error.RoundtripError
-         ( Common.Source.no_region,
+         ( Common.Location.Unknown,
            "pretty-printed output did not reparse to the same AST" ))
 
 let unparse_command =
@@ -54,6 +54,26 @@ let unparse_command =
       Cli.Error_handling.guard ~color ~on_ok:(fun spec_el ->
           Format.printf "%s" (Lang.El.Unparse.string_of_spec spec_el))
       @@ fun () -> parse_spec_files filenames
+
+let grammar_command =
+  Core.Command.basic
+    ~summary:"extract the object-language grammar reachable from a start symbol"
+  @@
+  let open Core.Command.Let_syntax in
+  let open Core.Command.Param in
+  let%map filenames = anon (sequence ("spec files" %: string))
+  and start =
+    flag "--start" (required string)
+      ~doc:"SYMBOL syntax to extract the reachable grammar from"
+  and color = Cli.Cli_args.Output.color_flag in
+  fun () ->
+    Cli.Error_handling.guard ~color ~on_ok:(fun spec_il ->
+        Format.printf "%s\n"
+          (Grammar.string_of_t (Grammar.extract ~start spec_il)))
+    @@ fun () ->
+    let* spec = parse_spec_files filenames in
+    let* spec_il = elaborate spec in
+    Ok spec_il
 
 let structure_command =
   Core.Command.basic ~summary:"structure a spec"
@@ -93,18 +113,20 @@ let annotate_command =
 (* Walks [root] recursively and returns every file path under it whose
    basename ends in one of [exts]. Paths are returned relative to [root]. *)
 let collect_files ~exts root =
-  let rec walk acc dir =
-    let entries = Sys.readdir dir in
+  let rec walk acc rel_dir =
+    let entries = Sys.readdir (Filename.concat root rel_dir) in
     Array.sort String.compare entries;
     Array.fold_left
       (fun acc entry ->
-        let path = Filename.concat dir entry in
-        if Sys.is_directory path then walk acc path
-        else if List.exists (Filename.check_suffix entry) exts then path :: acc
+        let rel_path = Filename.concat rel_dir entry in
+        if Sys.is_directory (Filename.concat root rel_path) then
+          walk acc rel_path
+        else if List.exists (Filename.check_suffix entry) exts then
+          rel_path :: acc
         else acc)
       acc entries
   in
-  walk [] root |> List.rev
+  walk [] "" |> List.rev
 
 let splice_command =
   Core.Command.basic
@@ -124,29 +146,7 @@ let splice_command =
       ~doc:"FILE write the unused-keys report to this path"
   and color = Cli.Cli_args.Output.color_flag in
   fun () ->
-    Cli.Error_handling.guard ~color ~on_ok:(fun (spec_el, spec_pl) ->
-        let inputs = collect_files ~exts:[ ".adoc" ] input_dir in
-        let pairs =
-          List.map
-            (fun in_path ->
-              let rel =
-                let prefix_len = String.length input_dir + 1 in
-                if
-                  String.length in_path > prefix_len
-                  && String.sub in_path 0 (String.length input_dir) = input_dir
-                then
-                  String.sub in_path prefix_len
-                    (String.length in_path - prefix_len)
-                else in_path
-              in
-              (in_path, Filename.concat output_dir rel))
-            inputs
-        in
-        let report =
-          Splice.Driver.run ~spec_el ~spec_pl
-            ~source_entries:Splice.Registry.source
-            ~prose_entries:Splice.Registry.prose ~filenames:pairs
-        in
+    Cli.Error_handling.guard ~color ~on_ok:(fun report ->
         match missing_path with
         | Some path ->
             let oc = open_out path in
@@ -162,24 +162,35 @@ let splice_command =
     let henv = henv_of_el_spec spec in
     let henv = henv_with_il_spec henv spec_il in
     let spec_pl = annotate ~henv spec_sl |> shorten in
-    Ok (spec, spec_pl)
+    let inputs = collect_files ~exts:[ ".adoc" ] input_dir in
+    let pairs =
+      List.map
+        (fun rel_path ->
+          ( Filename.concat input_dir rel_path,
+            Filename.concat output_dir rel_path ))
+        inputs
+    in
+    let report =
+      Splice.Driver.run ~spec_el:spec ~spec_pl
+        ~source_entries:Splice.Registry.source
+        ~prose_entries:Splice.Registry.prose ~filenames:pairs
+    in
+    Ok report
 
 let command =
-  let module P4 = Targets_p4.P4.Cli in
-  let module Impty = Targets_impty.Impty.Cli in
   Core.Command.group ~summary:"SpecTec command line tools"
-    [
-      ("unparse", unparse_command);
-      ("elab", elab_command);
-      ("struct", structure_command);
-      ("annotate", annotate_command);
-      ("splice", splice_command);
-      ("rewrite", Rewrite_cli.Rewrite_command.command);
-      ("confluence", Rewrite_cli.Confluence_command.command);
-      ("termination", Rewrite_cli.Termination_command.command);
-      ("run", Rewrite_cli.Run_command.command);
-      (P4.name, P4.command);
-      (Impty.name, Impty.command);
-    ]
+    ([
+       ("unparse", unparse_command);
+       ("elab", elab_command);
+       ("grammar", grammar_command);
+       ("struct", structure_command);
+       ("annotate", annotate_command);
+       ("splice", splice_command);
+       ("rewrite", Rewrite_cli.Rewrite_command.command);
+       ("confluence", Rewrite_cli.Confluence_command.command);
+       ("termination", Rewrite_cli.Termination_command.command);
+       ("run", Rewrite_cli.Run_command.command);
+     ]
+    @ Cli.Plugin_loader.commands ())
 
 let () = Command_unix.run ~version command

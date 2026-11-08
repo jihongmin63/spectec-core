@@ -1,4 +1,5 @@
-open Common.Source
+open Common.Annotated
+open Lang.Il.Expression
 open Lang.Il
 open Ctrs_term
 
@@ -21,7 +22,7 @@ open Ctrs_term
 let rec collect_var_types (acc : (string * typ') list) (e : exp) :
     (string * typ') list =
   match e.it with
-  | IterE ({ it = VarE id; _ }, _) -> (id.it, e.note) :: acc
+  | IterE ({ it = VarE id; _ }, _) -> (id.it, e.note.typ) :: acc
   (* A structured iterated body (e.g. a head destructure [(typ id `;)*]) compiles
      to helpers ([$iterproj]/[$itermap]) that bind each co-iterated variable to its
      list-level stream, so the variable's CTRS type is the ITERATED type built
@@ -56,7 +57,7 @@ let rec collect_var_types (acc : (string * typ') list) (e : exp) :
       streams @ body_others @ acc
   | _ ->
       let acc =
-        match e.it with VarE id -> (id.it, e.note) :: acc | _ -> acc
+        match e.it with VarE id -> (id.it, e.note.typ) :: acc | _ -> acc
       in
       List.fold_left collect_var_types acc (Exp_map.subexps e.it)
 
@@ -70,7 +71,8 @@ let rec collect_var_types (acc : (string * typ') list) (e : exp) :
 let rec collect_prem_var_types (acc : (string * typ') list) (p : prem) :
     (string * typ') list =
   match p.it with
-  | IterPr (inner, (iter, vars)) ->
+  | IterPr (inner, iterinstr) ->
+      let iter, vars = iterexp_of_iterinstr iterinstr in
       let bound = List.map (fun ({ varid; _ } : var) -> varid.it) vars in
       let stream_typ (typ : typ) (iters : iter list) : typ' =
         let wrapped =

@@ -1,4 +1,5 @@
-open Common.Source
+open Common.Annotated
+open Lang.Il.Expression
 open Lang.Il
 module R = Rewrite_system
 

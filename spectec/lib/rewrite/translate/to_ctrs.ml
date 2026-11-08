@@ -1,4 +1,5 @@
-open Common.Source
+open Common.Annotated
+open Lang.Il.Expression
 open Lang.Il
 
 (** Translation from specialized IL into the CTRS representation
@@ -213,7 +214,8 @@ let rec rename_step_prem (ids : string list) (prem : prem) : prem =
     | RelAssertPr { call = { relid; notexp }; expect } ->
         RelAssertPr { call = { relid; notexp = Mixfix.map s notexp }; expect }
     | LetPr (l, r) -> LetPr (s l, s r)
-    | IterPr (nested, ((_, vars) as ie)) ->
+    | IterPr (nested, ie) ->
+        let _, vars = iterexp_of_iterinstr ie in
         let inner_ids =
           List.filter
             (fun x ->
@@ -236,7 +238,9 @@ let iter_captured (inner : prem) (vars : var list) (bound_ids : string list) :
   let base = captured_fvs (Free.free_prem inner) vars in
   let stepped_free = Free.free_prem (rename_step_prem bound_ids inner) in
   let rebound =
-    List.filter (fun id -> IdSet.mem (id $ no_region) stepped_free) bound_ids
+    List.filter
+      (fun id -> IdSet.mem (id $ Common.Location.Unknown) stepped_free)
+      bound_ids
   in
   base @ rebound
 
@@ -249,7 +253,9 @@ let iter_captured_exp (body : exp) (vars : var list) (ids : string list) :
   let base = captured_fvs (Free.free_exp body) vars in
   let stepped_free = Free.free_exp (rename_step_exp ids body) in
   let rebound =
-    List.filter (fun id -> IdSet.mem (id $ no_region) stepped_free) ids
+    List.filter
+      (fun id -> IdSet.mem (id $ Common.Location.Unknown) stepped_free)
+      ids
   in
   base @ rebound
 
@@ -291,7 +297,7 @@ let spine_forms (iter : iter) (fv_terms : R.term list)
    same but build different element constructors do not collapse to one helper.
    [spine_disamb] additionally distinguishes a fused-spine variant. *)
 let iter_map_sym (body : exp) (iter : iter) (spines : spine list) : string =
-  let elem_typ = Option.value (typ_name_of body.note) ~default:"" in
+  let elem_typ = Option.value (typ_name_of body.note.typ) ~default:"" in
   iter_helper_sym "$itermap" (Print.string_of_exp body) iter
     ((string_of_int (List.length spines) :: spine_disamb spines) @ [ elem_typ ])
 
@@ -310,7 +316,7 @@ let iter_map_sym (body : exp) (iter : iter) (spines : spine list) : string =
    pretty-printed descriptor, bounded the same way as [iter_helper_sym]'s. *)
 let subty_helper_sym (shape : string) (t : typ') : string =
   Printf.sprintf "subty_%s_%s" shape
-    (abbrev (R.sanitize (Print.string_of_typ (t $ no_region))))
+    (abbrev (R.sanitize (Print.string_of_typ (t $ Common.Location.Unknown))))
 
 let subty_tup_sym (ts : typ list) : string = subty_helper_sym "tup" (TupleT ts)
 let subty_list_sym (elem : typ') : string = subty_helper_sym "list" elem
@@ -351,7 +357,7 @@ let sub_pred ~scalars (t : typ') (x : R.term) : R.term =
    [eq_ ^ name] where there are no arguments, so a monomorphic type keeps its
    spelling. *)
 let typ_key (t : typ') : string =
-  abbrev (R.sanitize (Print.string_of_typ (t $ no_region)))
+  abbrev (R.sanitize (Print.string_of_typ (t $ Common.Location.Unknown)))
 
 let eq_helper_sym (shape : string) (t : typ') : string =
   Printf.sprintf "%s%s_%s" eq_prefix shape (typ_key t)
@@ -372,7 +378,7 @@ let eq_pred (t : typ') (a : R.term) (b : R.term) : R.term =
    equality instead of the polymorphic one ({!mem_helper_defs} defines it). *)
 let mem_sym (elem : typ') : string =
   Printf.sprintf "mem_%s"
-    (abbrev (R.sanitize (Print.string_of_typ (elem $ no_region))))
+    (abbrev (R.sanitize (Print.string_of_typ (elem $ Common.Location.Unknown))))
 
 let mem_pred (elem : typ') (a : R.term) (b : R.term) : R.term =
   app_t (mem_sym elem) [ a; b ]
@@ -401,7 +407,7 @@ let builtin_compares (id : string) : bool =
   | _ -> false
 
 let builtin_spec_suffix (t : typ') : string =
-  "_" ^ abbrev (R.sanitize (Print.string_of_typ (t $ no_region)))
+  "_" ^ abbrev (R.sanitize (Print.string_of_typ (t $ Common.Location.Unknown)))
 
 (* The symbol a call to [id] reaches: the copy specialized at its compared type
    when [id] is a comparing collection builtin, its plain symbol otherwise. *)
@@ -427,8 +433,8 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | BinE (op, ty, e1, e2) -> term_of_binop op ty (recur e1) (recur e2)
   (* Equality is dispatched on the OPERAND's type ([eq_pred]), not on [CmpE]'s
      [optyp] -- that tag only distinguishes nat from int for the orderings. *)
-  | CmpE (`EqOp, _, e1, e2) -> eq_pred e1.note (recur e1) (recur e2)
-  | CmpE (`NeOp, _, e1, e2) -> not_t (eq_pred e1.note (recur e1) (recur e2))
+  | CmpE (`EqOp, _, e1, e2) -> eq_pred e1.note.typ (recur e1) (recur e2)
+  | CmpE (`NeOp, _, e1, e2) -> not_t (eq_pred e1.note.typ (recur e1) (recur e2))
   | CmpE (op, ty, e1, e2) -> term_of_cmpop op ty (recur e1) (recur e2)
   (* Casts are transparent except across the nat/int boundary: a nat widened to
      int is injected with [int_pos], an int narrowed to a known-nonneg nat is
@@ -447,12 +453,12 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
      unaffected since those operations don't diverge between the two families
      for non-negative operands. *)
   | UpCastE (t, ({ it = BinE (`SubOp, _, ea, eb); _ } as e1))
-    when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
+    when is_int_typ t.it && is_nat_typ e1.note.typ && not (yields_int e1) ->
       sub_int_t (int_pos_t (recur ea)) (int_pos_t (recur eb))
   | UpCastE (t, e1)
-    when is_int_typ t.it && is_nat_typ e1.note && not (yields_int e1) ->
+    when is_int_typ t.it && is_nat_typ e1.note.typ && not (yields_int e1) ->
       int_pos_t (recur e1)
-  | DownCastE (t, e1) when is_nat_typ t.it && is_int_typ e1.note ->
+  | DownCastE (t, e1) when is_nat_typ t.it && is_int_typ e1.note.typ ->
       nat_of_int_t (recur e1)
   | UpCastE (_, e1) | DownCastE (_, e1) -> recur e1
   (* A `<:` in value position is the boolean test itself, unlike the top-level
@@ -463,11 +469,11 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | CaseE ne ->
       let args = List.map recur (Mixfix.args ne) in
       let mixop = Mixfix.to_mixop ne in
-      let origin = Option.value (typ_name_of e.note) ~default:"anon" in
+      let origin = Option.value (typ_name_of e.note.typ) ~default:"anon" in
       variant_t origin mixop args
   | StrE fields ->
       let terms = List.map (fun (_, ef) -> recur ef) fields in
-      let typ_name = Option.value (typ_name_of e.note) ~default:"anon" in
+      let typ_name = Option.value (typ_name_of e.note.typ) ~default:"anon" in
       struct_t typ_name terms
   | OptE None -> none_t
   | OptE (Some e1) -> some_t (recur e1)
@@ -476,7 +482,7 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   | CatE (a, b) -> cat_t (recur a) (recur b)
   | LenE e1 -> len_t (recur e1)
   | DotE (e1, a) ->
-      let typ_name = Option.value (typ_name_of e1.note) ~default:"anon" in
+      let typ_name = Option.value (typ_name_of e1.note.typ) ~default:"anon" in
       app_t (field_sym typ_name a) [ recur e1 ]
   | CallE (id, targs, args) ->
       app_t
@@ -485,7 +491,7 @@ let rec term_of_exp ~scalars ?ctx (e : exp) : R.term =
   (* List/text operations over the [cons]/[nil] encoding, backed by the prelude
      rules and, for [Upd], the statically compiled path ([upd_of_path]).
      Out-of-bounds access is left irreducible. *)
-  | MemE (a, b) -> mem_pred a.note (recur a) (recur b)
+  | MemE (a, b) -> mem_pred a.note.typ (recur a) (recur b)
   | IdxE (a, b) -> idx_t (recur a) (recur b)
   | SliceE (a, b, c) -> slice_t (recur a) (recur b) (recur c)
   | UpdE (a, path, b) -> upd_of_path ~scalars (recur a) path (recur b)
@@ -829,6 +835,9 @@ let eq_rules_of_deftyp ~scalars ~(name : string) (key : string) (dt : deftyp') :
           (app_t (eq_sym key) [ var_t "x"; var_t "y" ])
           (eq_pred u.it (var_t "x") (var_t "y"));
       ]
+  (* Only builtins construct an opaque value, and they have no rules, so
+     equal results need not be equal terms: leave the equality undefined. *)
+  | OpaqueT -> []
 
 (* Definition rules contributed by one [TypD]. For a variant type [T]:
    - matcher: [match_<T>_<Ci>] is [true] on [Ci]'s constructor, [false] on every
@@ -1013,7 +1022,7 @@ let iter_split (orig : spec) (inner : prem) (vars : var list) :
     string list * string list =
   let binders = prem_binder_names orig inner in
   let free = Free.free_prem inner in
-  let live id = IdSet.mem (id $ no_region) free in
+  let live id = IdSet.mem (id $ Common.Location.Unknown) free in
   iter_var_ids vars |> List.filter live
   |> List.partition (fun id -> not (List.mem id binders))
 
@@ -1091,11 +1100,15 @@ let collect_tuple_body (vars : var list) (comps : string list) : exp * var list
   in
   let ves =
     List.map
-      (fun (v : var) -> VarE v.varid $$ (v.varid.at, elem_typ v))
+      (fun (v : var) ->
+        VarE v.varid $$ (v.varid.at, { typ = elem_typ v; annot = () }))
       comp_vars
   in
-  let tup_typ = TupleT (List.map (fun v -> elem_typ v $ no_region) comp_vars) in
-  (TupleE ves $$ (no_region, tup_typ), comp_vars)
+  let tup_typ =
+    TupleT (List.map (fun v -> elem_typ v $ Common.Location.Unknown) comp_vars)
+  in
+  ( TupleE ves $$ (Common.Location.Unknown, { typ = tup_typ; annot = () }),
+    comp_vars )
 
 (* -------------------------------------------------------------------------- *)
 (* Premises -> conditions. *)
@@ -1160,11 +1173,11 @@ let rec pattern_of_exp ~scalars ?ctx (fresh : unit -> string) (e : exp) :
       (cons_t th tt, ch @ ct)
   | CaseE ne ->
       let ts, cs = many (Mixfix.args ne) in
-      let origin = Option.value (typ_name_of e.note) ~default:"anon" in
+      let origin = Option.value (typ_name_of e.note.typ) ~default:"anon" in
       (variant_t origin (Mixfix.to_mixop ne) ts, cs)
   | StrE fields ->
       let ts, cs = many (List.map snd fields) in
-      let typ_name = Option.value (typ_name_of e.note) ~default:"anon" in
+      let typ_name = Option.value (typ_name_of e.note.typ) ~default:"anon" in
       (struct_t typ_name ts, cs)
   | OptE (Some e1) ->
       let t, c = pattern_of_exp ~scalars ?ctx fresh e1 in
@@ -1184,7 +1197,7 @@ let rec conds_of_prem ~scalars (orig : spec) ?ctx (fresh : unit -> string)
       (term rhs, pat) :: conds
   | IfPr { cond = { it = CmpE (`EqOp, _, a, b); _ }; _ } -> [ (term a, term b) ]
   | IfPr { cond = { it = CmpE (`NeOp, _, a, b); _ }; _ } ->
-      [ (eq_pred a.note (term a) (term b), bool_t ~scalars false) ]
+      [ (eq_pred a.note.typ (term a) (term b), bool_t ~scalars false) ]
   | IfPr { cond = { it = MatchE (e, pattern); _ }; _ } ->
       [ cond_of_match ~scalars e pattern ]
   | IfPr { cond = { it = SubE (e, t); _ }; _ } ->
@@ -1204,7 +1217,8 @@ let rec conds_of_prem ~scalars (orig : spec) ?ctx (fresh : unit -> string)
      directly) and recovered by an in-place [$iterproj] condition, pruned after
      assembly when the component is absorbed and occurs nowhere else -- exactly
      the head-side [IterE] binder treatment above. *)
-  | IterPr (inner, (iter, vars)) -> (
+  | IterPr (inner, iterinstr) -> (
+      let iter, vars = iterexp_of_iterinstr iterinstr in
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fvs = iter_captured inner vars bound_ids in
       let spines = spines_of_ids ctx bound_ids in
@@ -1243,7 +1257,7 @@ and cond_of_match ~scalars (e : exp) (pattern : pattern) : R.cond =
   let yes = bool_t ~scalars true in
   match pattern with
   | CaseP mixop ->
-      let name = Option.value (typ_name_of e.note) ~default:"anon" in
+      let name = Option.value (typ_name_of e.note.typ) ~default:"anon" in
       (app_t (match_sym name mixop) [ subj ], yes)
   | OptP `Some -> (app_t "match_some" [ subj ], yes)
   | OptP `None -> (app_t "match_none" [ subj ], yes)
@@ -1287,7 +1301,8 @@ let prune_absorbed_projs (ctx : iter_ctx) (rhs : R.term) (conds : R.cond list) :
 let iterpr_defs ~scalars (orig : spec) (ctx : iter_ctx option) (prem : prem) :
     (string * R.rule list) list =
   match prem.it with
-  | IterPr (inner, (iter, vars)) ->
+  | IterPr (inner, iterinstr) ->
+      let iter, vars = iterexp_of_iterinstr iterinstr in
       let bound_ids, binding_ids = iter_split orig inner vars in
       let fv_terms = List.map var_t (iter_captured inner vars bound_ids) in
       (* Only the spines that DRIVE this iteration are stepped.  Its outputs
@@ -1625,6 +1640,7 @@ let eq_helper_defs ~scalars (spec : spec) : R.rule list =
   in
   let field_typs (dt : deftyp') : typ' list =
     match dt with
+    | OpaqueT -> []
     | PlainT u -> [ u.it ]
     | StructT fields -> List.map (fun (_, (ft : typ)) -> ft.it) fields
     | VariantT typcases ->
@@ -1725,8 +1741,8 @@ let eq_helper_defs ~scalars (spec : spec) : R.rule list =
      type (its [mem_<T>] recurses through this same dispatch) *)
   let rec operands_of_exp (e : exp) =
     (match e.it with
-    | CmpE ((`EqOp | `NeOp), _, e1, _) -> require e1.note
-    | MemE (a, _) -> require a.note
+    | CmpE ((`EqOp | `NeOp), _, e1, _) -> require e1.note.typ
+    | MemE (a, _) -> require a.note.typ
     | _ -> ());
     List.iter operands_of_exp (Exp_map.subexps e.it)
   in
@@ -1757,7 +1773,7 @@ let mem_helper_defs ~scalars (spec : spec) : R.rule list =
         ]
   in
   let rec elems_of_exp (e : exp) =
-    (match e.it with MemE (a, _) -> require a.note | _ -> ());
+    (match e.it with MemE (a, _) -> require a.note.typ | _ -> ());
     List.iter elems_of_exp (Exp_map.subexps e.it)
   in
   List.iter
@@ -1840,7 +1856,7 @@ let sub_complement_defs ~scalars (spec : spec) : R.rule list =
     | _ -> []
   in
   let rec of_exp (e : exp) : R.rule list =
-    (match e.it with SubE (e1, t) -> complement t.it e1.note | _ -> [])
+    (match e.it with SubE (e1, t) -> complement t.it e1.note.typ | _ -> [])
     @ List.concat_map of_exp (Exp_map.subexps e.it)
   in
   let of_prem (p : prem) : R.rule list =
@@ -1978,7 +1994,7 @@ let def_symbols (spec : spec) : string list =
    Diagnostics only: it is the spec a slice was translated FROM, so a symbol a
    later pass invented (a monomorphized instance, an iteration helper) has no
    entry, and a caller must fall back on the CTRS spelling. *)
-type origin = { name : string; at : region }
+type origin = { name : string; at : Common.Location.t }
 
 let symbol_origins (spec : spec) : (string, origin) Hashtbl.t =
   let origins = Hashtbl.create 1024 in
@@ -2008,7 +2024,7 @@ let symbol_origins (spec : spec) : (string, origin) Hashtbl.t =
             add (variant_sym origin mixop) case at;
             add (match_sym t mixop) case at)
           cases
-    | PlainT _ -> ()
+    | PlainT _ | OpaqueT -> ()
   in
   List.iter
     (fun def ->

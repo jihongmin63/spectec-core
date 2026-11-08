@@ -1,13 +1,13 @@
 include Lang.Sl
-open Common.Source
+open Common.Annotated
 
 (* Intermediate representation of SL instructions,
    for the optimization pass *)
 
-type instr = instr' phrase
+type instr = instr' located
 
 and instr' =
-  | RelI of { call : relcall; iterexps : iterexp list; block : instr list }
+  | RelI of { call : relcall; iterinstrs : iterinstr list; block : instr list }
   | RelAssertI of {
       call : relcall;
       expect : bool;
@@ -17,7 +17,7 @@ and instr' =
   | IfI of exp * iterexp list * instr list
   | CaseI of exp * case list * bool
   | OtherwiseI of instr
-  | LetI of exp * exp * iterexp list * instr list
+  | LetI of exp * exp * iterinstr list * instr list
   | ResultI of exp list
   | ReturnI of exp
   | DebugI of exp * instr

@@ -1,0 +1,23 @@
+open Lang.Pl
+open Lang.Pl.Print
+
+(* Function *)
+
+type t =
+  | Builtin of tparam list * typ list * typ
+  | Defined of tparam list * arg list * block * elseblock option
+
+let signature = function
+  | Builtin (tparams, typs, _) -> (tparams, typs)
+  | Defined (tparams, args, _, _) ->
+      (tparams, List.map Lang.Il.Expression.typ_of_arg args)
+
+let to_string = function
+  | Builtin _ -> "builtin function"
+  | Defined (tparams, args, block, elseblock_opt) -> (
+      "def " ^ string_of_tparams tparams ^ string_of_args args ^ " :\n\n"
+      ^ string_of_block block
+      ^
+      match elseblock_opt with
+      | None -> ""
+      | Some elseblock -> "\n\notherwise\n\n" ^ string_of_block elseblock)

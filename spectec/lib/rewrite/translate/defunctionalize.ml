@@ -6,8 +6,9 @@
    closure. Runs before {!Monomorphize}, memoized one slot by physical equality, and
    the identity on a spec with no [def]-parameters. *)
 
+open Lang.Il.Expression
 open Lang.Il
-open Common.Source
+open Common.Annotated
 module StrSet = Set.Make (String)
 module StrMap = Map.Make (String)
 

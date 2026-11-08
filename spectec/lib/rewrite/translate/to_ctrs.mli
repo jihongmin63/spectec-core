@@ -28,7 +28,7 @@ val def_symbols : Lang.Il.spec -> string list
 
 (** Where a CTRS symbol came from: the name the SPEC declares it under, and the
     line that declares it. *)
-type origin = { name : string; at : Common.Source.region }
+type origin = { name : string; at : Common.Location.t }
 
 (** [symbol_origins spec] maps each symbol the translation mints back to its
     declaration. The symbol spellings are lossy on purpose ([sanitize] turns [']

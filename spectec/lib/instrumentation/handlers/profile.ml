@@ -51,6 +51,7 @@ module M : Instrumentation_api.Handler.S = struct
 
   let static_dependencies = []
   let init ~spec:_ = State.reset ()
+  let handle_value = None
 
   let handle : Instrumentation_api.Event.t -> unit = function
     | Rel_enter { id; at = _; inputs = _ } ->
@@ -172,7 +173,7 @@ let make cfg =
 
 module Spec : Instrumentation_spec.Spec.S = struct
   let name = "profile"
-  let mode = `Both
+  let modes = [ `IL; `SL ]
   let params = [ Instrumentation_spec.Param_utils.output_param ]
 
   let parse alist =
@@ -183,7 +184,7 @@ module Spec : Instrumentation_spec.Spec.S = struct
         Some
           {
             Instrumentation_config.Handler_config.name;
-            mode;
+            modes;
             handler = make { output };
             output;
           }

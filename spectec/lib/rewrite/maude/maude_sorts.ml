@@ -1,4 +1,4 @@
-open Common.Source
+open Common.Annotated
 open Lang.Il
 module R = Rewrite_system
 module MI = Maude_ident
@@ -106,9 +106,10 @@ and sort_of_typname (tenv : (string, deftyp') Hashtbl.t) (n : string) : string =
   match Hashtbl.find_opt tenv n with
   | Some (PlainT u) -> sort_of_typ tenv u.it
   | Some (VariantT _ | StructT _) -> sort_of_name n
-  (* not a declared type: a type parameter (e.g. the [K]/[V] of [pair<K,V>])
-     or an opaque external -- generic, so [Val]. *)
-  | None -> val_sort
+  (* not a declared type (a type parameter, e.g. the [K]/[V] of [pair<K,V>]),
+     or an [opaque syntax] whose values only builtins construct -- generic, so
+     [Val]. *)
+  | Some OpaqueT | None -> val_sort
 
 (* -------------------------------------------------------------------------- *)
 (* Signature recovery: CTRS symbol -> (argument sorts, result sort). *)
@@ -444,6 +445,7 @@ let recover ?(rules : R.rule list = []) (scalars : scalar_theory) (orig : spec)
              lhs that pins no domain of its own), so the seed is the resolved
              underlying sort. *)
           add (T.subty_sym tid.it) ([ sort_of_typname tenv tid.it ], "BoolV")
+      | TypD { deftyp = { it = OpaqueT; _ }; _ } -> ()
       | RelD { relid = id; reltyp; _ } ->
           let arg_typs = Mixfix.args (Mode.notation reltyp.it) in
           let ins, outs = Mode.partition reltyp.it arg_typs in

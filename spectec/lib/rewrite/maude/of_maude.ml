@@ -1,4 +1,4 @@
-open Common.Source
+open Common.Annotated
 open Lang.Il
 module R = Rewrite_system
 module MI = Maude_ident
@@ -229,7 +229,7 @@ let resolve (tbl : tables) (ty : typ') : typ' = Spec_index.resolve tbl.si ty
 (* Decode a parsed term to an IL value, threading the expected type. *)
 
 let var_typ (name : string) : typ' =
-  VarT { synid = name $ no_region; targs = [] }
+  VarT { synid = name $ Common.Location.Unknown; targs = [] }
 
 (* The element type of an expected iteration/tuple type, when known. *)
 let iter_elem (tbl : tables) (expected : typ' option) (iter : iter) :
@@ -446,7 +446,7 @@ let canonicalize (vs : value list) : value list =
     let it =
       match v.it with
       | TextV s -> TextV (canon s)
-      | (BoolV _ | NumV _ | FuncV _) as it -> it
+      | (BoolV _ | NumV _ | FuncV _ | OpaqueV _) as it -> it
       | StructV fs -> StructV (List.map (fun (a, x) -> (a, go x)) fs)
       | CaseV vc -> (
           let vc = Mixfix.map go vc in
@@ -455,7 +455,7 @@ let canonicalize (vs : value list) : value list =
               CaseV
                 (Mixfix.map
                    (function
-                     | { it = ListV _; note; _ } -> ListV sorted $$$ note
+                     | { it = ListV _; _ } as x -> { x with it = ListV sorted }
                      | x -> x)
                    vc)
           | None -> CaseV vc)

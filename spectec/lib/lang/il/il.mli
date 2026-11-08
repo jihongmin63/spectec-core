@@ -2,10 +2,13 @@
     after elaboration. *)
 
 include module type of Types
+module Opaque = Opaque
 module Mixfix : module type of Mixfix
 module Mode : module type of Mode
 module Eq : module type of Eq
 module Free : module type of Free
+module Fresh : module type of Fresh
+module Var : module type of Var
 module Print : module type of Print
 module Print_debug : module type of Print_debug
 

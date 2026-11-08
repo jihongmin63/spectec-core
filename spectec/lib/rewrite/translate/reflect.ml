@@ -72,7 +72,7 @@
    [prune_unused] runs before this pass and may have dropped a matcher family
    no translated rule needed. *)
 
-open Common.Source
+open Common.Annotated
 open Lang.Il
 module R = Rewrite_system
 module T = Ctrs_term

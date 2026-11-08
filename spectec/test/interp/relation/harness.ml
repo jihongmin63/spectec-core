@@ -1,0 +1,123 @@
+open Core
+module Value = Lang.Il.Value
+module Diagnostic = Spectec.Diagnostic
+
+type compiled_spec = {
+  spec_il : Lang.Il.spec;
+  spec_sl : Lang.Sl.spec;
+  spec_pl : Lang.Pl.spec;
+  henv : Hints.Henv.t;
+}
+
+type mode = Il | Sl | Pl
+
+type expectation =
+  | Returns of (unit -> Value.t list)
+  | Fails
+  | Fails_with of string
+
+module Pure_target : Interp.Target.S = struct
+  let builtins = []
+  let opaque_types = []
+  let is_impure_func _ = false
+  let is_impure_rel _ = false
+  let state_version = ref 0
+  let with_state f = f ()
+end
+
+let render_diagnostics diagnostics =
+  Diagnostic.Render.render_bag ~ansi:Diagnostic.Ansi.plain diagnostics
+
+let fail_diagnostics filename diagnostics =
+  failwithf "relation test spec %s emitted diagnostics:\n%s" filename
+    (render_diagnostics diagnostics)
+    ()
+
+let compile_source ~filename contents =
+  let source : Spectec.spec_source = { filename; contents } in
+  let result, diagnostics =
+    Spectec.with_diagnostics (fun () ->
+        let ( let* ) = Stdlib.Result.bind in
+        let* spec_el = Spectec.parse_spec_source source in
+        let* spec_il = Spectec.elaborate spec_el in
+        let henv =
+          Spectec.henv_with_il_spec (Spectec.henv_of_el_spec spec_el) spec_il
+        in
+        let spec_sl = Spectec.structure spec_il in
+        let spec_pl = spec_sl |> Spectec.annotate ~henv |> Spectec.shorten in
+        Ok { spec_il; spec_sl; spec_pl; henv })
+  in
+  match result with
+  | Ok spec when Diagnostic.Bag.is_empty diagnostics -> spec
+  | Ok _ | Error _ -> fail_diagnostics filename diagnostics
+
+let compile_file filename =
+  compile_source ~filename (In_channel.read_all filename)
+
+let returns expected = Returns expected
+let fails = Fails
+let fails_with message = Fails_with message
+let string_of_mode = function Il -> "IL" | Sl -> "SL" | Pl -> "PL"
+
+let string_of_values values =
+  values
+  |> List.map ~f:Value.to_string
+  |> String.concat ~sep:", " |> sprintf "[%s]"
+
+let render_error error =
+  error |> Interp.error_to_diagnostic |> Diagnostic.Bag.singleton
+  |> render_diagnostics
+
+let eval ~check_determinism target_state spec mode relation args =
+  let context =
+    match mode with
+    | Il ->
+        Interp.context_of_il_spec ~check_determinism target_state spec.spec_il
+    | Sl ->
+        Interp.context_of_sl_spec ~check_determinism target_state spec.spec_sl
+    | Pl ->
+        Interp.context_of_pl_spec ~check_determinism target_state spec.spec_pl
+  in
+  Result.bind context ~f:(fun context ->
+      Interp.eval_rel context ~rel:relation ~values:args)
+
+let fail_check ~name ~mode ~check_determinism message =
+  failwithf "%s (%s, %s): %s" name (string_of_mode mode)
+    (if check_determinism then "determinism checked" else "first match")
+    message ()
+
+let check_result ~name ~mode ~check_determinism expectation result =
+  let fail_check = fail_check ~name ~mode ~check_determinism in
+  match (expectation, result) with
+  | Returns expected, Ok actual ->
+      let expected = expected () in
+      if not (List.equal Value.eq expected actual) then
+        fail_check
+          (sprintf "expected %s but returned %s"
+             (string_of_values expected)
+             (string_of_values actual))
+  | Returns _, Error error ->
+      fail_check ("evaluation failed:\n" ^ render_error error)
+  | Fails, Error _ -> ()
+  | Fails_with expected, Error error ->
+      let actual = render_error error in
+      if not (String.is_substring actual ~substring:expected) then
+        fail_check
+          (sprintf "expected an error containing %S but got:\n%s" expected
+             actual)
+  | Fails, Ok actual ->
+      fail_check
+        (sprintf "expected an error but returned %s" (string_of_values actual))
+  | Fails_with expected, Ok actual ->
+      fail_check
+        (sprintf "expected an error containing %S but returned %s" expected
+           (string_of_values actual))
+
+let check spec ?(target = (module Pure_target : Interp.Target.S))
+    ?(modes = [ Il; Sl; Pl ]) ?(check_determinism = false) ~name ~relation ~args
+    expectation =
+  List.iter modes ~f:(fun mode ->
+      Interp.with_target_state target (fun target_state ->
+          let args = args () in
+          eval ~check_determinism target_state spec mode relation args
+          |> check_result ~name ~mode ~check_determinism expectation))

@@ -60,7 +60,7 @@ let compare_p4 ~includes ~spec_il { Rewrite.spec; system } filename result =
         { Targets_p4.P4.Typecheck.includes; filename; expect = Task.Positive }
       in
       match
-        eval_task (module Targets_p4.P4.Typecheck) ~sl_mode:false ~spec_il input
+        eval_task (module Targets_p4.P4.Typecheck) ~mode:Il ~spec_il input
       with
       | Error _ -> ("result: interp FAILED (not compared)", false)
       | Ok interp_values -> (

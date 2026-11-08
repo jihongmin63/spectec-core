@@ -1,4 +1,4 @@
-open Common.Source
+open Common.Annotated
 open Lang.Il
 module R = Rewrite_system
 module MI = Maude_ident
@@ -1181,6 +1181,10 @@ let encode_value ~(scalars : T.scalar_theory) (orig : spec) (v : value) : R.term
         T.variant_t origin mixop (List.map2 enc ftyps args)
     | FuncV _ -> T.nil_t
     (* impty base has no function values *)
+    | OpaqueV o ->
+        invalid_arg
+          (Printf.sprintf "meta_term_of_value: an opaque %s value has no term"
+             (Opaque.name o))
   in
   enc None v
 

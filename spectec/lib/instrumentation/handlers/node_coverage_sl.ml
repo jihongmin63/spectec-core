@@ -2,7 +2,8 @@
     instructions. [level] and [config] are type-aliased to the IL handler's so
     the two share a parser and CLI surface. *)
 
-open Common.Source
+open Common.Annotated
+module Location = Common.Location
 module Sl = Lang.Sl
 open Util
 
@@ -20,7 +21,7 @@ let fmt = ref Format.std_formatter
 (* Runtime state - changes during execution *)
 module State = struct
   let sl_spec : Sl.spec ref = ref []
-  let instrs_hit : (region * string, int) Hashtbl.t = Hashtbl.create 256
+  let instrs_hit : (Location.t * string, int) Hashtbl.t = Hashtbl.create 256
   let total_instrs = ref 0
 
   let reset () =
@@ -36,11 +37,11 @@ end
 (* Get short header for instruction (without recursive children) *)
 let instr_header instr =
   match instr.it with
-  | Sl.RelI { call; iterexps; _ } ->
+  | Sl.RelI { call; iterinstrs; _ } ->
       Format.sprintf "%s: %s%s"
         (Sl.Print.string_of_relid call.relid)
         (Sl.Print.string_of_notexp call.notexp)
-        (Sl.Print.string_of_iterexps iterexps)
+        (Sl.Print.string_of_iterinstrs iterinstrs)
   | Sl.RelAssertI { call; expect; iterexps; _ } ->
       Format.sprintf "If (%s: %s %s)%s"
         (Sl.Print.string_of_relid call.relid)
@@ -54,11 +55,11 @@ let instr_header instr =
   | Sl.CaseI (exp, _, _) ->
       Format.sprintf "Case on %s" (Sl.Print.string_of_exp exp)
   | Sl.OtherwiseI _ -> "Otherwise"
-  | Sl.LetI (exp_l, exp_r, iterexps, _) ->
+  | Sl.LetI (exp_l, exp_r, iterinstrs, _) ->
       Format.sprintf "Let %s = %s%s"
         (Sl.Print.string_of_exp exp_l)
         (Sl.Print.string_of_exp exp_r)
-        (Sl.Print.string_of_iterexps iterexps)
+        (Sl.Print.string_of_iterinstrs iterinstrs)
   | Sl.ResultI [] -> "Relation holds"
   | Sl.ResultI exps ->
       Format.sprintf "Result %s" (Sl.Print.string_of_exps ", " exps)
@@ -66,7 +67,7 @@ let instr_header instr =
   | Sl.DebugI (exp, _) ->
       Format.sprintf "Debug: %s" (Sl.Print.string_of_exp exp)
 
-(* Create a unique key for an instruction using region + content header *)
+(* Create a unique key for an instruction using location + content header *)
 let instr_key instr =
   let content = instr_header instr |> normalize_whitespace in
   (instr.at, content)
@@ -103,6 +104,8 @@ module M : Instrumentation_api.Handler.S = struct
                 Option.iter (List.iter count_instr) elseblock_opt
             | _ -> ())
           sl_spec
+
+  let handle_value = None
 
   let handle : Instrumentation_api.Event.t -> unit = function
     | Instr { instr; at = _ } -> State.incr State.instrs_hit (instr_key instr)
@@ -217,7 +220,7 @@ end
 
 (* Result type for programmatic access *)
 type result = {
-  instrs_hit : ((region * string) * int) list; (* key * count *)
+  instrs_hit : ((Location.t * string) * int) list; (* key * count *)
   total_instrs : int;
 }
 
@@ -270,7 +273,7 @@ let make cfg =
 
 module Spec : Instrumentation_spec.Spec.S = struct
   let name = "instruction-coverage"
-  let mode = `SL
+  let modes = [ `SL ]
 
   let params =
     [
@@ -297,7 +300,7 @@ module Spec : Instrumentation_spec.Spec.S = struct
         Some
           {
             Instrumentation_config.Handler_config.name;
-            mode;
+            modes;
             handler = make cfg;
             output;
           }

@@ -6,12 +6,9 @@ let load_spec source =
   let* filenames = Spec_source.files source in
   let* spec = Spectec.parse_spec_files filenames in
   let* spec_il = Spectec.elaborate spec in
-  Ok (filenames, spec_il)
-
-let resolve_source ~cli ~config ~default_dir =
-  match cli with
-  | Some source -> source
-  | None -> Option.value config ~default:(Spec_source.Dir default_dir)
+  let henv = Spectec.henv_of_el_spec spec in
+  let henv = Spectec.henv_with_il_spec henv spec_il in
+  Ok (filenames, spec_il, henv)
 
 let make_task (module Tgt : Spectec.Target.S) ~name ~summary
     (module TC : Task_cli.S) =
@@ -21,7 +18,8 @@ let make_task (module Tgt : Spectec.Target.S) ~name ~summary
     let open Core.Command.Let_syntax in
     let open Core.Command.Param in
     let%map cli_source = Cli_args.Spec.source_flag
-    and sl_mode = Cli_args.Interpreter.sl_mode_flag
+    and mode = Cli_args.Interpreter.mode_flag
+    and check_determinism = Cli_args.Interpreter.det_flag
     and verbose = flag "-v" no_arg ~doc:" verbose output"
     and batch_mode = Cli_args.Batch.mode_flag
     and batch_dir = Cli_args.Batch.dir_flag
@@ -32,28 +30,32 @@ let make_task (module Tgt : Spectec.Target.S) ~name ~summary
       guard_unit ~color
         ~suppress_trace:(Instrumentation.Config.has_handler config ~name:"tree")
       @@ fun () ->
-      let ansi = resolve_ansi color in
+      let ansi = resolve_ansi ~out:Unix.stdout color in
       let open Spectec in
-      let* () = validate_config config ~sl_mode in
+      let* () = validate_config config ~mode in
       let* cfg = Config_file.load ~target:Tgt.name () in
       let source =
-        resolve_source ~cli:cli_source ~config:cfg.Config_file.spec_source
+        Spec_source.resolve ~from_cli:cli_source
+          ~from_config_file:cfg.Config_file.spec_source
           ~default_dir:Tgt.spec_dir
       in
-      let* _files, spec_il = load_spec source in
+      let* _files, spec_il, henv = load_spec source in
+      let mode = Interp_mode.resolve ~henv mode in
       match (batch_mode, batch_dir) with
       | false, None ->
           Batch.run_and_print_single
             (module TC.Task)
-            ~config ~sl_mode ~spec_il input
+            ~config ~check_determinism ~mode ~spec_il input
       | true, None ->
           Batch.run_and_print_batch
             (module TC.Task)
-            ~config ~ansi ~sl_mode ~spec_il ~verbose (TC.Task.collect ())
+            ~config ~check_determinism ~ansi ~mode ~spec_il ~verbose
+            (TC.Task.collect ())
       | _, Some dir ->
           Batch.run_and_print_batch
             (module TC.Task)
-            ~config ~ansi ~sl_mode ~spec_il ~verbose (TC.Task.collect ~dir ())
+            ~config ~check_determinism ~ansi ~mode ~spec_il ~verbose
+            (TC.Task.collect ~dir ())
   in
   (name, cmd)
 
@@ -66,30 +68,68 @@ let make_parse (module Tgt : Spectec.Target.S) ~name ~summary
     let open Core.Command.Param in
     let%map cli_source = Cli_args.Spec.source_flag
     and input = TC.flags
-    and roundtrip = flag "-r" no_arg ~doc:" roundtrip parse/unparse"
+    and output =
+      choose_one ~if_nothing_chosen:(Default_to `Unparse)
+        [
+          flag "-r" (no_arg_some `Roundtrip) ~doc:" roundtrip parse/unparse";
+          flag "-t" (no_arg_some `Tree)
+            ~doc:" print the parsed values as a tree with locations";
+        ]
     and color = Cli_args.Output.color_flag in
     fun () ->
       guard ~color ~on_ok:(Format.printf "%s\n") @@ fun () ->
       let open Spectec in
       let* cfg = Config_file.load ~target:Tgt.name () in
       let source =
-        resolve_source ~cli:cli_source ~config:cfg.Config_file.spec_source
+        Spec_source.resolve ~from_cli:cli_source
+          ~from_config_file:cfg.Config_file.spec_source
           ~default_dir:Tgt.spec_dir
       in
-      let* _files, spec_il = load_spec source in
-      let* _, values = TC.Task.parse_input ~spec:spec_il input in
-      let unparsed = TC.Task.unparse ~spec:spec_il values in
-      if roundtrip then
-        let* values_rt =
-          unparsed
-          |> TC.Task.parse_string ~spec:spec_il ~filename:(TC.Task.source input)
-        in
-        let eq = Lang.Il.Eq.eq_values ~dbg:true values values_rt in
-        if eq then Ok unparsed
-        else
-          Error
-            (Error.RoundtripError (Common.Source.no_region, "Roundtrip failed"))
-      else Ok unparsed
+      let* _files, spec_il, _henv = load_spec source in
+      TC.Task.Target.with_state @@ fun () ->
+      let* values =
+        match TC.Task.parse_input ~spec:spec_il input with
+        | Ok (Relation (_, values)) -> Ok values
+        | Ok (Driver _) ->
+            Error
+              (Error.TaskParseError
+                 ( Common.Location.Unknown,
+                   "this task runs several relations and has no single parsed \
+                    input" ))
+        | Error e -> Error e
+      in
+      match output with
+      | `Roundtrip ->
+          let unparsed = TC.Task.unparse ~spec:spec_il values in
+          let* values_rt =
+            unparsed
+            |> TC.Task.parse_string ~spec:spec_il
+                 ~filename:(TC.Task.source input)
+          in
+          let eq = Lang.Il.Eq.eq_values ~dbg:true values values_rt in
+          if eq then Ok unparsed
+          else
+            Error
+              (Error.RoundtripError (Common.Location.Unknown, "Roundtrip failed"))
+      | `Tree ->
+          let ansi = resolve_ansi ~out:Unix.stdout color in
+          let style part s =
+            let open Spectec.Diagnostic.Ansi in
+            let styles =
+              match (part : Lang.Il.Print.tree_part) with
+              | Type -> [ Cyan ]
+              | Mixop | Atom -> [ Blue ]
+              | Leaf -> [ Yellow ]
+              | Location -> [ Dim ]
+              | No_location -> [ Red ]
+            in
+            style ansi styles s
+          in
+          Ok
+            (values
+            |> List.map (Lang.Il.Print.string_of_value_tree ~style)
+            |> String.concat "\n")
+      | `Unparse -> Ok (TC.Task.unparse ~spec:spec_il values)
   in
   (name, cmd)
 
@@ -106,7 +146,8 @@ let make_batch (module Tgt : Spectec.Target.S) ~name
     @@
     let open Core.Command.Let_syntax in
     let open Core.Command.Param in
-    let%map sl_mode = Cli_args.Interpreter.sl_mode_flag
+    let%map mode = Cli_args.Interpreter.mode_flag
+    and check_determinism = Cli_args.Interpreter.det_flag
     and verbose = flag "-v" no_arg ~doc:" verbose: print progress for each test"
     and batch_dir = Cli_args.Batch.dir_flag
     and cli_source = Cli_args.Spec.source_flag
@@ -116,14 +157,16 @@ let make_batch (module Tgt : Spectec.Target.S) ~name
     fun () ->
       guard_errors_only ~color @@ fun () ->
       let open Spectec in
-      let ansi = resolve_ansi color in
-      let* () = validate_config config ~sl_mode in
+      let ansi = resolve_ansi ~out:Unix.stdout color in
+      let* () = validate_config config ~mode in
       let* cfg = Config_file.load ~target:Tgt.name () in
       let source =
-        resolve_source ~cli:cli_source ~config:cfg.Config_file.spec_source
+        Spec_source.resolve ~from_cli:cli_source
+          ~from_config_file:cfg.Config_file.spec_source
           ~default_dir:Tgt.spec_dir
       in
-      let* spec_files, spec_il = load_spec source in
+      let* spec_files, spec_il, henv = load_spec source in
+      let mode = Interp_mode.resolve ~henv mode in
       let batch_dir =
         match batch_dir with None -> cfg.Config_file.batch_dir | some -> some
       in
@@ -135,8 +178,8 @@ let make_batch (module Tgt : Spectec.Target.S) ~name
         }
       in
       let* results =
-        Batch.run_target ~config ?test_dir:batch_dir ~ansi ~checkpoint_config
-          ~verbose ~sl_mode ~spec_files spec_il packed_tasks
+        Batch.run_target ~config ~check_determinism ?test_dir:batch_dir ~ansi
+          ~checkpoint_config ~verbose ~mode ~spec_files spec_il packed_tasks
       in
       List.iter
         (fun Batch.{ task_name; summary; failures } ->
@@ -179,10 +222,11 @@ let make_checkpoint (module Tgt : Spectec.Target.S) ~name =
       guard_unit ~color @@ fun () ->
       let* cfg = Config_file.load ~target:Tgt.name () in
       let source =
-        resolve_source ~cli:None ~config:cfg.Config_file.spec_source
+        Spec_source.resolve ~from_cli:None
+          ~from_config_file:cfg.Config_file.spec_source
           ~default_dir:Tgt.spec_dir
       in
-      let* spec_files, spec_il = load_spec source in
+      let* spec_files, spec_il, _henv = load_spec source in
       let* checkpoint =
         Batch.Checkpoint.verify_and_load ~file:checkpoint_file ~spec_files
           ~verbose:true

@@ -130,6 +130,7 @@ and to_doc_nottyp (nottyp : nottyp) =
 
 and to_doc_deftyp (deftyp : deftyp) =
   match deftyp.it with
+  | OpaqueTD -> P.string "opaque"
   | PlainTD plaintyp -> to_doc_plaintyp plaintyp
   | StructTD typfields -> P.braces (comma_list to_doc_typfield typfields)
   | VariantTD typcases ->
@@ -184,7 +185,7 @@ and to_doc_exp_ctx ?(values = fun _ -> None) ~ctx (exp : exp) =
       match values id with Some s -> P.string s | None -> to_doc_varid id)
   | UnE (op, e) when lift_unop () ->
       P.string "$(" ^^ to_doc_unop op ^^ in_arith e ^^ P.string ")"
-  | UnE (op, e) -> to_doc_unop op ^^ in_arith e
+  | UnE (op, e) -> to_doc_unop op ^^ to_doc_exp_ctx ~values ~ctx e
   | BinE (l, op, r) when lift_binop op ->
       P.string "$("
       ^^ break_at_op (in_arith l) (to_doc_binop op) (in_arith r)
@@ -218,7 +219,7 @@ and to_doc_exp_ctx ?(values = fun _ -> None) ~ctx (exp : exp) =
   | UpdE (b, path, e) ->
       in_arith b
       ^^ P.brackets (to_doc_path path ^^ P.string " = " ^^ in_notation e)
-  | ParenE e -> P.parens (in_arith e)
+  | ParenE e -> P.parens (if ctx = Arith then in_arith e else in_notation e)
   | TupleE exps -> P.parens (comma_list in_notation exps)
   | CallE (id, targs, args) ->
       to_doc_defid id ^^ to_doc_targs targs ^^ to_doc_args args
@@ -345,6 +346,7 @@ let to_doc_def (def : def) =
         ^^ to_doc_hints hints ^^ P.string " ="
       in
       match deftyp.it with
+      | OpaqueTD -> P.string "opaque syntax " ^^ to_doc_typid typid
       | VariantTD typcases ->
           head
           ^^ P.concat_map

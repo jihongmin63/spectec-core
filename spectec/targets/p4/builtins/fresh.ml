@@ -1,14 +1,22 @@
 module Il = Lang.Il
 open Il
-open Common.Source
+open Common.Annotated
+module Location = Common.Location
 open Builtins
 open Error
 
 (* Global tid provider for P4 *)
-module GlobalTidProvider = struct
+module GlobalTidProvider : sig
+  val with_provider : (unit -> string) -> (unit -> 'a) -> 'a
+  val fresh : unit -> string
+end = struct
   let provider : (unit -> string) ref = ref (fun () -> "FRESH__0")
-  let set (p : unit -> string) = provider := p
-  let reset () = provider := fun () -> "FRESH__0"
+
+  let with_provider p f =
+    let previous = !provider in
+    provider := p;
+    Fun.protect f ~finally:(fun () -> provider := previous)
+
   let fresh () = !provider ()
 end
 
@@ -16,7 +24,7 @@ end
 let fresh_tid ~at : Value.t result =
   at |> ignore;
   let tid = GlobalTidProvider.fresh () in
-  let typ = VarT { synid = "tid" $ no_region; targs = [] } in
+  let typ = VarT { synid = "tid" $ Location.Unknown; targs = [] } in
   Ok (Il.Value.Make.text typ tid)
 
 let builtins = [ ("fresh_typeId", Define.T0.a0 fresh_tid) ]
