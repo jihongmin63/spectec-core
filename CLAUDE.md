@@ -513,7 +513,7 @@ self-contained, resumable driver over the full corpus (`p4_16_samples` +
 invocation; concurrent Maude/dune jobs exhaust RAM and silently corrupt output.
 Triage any hit immediately by bisecting the failing sub-goal with `reduce` —
 see [todo.md](spectec/lib/rewrite/todo.md) for the procedure. Use the current
-spec's own path (`main.exe p4 typecheck -p FILE -i INC`), never
+spec's own path (`./spectecx p4 typecheck -p FILE -i INC`), never
 `--spec-dir specs/p4-old`, when re-checking a file with the interpreter.
 
 ## Verified baselines — which commit measured what
@@ -566,26 +566,33 @@ Stale beyond the anchors, in commit order:
 
 ## Build & run
 
-**Build only `bin/main.exe`** — a full `dune build` drags in the P4 parser etc.
-and is slow. Check for a stuck lock first:
+The Dune root is the **repo root** (upstream #97, merged 2026-11-08), so build
+from there. **Build only `spectec/bin/main.exe`** while iterating — a full
+`dune build` drags in the P4 parser etc. and is slow. Check for a stuck lock
+first:
 
 ```bash
-cd spectec
+# from repo root
 lsof _build/.lock 2>/dev/null            # a held lock means a stuck dune — kill it
-opam exec --switch=spectecx -- dune build bin/main.exe
+opam exec --switch=spectecx -- dune build spectec/bin/main.exe
 ```
 
-Switch/binary name is **`spectecx`** (renamed from `spectec-core`). Build
-output: `spectec/_build/default/bin/main.exe`; `make exe` (repo root)
-hardlinks it to `./spectecx`. The checked-in binary can lag source — rebuild
-before testing.
+Switch name is **`spectecx`** (renamed from `spectec-core`). Build output:
+`_build/default/spectec/bin/main.exe`. Targets (`p4`, `impty`, …) are now
+dynamically loaded plugins, so that binary has only the static commands —
+including `rewrite`/`run`/`confluence`/`termination` (`run --p4` links the P4
+target itself) — and answers `unknown subcommand p4`. `make exe` builds
+`@install` and writes `./spectecx` as a launcher that sets the plugin site
+environment; use it for target commands such as `p4 typecheck`, as
+`check_diff_p4.sh` does. `./spectecx` can lag source — rerun `make exe` before
+testing.
 
 **Golden test** (the `--ctrs` analysis surface for `impty/base`; the default
 `rewrite` emits the execution module, not this):
 
 ```bash
 # from repo root
-spectec/_build/default/bin/main.exe rewrite --ctrs spectec/specs/impty/base/spec.spectec \
+_build/default/spectec/bin/main.exe rewrite --ctrs spectec/specs/impty/base/spec.spectec \
   | diff - spectec/specs/impty/base/spec.ctrs   # must match
 ```
 
@@ -675,7 +682,7 @@ view:
 ### After finishing a code change
 
 1. **`make fmt`** (= `dune fmt`) from the repo root, or
-   `cd spectec && opam exec --switch=spectecx -- dune fmt`.
+   `opam exec --switch=spectecx -- dune fmt` there.
 2. Apply the conventions above (and the full [CONTRIBUTING.md](CONTRIBUTING.md)
    for anything commit/PR-shaped).
 3. If translation output changed, update the golden

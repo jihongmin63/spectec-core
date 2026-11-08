@@ -232,9 +232,9 @@ single definition's dependency slice is fast:
 
 ```
 # from repo root; per-symbol slice is the practical path
-spectec/_build/default/bin/main.exe rewrite --list-symbols \
+_build/default/spectec/bin/main.exe rewrite --list-symbols \
   spectec/specs/impty/base/spec.spectec
-spectec/_build/default/bin/main.exe confluence --symbol '$lookup' \
+_build/default/spectec/bin/main.exe confluence --symbol '$lookup' \
   spectec/specs/impty/base/spec.spectec
 #   $lookup	YES	YES        (~1.4s)
 ```

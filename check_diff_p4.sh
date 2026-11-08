@@ -31,7 +31,8 @@
 set -u
 cd "$(dirname "$0")"
 
-EXE=spectec/_build/default/bin/main.exe
+EXE=_build/default/spectec/bin/main.exe  # rewrite commands are static
+LAUNCHER=./spectecx                      # target plugins (`p4`) need its site env
 INC=spectec/testdata/interp/p4/p4c/includes
 SAMPLES=spectec/testdata/interp/p4/p4c/p4_16_samples
 ERRORS=spectec/testdata/interp/p4/p4c/p4_16_errors
@@ -47,7 +48,8 @@ ITIMEOUT=${ITIMEOUT:-300}
 CHUNK=${CHUNK:-30}
 BATCH_TIMEOUT=${BATCH_TIMEOUT:-1800}
 
-[ -x "$EXE" ] || { echo "build first: (cd spectec && opam exec --switch=spectecx -- dune build bin/main.exe)" >&2; exit 1; }
+[ -x "$EXE" ] && [ -x "$LAUNCHER" ] && [ "$(head -c 2 "$LAUNCHER")" = "#!" ] ||
+  { echo "build first: make exe" >&2; exit 1; }
 
 CORPUS=$(mktemp)
 cat <(ls "$SAMPLES"/*.p4) <(ls "$ERRORS"/*.p4) | sort -u > "$CORPUS"
@@ -67,7 +69,7 @@ echo "[A] interpreter verdicts (timeout ${ITIMEOUT}s) over $total programs ..." 
 while IFS= read -r f; do
   awk -F'\t' -v p="$f" '$2==p{ok=1} END{exit !ok}' "$IPROG" && continue
   ts=$(date +%s)
-  if timeout "$ITIMEOUT" "$EXE" p4 typecheck -p "$f" -i "$INC" 2>&1 | grep -q 'Typechecker succeeded'; then v=PASS; else v=FAIL; fi
+  if timeout "$ITIMEOUT" "$LAUNCHER" p4 typecheck -p "$f" -i "$INC" 2>&1 | grep -q 'Typechecker succeeded'; then v=PASS; else v=FAIL; fi
   printf '%s\t%s\t%d\n' "$v" "$f" $(( $(date +%s) - ts )) >> "$IPROG"
 done < "$CORPUS"
 tA1=$(date +%s); dur_A=$((tA1-tA0))
