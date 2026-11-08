@@ -1,12 +1,6 @@
 (library
  (name rewrite_cli)
  (public_name spectec.rewrite_cli)
- (libraries
-  spectec
-  spectec.rewrite
-  spectec.cli
-  spectec-target-p4.target
-  core
-  core_unix)
+ (libraries spectec spectec.rewrite spectec.cli core core_unix)
  (preprocess
   (pps ppx_let)))

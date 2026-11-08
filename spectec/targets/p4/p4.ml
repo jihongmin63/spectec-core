@@ -199,10 +199,6 @@ module Sim = struct
   let save_output _filename _values = ()
 end
 
-let parse_for_run ~(includes : string list) (filename : string) :
-    (Lang.Il.value, Spectec.Error.t) result =
-  Frontend.parse_file includes filename
-
 let program_flags =
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in

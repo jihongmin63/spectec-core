@@ -2,7 +2,7 @@
  (name targets_p4)
  (public_name spectec-target-p4.target)
  (modules
-  (:standard \ register))
+  (:standard \ register rewrite_frontend))
  (libraries spectec spectec.cli core dune-site str builtins_p4 frontend_p4)
  (preprocess
   (pps ppx_let)))
@@ -17,9 +17,15 @@
  (modules register)
  (libraries spectec.cli spectec-target-p4.target))
 
+(library
+ (name rewrite_frontend_p4)
+ (public_name spectec-target-p4.rewrite)
+ (modules rewrite_frontend)
+ (libraries spectec spectec.rewrite_cli spectec-target-p4.target))
+
 (plugin
  (name p4)
  (package spectec-target-p4)
- (libraries spectec-target-p4.plugin)
+ (libraries spectec-target-p4.plugin spectec-target-p4.rewrite)
  (site
   (spectec target_plugins)))

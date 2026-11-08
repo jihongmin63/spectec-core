@@ -10,9 +10,10 @@ let sources ~p4 ~includes ~start =
       ( filename,
         P4 filename,
         fun () ->
-          Result.map
-            (fun value -> Application ("Program_ok", [ value ]))
-            (Targets_p4.P4.parse_for_run ~includes filename) ))
+          let ( let* ) = Result.bind in
+          let* frontend = P4_frontend.get () in
+          let* value = frontend.parse ~includes filename in
+          Ok (Application ("Program_ok", [ value ])) ))
     p4
   @
   match start with
@@ -56,11 +57,9 @@ let rec stitch resolved results =
 let compare_p4 ~includes ~spec_il { Rewrite.spec; system } filename result =
   match result with
   | Rewrite.Maude_run.Reduced term -> (
-      let input =
-        { Targets_p4.P4.Typecheck.includes; filename; expect = Task.Positive }
-      in
       match
-        eval_task (module Targets_p4.P4.Typecheck) ~mode:Il ~spec_il input
+        Result.bind (P4_frontend.get ()) (fun (frontend : P4_frontend.t) ->
+            frontend.typecheck ~spec_il ~includes filename)
       with
       | Error _ -> ("result: interp FAILED (not compared)", false)
       | Ok interp_values -> (

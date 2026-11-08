@@ -579,13 +579,15 @@ opam exec --switch=spectecx -- dune build spectec/bin/main.exe
 
 Switch name is **`spectecx`** (renamed from `spectec-core`). Build output:
 `_build/default/spectec/bin/main.exe`. Targets (`p4`, `impty`, …) are now
-dynamically loaded plugins, so that binary has only the static commands —
-including `rewrite`/`run`/`confluence`/`termination` (`run --p4` links the P4
-target itself) — and answers `unknown subcommand p4`. `make exe` builds
-`@install` and writes `./spectecx` as a launcher that sets the plugin site
-environment; use it for target commands such as `p4 typecheck`, as
-`check_diff_p4.sh` does. `./spectecx` can lag source — rerun `make exe` before
-testing.
+dynamically loaded plugins, so that binary has only the static commands
+(`rewrite`/`run`/`confluence`/`termination` among them) and answers
+`unknown subcommand p4`. `run --p4` needs the P4 plugin too: `spectec.rewrite_cli`
+cannot link the P4 target (its package depends on `spectec`), so the plugin
+registers the parser and typechecker in `Rewrite_cli.P4_frontend`
+(`targets/p4/rewrite_frontend.ml`). `make exe` builds `@install` and writes
+`./spectecx` as a launcher that sets the plugin site environment; use it for
+`p4 …` and `run --p4`, as `check_diff_p4.sh` does. `./spectecx` can lag source
+— rerun `make exe` before testing.
 
 **Golden test** (the `--ctrs` analysis surface for `impty/base`; the default
 `rewrite` emits the execution module, not this):
