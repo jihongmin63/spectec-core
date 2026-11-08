@@ -106,25 +106,6 @@ module Eval = struct
     | vs -> vs |> List.map Lang.Il.Print.string_of_value |> String.concat ", "
 end
 
-(* The impty relation each task starts from. *)
-let relation_of_task = function
-  | "run" -> Ok "Run_prog"
-  | "eval" -> Ok "Eval_prog"
-  | "check" -> Ok "Check_prog"
-  | other ->
-      Error
-        (Spectec.Error.ConfigError
-           ( Common.Source.no_region,
-             Printf.sprintf "unknown task %S (expected run | eval | check)"
-               other ))
-
-let parse_for_run ~(task : string) (filename : string) :
-    (string * Lang.Il.value, Spectec.Error.t) result =
-  let ( let* ) = Result.bind in
-  let* relation = relation_of_task task in
-  let* value = Parse.parse_file ~handler:Target.handler filename in
-  Ok (relation, value)
-
 let cli_flags =
   let open Core.Command.Let_syntax in
   let open Core.Command.Param in
